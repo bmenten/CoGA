@@ -13,6 +13,8 @@ from fastapi import HTTPException
 import pytest
 
 from backend.app.services import cnipt_service
+from backend.app.services.analysis_scope import AnalysisNotNamed
+from backend.app.services.family_package_records import suffixed_source
 from backend.tests._ccnv_output import qc_payload
 
 
@@ -26,7 +28,19 @@ def _row(chrom: str, start: int, end: int, value: float, **details: Any) -> dict
     }
 
 
-def _install(monkeypatch: pytest.MonkeyPatch, *, sample_metadata: dict[str, Any], configured: dict) -> list[dict]:
+# The conventional NIPT of the pregnancy ZW1, by its key; its package lists the plasma and the fetus.
+CNIPT = "conventional_nipt:ZW1"
+_ONE_PREGNANCY = {"analyses": [CNIPT], "package_imports": {CNIPT: {"members": ["CFDNA1", "FETUS1"]}}}
+
+
+def _install(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    sample_metadata: dict[str, Any],
+    configured: dict,
+    family_metadata: dict[str, Any] = _ONE_PREGNANCY,
+    more_rows: list[dict[str, Any]] = (),  # type: ignore[assignment]
+) -> list[dict]:
     asked: list[dict] = []
 
     async def context(*_args: Any, **_kwargs: Any) -> Any:
@@ -35,9 +49,11 @@ def _install(monkeypatch: pytest.MonkeyPatch, *, sample_metadata: dict[str, Any]
             family_uuid="family-uuid",
             assembly_name="GRCh38",
             sample_rows=[
-                {"sample_id": "CFDNA1", "sample_uuid": "uuid-1", "sample_metadata": sample_metadata},
-                {"sample_id": "FETUS1", "sample_uuid": "uuid-2", "sample_metadata": {}},
+                {"sample_id": "CFDNA1", "sample_uuid": "uuid-1", "sample_metadata": sample_metadata, "role": "mother"},
+                {"sample_id": "FETUS1", "sample_uuid": "uuid-2", "sample_metadata": {}, "role": "fetus"},
+                *more_rows,
             ],
+            family_metadata=family_metadata,
         )
 
     async def rows(_assembly: str, **kwargs: Any) -> list[dict[str, Any]]:
@@ -73,10 +89,12 @@ async def test_each_plasma_is_judged_from_its_stored_qc_and_segments(monkeypatch
             "family_uuid": "family-uuid",
             "track_type": "segments",
             "chromosomes": [],
-            "source": "ccnv",
+            # The pregnancy's own ccnv source (family_package_records.suffixed_source).
+            "source": suffixed_source("ccnv", "ZW1"),
             "include_metadata": True,
         }
     ]
+    assert (result.analysis, result.fetuses, result.multiple_pregnancy_note) == (CNIPT, ["FETUS1"], None)
     targets = {target.target: target.verdict for target in sample.targets}
     assert (targets["21"], targets["1"]) == ("high_risk", "low_risk")
     bounds = {bound.key: bound for bound in sample.bounds}
@@ -96,3 +114,43 @@ async def test_a_family_without_ccnv_output_answers_404(monkeypatch: pytest.Monk
     with pytest.raises(HTTPException) as refused:
         await cnipt_service.get_family_cnipt_result(None, family_id="CNIPT1", user=None)  # type: ignore[arg-type]
     assert refused.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_each_pregnancy_reads_its_own_plasma_and_a_twin_pregnancy_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Two pregnancies of one woman (the owner's decision of 2026-11-21), the later of twins: each
+    # conventional NIPT reads the plasma its package lists, never the other pregnancy's.
+    later = "conventional_nipt:ZW2"
+    stored = {"ccnv": {"qc": qc_payload("CFDNA1"), "qc_file": "CFDNA1_qc.json"}}
+    metadata = {
+        "analyses": [CNIPT, later],
+        "package_imports": {
+            CNIPT: {"members": ["CFDNA1", "FETUS1"]},
+            later: {"members": ["CFDNA2", "TWIN1", "TWIN2"]},
+        },
+    }
+    asked = _install(
+        monkeypatch,
+        sample_metadata=stored,
+        configured={},
+        family_metadata=metadata,
+        more_rows=[
+            {"sample_id": "CFDNA2", "sample_uuid": "uuid-3", "sample_metadata": {"ccnv": {"qc": qc_payload("CFDNA2"), "qc_file": "CFDNA2_qc.json"}}, "role": "mother"},
+            {"sample_id": "TWIN1", "sample_uuid": "uuid-4", "sample_metadata": {}, "role": "fetus"},
+            {"sample_id": "TWIN2", "sample_uuid": "uuid-5", "sample_metadata": {}, "role": "fetus"},
+        ],
+    )
+    # Several pregnancies: the request names one.
+    with pytest.raises(AnalysisNotNamed):
+        await cnipt_service.get_family_cnipt_result(None, family_id="CNIPT1", user=None)  # type: ignore[arg-type]
+
+    result = await cnipt_service.get_family_cnipt_result(None, family_id="CNIPT1", user=None, analysis=later)  # type: ignore[arg-type]
+    assert [sample.sample_id for sample in result.samples] == ["CFDNA2"]
+    assert [entry["sample_uuid"] for entry in asked] == ["uuid-3"]
+    assert {entry["source"] for entry in asked} == {suffixed_source("ccnv", "ZW2")}
+    assert result.fetuses == ["TWIN1", "TWIN2"]
+    assert result.multiple_pregnancy_note is not None and "one fetus or in more than one" in result.multiple_pregnancy_note
+
+    first = await cnipt_service.get_family_cnipt_result(None, family_id="CNIPT1", user=None, analysis=CNIPT)  # type: ignore[arg-type]
+    assert [sample.sample_id for sample in first.samples] == ["CFDNA1"]
+    assert first.multiple_pregnancy_note is None

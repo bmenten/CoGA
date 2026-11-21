@@ -67,7 +67,7 @@ def _record(datasets: list[str], snv_callset: str | None, registered_at: str) ->
 
 def _short_and_long_read(**long_read_datasets: Any) -> dict[str, Any]:
     return {
-        "analysis_types": [LR, SR],
+        "analyses": [LR, SR],
         "package_imports": {
             SR: _record(["snv"], "haplotypecaller", "2026-11-01"),
             LR: _record(["snv", *long_read_datasets.get("extra", [])], "deepvariant", "2026-11-10"),

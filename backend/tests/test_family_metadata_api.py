@@ -280,7 +280,7 @@ def test_the_nipt_variant_page_says_when_its_list_is_capped(
             ),
             total=1234,
             variants=[],
-            trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_id="FETUS1"),
+            trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_ids=("FETUS1",)),
             total_is_estimated=capped,
             count_limit=5000 if capped else None,
         )
@@ -295,7 +295,7 @@ def test_the_nipt_variant_page_says_when_its_list_is_capped(
     assert (body["total_is_estimated"], body["count_limit"]) == expected
     # Which samples the list read as the plasma and the father, and the fetus's placeholder:
     # the page shows each sample's reads by its part in the analysis.
-    assert body["trio"] == {"cfdna_sample_id": "MOTHER", "father_sample_id": "FATHER1", "fetus_sample_id": "FETUS1"}
+    assert body["trio"] == {"cfdna_sample_id": "MOTHER", "father_sample_id": "FATHER1", "fetus_sample_ids": ["FETUS1"]}
 
 
 def test_the_nipt_variant_page_takes_the_review_tag_filter(family_metadata_client) -> None:
@@ -361,7 +361,7 @@ def test_the_coverage_page_opens_a_gene_s_targets(family_metadata_client) -> Non
     client, monkeypatch = family_metadata_client
     seen: dict[str, object] = {}
 
-    async def fake_gene_targets(_session, *, family_id, user, gene, project_id=None):
+    async def fake_gene_targets(_session, *, family_id, user, gene, project_id=None, analysis=None):
         seen.update(family_id=family_id, gene=gene, project_id=project_id)
         return NiptGeneTargets(
             gene=gene,

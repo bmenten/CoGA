@@ -457,7 +457,7 @@ async def _nipt_coverage(monkeypatch: pytest.MonkeyPatch, store: _CoverageStore)
                 sample_id="CFDNA1", role="mother", affected=False, sample_metadata={"assays": ["nipt_cfdna"]}
             ),
         ],
-        metadata={"analysis_types": ["monogenic_nipt"]},
+        metadata={"analyses": ["monogenic_nipt"]},
         roi=FamilyRegionOfInterestOut(
             query="1:1000-2000", label="ROI", source="region", chr="1", start=1000, end=2000
         ),

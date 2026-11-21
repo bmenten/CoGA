@@ -105,6 +105,7 @@ _PAIR_MANIFEST = (
     "family_id: NIPTPAIR\n"
     "ped: nipt_trio.ped\n"
     "analysis_type: monogenic_nipt\n"
+    "pregnancy_id: ZW1\n"
     "samples:\n"
     "  CFDNA1: {assay: nipt_cfdna}\n"
     "datasets:\n"

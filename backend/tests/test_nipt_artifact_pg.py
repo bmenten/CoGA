@@ -323,7 +323,7 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
         assay_key="nipt_cfdna",
         min_unexplained_samples=3,
     )
-    assert session.sample_queries == [{"assays": "[\"nipt_cfdna\"]"}]
+    assert session.sample_queries == [{"assays": "[\"nipt_cfdna\"]", "separator": ":", "analysis_type": "monogenic_nipt"}]
     assert seen["carrier_samples"] == ["CF1", "CF3"]
     assert (result["seeded"], result["cfdna_samples"]) == (1, 2)
 
@@ -347,8 +347,10 @@ def test_a_cfdna_samples_scope_is_read_from_the_monogenic_nipts_panel() -> None:
     assert nipt_artifact_pg.CFDNA_PANEL_PATH == (SAMPLE_ASSAY_PANELS_KEY, MONOGENIC_NIPT_ANALYSIS_TYPE)
     source = inspect.getsource(nipt_artifact_pg._cfdna_sample_scopes)
     panels, analysis = nipt_artifact_pg.CFDNA_PANEL_PATH
-    assert f"metadata -> '{panels}' ->> '{analysis}'" in source
-    assert f"metadata -> '{panels}' -> '{analysis}'" in source
+    # Under the key of the sample's monogenic NIPT (monogenic_nipt:ZW1): its analysis type.
+    assert f"metadata -> '{panels}'" in source
+    assert '"analysis_type": CFDNA_PANEL_PATH[1]' in source
+    assert analysis == MONOGENIC_NIPT_ANALYSIS_TYPE
 
 
 @pytest.mark.asyncio

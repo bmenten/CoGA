@@ -2,7 +2,9 @@
 
 A same-individual link (``family_relationships.relationship_type`` ``same_individual``) says that
 two samples are one person: the plasmas of a monogenic and a conventional NIPT of one pregnancy
-under two sample IDs, say. The links join samples into people, directly or through another
+under two sample IDs, or the plasmas of two pregnancies of one woman, say. One person is no one
+pregnancy: the analyses of two pregnancies keep their results apart, and Sample QC never compares a
+plasma, a mixture of the mother's and a fetus's DNA, for identity (``PedigreeSpec.mixtures``). The links join samples into people, directly or through another
 sample (A with B and B with C: A, B and C are one person). What reads the pedigree per person
 (the structure checks, Sample QC, the carrier screen, the mtDNA maternal line) reads it here.
 """

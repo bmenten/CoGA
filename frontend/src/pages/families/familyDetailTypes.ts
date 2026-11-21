@@ -12,7 +12,7 @@ export interface StructureMemberDraft {
   sample_id: string;
   new_sample_id: string;
   sex: 'male' | 'female' | 'und';
-  role: 'proband' | 'father' | 'mother' | 'sibling' | 'embryo' | 'relative';
+  role: 'proband' | 'father' | 'mother' | 'sibling' | 'embryo' | 'fetus' | 'relative';
   clinical_status: ClinicalStatus;
   carrier_status: CarrierStatus;
   carrier_type: CarrierType | '';
@@ -41,7 +41,7 @@ export interface RelativeDraft {
   relatedTo: string;
 }
 
-/** Two samples of one person: the plasmas of one pregnancy's two NIPTs, say. */
+/** Two samples of one person: the plasmas of a woman's NIPTs, of one pregnancy or of two, say. */
 export interface SameIndividualDraft {
   id: string;
   sampleA: string;

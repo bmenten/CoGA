@@ -29,13 +29,13 @@ from .clickhouse_family_variants import (
     fetch_genotype_site_sample,
 )
 from .data_scope import normalize_chromosome
-from .family_analysis_types import family_analysis_types
+from .family_analysis_types import analysis_type_of, family_analyses
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .genotypes import NO_CALL, classify_genotype
 from .haplotype_lineage_service import build_pedigree
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
-from .nipt import resolve_nipt_trio
+from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, is_maternal_plasma, nipt_analysis_in_scope, resolve_nipt_trio
 from .family_package_records import UNSPECIFIED_ANALYSIS
 from .same_individual import persons, same_individual_pairs
 from .small_variant_callsets import callset_preference
@@ -223,6 +223,11 @@ def _build_pedigree_spec(context: FamilyMetadataContext) -> PedigreeSpec:
         parents_of=pedigree.parents_of,
         roles=pedigree.roles,
         same_individual=same_individual_pairs(context.relationship_rows),
+        mixtures=frozenset(
+            str(row["sample_id"])
+            for row in context.sample_rows
+            if row.get("sample_id") and is_maternal_plasma(row.get("sample_metadata"))
+        ),
     )
 
 
@@ -367,20 +372,27 @@ async def _nipt_checks(
     project_id: str | None,
     context: FamilyMetadataContext,
     notes: list[str],
+    nipt_analysis: str | None,
     shared_nipt: SharedNiptAnalysis | None = None,
     genotype_source_held: Callable[[str], bool] | None = None,
 ) -> tuple[PaternityCheck | None, FetalSexCheck | None, NiptCategoryQc | None, list[SexCheck]]:
-    """NIPT cfDNA integrity: paternity (cat 7/8), fetal sex (paternal X), category
-    distribution QC, and germline parent sex (X zygosity). ``notes`` is given the note
-    of a parent sex check that could not run."""
-    trio = resolve_nipt_trio(family)
+    """NIPT cfDNA integrity of the monogenic NIPT ``nipt_analysis`` (one pregnancy's, by its
+    key): paternity (cat 7/8), fetal sex (paternal X), category distribution QC, and germline
+    parent sex (X zygosity). ``notes`` is given the note of a parent sex check that could not
+    run."""
+    trio = resolve_nipt_trio(family, nipt_analysis)
     if trio is None:
         return None, None, None, []
     # Imported lazily: nipt_service pulls in the heavy analysis stack.
     from .nipt_service import run_family_nipt_analysis
 
     result = await run_family_nipt_analysis(
-        session, family_id=family_id, user=user, project_id=project_id, shared_nipt=shared_nipt
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+        shared_nipt=shared_nipt,
+        analysis=nipt_analysis,
     )
     # Only sites with a confident father call, where the mother does not carry the
     # allele and a transmitted allele could not have been missed, count.
@@ -416,7 +428,6 @@ async def get_family_sample_integrity_qc(
     user: CurrentUser,
     project_id: str | None = None,
     shared_nipt: SharedNiptAnalysis | None = None,
-    analysis_types: Sequence[str] | None = None,
     genotype_source_held: Callable[[str], bool] | None = None,
     analysis: str | None = None,
 ) -> SampleIntegrityReport:
@@ -424,18 +435,23 @@ async def get_family_sample_integrity_qc(
     ``shared_nipt``'s analysis when given one: a sign-out's, which its record's NIPT section
     reads too.
 
-    A sign-out of one of the family's analyses (``analysis``) runs that analysis's QC:
-    ``analysis_types`` names it in place of the family's, the genotypes are read from a callset
-    of its own (``genotype_source_held``, ``signout_scope``), and its members are checked: a
-    member only another analysis's package lists is not (``AnalysisScope.left_out_members``)."""
+    The QC of one of the family's analyses (``analysis``, its key: a sign-out of it, or the page
+    of one pregnancy) is that analysis's: its application is read from the analysis alone, the
+    genotypes from a callset of its own (``genotype_source_held``, ``signout_scope``), and its
+    members are checked: a member only another analysis's package lists is not
+    (``AnalysisScope.left_out_members``: another pregnancy's plasma and fetus). The NIPT checks
+    are those of one pregnancy's monogenic NIPT: ``analysis``, or the family's only one
+    (``nipt.nipt_analysis_in_scope``); a family that holds one per pregnancy of several is
+    checked one pregnancy at a time (``AnalysisNotNamed`` without one)."""
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id, analysis=analysis
     )
     family = await get_family_record(session, family_id, user)
-    types = (
-        family_analysis_types(getattr(family, "metadata", None)) if analysis_types is None else analysis_types
-    )
-    qc_analyses = sex_call_analyses(types)
+    metadata = getattr(family, "metadata", None)
+    # The analyses the QC is run for, by key: the one named, else the family's.
+    analyses = sorted(family_analyses(metadata)) if analysis is None else [analysis]
+    types = {analysis_type_of(key) for key in analyses}
+    qc_analyses = sex_call_analyses(analyses)
 
     spec = _build_pedigree_spec(context)
     pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
@@ -459,6 +475,8 @@ async def get_family_sample_integrity_qc(
     category_qc_check: NiptCategoryQc | None = None
     nipt_parent_sex_checks: list[SexCheck] = []
     if profile.run_paternity:
+        # The pregnancy whose monogenic NIPT is checked: named, or the family's only one.
+        nipt_analysis = nipt_analysis_in_scope(metadata, MONOGENIC_NIPT_ANALYSIS_TYPE, analysis)
         try:
             # In a savepoint: the NIPT analysis reads the family and the assay's artifact list
             # from Postgres, and a database error there aborts the transaction, which a
@@ -473,6 +491,7 @@ async def get_family_sample_integrity_qc(
                     project_id=project_id,
                     context=context,
                     notes=service_notes,
+                    nipt_analysis=nipt_analysis,
                     shared_nipt=shared_nipt,
                     genotype_source_held=genotype_source_held,
                 )

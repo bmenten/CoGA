@@ -13,8 +13,9 @@ no other analysis's record lists (an upload's, or a package's that named no anal
 of an analysis leaves out the sources the family's other analyses' records list. No two analyses
 of a family share a source (``family_package_records.source_collisions``).
 
-When the family holds several analyses whose records each list a small-variant callset, a reading
-or a review of its small variants names the analysis (``analysis``); without one it is refused
+When the family holds several analyses whose records each list a small-variant callset (the
+monogenic NIPT of each of a woman's pregnancies, say), a reading or a review of its small variants
+names the analysis (``analysis``, its key: ``monogenic_nipt:ZW1``); without one it is refused
 (``AnalysisNotNamed``), never read across them. A family with at most one such analysis is read
 as that analysis (a monogenic and a conventional NIPT of one pregnancy: only the monogenic NIPT
 holds small variants), or whole when it holds none.
@@ -26,10 +27,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from .family_analysis_types import family_analysis_types
+from .family_analysis_types import family_analyses
 from .family_package_records import (
-    ANALYSIS_LABELS,
     SOURCE_KINDS,
+    analysis_label,
     family_package_records,
     record_members,
     record_sources,
@@ -80,7 +81,7 @@ class AnalysisScope:
     def require_named(self) -> AnalysisScope:
         """This scope, or ``AnalysisNotNamed`` when the reading had to name an analysis."""
         if self.unnamed_among:
-            names = ", ".join(ANALYSIS_LABELS.get(key, key) for key in self.unnamed_among)
+            names = ", ".join(analysis_label(key) or key for key in self.unnamed_among)
             raise AnalysisNotNamed(
                 f"This family holds several analyses with variants of their own ({names}); name the "
                 "analysis to read (analysis)."
@@ -101,7 +102,7 @@ def analyses_with(metadata: Mapping[str, Any] | None, kind: str) -> list[str]:
     """The family's analyses whose package record lists a source of ``kind`` (``SOURCE_KINDS``:
     a small-variant callset, a structural-variant caller), in the order they were imported (the
     earliest first)."""
-    held = family_analysis_types(metadata)
+    held = family_analyses(metadata)
     records = family_package_records(metadata)
     return [
         key
@@ -120,7 +121,7 @@ def analysis_holding(metadata: Mapping[str, Any] | None, kind: str, source: str)
     """The one analysis of the family whose package record lists ``source`` among its sources
     of ``kind`` (the mtDNA calls, ``mito``), or None when no analysis it holds does. No two
     analyses of a family share a source (``family_package_records.source_collisions``)."""
-    held = family_analysis_types(metadata)
+    held = family_analyses(metadata)
     holders = sorted(
         key
         for key, record in family_package_records(metadata).items()
@@ -143,7 +144,7 @@ def analysis_scope(
     analyses with variants of that kind is read for the analysis that holds ``holding`` (a kind
     and a source: the mtDNA page reads the analysis with the mtDNA callset) when one does, and
     otherwise gives a scope that must still name one (``AnalysisScope.require_named``)."""
-    held = family_analysis_types(metadata)
+    held = family_analyses(metadata)
     asked = analysis is not None
     if analysis is not None:
         analysis = analysis.strip()

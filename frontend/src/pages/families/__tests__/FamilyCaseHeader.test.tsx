@@ -178,7 +178,7 @@ describe('FamilyCaseHeader', () => {
   });
 
   it("puts a monogenic NIPT family's NIPT report beside its report, with the NIPT page's scope", async () => {
-    const nipt = { ...family, metadata: { analysis_types: ['monogenic_nipt'] } };
+    const nipt = { ...family, metadata: { analyses: ['monogenic_nipt'] } };
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <MemoryRouter>
@@ -209,7 +209,7 @@ describe('FamilyCaseHeader', () => {
   });
 
   it("offers a conventional NIPT family's cNIPT result page with the project, before the variant summary", async () => {
-    const cnipt = { ...family, metadata: { analysis_types: ['conventional_nipt'] } };
+    const cnipt = { ...family, metadata: { analyses: ['conventional_nipt'] } };
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <MemoryRouter>
@@ -227,7 +227,7 @@ describe('FamilyCaseHeader', () => {
   });
 
   it('offers both NIPT pages, and the NIPT report, to a family holding both NIPTs of a pregnancy', async () => {
-    const both = { ...family, metadata: { analysis_types: ['conventional_nipt', 'monogenic_nipt'] } };
+    const both = { ...family, metadata: { analyses: ['conventional_nipt', 'monogenic_nipt'] } };
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <MemoryRouter>

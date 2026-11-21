@@ -230,7 +230,7 @@ def test_the_scopes_are_the_default_the_samples_panels_and_those_with_entries() 
         {"assay_key": "PANEL_A", "cfdna_samples": 2, "listed": 4},
     ]
     [(_samples_sql, samples_params), (_listed_sql, listed_params)] = session.calls
-    assert samples_params == {"assays": "[\"nipt_cfdna\"]"}
+    assert samples_params == {"assays": "[\"nipt_cfdna\"]", "separator": ":", "analysis_type": "monogenic_nipt"}
     assert listed_params == {"assembly_id": ASSEMBLY}
 
 

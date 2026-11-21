@@ -70,8 +70,8 @@ version also holds what the analysis looked at:
   package loaded it;
 - in a PGT family, each embryo's call at the region of interest as the family page shows it, with its
   phasing QC and that QC's verdict against the thresholds;
-- in a monogenic NIPT family, its NIPT results (the NIPT report uses this same sign-out; see the NIPT
-  chapter).
+- in a monogenic NIPT family, the NIPT results of the pregnancy signed out (the NIPT report uses this
+  same sign-out; see the NIPT chapter).
 
 The EPD refers to the signed version by its **report code** (for example `7KQM2X-2-4PHT`). Sign-out
 stops for seven things:
@@ -126,13 +126,15 @@ typo, never taken for another record's. **Report codes** in the main menu finds 
 code names.
 
 **A family of several analyses.** A family that holds more than one analysis (the monogenic and the
-conventional NIPT of one pregnancy, or short-read and then long-read WGS) signs each out on its own.
+conventional NIPT of each pregnancy of one woman, or short-read and then long-read WGS) signs each out
+on its own.
 Its signed version freezes that analysis's data only, and the checks read that analysis's data only.
 Data no analysis claims as its own, such as an upload, count for every analysis. Its reported variants
 are those its own reviews tag *Report*: a variant reported in one analysis is not in another's signed
-version unless you review it there too. Sign out the
-monogenic NIPT on its NIPT report and every other analysis here. When several remain, pick one under
-*Analysis to sign out*; the button names it (**Sign out the conventional NIPT**). *Sign-out of each
+version unless you review it there too. Sign out a
+pregnancy's monogenic NIPT on its NIPT report and every other analysis here. When several remain, pick
+one under *Analysis to sign out*; the button names it (**Sign out the conventional NIPT of pregnancy
+ZW1**). *Sign-out of each
 analysis* lists each analysis with its latest signed version, report code, signer and date, and
 whether the family's data still match it.
 
@@ -151,7 +153,8 @@ was signed:
   one its review showed when you signed, with the ACMG or CNV score beside it as on the live report;
 - in a PGT family, the embryo calls (*PGT embryo results*, with each call's QC verdict and the
   thresholds);
-- in a monogenic NIPT family, its NIPT results (*NIPT results*);
+- in a monogenic NIPT family, the pregnancy's NIPT results (*NIPT results*), with the
+  multiple-pregnancy note when it has two or more fetuses;
 - the gene panels applied;
 - the repeat expansions (each count near a boundary marked beside its call, *⚠ Near a boundary*; a
   corrected count with TRGT's own in brackets, *18 (TRGT 19)*; and each locus's correction as QA had
@@ -164,7 +167,7 @@ phenotype context, the audit trail — and never fills that in from current data
 
 Of a family of several analyses, the page opens on the latest signed version of the analyses it signs
 out. A signed version names its analysis (*Clinical report — signed version 2 of the conventional
-NIPT*), and its *latest* and its check are that analysis's, as are its annotation versions. Where
+NIPT of pregnancy ZW1*), and its *latest* and its check are that analysis's, as are its annotation versions. Where
 the repeat expansions or Paraphase results are another analysis's, the section holds none and says so
 of its analysis (*The short-read WGS had no repeat-expansion calls.*): the other analysis's record
 freezes them.

@@ -32,6 +32,8 @@ class FamilyMetadataContext:
     roi: tuple[str, int, int] | None = None
     # Which of the family's analyses its variants are read and reviewed for (analysis_scope.py).
     scope: AnalysisScope = WHOLE_FAMILY_SCOPE
+    # The family's ``families.metadata``: its analyses and their package records.
+    family_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -249,6 +251,7 @@ async def build_family_metadata_context(
         assembly_id=assembly_id,
         assembly_name=assembly_name,
         scope=scope,
+        family_metadata=family_metadata if isinstance(family_metadata, dict) else {},
     )
 
 

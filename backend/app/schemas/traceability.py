@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from ..services.family_analysis_types import ANALYSIS_KEY_MAX_LENGTH
+
 
 class AnnotationModuleOut(BaseModel):
     """One annotation/reference module and the version that backed the data."""
@@ -45,7 +47,7 @@ class AnnotationManifestUpdate(BaseModel):
 
     # The analysis whose manifest it replaces: required for a family that holds several, the
     # family's only one otherwise (none for a family that holds none).
-    analysis_type: Optional[str] = Field(default=None, max_length=64)
+    analysis_type: Optional[str] = Field(default=None, max_length=ANALYSIS_KEY_MAX_LENGTH)
     # A replacement is always recorded as 'manual'.
     modules: Dict[str, Any] = Field(default_factory=dict)
 
@@ -192,7 +194,7 @@ class ReportSignoutRequest(BaseModel):
     # The analysis to sign out: each is signed out on its own (the owner's decision of
     # 2026-11-19). Required when the family holds two or more; without one, the family's only
     # analysis, or the whole family when it holds none.
-    analysis_type: Optional[str] = Field(default=None, max_length=64)
+    analysis_type: Optional[str] = Field(default=None, max_length=ANALYSIS_KEY_MAX_LENGTH)
 
 
 class ReportSnapshotGapOut(BaseModel):

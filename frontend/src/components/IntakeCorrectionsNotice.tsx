@@ -32,7 +32,7 @@ export interface CorrectedDelivery {
 
 /**
  * For each analysis the family was imported for (`metadata.package_imports`: one package record
- * per analysis, such as a monogenic and a conventional NIPT of one pregnancy), in the order of the
+ * per analysis, such as the monogenic and the conventional NIPT of each pregnancy), in the order of the
  * analyses, the corrections made in CoGA to the delivered package its last import came from, as
  * the record keeps them (`delivery.corrections`, written by the approval of a corrected
  * delivery); none for an analysis not imported from a delivery, or from one not corrected.

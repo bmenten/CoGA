@@ -21,6 +21,7 @@ from ..schemas import (
     SampleIntegrityRelatednessCheckOut,
     SampleIntegritySexCheckOut,
 )
+from ..services.family_analysis_types import ANALYSIS_KEY_MAX_LENGTH
 from ..services.access_control import CurrentUser
 from ..services.sample_integrity_service import get_family_sample_integrity_qc
 from ..services.annotation_manifest_service import (
@@ -84,7 +85,9 @@ async def get_family_classification_drift_endpoint(
     family_id: str,
     project_id: str | None = None,
     analysis: str | None = Query(
-        default=None, max_length=64, description="The family's analysis whose evidence is read (analysis_type)."
+        default=None,
+        max_length=ANALYSIS_KEY_MAX_LENGTH,
+        description="The family's analysis whose evidence is read (its key: monogenic_nipt:ZW1).",
     ),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -204,7 +207,7 @@ async def list_family_report_signouts_endpoint(
 async def check_family_report_against_signout_endpoint(
     family_id: str,
     project_id: str | None = None,
-    analysis_type: str | None = Query(default=None, max_length=64),
+    analysis_type: str | None = Query(default=None, max_length=ANALYSIS_KEY_MAX_LENGTH),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> ReportSignoutCheckOut:
@@ -236,11 +239,14 @@ async def get_family_report_signout_endpoint(
 async def get_family_sample_integrity_qc_endpoint(
     family_id: str,
     project_id: str | None = None,
+    # The analysis whose QC is read, by its key (one pregnancy's NIPT: monogenic_nipt:ZW1); the
+    # whole family without one.
+    analysis: str | None = Query(default=None, max_length=ANALYSIS_KEY_MAX_LENGTH),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> SampleIntegrityQcOut:
     report = await get_family_sample_integrity_qc(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
     return SampleIntegrityQcOut(
         family_id=family_id,

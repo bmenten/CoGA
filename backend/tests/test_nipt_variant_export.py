@@ -52,6 +52,8 @@ _USER = CurrentUser(
 
 # A value for every search parameter, as a request sends it.
 _SEARCH: list[tuple[str, str]] = [
+    # The pregnancy whose monogenic NIPT the list reads: a family holds one per pregnancy.
+    ("analysis", "monogenic_nipt:ZW1"),
     ("category", "3"),
     ("category", "7"),
     ("min_confidence", "0.6"),
@@ -196,7 +198,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, list[d
         fetal_fraction=_fetal_fraction(),
         total=2,
         variants=[_classified("1-100-A-G", de_novo=True), _classified("2-200-C-T", gene="=HYPERLINK(1)")],
-        trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_id="EMB1"),
+        trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_ids=("EMB1",)),
     )
     monkeypatch.setattr(nipt_router, "get_family_nipt_variants", fake_variants)
     app.dependency_overrides[get_postgres_session] = session
@@ -345,7 +347,7 @@ def test_a_list_cut_at_the_classification_limit_says_so_in_the_file_name_and_hea
         fetal_fraction=_fetal_fraction(),
         total=1,
         variants=[_classified("1-100-A-G")],
-        trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_id="EMB1"),
+        trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_ids=("EMB1",)),
         total_is_estimated=True,
         count_limit=NIPT_VARIANT_FETCH_LIMIT,
     )
@@ -359,3 +361,25 @@ def test_a_list_cut_at_the_classification_limit_says_so_in_the_file_name_and_hea
     assert response.headers["x-coga-export-truncated-reason"] == "candidate-limit"
     assert response.headers["x-coga-export-limit"] == str(NIPT_VARIANT_FETCH_LIMIT)
     assert len(_rows(response)) == 1
+
+
+def test_the_list_of_a_pregnancy_is_saved_under_its_pregnancy_and_read_for_it(client) -> None:
+    # A family holds a monogenic NIPT per pregnancy: the export reads the one the request names,
+    # and its file names that pregnancy.
+    test_client, calls = client
+    test_client.result["next"] = NiptVariantsResult(  # type: ignore[attr-defined]
+        fetal_fraction=_fetal_fraction(),
+        total=1,
+        variants=[_classified("1-100-A-G")],
+        trio=NiptTrio(
+            father_sample_id="FATHER1",
+            cfdna_sample_id="PLASMA2",
+            fetus_sample_ids=("FETUS2",),
+            analysis="monogenic_nipt:ZW2",
+        ),
+    )
+
+    response = test_client.get(f"{_EXPORT}?analysis=monogenic_nipt:ZW2")
+
+    assert response.headers["content-disposition"] == 'attachment; filename="family-FAM1-ZW2-nipt-variants.csv"'
+    assert calls[-1]["analysis"] == "monogenic_nipt:ZW2"

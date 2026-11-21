@@ -21,6 +21,9 @@ of them you can work on the case and move between analyses.
 - *Read-only access* in the header means you only read this family: your role is viewer, or you are a
   reader in its project.
 - A *Not validated for clinical use* banner shows when the family is outside the validated scope.
+- In a family of several analyses (short-read and then long-read WGS, or the NIPTs of several
+  pregnancies of one woman), a page that reads one analysis at a time offers **Analysis whose data are
+  shown** beside the family name, with the analysis imported last shown first.
 
 A row of links at the foot of the header leads to the family's analyses: **Small variants**,
 **Structural variants**, **Repeat expansions**, **Paraphase**, **mtDNA analysis**, **Monogenic NIPT**
@@ -60,7 +63,8 @@ sequencing QC verdict and mean depth; hover or focus it for the metrics.
   named by its analysis (*Short-read WGS: Pass 35.0x*). Each opens that analysis's QC report.
 
 In a PGT family each embryo also shows its derived call (see
-[Haplotype segregation](#haplotype-segregation)).
+[Haplotype segregation](#haplotype-segregation)). In a NIPT family the pregnancy's fetus has the role
+**fetus** and no data of its own; the pedigree draws a **P** in its symbol.
 
 **Related to** names the member through whom a person is related by an unknown degree: for example a
 PGT index known to be on the mother's side, or both parents. The pedigree draws the link as a dotted
@@ -72,9 +76,11 @@ arc with a **?**. The haplotype track colours such a person:
   haplotype they share. Elsewhere such a relative stays grey.
 
 **Same individual** names another sample of the same person: for example the plasma of a conventional
-NIPT under another sample ID than the monogenic NIPT's plasma of the same pregnancy. The pedigree draws
-the person as one symbol labelled with all its IDs (*PLASMA1 / PLASMA2*), with the sex, status and
-parents either sample records, and Sample QC expects the samples' genotypes identical. The table keeps
+NIPT under another sample ID than the monogenic NIPT's plasma of the same pregnancy, or the plasmas of
+two pregnancies of one woman. The pedigree draws the person as one symbol labelled with all its IDs
+(*PLASMA1 / PLASMA2*), with the sex, status and parents either sample records, and Sample QC expects
+the samples' genotypes identical, except a maternal plasma's, which it never compares. Two plasmas of
+one woman are one person, never one pregnancy: each pregnancy's results stay its own. The table keeps
 a row per sample. The samples of one person must agree on sex, affected and carrier status and parents,
 and are never also each other's relatives: a link or an edit that makes them differ is refused.
 

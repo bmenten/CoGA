@@ -112,6 +112,8 @@ def package_manifest(package: CogaPackage, draft: dict[str, Any] | None) -> dict
         manifest["family_id"] = draft["family_id"]
     if package.analysis_type is not None:
         manifest["analysis_type"] = package.analysis_type
+    if package.pregnancy_id is not None:
+        manifest["pregnancy_id"] = package.pregnancy_id
     if package.reference is not None:
         manifest["reference"] = package.reference
     roi = package.family.roi if package.family is not None else None

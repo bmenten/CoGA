@@ -67,12 +67,14 @@ from .family_variant_filters import SmallVariantQueryFilters
 from .genotypes import classify_genotype
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
-from .family_analysis_types import family_analysis_types
+from .family_analysis_types import pregnancy_of
+from .family_package_records import suffixed_source
 from .nipt import (
     MONOGENIC_NIPT_ANALYSIS_TYPE,
     NIPT_TRIO_UNRESOLVED,
     NiptTrio,
     is_monogenic_nipt_family,
+    nipt_analysis_of,
     nipt_assay_key,
     resolve_nipt_trio,
 )
@@ -102,6 +104,7 @@ from .nipt_analysis import (
 )
 from .nipt_target_coverage import (
     CRITICAL_MEAN_DEPTH,
+    TARGET_COVERAGE_SOURCE,
     TARGET_COVERAGE_TRACK_TYPE,
     SexChromosomeCoverage,
     TargetCoverageRow,
@@ -123,7 +126,7 @@ from .nipt_triage import (
     triage_de_novo,
 )
 from .variant_prioritization import clinvar_may_assert_pathogenic
-from .variant_upload_service import NIPT_SMALL_VARIANT_SOURCE
+from .small_variant_callsets import is_nipt_callset
 
 # Bounds the in-memory classification for the variant list: the first variants of the
 # scope, in genomic order. Clinical use narrows by gene/panel/region, so this is a safety
@@ -359,7 +362,7 @@ def build_nipt_observations(
         calls = {call.sample: call for call in record.calls}
         cf_call = calls.get(cfdna_sample_id)
         father_call = calls.get(father_sample_id)
-        per_sample = record.source == NIPT_SMALL_VARIANT_SOURCE
+        per_sample = is_nipt_callset(record.source)
         if cf_call is None and (not per_sample or father_call is None):
             continue
         representation: str | None = None
@@ -591,6 +594,8 @@ class NiptFamilySummary:
     per-target coverage (None without one)."""
 
     analysis: NiptAnalysisResult
+    # The trio of the pregnancy the analysis is of: its monogenic NIPT, samples and fetuses.
+    trio: NiptTrio
     target_coverage: TargetCoverageSummary | None = None
     sex_chromosomes: SexChromosomeCoverage | None = None
 
@@ -608,31 +613,30 @@ async def _resolve_family_trio_context(
     family_id: str,
     user: CurrentUser,
     project_id: str | None,
+    analysis: str | None,
 ) -> tuple[FamilyOut, NiptTrio, FamilyMetadataContext]:
-    """The family, its NIPT trio and its metadata context; 400 when the family is not
-    configured for monogenic NIPT."""
+    """The family, the trio of its monogenic NIPT ``analysis`` (one pregnancy's, by its key;
+    without one the family's only monogenic NIPT, ``nipt_analysis_of``) and its metadata
+    context; 400 when the family is not configured for monogenic NIPT."""
     family = await get_family_record(session, family_id, user)
     if not is_monogenic_nipt_family(family):
         raise HTTPException(
             status_code=400,
             detail="Family is not configured for monogenic NIPT analysis",
         )
-    trio = resolve_nipt_trio(family)
+    own = nipt_analysis_of(family.metadata, MONOGENIC_NIPT_ANALYSIS_TYPE, analysis)
+    trio = resolve_nipt_trio(family, own)
     if trio is None:
         raise HTTPException(status_code=400, detail=NIPT_TRIO_UNRESOLVED)
     # The monogenic NIPT is read from its own analysis's callset: a family that also holds
-    # another analysis with small variants of its own (the couple's carrier screening) never
-    # lends it its rows (analysis_scope.py).
+    # another analysis with small variants of its own (another pregnancy's, the couple's carrier
+    # screening) never lends it its rows (analysis_scope.py).
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,
         user=user,
         project_id=project_id,
-        analysis=(
-            MONOGENIC_NIPT_ANALYSIS_TYPE
-            if MONOGENIC_NIPT_ANALYSIS_TYPE in family_analysis_types(family.metadata)
-            else None
-        ),
+        analysis=own,
     )
     return family, trio, context
 
@@ -643,9 +647,10 @@ async def _resolve_trio_and_context(
     family_id: str,
     user: CurrentUser,
     project_id: str | None,
+    analysis: str | None,
 ) -> tuple[NiptTrio, FamilyMetadataContext, str]:
     family, trio, context = await _resolve_family_trio_context(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
     return trio, context, nipt_assay_key(family, trio)
 
@@ -658,15 +663,23 @@ async def _load_listed_artifacts(
     )
 
 
+def nipt_coverage_source(trio: NiptTrio) -> str:
+    """The source the per-target coverage tables of the trio's pregnancy are stored under: the
+    pregnancy's own (``family_package_records.suffixed_source``), so a father sampled for each
+    pregnancy is read with the table its pregnancy's package gave."""
+    return suffixed_source(TARGET_COVERAGE_SOURCE, pregnancy_of(trio.analysis))
+
+
 async def _load_target_rows(
     context: FamilyMetadataContext,
+    trio: NiptTrio,
     sample_id: str,
     *,
     with_metadata: bool,
     genes: Sequence[str] | None = None,
 ) -> list[TargetCoverageRow]:
-    """A sample's per-target coverage (its ``target_coverage`` track), or only the targets of
-    ``genes`` (case-insensitive); [] without one."""
+    """A sample's per-target coverage (its ``target_coverage`` track) of the trio's pregnancy,
+    or only the targets of ``genes`` (case-insensitive); [] without one."""
     sample_uuid = context.sample_name_to_uuid.get(sample_id)
     if not sample_uuid or not context.assembly_name:
         return []
@@ -675,6 +688,7 @@ async def _load_target_rows(
         sample_uuid=sample_uuid,
         track_type=TARGET_COVERAGE_TRACK_TYPE,
         chromosomes=[],
+        source=nipt_coverage_source(trio),
         include_metadata=with_metadata,
         record_ids=genes,
     )
@@ -691,8 +705,8 @@ class _FamilyData:
 async def _load_family_data(context: FamilyMetadataContext, trio: NiptTrio) -> _FamilyData:
     records, plasma_targets, father_targets = await asyncio.gather(
         _load_family_records(context),
-        _load_target_rows(context, trio.cfdna_sample_id, with_metadata=False),
-        _load_target_rows(context, trio.father_sample_id, with_metadata=False),
+        _load_target_rows(context, trio, trio.cfdna_sample_id, with_metadata=False),
+        _load_target_rows(context, trio, trio.father_sample_id, with_metadata=False),
     )
     return _FamilyData(records=records, plasma_targets=plasma_targets, father_targets=father_targets)
 
@@ -776,6 +790,7 @@ class SharedNiptAnalysis:
             context.family_uuid,
             context.assembly_id,
             tuple(sorted(context.project_ids)),
+            trio.analysis,
             trio.father_sample_id,
             trio.cfdna_sample_id,
             assay_key,
@@ -814,9 +829,16 @@ async def run_family_nipt_analysis(
     project_id: str | None = None,
     qc: NiptQualityThresholds | None = None,
     shared_nipt: SharedNiptAnalysis | None = None,
+    analysis: str | None = None,
 ) -> NiptAnalysisResult:
     summary = await get_family_nipt_summary(
-        session, family_id=family_id, user=user, project_id=project_id, qc=qc, shared_nipt=shared_nipt
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+        qc=qc,
+        shared_nipt=shared_nipt,
+        analysis=analysis,
     )
     return summary.analysis
 
@@ -829,16 +851,18 @@ async def get_family_nipt_summary(
     project_id: str | None = None,
     qc: NiptQualityThresholds | None = None,
     shared_nipt: SharedNiptAnalysis | None = None,
+    analysis: str | None = None,
 ) -> NiptFamilySummary:
-    """The NIPT analysis of the whole family callset, with the plasma's target coverage QC
-    and sex-chromosome profile; ``shared_nipt``'s, when it holds this analysis."""
+    """The NIPT analysis of the whole callset of the monogenic NIPT ``analysis`` (one
+    pregnancy's), with the plasma's target coverage QC and sex-chromosome profile;
+    ``shared_nipt``'s, when it holds this analysis."""
     trio, context, assay_key = await _resolve_trio_and_context(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
-    analysis = await _family_analysis(
+    computed = await _family_analysis(
         session, context, trio, assay_key, qc or NiptQualityThresholds(), shared_nipt
     )
-    return analysis.summary
+    return computed.summary
 
 
 @dataclass(slots=True)
@@ -860,25 +884,26 @@ async def get_family_nipt_summary_with_artifacts(
     user: CurrentUser,
     project_id: str | None = None,
     qc: NiptQualityThresholds | None = None,
+    analysis: str | None = None,
 ) -> tuple[NiptFamilySummary, NiptArtifactCounts]:
-    """The family's NIPT summary (``get_family_nipt_summary``) and what the artifact list did
-    to it, for the variant summary's NIPT-M tab."""
+    """The NIPT summary of the family's monogenic NIPT ``analysis`` (``get_family_nipt_summary``)
+    and what the artifact list did to it, for the variant summary's NIPT-M tab."""
     trio, context, assay_key = await _resolve_trio_and_context(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
-    analysis = await _family_analysis(
+    computed = await _family_analysis(
         session, context, trio, assay_key, qc or NiptQualityThresholds(), None
     )
     protected: dict[str, int] = {}
-    for reason in analysis.protected.values():
+    for reason in computed.protected.values():
         protected[reason] = protected.get(reason, 0) + 1
     counts = NiptArtifactCounts(
-        listed=len(analysis.listed),
-        in_family=len(analysis.removed) + len(analysis.protected),
-        removed=len(analysis.removed),
+        listed=len(computed.listed),
+        in_family=len(computed.removed) + len(computed.protected),
+        removed=len(computed.removed),
         protected=protected,
     )
-    return analysis.summary, counts
+    return computed.summary, counts
 
 
 async def _summarize_family(
@@ -893,7 +918,7 @@ async def _summarize_family(
     target_coverage = summarize_target_coverage(data.plasma_targets) if data.plasma_targets else None
     sex_chromosomes = sex_chromosome_coverage(data.plasma_targets) if data.plasma_targets else None
     return NiptFamilySummary(
-        analysis=analysis, target_coverage=target_coverage, sex_chromosomes=sex_chromosomes
+        analysis=analysis, trio=trio, target_coverage=target_coverage, sex_chromosomes=sex_chromosomes
     )
 
 
@@ -1268,6 +1293,7 @@ async def get_family_nipt_variants(
     exclude_review_tags: list[str] | None = None,
     max_unexplained_recurrence: int | None = None,
     panel_search: str = "nipt_variants",
+    analysis: str | None = None,
 ) -> NiptVariantsResult:
     """The family's cfDNA variants in a search, classified, in an inheritance view:
 
@@ -1308,7 +1334,7 @@ async def get_family_nipt_variants(
     wanted: set[int] = set(categories or [])
 
     trio, context, assay_key = await _resolve_trio_and_context(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
     listed = await _load_listed_artifacts(session, context, assay_key)
 
@@ -1791,15 +1817,16 @@ async def get_family_nipt_coverage(
     panel_id: str | None = None,
     min_depth: float = DEFAULT_MIN_DEPTH,
     all_genes: bool = False,
+    analysis: str | None = None,
 ) -> NiptCoverageResult:
     family, trio, context = await _resolve_family_trio_context(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
     # A panel the coverage is read for goes on the family's clinical audit trail (REQ-CARR-003).
     await record_family_panel_use(
         session, context=context, panel_id=panel_id, user=user, search="nipt_coverage"
     )
-    target_rows = await _load_target_rows(context, trio.cfdna_sample_id, with_metadata=True)
+    target_rows = await _load_target_rows(context, trio, trio.cfdna_sample_id, with_metadata=True)
     if target_rows:
         # The capture targets themselves: the panel's or the queried genes', else all.
         genes: list[str] = list(_split_gene_terms(gene)) if gene else []
@@ -1840,15 +1867,16 @@ async def get_family_nipt_gene_targets(
     user: CurrentUser,
     gene: str,
     project_id: str | None = None,
+    analysis: str | None = None,
 ) -> NiptGeneTargets:
     """One gene's targets with their depth, for the coverage page; none without a target
     table, or for a gene the panel does not capture."""
     _family, trio, context = await _resolve_family_trio_context(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
     # This gene's rows alone: a panel's table holds tens of thousands of targets.
     target_rows = await _load_target_rows(
-        context, trio.cfdna_sample_id, with_metadata=True, genes=[gene.strip()]
+        context, trio, trio.cfdna_sample_id, with_metadata=True, genes=[gene.strip()]
     )
     rows = sorted(target_rows, key=lambda row: (row.chrom, row.start, row.end))
     return NiptGeneTargets(gene=gene.strip(), critical_mean_depth=CRITICAL_MEAN_DEPTH, rows=rows)

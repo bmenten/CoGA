@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 CniptVerdict = Literal["high_risk", "inconclusive", "low_risk", "no_result", "not_assessed"]
 
@@ -126,7 +126,13 @@ class CniptSampleResultOut(BaseModel):
 
 
 class FamilyCniptOut(BaseModel):
-    """A conventional NIPT family's result: one per maternal plasma with ccnv output."""
+    """The result of a family's conventional NIPT of one pregnancy (``analysis``, its key:
+    ``conventional_nipt:ZW1``): one per maternal plasma its package lists with ccnv output, the
+    pregnancy's fetuses, and what a result of a multiple pregnancy says of them
+    (``nipt.multiple_pregnancy_note``)."""
 
     family_id: str
+    analysis: str
+    fetuses: List[str] = Field(default_factory=list)
+    multiple_pregnancy_note: Optional[str] = None
     samples: List[CniptSampleResultOut]

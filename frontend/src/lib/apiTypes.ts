@@ -135,7 +135,7 @@ export interface ApiFamilyMemberBatchUpdateItem {
   sample_id: string;
   new_sample_id?: string | null;
   sex?: 'male' | 'female' | 'und' | null;
-  role?: 'proband' | 'father' | 'mother' | 'sibling' | 'embryo' | 'relative' | null;
+  role?: 'proband' | 'father' | 'mother' | 'sibling' | 'embryo' | 'fetus' | 'relative' | null;
   clinical_status?: 'unknown' | 'unaffected' | 'affected' | null;
   carrier_status?: 'unknown' | 'not_carrier' | 'carrier' | null;
   carrier_type?: 'obligate' | 'proven' | 'reported' | 'inferred' | null;
@@ -236,6 +236,11 @@ export interface ApiNiptFetalFraction {
 
 export interface ApiNiptSummary {
   family_id: string;
+  // The pregnancy's monogenic NIPT read (`monogenic_nipt:ZW1`), its fetuses, and what a fetal
+  // result of a multiple pregnancy says of them (backend `nipt.multiple_pregnancy_note`).
+  analysis?: string | null;
+  fetuses?: string[];
+  multiple_pregnancy_note?: string | null;
   fetal_fraction: ApiNiptFetalFraction;
   // Category counts are keyed by the category number (1-8), serialized as strings.
   category_counts: Record<string, number>;

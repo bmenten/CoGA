@@ -5,15 +5,38 @@ fetus.
 
 ### Setting up a NIPT family
 
-In **Family builder**, tick **Monogenic NIPT (cfDNA from maternal plasma)**. Add the father, the cfDNA
-sample as the mother (mark it **cfDNA (maternal plasma)**) and the fetus as the proband. A package import
-does the same when its package says `analysis_type: monogenic_nipt`. The family page then shows a
-**Monogenic NIPT** button.
+In **Family builder**, tick **Monogenic NIPT (cfDNA from maternal plasma)** and give the **Pregnancy
+ID**, the laboratory's ID of the pregnancy. Add the father, the cfDNA sample as the mother (mark it
+**cfDNA (maternal plasma)**) and the fetus as the proband: CoGA records it as the pregnancy's fetus
+(role `fetus`), which has no data of its own and is neither a proband nor an embryo. A package import
+does the same when its package says `analysis_type: monogenic_nipt` and names the pregnancy
+(`pregnancy_id`). The family page then shows a **Monogenic NIPT** button.
 
 The data is the NIPT-M pipeline's output: a single-sample VCF of the plasma and one of the father, with
 a per-target coverage table for each (`coverage_<sample>.txt`). The package import finds them by the sample
 names of the PED. One combined VCF with a father column and a cfDNA column works as well. The calls
 must carry FORMAT/AD.
+
+### Several pregnancies
+
+A family may hold several pregnancies of one woman. Each pregnancy's NIPT is an analysis of its own:
+its data, reviews and sign-out are its own.
+
+- A monogenic and a conventional NIPT are one pregnancy only when their packages name the same
+  pregnancy ID. A package of another pregnancy adds an analysis beside the others and changes nothing
+  of theirs.
+- Each pregnancy has its own plasma and fetus. The father may be the same sample in both: each
+  pregnancy keeps its own copy of his calls.
+- The NIPT page, its report and the Sample QC show one pregnancy at a time. Choose it in **Analysis
+  whose data are shown**, beside the family name (*monogenic NIPT of pregnancy ZW1*). The page opens on
+  the pregnancy imported last.
+- Two plasmas of one woman, linked as the same individual, are drawn as one person but are never one
+  pregnancy: their results never merge.
+- When a pregnancy's package lists two or more fetuses, the NIPT page, the NIPT report and the signed
+  version show the **multiple-pregnancy note**: a fetal result may be present in one fetus or in more
+  than one, and the analysis cannot tell which. The note does not apply to a monozygotic twin, whose
+  fetuses share one genotype; CoGA is not told the zygosity, so it shows the note for every multiple
+  pregnancy.
 
 ### The NIPT page
 
@@ -96,13 +119,14 @@ as *De novo in fetus*, *Dominant, transmitted*, *Recessive / biallelic risk* and
 **Sign out NIPT analysis** on the NIPT report is the analytical sign-off. It freezes the analysis into
 a signed record, which the EPD report refers to by its report code. It is the family's own sign-out,
 with the same checks and report code, whether you sign out here or from the family report. The record
-holds the NIPT results as CoGA computed them: the fetal fraction and the quality checks, the coverage,
-and each variant tagged *report* with its category, reads, probabilities and recurrence in the other
-cfDNA samples.
+holds the NIPT results as CoGA computed them: the pregnancy and its fetuses, the fetal fraction and the
+quality checks, the coverage, and each variant tagged *report* with its category, reads, probabilities
+and recurrence in the other cfDNA samples.
 
-When the family also holds the conventional NIPT of the pregnancy, each NIPT is signed out on its own:
-the NIPT report signs out the monogenic NIPT, and its record freezes and checks the monogenic NIPT's
-data only. The family's **Report** page signs out the conventional NIPT.
+When the family also holds another analysis (the conventional NIPT of the pregnancy, or another
+pregnancy's NIPT), each is signed out on its own: the NIPT report signs out the monogenic NIPT of the
+pregnancy it shows, and its record freezes and checks that analysis's data only. The family's
+**Report** page signs out the conventional NIPT of each pregnancy.
 
 - Tag the variants you report first. **Show reported (N)**, in the NIPT page's header, lists them
   before you sign out: the variants tagged *report*, with every other filter cleared.

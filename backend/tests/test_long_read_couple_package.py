@@ -23,7 +23,7 @@ from backend.app.core.config import settings
 from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageManifestBuildRequest
 from backend.app.services import family_package_datasets, sample_integrity_service
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services.family_package_common import ManifestDataset, ParsedPed, PedMember, VcfSampleColumnError
+from backend.app.services.family_package_common import ManifestDataset, ParsedPed, PedMember, VcfSampleColumnError, PackageManifest
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_long_read import (
     long_read_family_block,
@@ -301,7 +301,7 @@ def test_each_needlr_file_binds_its_calls_to_its_sample() -> None:
 def _job(dataset: ManifestDataset, *, dataset_type: str) -> family_package_datasets.DatasetImportJob:
     return family_package_datasets.DatasetImportJob(
         session=SimpleNamespace(),  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=Path("/package"), ped=_ped(), manifest=SimpleNamespace(analysis_type=None)),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=Path("/package"), ped=_ped(), manifest=PackageManifest()),  # type: ignore[arg-type]
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type=dataset_type, status="valid"),
         family_context=FamilyMetadataContext(

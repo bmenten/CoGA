@@ -24,7 +24,7 @@ Which fields may change:
   They change, with a reason; while a dataset the pipeline computed with them
   (``pipeline_used_pedigree``) is in the import, the delivery needs attention
   (``package_pedigree_changed``, ``import_watcher._pedigree_change_issue``).
-- **The laboratory's**: the ``project``, the ``analysis_type``, a member's ``role``,
+- **The laboratory's**: the ``project``, the ``analysis_type``, the ``pregnancy_id``, a member's ``role``,
   ``clinical_status``, carrier fields, ``hpo``, ``related_to``, ``same_individual_as``, ``assay``
   and ``assay_panel``, the family's ``roi`` and ``pgt``, and each dataset's entry (in or out of the
   import, its options, another file the package lists).
@@ -143,7 +143,7 @@ def change_kind(path: list[str]) -> ChangeKind:
     """The kind of the field ``path`` names (see the module's docstring); a field that is fixed,
     or that the format does not have, is refused (400)."""
     where = ".".join(path)
-    if path in (["project"], ["analysis_type"]) or path == ["family", "roi"] or path == ["family", "pgt"]:
+    if path in (["project"], ["analysis_type"], ["pregnancy_id"]) or path in (["family", "roi"], ["family", "pgt"]):
         return "laboratory"
     if len(path) == 3 and path[:2] == ["family", "pgt"] and path[2] in _PGT_FIELDS:
         return "laboratory"

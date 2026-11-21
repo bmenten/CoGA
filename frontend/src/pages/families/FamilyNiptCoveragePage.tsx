@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
+import { ANALYSIS_PARAM } from '../../lib/familyAnalyses';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
@@ -28,16 +29,18 @@ const weakReason = (target: NiptGeneTargetsOut['targets'][number], critical: num
 };
 
 /** One gene's targets, read when its row is opened. */
-const GeneTargets: React.FC<{ familyId: string; gene: string; projectId?: string }> = ({
+const GeneTargets: React.FC<{ familyId: string; gene: string; projectId?: string; analysis?: string }> = ({
   familyId,
   gene,
   projectId,
+  analysis,
 }) => {
   const { data, isLoading, isError, error, refetch } = useQuery<NiptGeneTargetsOut>({
-    queryKey: ['family', familyId, 'nipt', 'coverage', 'targets', gene, projectId ?? null],
+    queryKey: ['family', familyId, 'nipt', 'coverage', 'targets', gene, projectId ?? null, analysis ?? null],
     queryFn: async () => {
       const params: Record<string, string> = { gene };
       if (projectId) params.project_id = projectId;
+      if (analysis) params[ANALYSIS_PARAM] = analysis;
       const res = await api.get(apiPath`/families/${familyId}/nipt/coverage/targets`, { params });
       return res.data as NiptGeneTargetsOut;
     },
@@ -100,13 +103,15 @@ interface GeneTableProps {
   genes: NiptTargetCoverageGeneOut[];
   familyId: string;
   projectId?: string;
+  /** The pregnancy's monogenic NIPT whose targets are read (`monogenic_nipt:ZW1`). */
+  analysis?: string;
   /** The below-target table counts each gene's weak targets. */
   weakColumn: boolean;
   label: string;
 }
 
 /** A gene per row: its targets, how many are weak, and their depth; open a row for its targets. */
-const CoverageGeneTable: React.FC<GeneTableProps> = ({ genes, familyId, projectId, weakColumn, label }) => {
+const CoverageGeneTable: React.FC<GeneTableProps> = ({ genes, familyId, projectId, analysis, weakColumn, label }) => {
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [showAll, setShowAll] = useState(false);
   const shown = showAll ? genes : genes.slice(0, GENE_ROWS_SHOWN);
@@ -168,7 +173,7 @@ const CoverageGeneTable: React.FC<GeneTableProps> = ({ genes, familyId, projectI
                   {isOpen ? (
                     <tr className="nipt-coverage-targets-row">
                       <td colSpan={columns}>
-                        <GeneTargets familyId={familyId} gene={gene.gene} projectId={projectId} />
+                        <GeneTargets familyId={familyId} gene={gene.gene} projectId={projectId} analysis={analysis} />
                       </td>
                     </tr>
                   ) : null}
@@ -249,6 +254,8 @@ const FamilyNiptCoveragePage: React.FC = () => {
   const projectId = searchParams.get('project_id') || undefined;
   const panelId = searchParams.get('panel_id') || undefined;
   const gene = searchParams.get('gene') || undefined;
+  // The pregnancy's monogenic NIPT the NIPT page read, which names it in the link here.
+  const analysis = searchParams.get(ANALYSIS_PARAM) || undefined;
   const geneTerms = useMemo(() => niptGeneTerms(gene), [gene]);
   // Back to the NIPT page as it was left: its filters live in its URL.
   const backTo = (location.state as { from?: string } | null)?.from || routePath`/families/${familyId}/nipt`;
@@ -285,10 +292,11 @@ const FamilyNiptCoveragePage: React.FC = () => {
     error,
     refetch,
   } = useQuery<ApiNiptCoverageSummary>({
-    queryKey: ['family', familyId, 'nipt', 'coverage', 'all-genes', panelId ?? null, gene ?? null, projectId ?? null],
+    queryKey: ['family', familyId, 'nipt', 'coverage', 'all-genes', analysis ?? null, panelId ?? null, gene ?? null, projectId ?? null],
     enabled: Boolean(familyId),
     queryFn: async () => {
       const params: Record<string, string> = { all_genes: 'true' };
+      if (analysis) params[ANALYSIS_PARAM] = analysis;
       if (projectId) params.project_id = projectId;
       if (panelId) params.panel_id = panelId;
       if (gene) params.gene = gene;
@@ -452,6 +460,7 @@ const FamilyNiptCoveragePage: React.FC = () => {
           </p>
           {belowShown.length ? (
             <CoverageGeneTable
+              analysis={analysis}
               key={`below:${term}`}
               genes={belowShown}
               familyId={familyId}
@@ -474,6 +483,7 @@ const FamilyNiptCoveragePage: React.FC = () => {
           </p>
           {aboveShown.length ? (
             <CoverageGeneTable
+              analysis={analysis}
               key={`above:${term}`}
               genes={aboveShown}
               familyId={familyId}

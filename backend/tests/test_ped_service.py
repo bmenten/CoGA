@@ -516,7 +516,7 @@ async def test_manual_family_creation_threads_family_and_sample_metadata(
 
     family = ManualPedFamilyCreate(
         family_id="NIPT001",
-        metadata={"analysis_types": [MONOGENIC_NIPT_ANALYSIS_TYPE]},
+        metadata={"analyses": [f"{MONOGENIC_NIPT_ANALYSIS_TYPE}:ZW1"]},
         members=[
             ManualPedMemberCreate(sample_id="father-1", sex="male"),
             ManualPedMemberCreate(
@@ -541,15 +541,15 @@ async def test_manual_family_creation_threads_family_and_sample_metadata(
     )
 
     captured = written[-1]["created"]
-    assert captured["family_metadata"] == {"analysis_types": [MONOGENIC_NIPT_ANALYSIS_TYPE]}
+    assert captured["family_metadata"] == {"analyses": [f"{MONOGENIC_NIPT_ANALYSIS_TYPE}:ZW1"]}
 
     members_by_id = {member["sample_id"]: member for member in captured["members"]}
     assert members_by_id["cfdna-1"]["metadata"] == {"assays": [NIPT_CFDNA_ASSAY]}
     assert members_by_id["father-1"]["metadata"] == {}
-    # The fetus is the child of both parents; manual creation labels it proband.
+    # The fetus is the child of both parents; in a monogenic NIPT family it is the pregnancy's fetus.
     assert members_by_id["father-1"]["role"] == "father"
     assert members_by_id["cfdna-1"]["role"] == "mother"
-    assert members_by_id["fetus-1"]["role"] == "proband"
+    assert members_by_id["fetus-1"]["role"] == "fetus"
 
 
 # What an import or an audited edit writes, and the backend trusts where it reads it:
@@ -557,12 +557,17 @@ async def test_manual_family_creation_threads_family_and_sample_metadata(
 REFUSED_METADATA = [
     pytest.param({"package_import": {"folder_path": "/client"}}, {}, "Family", id="family-package-record"),
     pytest.param({"import_incomplete": False}, {}, "Family", id="family-import-state"),
-    pytest.param({"analysis_types": ["pgt"]}, {}, "Family", id="family-other-analysis-type"),
+    pytest.param({"analyses": ["pgt"]}, {}, "Family", id="family-other-analysis-type"),
+    # The monogenic NIPT of a pregnancy, named by its key: never without the pregnancy, nor of one
+    # whose ID breaks the ID rule.
+    pytest.param({"analyses": ["monogenic_nipt"]}, {}, "Family", id="family-nipt-without-a-pregnancy"),
+    pytest.param({"analyses": ["monogenic_nipt:Z W1"]}, {}, "Family", id="family-nipt-pregnancy-with-a-space"),
+    pytest.param({"analyses": ["conventional_nipt:ZW1"]}, {}, "Family", id="family-conventional-nipt"),
     # The lists the import writes, as lists only: no bare value, no empty list, no repeat.
-    pytest.param({"analysis_types": "monogenic_nipt"}, {}, "Family", id="family-analysis-type-not-a-list"),
-    pytest.param({"analysis_types": []}, {}, "Family", id="family-analysis-types-empty"),
+    pytest.param({"analyses": "monogenic_nipt"}, {}, "Family", id="family-analysis-type-not-a-list"),
+    pytest.param({"analyses": []}, {}, "Family", id="family-analysis-types-empty"),
     pytest.param(
-        {"analysis_types": ["monogenic_nipt", "monogenic_nipt"]}, {}, "Family", id="family-analysis-type-twice"
+        {"analyses": ["monogenic_nipt:ZW1", "monogenic_nipt:ZW1"]}, {}, "Family", id="family-analysis-type-twice"
     ),
     pytest.param({"analysis_type": "monogenic_nipt"}, {}, "Family", id="family-single-analysis-type"),
     pytest.param({}, {"sequencing_qc": {"mean_coverage": 40}}, "Sample S2", id="sample-sequencing-qc"),

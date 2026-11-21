@@ -16,6 +16,7 @@ from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import AlignmentManifestEntryOut
+from ..services.family_analysis_types import ANALYSIS_KEY_MAX_LENGTH
 from ..services.family_package_source import local_family_package_folder
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
@@ -336,7 +337,7 @@ async def _accessible_recorded_alignment(
 
 # The analysis whose alignment of the sample a request reads (``samples.metadata.alignments``);
 # none for one found in the family's folders.
-_ANALYSIS = Query(default=None, max_length=64)
+_ANALYSIS = Query(default=None, max_length=ANALYSIS_KEY_MAX_LENGTH)
 
 
 @router.get("/{family_id}/manifest", response_model=list[AlignmentManifestEntryOut])

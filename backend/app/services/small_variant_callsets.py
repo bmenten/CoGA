@@ -18,11 +18,14 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
+from .family_package_records import source_base
+
 # Callsets of imputed (not directly called) genotypes.
 IMPUTED_CALLSETS: tuple[str, ...] = ("glimpse2", "shapeit")
 # The mtDNA calls, kept apart from the nuclear callset of the same family.
 MITO_CALLSET = "mito"
-# A monogenic NIPT's calls stored one file per sample (the plasma's and the father's).
+# A monogenic NIPT's calls stored one file per sample (the plasma's and the father's), each
+# pregnancy's under its own source (``family_package_records.suffixed_source``: ``nipt_p1a2b3c4d``).
 NIPT_CALLSET = "nipt"
 
 # The callers CoGA names in words, in the order a reader that reads one direct callset of a
@@ -99,10 +102,15 @@ def is_callset_name(value: object) -> bool:
     return isinstance(value, str) and value != AUTO and CALLSET_NAME.fullmatch(value) is not None
 
 
+def is_nipt_callset(name: object) -> bool:
+    """Whether a callset is a monogenic NIPT's per-sample calls: a pregnancy's ``nipt`` source."""
+    return source_base(name) == NIPT_CALLSET
+
+
 def is_direct_callset(name: object) -> bool:
     """Whether a callset holds a caller's own nuclear calls: any callset but the imputed
     genotypes, the mtDNA calls and a monogenic NIPT's per-sample calls."""
-    return is_callset_name(name) and name not in (*IMPUTED_CALLSETS, MITO_CALLSET, NIPT_CALLSET)
+    return is_callset_name(name) and name not in (*IMPUTED_CALLSETS, MITO_CALLSET) and not is_nipt_callset(name)
 
 
 def callset_label(name: str) -> str:
@@ -119,7 +127,7 @@ def callset_preference(name: str) -> tuple[int, int, str]:
         return (0, known.index(name), name)
     if is_direct_callset(name):
         return (0, len(known), name)
-    if name == NIPT_CALLSET:
+    if is_nipt_callset(name):
         return (1, 0, name)
     if name in IMPUTED_CALLSETS:
         return (2, IMPUTED_CALLSETS.index(name), name)

@@ -46,7 +46,7 @@ from .ancestry_projection import (
 from .clickhouse_variant_storage import _execute as storage_execute, _small_table_name
 from .nipt import is_cfdna_sample_metadata
 from .small_variant_callsets import IMPUTED_CALLSETS as IMPUTED_SMALL_VARIANT_CALLSETS
-from .small_variant_callsets import MITO_CALLSET, NIPT_CALLSET, callset_preference
+from .small_variant_callsets import MITO_CALLSET, callset_preference, is_nipt_callset
 from .small_variant_callsets import callset_label as caller_label
 
 # The kinds of callset read, in words.
@@ -60,7 +60,7 @@ IMPUTED_CALLSETS = frozenset(IMPUTED_SMALL_VARIANT_CALLSETS)
 def callset_label(callset: str) -> str:
     """A callset in words: a caller's direct calls by the caller's name ("Direct calls (GATK
     HaplotypeCaller)"), the NIPT per-sample calls, or the imputed genotypes."""
-    if callset == NIPT_CALLSET:
+    if is_nipt_callset(callset):
         return "NIPT per-sample calls"
     if callset in IMPUTED_CALLSETS:
         return "Imputed genotypes"

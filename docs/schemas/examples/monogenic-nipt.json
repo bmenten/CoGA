@@ -10,6 +10,7 @@
   "project": "NIPT",
   "assembly": "GRCh38",
   "analysis_type": "monogenic_nipt",
+  "pregnancy_id": "ZW2026-001",
   "family": {
     "family_id": "NIPTFAM1",
     "roi": "CFTR"
@@ -32,7 +33,7 @@
       "sex": "unknown",
       "father": "FATHER1",
       "mother": "CFDNA1",
-      "role": "proband"
+      "role": "fetus"
     }
   ],
   "couples": [

@@ -428,9 +428,9 @@ snapshot, which the clinical report in the EPD refers to by its report code (*Th
 A sign-out of one analysis of a family that holds several freezes that analysis's part of each
 item below (*One sign-out per analysis*).
 
-- **The analysis** (`analysis_type`): the analysis the record closes, as the family's
-  `analysis_types` name it (`monogenic_nipt`, `conventional_nipt`, `short_read_wgs`…), or null for
-  a family that holds none. The content hash covers it.
+- **The analysis** (`analysis_type`): the analysis the record closes, by its key as the family's
+  `analyses` name it (`short_read_wgs`, or a NIPT with its pregnancy: `monogenic_nipt:ZW1`,
+  `conventional_nipt:ZW1`), or null for a family that holds none. The content hash covers it.
 - **What the record is** (`record_statement`): *This record is the analytical sign-off in CoGA,
   which closes and freezes the analysis; the medical sign-off of the patient report happens in
   the EPD, which refers to this record by its report code.*
@@ -481,7 +481,7 @@ item below (*One sign-out per analysis*).
   - A record of one of a family's analyses holds only that analysis's marks and those of no
     analysis (*One sign-out per analysis*, below).
 - **Package folders** (`package_source_changes`, gate 6): a family holds one package record per
-  analysis it was imported for (the monogenic and the conventional NIPT of one pregnancy each have
+  analysis it was imported for (the monogenic and the conventional NIPT of each pregnancy each have
   their own), and CoGA serves each analysis's source files from the folder its record names. The
   list is empty when each such folder is as its analysis's reference delivery was imported, or the
   family was not imported from a delivery. Otherwise it holds one entry per analysis whose folder
@@ -746,13 +746,16 @@ cNIPT results (`cnipt`, above).
 
 ### One sign-out per analysis
 
-A family may hold several analyses (`families.metadata.analysis_types`), each imported from a
-package of its own: the monogenic and the conventional NIPT of one pregnancy, or short-read and then
-long-read WGS of the same DNA. Each analysis is signed out on its own, and its record freezes and
-checks that analysis's data only (the owner's decisions of 2026-11-19;
-`services/signout_scope.py`).
+A family may hold several analyses (`families.metadata.analyses`), each imported from a package of
+its own: the monogenic and the conventional NIPT of each of a woman's pregnancies, or short-read and
+then long-read WGS of the same DNA. Each analysis is signed out on its own, and its record freezes
+and checks that analysis's data only (the owner's decisions of 2026-11-19 and 2026-11-21;
+`services/signout_scope.py`). An analysis is named by its key: its type, and a NIPT's pregnancy
+(`monogenic_nipt:ZW1`); a pregnancy's NIPT section (`nipt`, `cnipt`) is its own pregnancy's, its
+trio, its fetuses and, for a multiple pregnancy, the note that a fetal result may be present in one
+fetus or in more than one.
 
-- **Which analysis.** The request names it (`analysis_type`). A family that holds two or more
+- **Which analysis.** The request names it (`analysis_type`, the analysis's key). A family that holds two or more
   analyses must name one: 422 without it, and 422 for an analysis the family does not hold. A
   family of one analysis or none need name none: its record names its only analysis, or none, and
   it is signed out whole.
@@ -1307,8 +1310,8 @@ page offers no sign-out. The NIPT report names the latest signed version with it
 whether the family's data still matches it (`sign-out-check`) and links to it; after a sign-out it
 opens the new version on the report page. It offers no sign-out outside the validated assembly
 scope, nor while the sign-out record is loading or could not be loaded. Of a family that holds
-other analyses too, it signs out the monogenic NIPT (`analysis_type: monogenic_nipt`), and names
-and checks that analysis's latest signed version. The NIPT report is live too: it says so on
+other analyses too, it signs out its pregnancy's monogenic NIPT (`analysis_type: monogenic_nipt:ZW1`,
+the pregnancy the page reads), and names and checks that analysis's latest signed version. The NIPT report is live too: it says so on
 screen, beside the latest signed version, and every printout starts with the live report's notice
 ("Draft …", "Not the signed report …", "Not verified …").
 

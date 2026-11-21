@@ -134,7 +134,9 @@ def test_a_shared_source_is_refused_with_what_to_change() -> None:
 def test_an_import_into_a_family_is_refused_when_it_shares_a_source(monkeypatch: pytest.MonkeyPatch) -> None:
     def bundle(analysis: str, callset: str) -> Any:
         manifest = SimpleNamespace(
-            analysis_type=analysis, datasets={"snv": SimpleNamespace(enabled=True), "mito": SimpleNamespace(enabled=True)}
+            analysis_key=analysis,
+            pregnancy=None,
+            datasets={"snv": SimpleNamespace(enabled=True), "mito": SimpleNamespace(enabled=True)},
         )
         return SimpleNamespace(manifest=manifest, callset=callset)
 
@@ -179,8 +181,8 @@ class _Family:
         return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
 
 
-def _others(family: _Family, analysis_type: str | None) -> registration.OtherAnalyses:
-    return asyncio.run(registration.other_analyses_of(family, family_id="F1", analysis_type=analysis_type))  # type: ignore[arg-type]
+def _others(family: _Family, analysis: str) -> registration.OtherAnalyses:
+    return asyncio.run(registration.other_analyses_of(family, family_id="F1", analysis=analysis))  # type: ignore[arg-type]
 
 
 def test_an_import_keeps_every_member_of_a_family_holding_another_analysis_but_its_own_analysiss() -> None:
@@ -201,7 +203,7 @@ def test_an_import_keeps_every_member_of_a_family_holding_another_analysis_but_i
     # A family that holds this analysis alone, or none: the package is its pedigree's source.
     alone = _Family({"monogenic_nipt": records["monogenic_nipt"]}, active=family.active)
     assert not _others(alone, "monogenic_nipt") and _others(alone, "monogenic_nipt").kept == frozenset()
-    assert not _others(_Family(None, active=family.active), None)
+    assert not _others(_Family(None, active=family.active), "unspecified")
 
 
 _STORED = "F1\tFATHER1\t0\t0\t1\t1\nF1\tCFDNA1\t0\t0\t2\t1\nF1\tFETUS1\tFATHER1\tCFDNA1\t0\t2\nF1\tEDITED1\t0\t0\t1\t0\n"
@@ -226,7 +228,7 @@ def _differences(monkeypatch: pytest.MonkeyPatch, family: _Family, ped_text: str
     ped = registration._parse_ped_text_strict(ped_text)[0]
     return asyncio.run(
         registration.family_member_differences(
-            family, family_id="F1", ped=ped, analysis_type="conventional_nipt", **kwargs  # type: ignore[arg-type]
+            family, family_id="F1", ped=ped, analysis="conventional_nipt", **kwargs  # type: ignore[arg-type]
         )
     )
 
@@ -694,7 +696,7 @@ def test_a_package_of_another_analysis_keeps_the_family_s_region_of_interest(mon
     held_roi = {"roi_query": "GENEA", "roi_label": "GENEA", "roi_chr": "chr7", "roi_start": 100, "roi_end": 200}
     state: dict[str, Any] = {"others": registration.OtherAnalyses(analyses=("monogenic_nipt",)), "roi": held_roi}
 
-    async def others(_session: Any, *, family_id: str, analysis_type: str | None) -> Any:
+    async def others(_session: Any, *, family_id: str, analysis: str) -> Any:
         return state["others"]
 
     async def family_roi(_session: Any, _family_id: str) -> Any:
@@ -716,7 +718,9 @@ def test_a_package_of_another_analysis_keeps_the_family_s_region_of_interest(mon
     monkeypatch.setattr(registration, "resolve_roi", resolve)
 
     def package(roi: str | None) -> Any:
-        manifest = SimpleNamespace(analysis_type="conventional_nipt", family={"roi": roi} if roi else {}, roi=roi)
+        manifest = SimpleNamespace(
+            analysis_type="conventional_nipt", analysis_key="conventional_nipt:ZW1", family={"roi": roi} if roi else {}, roi=roi
+        )
         return SimpleNamespace(manifest=manifest)
 
     monkeypatch.setattr(registration, "_manifest_roi_value", lambda manifest: manifest.roi)

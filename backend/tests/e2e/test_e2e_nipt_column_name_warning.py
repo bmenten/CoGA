@@ -36,6 +36,7 @@ from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
 from backend.tests.e2e._import_jobs import claim_import_job
+from backend.app.services.family_package_records import suffixed_source
 
 pytestmark = pytest.mark.integration
 
@@ -138,7 +139,12 @@ async def _collect(base: Path) -> dict[str, Any]:
             return capture(
                 await ac.post(
                     "/api/family-imports/deliveries",
-                    json={"folder_path": str(folder), "project_id": project_id, "analysis_type": "monogenic_nipt"},
+                    json={
+                        "folder_path": str(folder),
+                        "project_id": project_id,
+                        "analysis_type": "monogenic_nipt",
+                        "pregnancy_id": "ZW1",
+                    },
                 )
             )
 
@@ -172,9 +178,10 @@ async def _collect(base: Path) -> dict[str, Any]:
         rows = await execute_clickhouse(
             "SELECT variantId, `calls.sampleId` "
             f"FROM {_small_table_name(_harness.ASSEMBLY, 'entries')} "
-            "WHERE family_guid = %(family_guid)s AND source = 'nipt' AND sign = 1 "
+            "WHERE family_guid = %(family_guid)s AND source = %(source)s AND sign = 1 "
             "ORDER BY variantId",
-            {"family_guid": family_uuid},
+            # The pregnancy's own NIPT callset (family_package_records.suffixed_source).
+            {"family_guid": family_uuid, "source": suffixed_source("nipt", "ZW1")},
         )
         out["calls"] = [sorted(str(sample) for sample in samples) for _variant_id, samples in rows]
     return out

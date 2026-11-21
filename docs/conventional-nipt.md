@@ -11,24 +11,33 @@ with the code. ccnv's own description of its methods: https://matthdsm.github.io
 
 ## Family and input
 
-- A family holds a conventional NIPT when its package says `analysis_type: conventional_nipt`: the
-  import adds it to the family's analysis types (`family.metadata.analysis_types`), where a monogenic
-  NIPT of the same pregnancy may stand beside it. Its member is the maternal plasma, the mother of the
-  pregnancy, whose assays then hold `cnipt_cfdna` (`sample.metadata.assays`); a fetus may be listed
-  without data.
+- A family holds a conventional NIPT when its package says `analysis_type: conventional_nipt` and
+  names its pregnancy (`pregnancy_id`, required, [coga-package.md](coga-package.md)): the import adds
+  its key (`conventional_nipt:ZW1`) to the family's analyses (`family.metadata.analyses`), where a
+  monogenic NIPT of the same pregnancy, and the NIPTs of the woman's other pregnancies, may stand
+  beside it. A family holds one conventional NIPT per pregnancy, each an analysis of its own (the
+  owner's decision of 2026-11-21). Its member is the maternal plasma, the mother of the pregnancy,
+  whose assays then hold `cnipt_cfdna` (`sample.metadata.assays`); the pregnancy's fetus may be
+  listed without data (role `fetus`; two in a twin pregnancy). A plasma is one pregnancy's: an
+  import of another pregnancy that lists it is refused.
 - The cNIPT plasma may carry another sample ID than the monogenic NIPT's plasma of the same
-  pregnancy. The two samples are one person, linked as the same individual: by the package's
-  `same_individual_as` on the plasma, which names the monogenic NIPT's plasma (the family must
-  already hold it), or with **Same individual** in the family's members editor. The pedigree draws
-  the mother once, labelled with both IDs. The cNIPT plasma has no genotypes, so the link adds no
-  Sample QC check ([data-import.md](data-import.md#the-existing-familys-members),
+  pregnancy, and the plasma of a later pregnancy always does. The samples are one person, linked as
+  the same individual: by the package's `same_individual_as` on the plasma, which names the other
+  plasma (the family must already hold it), or with **Same individual** in the family's members
+  editor. The pedigree draws the mother once, labelled with every ID. One person is no one
+  pregnancy: each pregnancy's results stay its own. A plasma is a mixture of the mother's and a
+  fetus's DNA, so Sample QC never compares it for identity; the cNIPT plasma has no genotypes either,
+  so the link adds no Sample QC check ([data-import.md](data-import.md#the-existing-familys-members),
   [family-member-management.md](family-member-management.md#the-editor)).
 - The `ccnv` dataset names, per plasma, ccnv's bins, segments, calls VCF and QC file. How they are
   read, checked and stored: [data-import.md](data-import.md#conventional-nipt-ccnv)
   (`ccnv_output.py`, `family_package_ccnv.py`).
 - What is stored: the bins as the plasma's `coverage` track and the segments as its `segments` track
-  (source `ccnv`, log2 ratios, ccnv's values in each row's `metadata_json`); the calls as structural
-  variants (source `ccnv`, genotype `./1`); the QC file under `samples.metadata.ccnv`.
+  (log2 ratios, ccnv's values in each row's `metadata_json`); the calls as structural variants
+  (genotype `./1`); each under the pregnancy's own `ccnv` source (`ccnv_p…`,
+  `family_package_records.suffixed_source`), which the readers read as `ccnv` (`source_base`), so
+  an import of another pregnancy's conventional NIPT replaces none of it; the QC file under
+  `samples.metadata.ccnv`.
 
 ## The views
 
@@ -129,17 +138,23 @@ before the release candidate.
 
 ## Endpoint and page
 
-- `GET /families/{family_id}/cnipt` (`routers/families_cnipt.py`, `cnipt_service.py`,
-  `schemas/cnipt.py`): each plasma's result with its findings, fetal fractions, sex-chromosome call,
-  resolution, warnings and the bounds it applied. A family without ccnv output answers 404.
+- `GET /families/{family_id}/cnipt?analysis=` (`routers/families_cnipt.py`, `cnipt_service.py`,
+  `schemas/cnipt.py`): the conventional NIPT of one pregnancy (`analysis`, named when the family
+  holds the conventional NIPT of several pregnancies; 422 without one): each plasma its package
+  lists, with its findings, fetal fractions, sex-chromosome call, resolution, warnings and the bounds
+  it applied, and the pregnancy's `fetuses` with `multiple_pregnancy_note` for a multiple pregnancy
+  (a finding may be present in one fetus or in more than one; it does not apply to a monozygotic
+  twin). A family without ccnv output answers 404.
 - The page `/families/{id}/cnipt` (`FamilyCniptPage.tsx`, `cniptResult.ts`) and its tab *cNIPT* in
-  the family's module row, shown for a conventional NIPT family.
+  the family's module row, shown for a conventional NIPT family; it offers the pregnancy beside the
+  family's name when the family holds several, the last imported first, and shows the note.
 
 ## Sign-out
 
 A conventional NIPT family is signed out like every family, from its report page, which shows the
 live result above the reported findings (`CniptReportSummary.tsx`). The signed record holds the
-section `cnipt` (`signed_record_cnipt.py`): each plasma's result, the same object the page shows
+section `cnipt` (`signed_record_cnipt.py`) of the conventional NIPT signed out: the analysis, the
+pregnancy's fetuses and the multiple-pregnancy note, and each plasma's result, the same object the page shows
 (each target with its verdict, reasons and `claimed`), with the bounds it applied and its inputs (a digest of the kept QC object, the number and a digest of
 the segments read, the segments files). The signed view renders it (`CniptResults` in
 `SignedFamilyReport.tsx`, parsed in `signedReportRecord.ts`).

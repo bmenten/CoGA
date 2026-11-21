@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS family_members (
     CONSTRAINT family_members_carrier_status_check CHECK ((carrier_status = ANY (ARRAY['unknown'::text, 'not_carrier'::text, 'carrier'::text]))),
     CONSTRAINT family_members_carrier_type_check CHECK ((carrier_type = ANY (ARRAY['obligate'::text, 'proven'::text, 'reported'::text, 'inferred'::text]))),
     CONSTRAINT family_members_clinical_status_check CHECK ((clinical_status = ANY (ARRAY['unknown'::text, 'unaffected'::text, 'affected'::text]))),
-    CONSTRAINT family_members_role_check CHECK ((role = ANY (ARRAY['proband'::text, 'father'::text, 'mother'::text, 'sibling'::text, 'embryo'::text, 'relative'::text]))),
+    CONSTRAINT family_members_role_check CHECK ((role = ANY (ARRAY['proband'::text, 'father'::text, 'mother'::text, 'sibling'::text, 'embryo'::text, 'fetus'::text, 'relative'::text]))),
     CONSTRAINT family_members_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
     CONSTRAINT family_members_sample_id_fkey FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
 );
@@ -506,7 +506,8 @@ CREATE INDEX IF NOT EXISTS idx_sample_interval_track_sources_sample_type ON samp
 -- small_variant_reviews
 -- ---------------------------------------------------------------------------
 -- A review is one analysis's (services/analysis_reviews.py): analysis is the family's
--- analysis it was made in (families.metadata analysis_types), '' for one made while the family
+-- analysis it was made in, by its key (families.metadata analyses: one pregnancy's NIPT is
+-- monogenic_nipt:ZW1), '' for one made while the family
 -- held none. A variant has a review per analysis that reviewed it; a review stored under no
 -- analysis the family holds is read by each analysis that has none of its own.
 CREATE TABLE IF NOT EXISTS small_variant_reviews (

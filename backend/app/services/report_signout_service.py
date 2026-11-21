@@ -59,7 +59,7 @@ from .annotation_manifest_service import (
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import audit_actor, compound_het_pair_state, record_clinical_event
-from .family_analysis_types import family_analysis_types
+from .family_analysis_types import family_analyses
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .finding_review_pg import (
     FINDING_DRIFT_SECTION,
@@ -87,7 +87,7 @@ from .package_changed_after_import import (
     gates_a_sign_out,
     sign_out_source_changes,
 )
-from .family_package_records import ANALYSIS_LABELS, analysis_data_words
+from .family_package_records import analysis_data_words, analysis_label
 from .report_code import (
     ReportCodeError,
     content_hash_prefix,
@@ -642,8 +642,8 @@ def _import_words(analysis_type: object) -> str:
     """An import of a package of ``analysis_type`` (the analysis an import mark records), as
     the gate message names it: "an import of this family's long-read WGS data", or "an
     import" for one it has no label for (a package that named no analysis)."""
-    label = ANALYSIS_LABELS.get(str(analysis_type or ""))
-    return f"an import of this family's {label} data" if label else "an import"
+    label = analysis_label(analysis_type)
+    return f"an import of {analysis_data_words(analysis_type)}" if label else "an import"
 
 
 def _failed_dataset_words(name: str, analyses: Iterable[Any]) -> str:
@@ -652,7 +652,7 @@ def _failed_dataset_words(name: str, analyses: Iterable[Any]) -> str:
     analysis) beside them ("snv (long-read WGS, an upload)"). A dataset only uploads failed in
     is named alone."""
     analyses = list(analyses)
-    labels = [ANALYSIS_LABELS[str(analysis)] for analysis in analyses if str(analysis) in ANALYSIS_LABELS]
+    labels = [label for analysis in analyses if analysis is not None and (label := analysis_label(analysis))]
     if labels and any(analysis is None for analysis in analyses):
         labels.append("an upload")
     return f"{name} ({', '.join(labels)})" if labels else name
@@ -1316,17 +1316,17 @@ async def _family_metadata(session: AsyncSession, family_uuid: str) -> Mapping[s
 
 
 async def family_signout_analyses(session: AsyncSession, family_uuid: str) -> list[str]:
-    """The analyses a family holds (``family_analysis_types``), sorted: each signed out on its
-    own (the owner's decision of 2026-11-19), such as the monogenic and the conventional NIPT of
-    one pregnancy, or short-read and then long-read WGS of the same DNA."""
-    return sorted(family_analysis_types(await _family_metadata(session, family_uuid)))
+    """The analyses a family holds, by their keys (``family_analyses``), sorted: each signed out
+    on its own (the owner's decisions of 2026-11-19 and 2026-11-21), such as the monogenic and the
+    conventional NIPT of each pregnancy, or short-read and then long-read WGS of the same DNA."""
+    return sorted(family_analyses(await _family_metadata(session, family_uuid)))
 
 
 async def family_signout_scope(session: AsyncSession, family_uuid: str, asked: str | None) -> SignoutScope:
     """The scope of a sign-out of the family's analysis ``asked`` (``resolve_signout_analysis``):
     the data it freezes and checks, that analysis's own (``signout_scope``)."""
     metadata = await _family_metadata(session, family_uuid)
-    analysis = resolve_signout_analysis(sorted(family_analysis_types(metadata)), asked)
+    analysis = resolve_signout_analysis(sorted(family_analyses(metadata)), asked)
     return signout_scope(metadata, analysis)
 
 
@@ -1389,7 +1389,6 @@ async def build_report_snapshot(
         project_id=project_id,
         shared_nipt=shared_nipt,
         # The QC of the analysis signed out, on genotypes of its own callset.
-        analysis_types=None if scope.whole or analysis is None else [analysis],
         genotype_source_held=None if scope.whole else lambda source: scope.holds("small_variants", [source]),
         analysis=None if scope.whole else analysis,
     )
@@ -1996,7 +1995,7 @@ async def sign_out_report(
     # that holds no analysis, signed out whole).
     signed_analysis = snapshot_body["analysis_type"]
     analysis_words = (
-        f" of the {ANALYSIS_LABELS.get(signed_analysis, signed_analysis)}" if signed_analysis else ""
+        f" of the {analysis_label(signed_analysis) or signed_analysis}" if signed_analysis else ""
     )
     await record_clinical_event(
         session,

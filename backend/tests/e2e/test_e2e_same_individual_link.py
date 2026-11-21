@@ -68,6 +68,7 @@ def _mnipt_package(root: Path, family_id: str, father: str, plasma: str, fetus: 
         "schema_version": 1,
         "family_id": family_id,
         "analysis_type": "monogenic_nipt",
+        "pregnancy_id": "ZW1",
         "ped": "family.ped",
         "samples": {plasma: {"assay": "nipt_cfdna"}},
         "datasets": {"snv": {"family_vcf": "nipt_combined.vcf", "source_format": "mutect2"}},
@@ -82,6 +83,7 @@ def _cnipt_manifest(family_id: str, plasma: str, entry: dict[str, Any], *, same_
         "family_id": family_id,
         "ped": "family.ped",
         "analysis_type": "conventional_nipt",
+        "pregnancy_id": "ZW1",
         "samples": {plasma: {"assay": "cnipt_cfdna"}},
         "datasets": {"ccnv": {"per_sample": {plasma: entry}}},
     }

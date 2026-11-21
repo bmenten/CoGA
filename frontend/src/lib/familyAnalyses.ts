@@ -1,13 +1,36 @@
 /**
- * The analyses a family holds (`families.metadata.analysis_types`, backend
- * `family_analysis_types.py`). A family may hold several, such as the monogenic and the
- * conventional NIPT of one pregnancy, each imported from a package of its own; every reader asks
- * whether the family holds an analysis, never which one it holds.
+ * The analyses a family holds (`families.metadata.analyses`, backend `family_analysis_types.py`),
+ * each by its key: its analysis type, and for the NIPT of a pregnancy the type and the pregnancy
+ * its package names (`monogenic_nipt:ZW1`). A family may hold several: short-read and then
+ * long-read WGS of the same DNA, or the monogenic and the conventional NIPT of each of a woman's
+ * pregnancies, each imported from a package of its own. A reader asks whether the family holds an
+ * analysis type (`holdsAnalysis`), or reads one analysis by its key.
  */
-export const familyAnalysisTypes = (metadata: unknown): string[] => {
-  const types = (metadata as { analysis_types?: unknown } | null | undefined)?.analysis_types;
-  return Array.isArray(types) ? types.filter((value): value is string => typeof value === 'string') : [];
+export const familyAnalyses = (metadata: unknown): string[] => {
+  const keys = (metadata as { analyses?: unknown } | null | undefined)?.analyses;
+  return Array.isArray(keys) ? keys.filter((value): value is string => typeof value === 'string' && value !== '') : [];
 };
+
+/** The analysis types whose analyses are each one pregnancy's (backend `PREGNANCY_ANALYSIS_TYPES`). */
+const PREGNANCY_ANALYSIS_TYPES = ['monogenic_nipt', 'conventional_nipt'];
+/** Between the analysis type and the pregnancy in a pregnancy's analysis's key. */
+const PREGNANCY_SEPARATOR = ':';
+
+/** The analysis type of the analysis whose key is `key`: the key up to its pregnancy. */
+export const analysisTypeOf = (key: string | null | undefined): string => (key ?? '').split(PREGNANCY_SEPARATOR)[0];
+
+/** The pregnancy of the analysis whose key is `key`; null for an analysis of no pregnancy. */
+export const pregnancyOf = (key: string | null | undefined): string | null => {
+  const text = key ?? '';
+  const at = text.indexOf(PREGNANCY_SEPARATOR);
+  if (at < 0 || !PREGNANCY_ANALYSIS_TYPES.includes(text.slice(0, at))) return null;
+  return text.slice(at + 1);
+};
+
+/** The analysis types of the analyses a family holds, each once. */
+export const familyAnalysisTypes = (metadata: unknown): string[] => [
+  ...new Set(familyAnalyses(metadata).map((key) => analysisTypeOf(key))),
+];
 
 /**
  * The analysis a sign-out of the family, or its check, is of when the page names none: the
@@ -15,14 +38,14 @@ export const familyAnalysisTypes = (metadata: unknown): string[] => {
  * `report_signout_service.resolve_signout_analysis`, which asks for one of several).
  */
 export const soleAnalysis = (metadata: unknown): string | null => {
-  const types = familyAnalysisTypes(metadata);
-  return types.length === 1 ? types[0] : null;
+  const keys = familyAnalyses(metadata);
+  return keys.length === 1 ? keys[0] : null;
 };
 
-/** Whether a family's metadata holds the analysis `type`. */
+/** Whether a family's metadata holds an analysis of the type `type`. */
 export const holdsAnalysis = (metadata: unknown, type: string): boolean => familyAnalysisTypes(metadata).includes(type);
 
-/** How the pages name each analysis a package may name (backend `family_package_records.ANALYSIS_LABELS`). */
+/** How the pages name each analysis type a package may name (backend `family_package_records.ANALYSIS_LABELS`). */
 const ANALYSIS_LABELS: Record<string, string> = {
   long_read_wgs: 'long-read WGS',
   long_read_adaptive_sampling: 'long-read adaptive sampling',
@@ -33,9 +56,16 @@ const ANALYSIS_LABELS: Record<string, string> = {
   conventional_nipt: 'conventional NIPT',
 };
 
-/** An analysis's name in a sentence ("monogenic NIPT"); null for one without a label (`unspecified`). */
-export const analysisLabel = (analysisType: string | null | undefined): string | null =>
-  (analysisType && ANALYSIS_LABELS[analysisType]) || null;
+/**
+ * An analysis's name in a sentence, by its key: "monogenic NIPT", or for a pregnancy's analysis
+ * "monogenic NIPT of pregnancy ZW1"; null for one without a label (`unspecified`).
+ */
+export const analysisLabel = (key: string | null | undefined): string | null => {
+  const label = ANALYSIS_LABELS[analysisTypeOf(key)];
+  if (!label) return null;
+  const pregnancy = pregnancyOf(key);
+  return pregnancy !== null ? `${label} of pregnancy ${pregnancy}` : label;
+};
 
 /**
  * The analyses of a family that are each signed out on their own, sorted: every analysis of a
@@ -44,22 +74,40 @@ export const analysisLabel = (analysisType: string | null | undefined): string |
  * signed out whole.
  */
 export const separatelySignedAnalyses = (metadata: unknown): string[] => {
-  const types = familyAnalysisTypes(metadata);
-  return types.length > 1 ? [...types].sort() : [];
+  const keys = familyAnalyses(metadata);
+  return keys.length > 1 ? [...keys].sort() : [];
 };
 
-/** The analysis the NIPT report signs out: the monogenic NIPT of a family that holds several, else null (the whole family). */
-export const niptReportAnalysis = (metadata: unknown): string | null =>
-  separatelySignedAnalyses(metadata).includes('monogenic_nipt') ? 'monogenic_nipt' : null;
+/**
+ * The analysis the NIPT report of the monogenic NIPT `niptAnalysis` (one pregnancy's) signs out:
+ * that analysis, of a family that holds several, else null (the whole family).
+ */
+export const niptReportAnalysis = (metadata: unknown, niptAnalysis: string | null): string | null =>
+  niptAnalysis !== null && separatelySignedAnalyses(metadata).includes(niptAnalysis) ? niptAnalysis : null;
 
 /**
  * The analyses the family's Report page signs out of a family that holds several: every one but
- * the monogenic NIPT, which the NIPT report signs out. Empty for a family signed out whole.
+ * the monogenic NIPTs, which the NIPT report of each pregnancy signs out. Empty for a family
+ * signed out whole.
  */
 export const reportPageAnalyses = (metadata: unknown): string[] =>
-  separatelySignedAnalyses(metadata).filter((type) => type !== 'monogenic_nipt');
+  separatelySignedAnalyses(metadata).filter((key) => analysisTypeOf(key) !== 'monogenic_nipt');
 
 type PackageRecordLike = { sources?: { small_variants?: unknown }; registered_at?: unknown };
+
+const packageRecords = (metadata: unknown): Record<string, PackageRecordLike> => {
+  const records = (metadata as { package_imports?: unknown } | null | undefined)?.package_imports;
+  return records && typeof records === 'object' ? (records as Record<string, PackageRecordLike>) : {};
+};
+
+/** `keys` in the order their analyses were imported (a package record's `registered_at`), then by key. */
+const inImportOrder = (metadata: unknown, keys: string[]): string[] => {
+  const records = packageRecords(metadata);
+  return [...keys].sort((keyA, keyB) => {
+    const order = String(records[keyA]?.registered_at ?? '').localeCompare(String(records[keyB]?.registered_at ?? ''));
+    return order !== 0 ? order : keyA.localeCompare(keyB);
+  });
+};
 
 /**
  * The family's analyses whose package record lists a small-variant callset of its own, in the
@@ -68,21 +116,15 @@ type PackageRecordLike = { sources?: { small_variants?: unknown }; registered_at
  * reviews name the analysis (the owner's decision of 2026-11-20).
  */
 export const smallVariantAnalyses = (metadata: unknown): string[] => {
-  const held = new Set(familyAnalysisTypes(metadata));
-  const records = (metadata as { package_imports?: unknown } | null | undefined)?.package_imports;
-  if (!records || typeof records !== 'object') return [];
-  return Object.entries(records as Record<string, PackageRecordLike>)
-    .filter(
-      ([key, record]) =>
-        held.has(key) &&
-        Array.isArray(record?.sources?.small_variants) &&
-        (record.sources?.small_variants as unknown[]).length > 0,
-    )
-    .sort(([keyA, a], [keyB, b]) => {
-      const order = String(a?.registered_at ?? '').localeCompare(String(b?.registered_at ?? ''));
-      return order !== 0 ? order : keyA.localeCompare(keyB);
-    })
-    .map(([key]) => key);
+  const held = new Set(familyAnalyses(metadata));
+  const records = packageRecords(metadata);
+  return inImportOrder(
+    metadata,
+    Object.keys(records).filter((key) => {
+      const sources = records[key]?.sources?.small_variants;
+      return held.has(key) && Array.isArray(sources) && sources.length > 0;
+    }),
+  );
 };
 
 /** The URL search parameter, and API query parameter, that names the analysis a page reads. */
@@ -111,9 +153,23 @@ export const analysisQuery = (analysis: string | null | undefined): string =>
   analysis ? `?${ANALYSIS_PARAM}=${encodeURIComponent(analysis)}` : '';
 
 /**
- * The analysis the monogenic NIPT page reads and reviews the family's small variants for: the
- * monogenic NIPT, named when the family holds another analysis with small variants of its own
- * (the couple's carrier screening); null otherwise, where it is the family's one.
+ * The family's analyses of the pregnancy analysis type `type` (`monogenic_nipt`,
+ * `conventional_nipt`): one per pregnancy, in the order they were imported.
  */
-export const niptVariantAnalysis = (metadata: unknown): string | null =>
-  smallVariantAnalyses(metadata).length > 1 && holdsAnalysis(metadata, 'monogenic_nipt') ? 'monogenic_nipt' : null;
+export const pregnancyAnalyses = (metadata: unknown, type: string): string[] =>
+  inImportOrder(
+    metadata,
+    familyAnalyses(metadata).filter((key) => analysisTypeOf(key) === type),
+  );
+
+/**
+ * The NIPT of `type` a page of the family reads (backend `nipt.nipt_analysis_of`): of the
+ * family's analyses of that type, one per pregnancy, the one the URL names, else the one imported
+ * last; null for a family that holds none. A family's pregnancies are read one at a time.
+ */
+export const pregnancyAnalysisOf = (metadata: unknown, type: string, search: string): string | null => {
+  const analyses = pregnancyAnalyses(metadata, type);
+  if (!analyses.length) return null;
+  const asked = new URLSearchParams(search).get(ANALYSIS_PARAM);
+  return asked && analyses.includes(asked) ? asked : analyses[analyses.length - 1];
+};

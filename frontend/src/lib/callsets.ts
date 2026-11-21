@@ -1,3 +1,5 @@
+import { sourceBase } from './pregnancySources';
+
 /**
  * The small-variant callsets a family holds, each named by the caller that made it (backend
  * `small_variant_callsets.py`): `haplotypecaller` (short-read WGS), `mutect2` (a NIPT plasma),
@@ -14,8 +16,10 @@ export const CALLER_LABELS: Record<string, string> = {
 
 /** A callset in words: a caller's direct calls by the caller's name. */
 export const callsetLabel = (callset: string): string => {
-  if (callset === 'nipt') return 'NIPT per-sample calls';
-  if (callset === 'glimpse2' || callset === 'shapeit') return 'Imputed genotypes';
-  if (callset === 'mito') return 'mtDNA calls';
-  return `Direct calls (${CALLER_LABELS[callset] ?? callset})`;
+  // A pregnancy's callset is named as the callset it is kept for (`sourceBase`).
+  const base = sourceBase(callset);
+  if (base === 'nipt') return 'NIPT per-sample calls';
+  if (base === 'glimpse2' || base === 'shapeit') return 'Imputed genotypes';
+  if (base === 'mito') return 'mtDNA calls';
+  return `Direct calls (${CALLER_LABELS[base] ?? base})`;
 };

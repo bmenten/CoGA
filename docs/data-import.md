@@ -11,8 +11,9 @@ project exists (**Admin → Projects & access**), then import its package (secti
 A family gets into CoGA in one of two ways:
 
 - **Family builder** (`/family-builder`): a pedigree typed in by hand, metadata only. Its
-  request may mark the family as monogenic NIPT (`analysis_type: monogenic_nipt`) and a sample
-  as the mother's cfDNA (`assay: nipt_cfdna`), nothing else: the keys an import or an audited
+  request may mark the family as the monogenic NIPT of a pregnancy (`analyses:
+  ["monogenic_nipt:ZW1"]`, the page asking the pregnancy ID; the family's child is then recorded
+  as the pregnancy's `fetus`) and a sample as the mother's cfDNA (`assay: nipt_cfdna`), nothing else: the keys an import or an audited
   edit writes (the annotation manifest, a sample's sequencing QC, the import state) are refused
   with 400.
 - **Package import** (`/package-import`): one package folder, checked, approved and imported
@@ -618,8 +619,9 @@ pedigree:
   package's.
 
 A family may hold several analyses, each from a package of its own (the monogenic and the
-conventional NIPT of one pregnancy; short-read and then long-read WGS of the same DNA), each with
-its package record (`families.metadata.package_imports`, keyed by the package's `analysis_type`).
+conventional NIPT of each of a woman's pregnancies; short-read and then long-read WGS of the same
+DNA), each with its package record (`families.metadata.package_imports`, keyed by the analysis's
+key: the package's `analysis_type`, a NIPT's with its `pregnancy_id`, `monogenic_nipt:ZW1`).
 An import of one of them must not change another's members behind its back (the owner's decision
 of 2026-11-20). So when the family holds a package record of another analysis:
 
@@ -1228,8 +1230,8 @@ CoGA shows a family's read files (IGV), signal tracks and QC report from the pac
 import that recorded them read, where it lies. So after the import the watcher follows that folder
 ([package_changed_after_import.py](../backend/app/services/package_changed_after_import.py); the
 owner's decisions of 2026-11-11). A family keeps one package record per analysis it was imported
-for (`families.metadata.package_imports`, keyed by the package's `analysis_type`: the monogenic and
-the conventional NIPT of one pregnancy each have their own), and all below holds per record: each
+for (`families.metadata.package_imports`, keyed by the analysis's key: the monogenic and the
+conventional NIPT of each pregnancy each have their own), and all below holds per record: each
 analysis's folder is followed against its own reference, never another's.
 
 - **The reference.** An import with update skips the datasets the family holds already, so only an
@@ -1438,7 +1440,9 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 ```
 
 - **Roles and statuses.** `role=` gives a member's role (`father`, `mother`, `proband`,
-  `embryo`, `relative`, `sibling`); without one, the pedigree gives it. The sixth column gives
+  `embryo`, `fetus`, `relative`, `sibling`); without one, the pedigree gives it. A `fetus` is a
+  pregnancy's, of a monogenic or a conventional NIPT; in a NIPT package a child of both parents of
+  unknown sex that is not affected is read as the fetus. The sixth column gives
   the clinical status (`2` affected, `1` unaffected, `0` or `-9` unknown), and `carrier=1` (with
   `carrier_type=obligate` or `proven` when known) a carrier.
 - **Embryos** have sex `0`, unknown before the analysis, and `role=embryo`; a child of the couple
@@ -1780,9 +1784,11 @@ two members the PED or the manifest already records as parent and child or as a 
 child's parents count as one); the same pair linked twice.
 
 `family.relationships.same_individual` links two samples of one person (`samples`, the two IDs):
-the plasmas of a monogenic and a conventional NIPT of one pregnancy under two sample IDs, say. The
-pedigree draws them as one symbol labelled with both IDs, and Sample QC expects their genotypes
-identical. One of the two may be a member of another analysis's package that the family already
+the plasmas of a monogenic and a conventional NIPT of one pregnancy under two sample IDs, or the
+plasmas of two pregnancies of one woman, say. The pedigree draws them as one symbol labelled with
+both IDs, and Sample QC expects their genotypes identical, but never a maternal plasma's: a mixture
+of the mother's and a fetus's DNA, which no relatedness check reads. Two plasmas of one woman are
+one person, never one pregnancy. One of the two may be a member of another analysis's package that the family already
 holds ([Two samples of one person](#the-existing-familys-members)). These links are errors
 (`manifest_same_individual_link_invalid`): a sample linked to itself; two members also linked as
 parent and child, as a couple or by an unknown degree; the same pair linked twice; a sample whose
@@ -1846,8 +1852,26 @@ refuses it, `dataset_callset_invalid`).
 
 A family may hold several analyses, on the same DNA or on different samples of one person (linked
 as the same individual): short-read and then long-read WGS, a monogenic and a conventional NIPT of
-one pregnancy. Each is imported from its own package (the second with update) and signed out on its
-own, and each stays apart from the others (the owner's decisions of 2026-11-20):
+one pregnancy, the NIPTs of several pregnancies of one woman. Each is imported from its own package
+(the second with update) and signed out on its own, and each stays apart from the others (the
+owner's decisions of 2026-11-20 and 2026-11-21):
+
+- **Each analysis has a key.** An analysis is keyed by its `analysis_type`; a monogenic or a
+  conventional NIPT by its type and the pregnancy its package names (`pregnancy_id`, required for a
+  NIPT, refused for any other analysis: `monogenic_nipt:ZW1`). The family's analyses
+  (`families.metadata.analyses`), its package records, its reviews, its annotation manifests, its
+  import marks and its sign-outs are keyed by it. A monogenic and a conventional NIPT that name the
+  same pregnancy are one pregnancy; a package that names a pregnancy the family holds imports that
+  pregnancy's analysis again (with update or overwrite), and one that names another pregnancy is a
+  new analysis beside the others.
+- **Each pregnancy keeps its data as its own.** The sources of a pregnancy's small variants,
+  coverage and ccnv output carry its pregnancy (`family_package_records.suffixed_source`:
+  `nipt_p1a2b3c4d`, `ccnv_p…`, `web_p…`), so the father's calls of one pregnancy are never
+  another's and an import of one pregnancy replaces nothing of another; the readers read such a
+  source as the one it is kept for (`source_base`). A maternal plasma and a fetus (role `fetus`) are
+  one pregnancy's: an import of another pregnancy whose package lists one of them is refused before
+  anything is written. Two plasmas of one woman, linked as the same individual, are one person,
+  never one pregnancy.
 
 - **No two analyses share a storage source.** An import is refused before anything is written when
   its package would store data under a source another analysis's package record lists
@@ -3089,6 +3113,10 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `sample_id_invalid` | A sample ID breaks the same rule. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
 | `manifest_names_a_ped` | The manifest names a PED (`ped`). The import reads no PED: the members go under `family.add_members`. |
 | `members_missing` | The manifest names no members under `family.add_members`. |
+| `pregnancy_missing` | A `monogenic_nipt` or `conventional_nipt` package names no pregnancy (`pregnancy_id`). Give the laboratory's pregnancy ID in the package, or in **Deliveries** with **Correct…**. |
+| `pregnancy_not_nipt`, `pregnancy_without_analysis` | A package that is no monogenic or conventional NIPT, or names no analysis type, names a pregnancy. Leave `pregnancy_id` out, or correct the analysis type. |
+| `pregnancy_id_invalid` | The pregnancy ID breaks the rule of a family ID (printable, no whitespace, no `/` or `\`, not `.` or `..`) or is longer than 64 characters. |
+| A package of another pregnancy that lists a maternal plasma or a fetus of the family's (refused at import) | A maternal plasma and a fetus are one pregnancy's. Give this pregnancy's samples IDs of their own, or correct the package's `pregnancy_id` if it is that pregnancy. |
 | `package_not_in_project_folder` | The package folder lies directly in the watched folder. Move it into the folder of its project (`<watched folder>/<project>/`), or refuse the delivery. |
 | `package_project_folder_differs` | The package lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
 | `package_members_differ_from_family` | The family exists, and the package changes or lacks one of its members (another sex, other parents). In a family that holds another analysis, only a member that only this analysis's package listed can be lacking. An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the pedigree of its analysis and keeps the other analyses' members. |

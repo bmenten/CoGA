@@ -22,6 +22,7 @@ from ..schemas import (
     VariantOut,
     VariantPage,
 )
+from ..services.family_analysis_types import ANALYSIS_KEY_MAX_LENGTH
 from ..services.clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
     export_family_small_variants,
@@ -30,7 +31,9 @@ from ..services.clickhouse_family_variants import (
 )
 from ..services.family_metadata_context import build_family_metadata_context, family_sample_contexts
 from ..services.family_variant_statistics import get_family_small_variant_statistics
-from ..services.signed_record_nipt import family_nipt_trio, is_nipt_family
+from ..services.family_analysis_types import analysis_type_of
+from ..services.nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
+from ..services.signed_record_nipt import family_nipt_trio
 from ..services.access_control import CurrentUser, changes_only_own_data
 from ..services.panel_use_audit import record_family_panel_use
 from ..services.raw_import_files_pg import record_upload_file_obj
@@ -50,7 +53,7 @@ from ..services.small_variant_review_presets import (
     save_small_variant_filter_preset as save_small_variant_filter_preset_record,
 )
 from ..services.variant_prioritization import RANK_BY_COMBINED_SCORE, RankBy
-from ..services.small_variant_callsets import IMPUTED_CALLSETS, NIPT_CALLSET
+from ..services.small_variant_callsets import IMPUTED_CALLSETS, is_nipt_callset
 from ..services.variant_upload_service import upload_family_small_variant_file
 from .query_params import FiniteThreshold
 
@@ -61,7 +64,10 @@ router = APIRouter()
 # when the family holds several analyses with small variants of their own.
 AnalysisParam = Annotated[
     str | None,
-    Query(max_length=64, description="The family's analysis to read or review (analysis_type)."),
+    Query(
+        max_length=ANALYSIS_KEY_MAX_LENGTH,
+        description="The family's analysis to read or review (its key: monogenic_nipt:ZW1).",
+    ),
 ]
 
 
@@ -103,7 +109,7 @@ async def upload_family_small_variants(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> SmallVariantUploadResult:
-    if source_format == NIPT_CALLSET or (source_format in IMPUTED_CALLSETS and source_format != "glimpse2"):
+    if is_nipt_callset(source_format) or (source_format in IMPUTED_CALLSETS and source_format != "glimpse2"):
         # A monogenic NIPT's per-sample calls only a package import writes; an imputation's
         # genotypes are uploaded with their haplotype blocks, as GLIMPSE2's.
         raise HTTPException(status_code=422, detail="This callset is not uploaded here")
@@ -307,8 +313,12 @@ async def get_family_small_variant_statistics_route(
         project_id=project_id,
         analysis=analysis,
     )
-    # A monogenic NIPT family's plasma and father: their GT is not their genotype.
-    trio = await family_nipt_trio(session, context) if await is_nipt_family(session, context) else None
+    # The plasma and the father of the monogenic NIPT read: their GT is not their genotype.
+    trio = (
+        await family_nipt_trio(session, context)
+        if analysis_type_of(context.scope.analysis) == MONOGENIC_NIPT_ANALYSIS_TYPE
+        else None
+    )
     nipt_samples = (trio[0].cfdna_sample_id, trio[0].father_sample_id) if trio is not None else ()
     return await get_family_small_variant_statistics(context, nipt_samples=nipt_samples)
 

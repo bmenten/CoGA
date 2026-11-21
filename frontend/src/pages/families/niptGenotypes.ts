@@ -9,6 +9,21 @@ import type { FamilyMember, NiptClassification, SmallVariant } from './smallVari
  */
 export type NiptTrio = NiptTrioOut;
 
+/** The assays of a maternal plasma: a monogenic or a conventional NIPT's. */
+const PLASMA_ASSAYS = ['nipt_cfdna', 'cnipt_cfdna'];
+
+/**
+ * Whether the list shows a member's own call: no fetus (it has no sample of its own, and a family
+ * holds one per pregnancy), and no maternal plasma but the trio's: another pregnancy's plasma is no
+ * sample of this pregnancy's analysis.
+ */
+const readsOwnCalls = (member: FamilyMember, trio: NiptTrio): boolean => {
+  if (member.role === 'fetus' || trio.fetus_sample_ids.includes(member.sample_id)) return false;
+  if (member.sample_id === trio.cfdna_sample_id) return true;
+  const assays = (member.sample_metadata as { assays?: unknown } | undefined)?.assays;
+  return !(Array.isArray(assays) && assays.some((assay) => PLASMA_ASSAYS.includes(String(assay))));
+};
+
 /** The plasma's role on the NIPT list, in place of the member's own (the mother's, mostly). */
 export const NIPT_PLASMA_ROLE = 'plasma (cfDNA)';
 
@@ -104,7 +119,7 @@ export const niptGenotypeEntries = (
   ownRow: (member: FamilyMember) => GenotypeRow,
 ): GenotypeGridEntry[] =>
   members
-    .filter((member) => member.sample_id !== trio.fetus_sample_id)
+    .filter((member) => readsOwnCalls(member, trio))
     .map((member) => {
       if (member.sample_id === trio.cfdna_sample_id) return plasmaRow(member, nipt);
       if (member.sample_id === trio.father_sample_id) return fatherRow(member, nipt);
@@ -128,7 +143,7 @@ export const niptCompactGenotypes = (
   trio: NiptTrio,
 ): CompactGenotype[] =>
   members
-    .filter((member) => member.sample_id !== trio.fetus_sample_id)
+    .filter((member) => readsOwnCalls(member, trio))
     .map((member) => {
       const nipt = variant.nipt;
       let gt: string;

@@ -8,6 +8,7 @@ from ..schemas import (
     FamilyImportValidationIssue,
 )
 
+from .family_analysis_types import FETUS_ROLE, is_pregnancy_analysis_type
 from .family_package_common import PackageManifest, ParsedPed, PedMember, _issue, _metadata_dict, _normalize_header_key, sample_id_issues
 
 
@@ -45,7 +46,7 @@ _PED_NUMERIC_STATUS_VALUES = {
 }
 
 
-_PED_ROLE_VALUES = {"proband", "father", "mother", "sibling", "embryo", "relative"}
+_PED_ROLE_VALUES = {"proband", "father", "mother", "sibling", "embryo", "fetus", "relative"}
 
 
 _TRUE_VALUES = {"1", "true", "yes", "y", "carrier"}
@@ -675,13 +676,22 @@ def _manifest_added_ped_rows(
     ``father`` and ``mother``, when given, go into the row; the PED checks then see that they are
     members of the right sex. Other links go under ``family.relationships``. A member without a
     role gets one as a PED row does, from the pedigree (``_ped_members_for_import``): a parent's
-    from its children, then embryo, proband or sibling.
+    from its children, then embryo, proband or sibling. In the package of a pregnancy's NIPT the
+    child an embryo's place would be read for (both parents, unknown sex, not affected) is the
+    pregnancy's ``fetus``.
 
     A member listed twice is an error, and so is an ID, the member's or a parent's, that a sample
     cannot be stored under (``sample_id_invalid``): a parent that is a listed member is reported
     once, under its own entry.
     """
     listed = {sample_id for sample_id, _payload in _manifest_added_member_entries(manifest) if sample_id}
+    fetal = is_pregnancy_analysis_type(manifest.analysis_type)
+    named_parents = {
+        str(value).strip()
+        for _sample_id, payload in _manifest_added_member_entries(manifest)
+        for value in (_lookup_normalized_key(payload, "father"), _lookup_normalized_key(payload, "mother"))
+        if value is not None and str(value).strip()
+    }
     rows: list[str] = []
     errors: list[FamilyImportValidationIssue] = []
     seen: set[str] = set()
@@ -750,6 +760,15 @@ def _manifest_added_ped_rows(
         if parent_issues:
             errors.extend(parent_issues)
             continue
+        if (
+            role is None
+            and fetal
+            and "0" not in parents
+            and sex == "0"
+            and clinical_status != "affected"
+            and sample_id not in named_parents
+        ):
+            role = FETUS_ROLE
         row = f"{family_id} {sample_id} {parents[0]} {parents[1]} {sex} {phenotype}"
         rows.append(f"{row} role={role}" if role is not None else row)
     return rows, errors

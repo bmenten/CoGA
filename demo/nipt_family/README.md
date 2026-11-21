@@ -26,7 +26,7 @@ The package file names the family `FAM_NIPT_DEMO` and its three members:
 | --- | --- | --- | --- | --- |
 | `FATHER_NIPT` | male | | unaffected | the father's germline column in the VCF |
 | `CFDNA_NIPT` | female | | unaffected | the mother; her sample is the maternal plasma (`assay: nipt_cfdna`) |
-| `FETUS_NIPT` | unknown | `FATHER_NIPT`, `CFDNA_NIPT` | affected | the fetus, without a sample of its own |
+| `FETUS_NIPT` | unknown | `FATHER_NIPT`, `CFDNA_NIPT` | affected | the fetus (role `fetus`), without a sample of its own |
 
 Its datasets are the combined VCF (`snv`) and the plasma's coverage BED
 (`coverage`), which declares that it holds read depths (`content: read_depth`):
@@ -136,21 +136,22 @@ checksums.
 ### Option B — Family Builder / API
 
 1. **Create the NIPT trio.** In the **Family Builder** (`/family-builder`), tick
-   **Monogenic NIPT**, add the father, the mother (sample `CFDNA_NIPT`, ticked
-   **cfDNA (maternal plasma)**), and the fetus as the proband (parents
-   FATHER_NIPT / CFDNA_NIPT). That posts the tagged family for you.
+   **Monogenic NIPT** and give the **Pregnancy ID** (`PREG_NIPT_DEMO`), add the father,
+   the mother (sample `CFDNA_NIPT`, ticked **cfDNA (maternal plasma)**), and the fetus as
+   the proband (parents FATHER_NIPT / CFDNA_NIPT): CoGA records it as the pregnancy's
+   fetus. That posts the tagged family for you.
 
-   Or via the API — `POST /api/ped/manual` with the family tagged
-   `metadata.analysis_type = "monogenic_nipt"` and the cfDNA member tagged
-   `metadata.assay = "nipt_cfdna"`:
+   Or via the API — `POST /api/ped/manual` with the family holding the monogenic NIPT of
+   the pregnancy (`metadata.analyses = ["monogenic_nipt:PREG_NIPT_DEMO"]`) and the cfDNA
+   member tagged `metadata.assays = ["nipt_cfdna"]`:
 
    ```json
    {
      "family_id": "FAM_NIPT_DEMO",
-     "metadata": {"analysis_type": "monogenic_nipt"},
+     "metadata": {"analyses": ["monogenic_nipt:PREG_NIPT_DEMO"]},
      "members": [
        {"sample_id": "FATHER_NIPT", "sex": "male"},
-       {"sample_id": "CFDNA_NIPT", "sex": "female", "metadata": {"assay": "nipt_cfdna"}},
+       {"sample_id": "CFDNA_NIPT", "sex": "female", "metadata": {"assays": ["nipt_cfdna"]}},
        {"sample_id": "FETUS_NIPT", "sex": "und", "is_proband": true,
         "father_id": "FATHER_NIPT", "mother_id": "CFDNA_NIPT"}
      ]

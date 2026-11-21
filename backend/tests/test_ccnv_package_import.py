@@ -34,6 +34,7 @@ from backend.app.services.family_metadata_context import FamilyMetadataContext, 
 from backend.app.services.family_package_common import ManifestDataset
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_validation import load_validated_family_package
+from backend.app.services.family_package_common import PackageManifest
 from backend.tests._ccnv_output import BINS_HEADER, SEGMENTS_HEADER, calls_vcf, qc_payload, write_ccnv_output
 from backend.tests._kept_manifest import kept_manifest
 
@@ -178,6 +179,7 @@ def _package(tmp_path: Path, *, analysis_type: str = "conventional_nipt", **outp
         "family_id": "CNIPT1",
         "ped": "CNIPT1.ped",
         "analysis_type": analysis_type,
+        **({"pregnancy_id": "ZW1"} if analysis_type in ("conventional_nipt", "monogenic_nipt") else {}),
         "samples": {SAMPLE: {"assay": "cnipt_cfdna"}},
         "datasets": {"ccnv": {"per_sample": {SAMPLE: entry}}},
     }
@@ -267,7 +269,7 @@ def _job(root: Path, entries: dict[str, dict[str, str]], session: Any, *, confli
     samples = {name: f"uuid-{name.lower()}" for name in entries}
     return family_package_datasets.DatasetImportJob(
         session=session,
-        bundle=SimpleNamespace(root=root, manifest=SimpleNamespace(analysis_type=None)),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=root, manifest=PackageManifest()),  # type: ignore[arg-type]
         dataset=ManifestDataset(per_sample=entries),
         summary=FamilyImportDatasetSummary(dataset_type="ccnv", status="valid"),
         family_context=FamilyMetadataContext(

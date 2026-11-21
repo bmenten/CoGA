@@ -1,9 +1,11 @@
 """A family's package records: one per analysis it was imported for.
 
-A family may hold several analyses, each delivered as a package of its own: the monogenic and the
-conventional NIPT of one pregnancy (the owner's decision of 2026-11-19). So the family's metadata
-keeps one package record per analysis (``families.metadata.package_imports``), keyed by the
-package's ``analysis_type`` (``UNSPECIFIED_ANALYSIS`` for a package that names none). An import
+A family may hold several analyses, each delivered as a package of its own: short-read and then
+long-read WGS of the same DNA, or the NIPTs of several pregnancies of one woman (the owner's
+decisions of 2026-11-19 and 2026-11-21). So the family's metadata keeps one package record per
+analysis (``families.metadata.package_imports``), keyed by the analysis's key
+(``family_analysis_types.analysis_key``: the package's ``analysis_type``, and for a NIPT its
+``pregnancy_id`` too; ``UNSPECIFIED_ANALYSIS`` for a package that names no analysis type). An import
 replaces the record of its own analysis and keeps the others: each says the folder that analysis's
 data came from, the delivery it was last imported from, its reference delivery
 (``package_changed_after_import``), its mode, its datasets and the members its package listed.
@@ -19,10 +21,14 @@ SQL that reads every record of a family joins ``PACKAGE_RECORDS_OF_A_FAMILY``: o
 
 from __future__ import annotations
 
+import hashlib
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-# Family.metadata["package_imports"]: the family's package records, keyed by analysis.
+from .family_analysis_types import analysis_key, analysis_type_of, pregnancy_of
+
+# Family.metadata["package_imports"]: the family's package records, keyed by analysis (its key).
 PACKAGE_IMPORTS_KEY = "package_imports"
 # The key of the record of a package that names no analysis type.
 UNSPECIFIED_ANALYSIS = "unspecified"
@@ -50,12 +56,28 @@ ANALYSIS_LABELS: dict[str, str] = {
 }
 
 
+def analysis_label(analysis: object) -> str | None:
+    """How a message names the analysis whose key is ``analysis``: "monogenic NIPT", or for a
+    pregnancy's analysis "monogenic NIPT of pregnancy ZW1"; None for one it has no label for
+    (``UNSPECIFIED_ANALYSIS``)."""
+    label = ANALYSIS_LABELS.get(analysis_type_of(analysis))
+    if label is None:
+        return None
+    pregnancy = pregnancy_of(analysis)
+    return f"{label} of pregnancy {pregnancy}" if pregnancy is not None else label
+
+
 def analysis_data_words(analysis: object) -> str:
     """How a message names the data of the analysis whose package record ``analysis`` is the key
-    of: "this family's monogenic NIPT data", or "this family's data" for one it has no label for
+    of: "this family's short-read WGS data", "the data of this family's monogenic NIPT of
+    pregnancy ZW1", or "this family's data" for one it has no label for
     (``UNSPECIFIED_ANALYSIS``)."""
-    label = ANALYSIS_LABELS.get(str(analysis or ""))
-    return f"this family's {label} data" if label else "this family's data"
+    label = analysis_label(analysis)
+    if label is None:
+        return "this family's data"
+    if pregnancy_of(analysis) is not None:
+        return f"the data of this family's {label}"
+    return f"this family's {label} data"
 
 
 # The kinds of data a sign-out of one analysis is scoped by (report_signout_service), each the
@@ -84,10 +106,45 @@ _DATASET_SOURCES: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 
-def package_sources(dataset_types: Iterable[str], snv_callset: str | None) -> dict[str, list[str]]:
+# The datasets whose sources a pregnancy's analysis keeps as its own (``suffixed_source``): a
+# monogenic NIPT's calls and coverage tables, the father's among them, and a conventional NIPT's
+# ccnv output. A family holds several pregnancies, and each reads the data its own package
+# delivered: an import of one never replaces another's (the owner's decision of 2026-11-21).
+PREGNANCY_DATASETS: tuple[str, ...] = ("snv", "coverage", "ccnv")
+# A source a pregnancy's analysis keeps as its own: the source's name, then ``_p`` and eight hex
+# digits of its pregnancy (``suffixed_source``).
+_PREGNANCY_SOURCE = re.compile(r"^([a-z][a-z0-9_]*)_p[0-9a-f]{8}$")
+
+
+def suffixed_source(source: str, pregnancy_id: str | None) -> str:
+    """The source a pregnancy's analysis stores data under that another analysis stores under
+    ``source``: ``nipt`` as ``nipt_p1a2b3c4d``, the eight hex digits the start of the SHA-256 of
+    its pregnancy ID. So the pregnancies of a family keep their data apart, the father's calls
+    among them, and a pregnancy imported again writes the same sources. ``source`` itself without
+    a pregnancy. A source's name reaches the logs, so this function's name holds no "pregnancy":
+    CodeQL reads what a function so named returns as private data."""
+    if pregnancy_id is None:
+        return source
+    digest = hashlib.sha256(pregnancy_id.encode("utf-8")).hexdigest()[:8]
+    return f"{source}_p{digest}"
+
+
+def source_base(source: object) -> str:
+    """The source a pregnancy's source (``suffixed_source``) is kept for, as a reader tells what
+    a source holds: ``nipt`` for ``nipt_p1a2b3c4d``; any other source itself."""
+    text = str(source or "")
+    match = _PREGNANCY_SOURCE.fullmatch(text)
+    return match.group(1) if match else text
+
+
+def package_sources(
+    dataset_types: Iterable[str], snv_callset: str | None, pregnancy_id: str | None = None
+) -> dict[str, list[str]]:
     """The storage sources a package's import writes, per kind (``SOURCE_KINDS``), from its
     enabled ``dataset_types`` and the callset its ``snv`` dataset is stored as (``snv_callset``;
     None when it has none, or one the import cannot tell): each list sorted, every kind present.
+    The sources of a pregnancy's datasets (``PREGNANCY_DATASETS``) are its own
+    (``suffixed_source`` of ``pregnancy_id``); ``snv_callset`` is already the callset as stored.
     A sign-out of the package's analysis is scoped by them."""
     sources: dict[str, set[str]] = {kind: set() for kind in SOURCE_KINDS}
     for dataset_type in dataset_types:
@@ -95,8 +152,9 @@ def package_sources(dataset_types: Iterable[str], snv_callset: str | None) -> di
             if snv_callset:
                 sources["small_variants"].add(snv_callset)
             continue
+        pregnancy = pregnancy_id if dataset_type in PREGNANCY_DATASETS else None
         for kind, names in _DATASET_SOURCES.get(dataset_type, {}).items():
-            sources[kind].update(names)
+            sources[kind].update(suffixed_source(name, pregnancy) for name in names)
     return {kind: sorted(names) for kind, names in sources.items()}
 
 
@@ -154,7 +212,7 @@ def source_collisions(
 def source_collision_message(analysis: str, collisions: Sequence[tuple[str, str, str]]) -> str:
     """Why the import of a package of ``analysis`` (its record key) is refused: the sources it
     would store data under that another analysis of the family holds (``source_collisions``)."""
-    label = ANALYSIS_LABELS.get(analysis)
+    label = analysis_label(analysis)
     package = f"The {label} package" if label else "This package"
     shared = "; ".join(
         f"its {_KIND_WORDS.get(kind, kind)} as '{name}', which {analysis_data_words(other)} already holds"
@@ -168,10 +226,11 @@ def source_collision_message(analysis: str, collisions: Sequence[tuple[str, str,
     )
 
 
-def package_record_key(analysis_type: str | None) -> str:
-    """The key of the record a package of ``analysis_type`` writes."""
+def package_record_key(analysis_type: str | None, pregnancy_id: str | None = None) -> str:
+    """The key of the record a package of ``analysis_type`` writes: its analysis's key
+    (``analysis_key``, of the pregnancy ``pregnancy_id`` for a pregnancy's analysis)."""
     if isinstance(analysis_type, str) and analysis_type.strip():
-        return analysis_type.strip()
+        return analysis_key(analysis_type, pregnancy_id)
     return UNSPECIFIED_ANALYSIS
 
 

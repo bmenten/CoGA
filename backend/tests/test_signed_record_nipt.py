@@ -122,7 +122,7 @@ def _sample_rows(*, assay_panel: str | None = "panel-v2") -> list[dict[str, Any]
     return [
         {"sample_id": FATHER, "role": "father", "sample_metadata": {}},
         {"sample_id": PLASMA, "role": "mother", "sample_metadata": plasma_metadata},
-        {"sample_id": "FETUS1", "role": "embryo", "sample_metadata": None},
+        {"sample_id": "FETUS1", "role": "fetus", "sample_metadata": None},
     ]
 
 
@@ -155,7 +155,7 @@ def _family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
                 sample_metadata={"assays": ["nipt_cfdna"], "assay_panels": {"monogenic_nipt": "panel-v2"}},
             ),
         ],
-        metadata={"analysis_types": ["monogenic_nipt"]},
+        metadata={"analyses": ["monogenic_nipt"]},
         roi=roi,
     )
 
@@ -189,7 +189,7 @@ class _Session:
             return _Result([{"sample_id": PLASMA, "filename": "cfdna.targets.tsv", "row_count": 5, "uploaded_at": _LOADED}])
         if "FROM families" in sql:
             return _Result(
-                [{"metadata": {"analysis_types": [self.analysis_type]} if self.analysis_type else {}, **self.roi}]
+                [{"metadata": {"analyses": [self.analysis_type]} if self.analysis_type else {}, **self.roi}]
             )
         if "FROM small_variant_reviews" in sql:
             return _Result(
@@ -319,7 +319,7 @@ async def test_the_section_says_what_the_nipt_page_showed(monkeypatch: pytest.Mo
     section = await _section(["7-100-A-G", "7-200-C-T"])
     summary, qc = await _page_summary()
 
-    assert section["samples"] == {"father": FATHER, "maternal_plasma": PLASMA, "fetus": "FETUS1"}
+    assert section["samples"] == {"father": FATHER, "maternal_plasma": PLASMA, "fetuses": ["FETUS1"]}
     ff = section["fetal_fraction"]
     page_ff = summary.analysis.fetal_fraction
     assert (ff["ff"], ff["ff_computed"], ff["n_sites"], ff["ci_low"], ff["ci_high"], ff["ff_median"]) == (
@@ -747,23 +747,25 @@ async def test_a_family_is_a_nipt_family_by_its_analysis_type() -> None:
 
 
 def test_the_trio_is_resolved_from_the_familys_active_members() -> None:
-    trio, assay_key = srn.nipt_trio_of(_context(), listed=())  # type: ignore[misc]
-    assert (trio.father_sample_id, trio.cfdna_sample_id, trio.fetus_sample_id, assay_key) == (
-        FATHER, PLASMA, "FETUS1", "panel-v2",
+    trio, assay_key = srn.nipt_trio_of(_context(), listed=(), analysis="monogenic_nipt")  # type: ignore[misc]
+    assert (trio.father_sample_id, trio.cfdna_sample_id, trio.fetus_sample_ids, assay_key) == (
+        FATHER, PLASMA, ("FETUS1",), "panel-v2",
     )
     # No assay panel: the default artifact-list scope.
-    assert srn.nipt_trio_of(_context(_sample_rows(assay_panel=None)), listed=())[1] == "nipt_cfdna"  # type: ignore[index]
+    assert srn.nipt_trio_of(_context(_sample_rows(assay_panel=None)), listed=(), analysis="monogenic_nipt")[1] == "nipt_cfdna"  # type: ignore[index]
     # No cfDNA tag: the mother's sample is the plasma, as the NIPT page reads it.
     untagged = [
         {"sample_id": FATHER, "role": "father", "sample_metadata": {}},
         {"sample_id": "MOTHER1", "role": "mother", "sample_metadata": "not a mapping"},
-        {"sample_id": "CHILD1", "role": "proband", "sample_metadata": {}},
+        {"sample_id": "CHILD1", "role": "fetus", "sample_metadata": {}},
     ]
-    trio, assay_key = srn.nipt_trio_of(_context(untagged), listed=())  # type: ignore[misc]
-    assert (trio.cfdna_sample_id, trio.fetus_sample_id, assay_key) == ("MOTHER1", "CHILD1", "nipt_cfdna")
+    trio, assay_key = srn.nipt_trio_of(_context(untagged), listed=(), analysis="monogenic_nipt")  # type: ignore[misc]
+    assert (trio.cfdna_sample_id, trio.fetus_sample_ids, assay_key) == ("MOTHER1", ("CHILD1",), "nipt_cfdna")
     # No father: no trio.
     assert srn.nipt_trio_of(
-        _context([{"sample_id": PLASMA, "role": "mother", "sample_metadata": {"assays": ["nipt_cfdna"]}}]), listed=()
+        _context([{"sample_id": PLASMA, "role": "mother", "sample_metadata": {"assays": ["nipt_cfdna"]}}]),
+        listed=(),
+        analysis="monogenic_nipt",
     ) is None
 
 
@@ -785,7 +787,7 @@ async def test_of_a_mother_sampled_twice_the_plasma_is_the_sample_the_package_re
                     [
                         {
                             "metadata": {
-                                "analysis_types": ["monogenic_nipt"],
+                                "analyses": ["monogenic_nipt"],
                                 "package_imports": {"monogenic_nipt": {"members": [FATHER, "MOTHER1"]}},
                             }
                         }
@@ -955,7 +957,7 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rss, "_import_unfinished_state", unfinished)
 
     async def holds_monogenic_nipt(_session, _family_uuid):
-        return {"analysis_types": ["monogenic_nipt"]}
+        return {"analyses": ["monogenic_nipt"]}
 
     monkeypatch.setattr(rss, "_family_metadata", holds_monogenic_nipt)
     async def as_imported(_session, _family_uuid):

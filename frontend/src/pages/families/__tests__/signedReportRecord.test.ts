@@ -2011,7 +2011,9 @@ describe('the PGT embryo results', () => {
 // family's does, and the signed view then says nothing of them.
 describe('a NIPT family’s NIPT results', () => {
   const NIPT = {
-    samples: { father: 'FATHER1', maternal_plasma: 'CFDNA1', fetus: null },
+    samples: { father: 'FATHER1', maternal_plasma: 'CFDNA1', fetuses: [] },
+    analysis: 'monogenic_nipt:ZW1',
+    multiple_pregnancy_note: null,
     fetal_fraction: {
       ff: 0.0,
       ff_computed: null,
@@ -2079,7 +2081,8 @@ describe('a NIPT family’s NIPT results', () => {
     expect(record.nipt.state).toBe('recorded');
     if (record.nipt.state !== 'recorded') return;
     const nipt = record.nipt.value;
-    expect(nipt.samples).toEqual({ father: 'FATHER1', maternalPlasma: 'CFDNA1', fetus: null });
+    expect(nipt.samples).toEqual({ father: 'FATHER1', maternalPlasma: 'CFDNA1', fetuses: [] });
+    expect([nipt.analysis, nipt.multiplePregnancyNote]).toEqual(['monogenic_nipt:ZW1', null]);
     expect(nipt.fetalFraction).toMatchObject({ status: 'fail', ffComputed: null, nSites: 3, lowConfidence: true });
     // Counts only, in category order; a count that is not a number is left out.
     expect(nipt.categoryCounts).toEqual([

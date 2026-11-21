@@ -61,7 +61,7 @@ from .ped_service import (
 
 CLINICAL_STATUS_VALUES = {"unknown", "unaffected", "affected"}
 CARRIER_STATUS_VALUES = {"unknown", "not_carrier", "carrier"}
-MEMBER_ROLES = {"proband", "father", "mother", "sibling", "embryo", "relative"}
+MEMBER_ROLES = {"proband", "father", "mother", "sibling", "embryo", "fetus", "relative"}
 # Two samples of one person (``FamilyStructureSameIndividualUpdate``).
 SAME_INDIVIDUAL = "same_individual"
 SEX_VALUES = {"male", "female", "und"}

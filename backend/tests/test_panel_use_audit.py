@@ -373,13 +373,13 @@ def test_the_nipt_coverage_records_its_panel_before_it_reads_the_panel(monkeypat
 
     steps: list[str] = []
 
-    async def _trio_context(session, *, family_id, user, project_id=None):
+    async def _trio_context(session, *, family_id, user, project_id=None, analysis=None):
         return object(), types.SimpleNamespace(cfdna_sample_id="CFDNA"), _context()
 
     async def _record(session, *, context, panel_id, user, search):
         steps.append(f"recorded {panel_id} for {search}")
 
-    async def _targets(context, sample_id, with_metadata=False):
+    async def _targets(context, trio, sample_id, with_metadata=False):
         steps.append("targets read")
         return []
 

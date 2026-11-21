@@ -328,6 +328,8 @@ describe('FamilyBuilderPage', () => {
     // The cfDNA toggle only appears once the family is marked monogenic NIPT.
     fireEvent.click(screen.getByLabelText(/monogenic nipt/i));
     fireEvent.click(screen.getByLabelText(/cfdna \(maternal plasma\)/i));
+    // The family's monogenic NIPT is one pregnancy's (the owner's decision of 2026-11-21).
+    fireEvent.change(screen.getByLabelText(/pregnancy id/i), { target: { value: 'ZW1' } });
     fireEvent.click(screen.getByRole('button', { name: /create family/i }));
 
     await waitFor(() =>
@@ -335,7 +337,7 @@ describe('FamilyBuilderPage', () => {
         '/ped/manual',
         expect.objectContaining({
           family_id: 'FAM-NIPT',
-          metadata: { analysis_types: ['monogenic_nipt'] },
+          metadata: { analyses: ['monogenic_nipt:ZW1'] },
           members: expect.arrayContaining([
             expect.objectContaining({
               sample_id: 'CFDNA-1',

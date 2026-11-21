@@ -136,12 +136,12 @@ def keeps_own_review(
 # an analysis's own, or a shared review (stored under no analysis the family holds) that some
 # analysis the family holds, or a family that holds none, reads (no review of its own of the
 # variant replaces it). For the readers of every family's reviews, the Variant Explorer's. The
-# family's analyses are ``families.metadata`` ``analysis_types`` (family_analysis_types.py), its
-# text values that are not empty.
+# family's analyses are ``families.metadata`` ``analyses`` (family_analysis_types.py), its text
+# values that are not empty.
 _HELD_ANALYSES = (
     "SELECT held.name FROM families f, "
-    "jsonb_array_elements_text(CASE WHEN jsonb_typeof(f.metadata -> 'analysis_types') = 'array' "
-    "THEN f.metadata -> 'analysis_types' ELSE '[]'::jsonb END) AS held(name) "
+    "jsonb_array_elements_text(CASE WHEN jsonb_typeof(f.metadata -> 'analyses') = 'array' "
+    "THEN f.metadata -> 'analyses' ELSE '[]'::jsonb END) AS held(name) "
     "WHERE f.id = {alias}.family_id AND held.name <> ''"
 )
 

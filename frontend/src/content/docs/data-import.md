@@ -302,10 +302,13 @@ FAM001  EMB1     FATHER1  MOTHER1  0  -9  role=embryo
 FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 ```
 
-- `role=` gives a member's role (`father`, `mother`, `proband`, `embryo`, `relative`); without it, the
-  pedigree gives it. The sixth column is the clinical status (`2` affected), and `carrier=1` marks a
-  carrier.
+- `role=` gives a member's role (`father`, `mother`, `proband`, `embryo`, `fetus`, `relative`);
+  without it, the pedigree gives it. The sixth column is the clinical status (`2` affected), and
+  `carrier=1` marks a carrier.
 - An embryo has sex `0`, unknown before the analysis, and `role=embryo`.
+- A fetus has `role=fetus`: a pregnancy's, in a monogenic or a conventional NIPT, without data of its
+  own; it is neither a proband nor an embryo. In a NIPT package a child of both parents with unknown
+  sex, not affected and without a role, is read as the fetus.
 - The index is every member but the couple and the embryos who is no one's parent. The couple's child,
   as above, is the proband.
 - An index that is not the couple's child is a relative: linked through its parents in the PED, or,
@@ -454,7 +457,7 @@ with the delivery.
   copy has finished.
 - A delivery with warnings is approved only once you tick *I checked the warnings*.
 - **Correct…** completes or corrects what the package says, before you approve it: the project,
-  the analysis, the region of interest, the PGT inheritance model, affected parent and index, each
+  the analysis, a NIPT's pregnancy, the region of interest, the PGT inheritance model, affected parent and index, each
   member's sex, parents, **Related to**, role, clinical status, carrier status and HPO terms, and
   which datasets are in the import. Give a reason and save: the pipeline's file stays as it was, the correction is
   kept beside it on the audit trail, and the delivery is checked again at once. The list then says
@@ -483,7 +486,7 @@ with the delivery.
     open it again.
 - **Add a folder by hand** (above the list) adds a folder no pipeline delivered: choose it (or type
   its path), its project and its analysis (LR-WGS, LR-AS, SR-WGS, PGT, Expanded Carrier Screening, mNIPT or cNIPT),
-  and, when it is not the folder's name, its family ID: left empty, the family ID is the folder's
+  for an mNIPT or cNIPT its **Pregnancy ID**, and, when it is not the folder's name, its family ID: left empty, the family ID is the folder's
   name, and it cannot be changed once the folder is added. CoGA
   makes its package from the folder, with the members and datasets it proposes from the folder's PED
   and layout, and checks it as a pipeline's delivery; it is listed as *Added by hand*. Check and correct
@@ -557,8 +560,8 @@ inactive). Either change is a new version of the family's structure, on its audi
 marks its analyses to be redone.
 
 **A family with another analysis.** A family can hold several analyses, each from a package of its
-own: the monogenic and the conventional NIPT of one pregnancy, or short-read and then long-read
-WGS. The package of one of them changes nothing the family already knows of the other's members:
+own: the monogenic and the conventional NIPT of one pregnancy, the NIPTs of several pregnancies of one
+woman, or short-read and then long-read WGS. The package of one of them changes nothing the family already knows of the other's members:
 
 - The members its package does not list stay, the other analyses' and those added in **Edit
   members**. *Overwrite* makes inactive only a member that only this analysis's earlier package
@@ -573,13 +576,32 @@ WGS. The package of one of them changes nothing the family already knows of the 
 - The capture panel a package names for a sample is kept per analysis: the conventional NIPT's
   panel leaves the monogenic NIPT's artefact list as it was.
 
+**Several pregnancies.** A monogenic or conventional NIPT package names its pregnancy (`pregnancy_id`,
+the laboratory's ID of it: printable text without spaces, `/` or `\`, at most 64 characters); no
+other package names one. Each pregnancy's NIPT is an analysis of its own (`monogenic_nipt:ZW1`), and
+a monogenic and a conventional NIPT are one pregnancy only when their packages name the same
+pregnancy.
+
+- A package that names a pregnancy the family holds imports that pregnancy again (*Update* or
+  *Overwrite*, as for any analysis); its signed versions stay. One that names another pregnancy adds
+  an analysis beside the others and changes nothing of their data.
+- Each pregnancy keeps its own data: its calls, coverage tables and ccnv output, and its own copy of
+  the father's calls when he carries the same sample ID in both.
+- A maternal plasma and a fetus belong to one pregnancy. A package that lists a plasma or a fetus
+  another pregnancy's package listed is refused before anything is written: give this pregnancy's
+  samples IDs of their own, or correct its pregnancy ID with **Correct…** if it is that pregnancy.
+- A pregnancy whose package lists two or more fetuses is a multiple pregnancy, and its NIPT results
+  carry a note about it.
+
 Two imports of one family run one after the other: the second waits until the first has ended,
 and its log says so.
 
 **Two samples of one person.** A package may link a member to another sample of the same person with
 `same_individual_as`: a conventional NIPT's plasma names the monogenic NIPT's plasma of the same
-pregnancy when the two carry different sample IDs. The pedigree then draws them as one person, and
-Sample QC expects their genotypes identical. *Expanded carrier screening* reads a partner on each of
+pregnancy when the two carry different sample IDs, and a later pregnancy's plasma names an earlier
+one's. The pedigree then draws them as one person, and Sample QC expects their genotypes identical,
+except a maternal plasma's: a plasma is a mixture of the mother's DNA and a fetus's, and it is never
+compared for identity. Two plasmas of one woman are one person, never one pregnancy. *Expanded carrier screening* reads a partner on each of
 their samples the analysis holds, the Variant Explorer counts the person once, and of a parent sampled
 twice the monogenic NIPT and the PGT analysis read the sample that holds their data. A sample the package does not list must already be an
 active member of the family, its ID written exactly as the family holds it; otherwise the delivery
@@ -676,6 +698,9 @@ Paraphase results are replaced.
   its own, the members the manifest adds and a long-read package's per-sample folders. An ID that fails
   is refused (`family_id_invalid`, `sample_id_invalid`), and nothing else is checked until it is
   corrected: CoGA proposes no members for it.
+- A monogenic or conventional NIPT package names its pregnancy by the same rule, in at most 64
+  characters (`pregnancy_missing`, `pregnancy_id_invalid`); a package of any other analysis names none
+  (`pregnancy_not_nipt`).
 - The package's members are the pedigree the import reads: each member listed once, every parent a
   member. CoGA reads no PED: a folder's PED only tells CoGA which members to propose when the folder
   is added by hand.

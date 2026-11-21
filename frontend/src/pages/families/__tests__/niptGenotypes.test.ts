@@ -13,7 +13,7 @@ const MEMBERS: FamilyMember[] = [
 ] as FamilyMember[];
 
 // The plasma is held by the mother's sample (no sample carries the nipt_cfdna assay).
-const TRIO: NiptTrio = { cfdna_sample_id: 'MOTHER', father_sample_id: 'FATHER1', fetus_sample_id: 'EMB1' };
+const TRIO: NiptTrio = { cfdna_sample_id: 'MOTHER', father_sample_id: 'FATHER1', fetus_sample_ids: ['EMB1'] };
 
 // A plasma MNV the father's VCF writes as its two SNVs: his call is read off one of them.
 const NIPT = niptClassification({
@@ -80,6 +80,24 @@ describe('niptGenotypeEntries', () => {
     expect([father.call, father.tone]).toEqual(['no call (reference)', 'ref']);
     expect(father.values).toEqual({ dp: 310, ad: '—', af: '—' });
     expect(father.detail).toBe("His calls carry only part of this allele's bases: read as no call.");
+  });
+
+  it("shows only this pregnancy's plasma and fetus of a family of two pregnancies", () => {
+    // The same woman's plasma of each pregnancy, and a fetus of each: this analysis reads the
+    // first pregnancy's plasma, PLASMA1, and its fetus, FETUS1.
+    const members = [
+      { sample_id: 'FETUS1', role: 'fetus', sex: 'unknown', affected: false, active: true },
+      { sample_id: 'FETUS2', role: 'fetus', sex: 'unknown', affected: false, active: true },
+      { sample_id: 'FATHER1', role: 'father', sex: 'male', affected: false, active: true },
+      { sample_id: 'PLASMA1', role: 'mother', sex: 'female', affected: false, active: true, sample_metadata: { assays: ['nipt_cfdna'] } },
+      { sample_id: 'PLASMA2', role: 'mother', sex: 'female', affected: false, active: true, sample_metadata: { assays: ['nipt_cfdna'] } },
+      { sample_id: 'MOTHER', role: 'mother', sex: 'female', affected: false, active: true },
+    ] as FamilyMember[];
+    const trio: NiptTrio = { cfdna_sample_id: 'PLASMA1', father_sample_id: 'FATHER1', fetus_sample_ids: ['FETUS1'] };
+    const shown = niptGenotypeEntries(NIPT, members, trio, ownRow)
+      .filter((entry): entry is GenotypeRow => 'member' in entry)
+      .map((row) => row.member.sample_id);
+    expect(shown).toEqual(['FATHER1', 'PLASMA1', 'MOTHER']);
   });
 
   it("names the record the plasma's call was read from", () => {

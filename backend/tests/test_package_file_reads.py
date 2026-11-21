@@ -147,7 +147,7 @@ def test_the_validation_thread_reads_the_remembered_reads_loaded_before_and_stor
     async def store(reads: RememberedReads) -> None:
         stored.append(reads)
 
-    def validate(folder_path: Any, *, manifest_text: str) -> tuple[str, None]:
+    def validate(folder_path: Any, *, manifest_text: str, proposal: bool) -> tuple[str, None]:
         seen.append(reads_module._REMEMBERED.get())
         return "validation", None
 

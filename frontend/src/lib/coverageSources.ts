@@ -17,6 +17,7 @@
  */
 
 import type { CoverageContent } from './apiTypes';
+import { sourceBase } from './pregnancySources';
 
 /**
  * Display order: long-read caller first, then the short-read/reference-panel ones, then
@@ -38,7 +39,7 @@ const COVERAGE_SOURCE_LABEL: Record<string, string> = {
  * than the tag the pipeline actually wrote.
  */
 export const coverageSourceLabel = (source: string): string =>
-  COVERAGE_SOURCE_LABEL[source] ?? source;
+  COVERAGE_SOURCE_LABEL[sourceBase(source)] ?? source;
 
 /**
  * Sources for one sample, in a stable display order.
@@ -51,7 +52,8 @@ export const coverageSourceLabel = (source: string): string =>
 export const orderCoverageSources = (sources: readonly string[] | undefined): string[] => {
   if (!sources?.length) return [];
   const rank = (source: string): number => {
-    const index = COVERAGE_SOURCE_ORDER.indexOf(source as (typeof COVERAGE_SOURCE_ORDER)[number]);
+    // A pregnancy's source sorts as the source it is kept for (`sourceBase`).
+    const index = COVERAGE_SOURCE_ORDER.indexOf(sourceBase(source) as (typeof COVERAGE_SOURCE_ORDER)[number]);
     return index === -1 ? COVERAGE_SOURCE_ORDER.length : index;
   };
   return [...new Set(sources)].sort((left, right) => {
@@ -103,7 +105,7 @@ export const coverageScaleNote = (
   }
   return {
     text:
-      source === 'web'
+      sourceBase(source) === 'web'
         ? 'This coverage BED does not declare whether it holds read depth or a log2 ratio: drawn on its own range without an axis, and not read as depth. Load it again with what it holds.'
         : 'What these values are is not recorded: drawn on their own range without an axis, and not read as depth.',
     warning: true,

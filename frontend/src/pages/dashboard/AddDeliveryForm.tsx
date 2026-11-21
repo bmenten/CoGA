@@ -34,6 +34,9 @@ const AddDeliveryForm: React.FC<{
   const [projectId, setProjectId] = useState('');
   const [familyId, setFamilyId] = useState('');
   const [analysisType, setAnalysisType] = useState('');
+  // The pregnancy of a monogenic or a conventional NIPT, which its package names.
+  const [pregnancyId, setPregnancyId] = useState('');
+  const namesPregnancy = analysisType === 'monogenic_nipt' || analysisType === 'conventional_nipt';
   const [showImported, setShowImported] = useState(false);
   const familyIdHint = useId();
   const { data: projects = [], isLoading: projectsLoading } =
@@ -58,12 +61,14 @@ const AddDeliveryForm: React.FC<{
           project_id: projectId,
           family_id: familyId.trim() || null,
           analysis_type: analysisType || null,
+          pregnancy_id: namesPregnancy ? pregnancyId.trim() || null : null,
         })
       ).data as ImportDeliveryOut,
     onSuccess: (delivery) => {
       setFolderPath('');
       setFamilyId('');
       setAnalysisType('');
+      setPregnancyId('');
       onAdded(delivery);
     },
   });
@@ -182,6 +187,16 @@ const AddDeliveryForm: React.FC<{
               ))}
             </select>
           </label>
+          {namesPregnancy ? (
+            <label className="field-label">
+              Pregnancy ID
+              <input
+                value={pregnancyId}
+                placeholder="The laboratory's ID of the pregnancy"
+                onChange={(event) => setPregnancyId(event.target.value)}
+              />
+            </label>
+          ) : null}
           <div className="space-y-1">
             <label className="field-label">
               Family ID

@@ -50,6 +50,8 @@ from ..services.nipt_analysis import (
     NiptQualityThresholds,
     NiptSiteObservation,
 )
+from ..services.family_analysis_types import pregnancy_of
+from ..services.nipt import multiple_pregnancy_note
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
 from ..services.nipt_quality_checks import nipt_quality_checks
 from ..services.nipt_service import (
@@ -71,7 +73,7 @@ from ..services.nipt_variant_statistics import (
     nipt_variant_statistics,
 )
 from .families_small_variants import _FAMILY_EXPORT_COLUMNS, _MEMBERS_WITHOUT_CALLS_FIELD, _family_export_cell
-from .query_params import FiniteThreshold
+from .query_params import FiniteThreshold, NiptAnalysisParam
 
 
 router = APIRouter()
@@ -299,6 +301,7 @@ def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
 async def get_family_nipt_summary(
     family_id: str,
     project_id: str | None = None,
+    analysis: NiptAnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptSummaryOut:
@@ -307,10 +310,14 @@ async def get_family_nipt_summary(
         family_id=family_id,
         user=user,
         project_id=project_id,
+        analysis=analysis,
     )
     result = summary.analysis
     return NiptSummaryOut(
         family_id=family_id,
+        analysis=summary.trio.analysis,
+        fetuses=list(summary.trio.fetus_sample_ids),
+        multiple_pregnancy_note=multiple_pregnancy_note(len(summary.trio.fetus_sample_ids)),
         fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
         category_counts=result.category_counts,
         filter_counts=result.filter_counts,
@@ -322,6 +329,7 @@ async def get_family_nipt_summary(
 async def get_family_nipt_statistics(
     family_id: str,
     project_id: str | None = None,
+    analysis: NiptAnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptVariantStatisticsOut:
@@ -334,6 +342,7 @@ async def get_family_nipt_statistics(
         family_id=family_id,
         user=user,
         project_id=project_id,
+        analysis=analysis,
     )
     result = summary.analysis
     statistics = nipt_variant_statistics(result, NiptQualityThresholds())
@@ -413,6 +422,8 @@ def _nipt_variant_search(
     # more than this many other cfDNA samples of the assay (unless ClinVar or a population
     # frequency protects them).
     max_unexplained_recurrence: int | None = Query(None, ge=0),
+    # The pregnancy whose monogenic NIPT is read, of a family that holds several.
+    analysis: NiptAnalysisParam = None,
 ) -> dict[str, Any]:
     """A NIPT variant search, as ``get_family_nipt_variants`` takes it: the variant list and
     its CSV export read the same parameters, so the file holds the list the page showed."""
@@ -463,6 +474,7 @@ def _nipt_variant_search(
         "review_tags": review_tags,
         "exclude_review_tags": exclude_review_tags,
         "max_unexplained_recurrence": max_unexplained_recurrence,
+        "analysis": analysis,
     }
 
 
@@ -491,7 +503,7 @@ async def get_family_nipt_variants_page(
         trio=NiptTrioOut(
             cfdna_sample_id=trio.cfdna_sample_id,
             father_sample_id=trio.father_sample_id,
-            fetus_sample_id=trio.fetus_sample_id,
+            fetus_sample_ids=list(trio.fetus_sample_ids),
         ),
         total=result.total,
         total_is_estimated=result.total_is_estimated,
@@ -627,11 +639,13 @@ async def export_family_nipt_variants_csv(
     )
     rows = [_nipt_variant_out(item) for item in result.variants]
     cell = partial(_nipt_export_cell, fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction))
+    # The file names the pregnancy whose analysis it holds: a family holds one per pregnancy.
+    pregnancy = pregnancy_of(result.trio.analysis)
     return StreamingResponse(
         iter([csv_document(NIPT_EXPORT_COLUMNS, rows, cell)]),
         media_type="text/csv",
         headers=export_response_headers(
-            f"family-{family_id}-nipt-variants",
+            f"family-{family_id}-{pregnancy}-nipt-variants" if pregnancy else f"family-{family_id}-nipt-variants",
             rows=len(rows),
             truncated=result.total_is_estimated,
             limit=result.count_limit if result.count_limit is not None else NIPT_VARIANT_FETCH_LIMIT,
@@ -650,6 +664,7 @@ async def get_family_nipt_coverage_summary(
     # The coverage page lists every gene in scope, the ones whose targets all pass too;
     # the NIPT page only the weak ones.
     all_genes: bool = False,
+    analysis: NiptAnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptCoverageSummaryOut:
@@ -662,6 +677,7 @@ async def get_family_nipt_coverage_summary(
         panel_id=panel_id,
         min_depth=min_depth,
         all_genes=all_genes,
+        analysis=analysis,
     )
     summary = coverage.regions
     return NiptCoverageSummaryOut(
@@ -702,12 +718,13 @@ async def get_family_nipt_gene_coverage(
     family_id: str,
     gene: str = Query(..., min_length=1, max_length=64),
     project_id: str | None = None,
+    analysis: NiptAnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptGeneTargetsOut:
     """One gene's capture targets and their depth: a row of the coverage page, opened."""
     result = await get_family_nipt_gene_targets(
-        session, family_id=family_id, user=user, gene=gene, project_id=project_id
+        session, family_id=family_id, user=user, gene=gene, project_id=project_id, analysis=analysis
     )
     return NiptGeneTargetsOut(
         family_id=family_id,

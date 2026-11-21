@@ -72,6 +72,8 @@ TEXT_BODY_FIELDS = {
     "new_sample_id",
     "panelapp_id",
     "partner_variant_id",
+    # A NIPT's pregnancy, as the laboratory names it (coga_package.CogaPackage.pregnancy_id).
+    "pregnancy_id",
     "sample_id",
     "session_id",
     "target_id",

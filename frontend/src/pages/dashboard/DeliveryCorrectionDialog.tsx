@@ -44,6 +44,8 @@ interface PackagePgt {
 export interface PackageDocument {
   project?: string | null;
   analysis_type?: string | null;
+  // The pregnancy a monogenic or a conventional NIPT is of (backend coga_package.pregnancy_id).
+  pregnancy_id?: string | null;
   family?: { family_id?: string; roi?: string | null; pgt?: PackagePgt | null };
   members?: PackageMember[] | null;
   datasets?: Record<string, Record<string, unknown>> | null;
@@ -67,6 +69,7 @@ type MemberTextField = Exclude<keyof MemberForm, 'related_to'>;
 export interface CorrectionForm {
   project: string;
   analysis_type: string;
+  pregnancy_id: string;
   roi: string;
   inheritance_model: string;
   affected_parents: string[];
@@ -77,7 +80,7 @@ export interface CorrectionForm {
 
 const ANALYSIS_TYPE_VALUES = ANALYSIS_TYPES.map(([value]) => value);
 const INHERITANCE_MODELS = ['AD', 'AR', 'XLD', 'XLR', 'mitochondrial'];
-const ROLES = ['proband', 'father', 'mother', 'sibling', 'embryo', 'relative'];
+const ROLES = ['proband', 'father', 'mother', 'sibling', 'embryo', 'fetus', 'relative'];
 const CLINICAL_STATUSES = ['affected', 'unaffected', 'unknown'];
 const CARRIER_STATUSES = ['carrier', 'not_carrier', 'unknown'];
 const CARRIER_TYPES = ['obligate', 'proven', 'reported', 'inferred'];
@@ -97,6 +100,7 @@ const isEnabled = (entry: Record<string, unknown>) => entry.enabled !== false;
 export const toForm = (pkg: PackageDocument): CorrectionForm => ({
   project: text(pkg.project),
   analysis_type: text(pkg.analysis_type),
+  pregnancy_id: text(pkg.pregnancy_id),
   roi: text(pkg.family?.roi),
   inheritance_model: text(pkg.family?.pgt?.inheritance_model),
   affected_parents: [...(pkg.family?.pgt?.affected_parents ?? [])],
@@ -175,6 +179,7 @@ export const changesBetween = (
   };
   field(['project'], pkg.project, form.project.trim() || null);
   field(['analysis_type'], pkg.analysis_type, form.analysis_type || null);
+  field(['pregnancy_id'], pkg.pregnancy_id, form.pregnancy_id.trim() || null);
   field(['family', 'roi'], pkg.family?.roi, form.roi.trim() || null);
   const pgt = pkg.family?.pgt ?? {};
   field(
@@ -317,6 +322,7 @@ const PACKAGE_FIELD_ORDER = [
   'project',
   'assembly',
   'analysis_type',
+  'pregnancy_id',
   'family',
   'members',
   'couples',
@@ -703,6 +709,23 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
                 }
               />
             </div>
+            {/* A monogenic or a conventional NIPT names the pregnancy it is of; no other does. */}
+            {current.analysis_type === 'monogenic_nipt' ||
+            current.analysis_type === 'conventional_nipt' ||
+            current.pregnancy_id ? (
+              <label className="field-label">
+                Pregnancy
+                <input
+                  value={current.pregnancy_id}
+                  placeholder="The laboratory's ID of the pregnancy"
+                  onChange={(event) =>
+                    update((draft) => {
+                      draft.pregnancy_id = event.target.value;
+                    })
+                  }
+                />
+              </label>
+            ) : null}
             <label className="field-label">
               Region of interest
               <input

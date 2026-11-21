@@ -35,7 +35,17 @@ import { memberLabel } from '../../lib/familyMembers';
 import { formatCount, joinWithAnd } from '../../lib/format';
 import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import { latestSignoutOf, useReportSignoutCheck, useReportSignouts } from './reportSignoutQueries';
-import { niptReportAnalysis, soleAnalysis } from '../../lib/familyAnalyses';
+import {
+  ANALYSIS_PARAM,
+  analysisQuery,
+  niptReportAnalysis,
+  pregnancyAnalyses,
+  pregnancyAnalysisOf,
+  pregnancyOf,
+  soleAnalysis,
+} from '../../lib/familyAnalyses';
+import MultiplePregnancyNote from './MultiplePregnancyNote';
+import AnalysisSelect, { useAnalysisNavigation } from './AnalysisSelect';
 import {
   describeReportSections,
   formatReportTime,
@@ -43,7 +53,7 @@ import {
   liveReportSignedNotice,
   liveReportSignedState,
 } from './signedReportRecord';
-import { routePath } from '../../lib/routePath';
+import { raw, routePath } from '../../lib/routePath';
 
 // A report lists one page of candidates, the first ones in genomic order.
 const REPORT_PAGE_SIZE = 500;
@@ -222,6 +232,13 @@ const FamilyNiptReportPage: React.FC = () => {
   );
 
   const queryReady = Boolean(familyId && family && isMonogenicNipt);
+  // The pregnancy whose monogenic NIPT the report is of (the URL names it, else the last
+  // imported): a family holds one per pregnancy, each reported and signed out on its own.
+  const niptAnalysis = pregnancyAnalysisOf(family?.metadata, 'monogenic_nipt', location.search);
+  const selectAnalysis = useAnalysisNavigation();
+  // Named in a request of a family that holds several (backend nipt.nipt_analysis_of).
+  const namedNipt = pregnancyAnalyses(family?.metadata, 'monogenic_nipt').length > 1 ? niptAnalysis : null;
+  const analysisParams: Record<string, string> = namedNipt ? { [ANALYSIS_PARAM]: namedNipt } : {};
 
   const {
     data: summary,
@@ -229,10 +246,10 @@ const FamilyNiptReportPage: React.FC = () => {
     isError: summaryFailed,
     refetch: refetchSummary,
   } = useQuery<ApiNiptSummary>({
-    queryKey: ['family', familyId, 'nipt', 'summary'],
+    queryKey: ['family', familyId, 'nipt', 'summary', niptAnalysis],
     enabled: queryReady,
     queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/nipt/summary`);
+      const res = await api.get(apiPath`/families/${familyId}/nipt/summary`, { params: analysisParams });
       return res.data as ApiNiptSummary;
     },
   });
@@ -243,10 +260,10 @@ const FamilyNiptReportPage: React.FC = () => {
     isError: coverageFailed,
     refetch: refetchCoverage,
   } = useQuery<ApiNiptCoverageSummary>({
-    queryKey: ['family', familyId, 'nipt', 'coverage', panelId ?? null, gene ?? null],
+    queryKey: ['family', familyId, 'nipt', 'coverage', niptAnalysis, panelId ?? null, gene ?? null],
     enabled: queryReady,
     queryFn: async () => {
-      const params: Record<string, string> = {};
+      const params: Record<string, string> = { ...analysisParams };
       if (panelId) params.panel_id = panelId;
       if (gene) params.gene = gene;
       const res = await api.get(apiPath`/families/${familyId}/nipt/coverage`, { params });
@@ -260,10 +277,10 @@ const FamilyNiptReportPage: React.FC = () => {
     isError,
     refetch: refetchVariants,
   } = useQuery<SmallVariantPage>({
-    queryKey: ['family', familyId, 'nipt', 'report-variants', panelId ?? null, gene ?? null],
+    queryKey: ['family', familyId, 'nipt', 'report-variants', niptAnalysis, panelId ?? null, gene ?? null],
     enabled: queryReady,
     queryFn: async () => {
-      const params: Record<string, string | number> = { page: 1, page_size: REPORT_PAGE_SIZE };
+      const params: Record<string, string | number> = { page: 1, page_size: REPORT_PAGE_SIZE, ...analysisParams };
       if (panelId) params.panel_id = panelId;
       if (gene) params.gene = gene;
       const res = await api.get(apiPath`/families/${familyId}/nipt/variants`, { params });
@@ -294,10 +311,11 @@ const FamilyNiptReportPage: React.FC = () => {
     isError: signoutsFailed,
     isPending: signoutsPending,
   } = useReportSignouts(queryReady ? familyId : undefined);
-  // A family that holds the conventional NIPT of the pregnancy too signs out each NIPT on its own
-  // (the owner's decision of 2026-11-19): this report signs out the monogenic NIPT, and reads its
-  // latest signed version and check; a family of the monogenic NIPT alone is signed out whole.
-  const signOutAnalysis = niptReportAnalysis(family?.metadata);
+  // A family that holds another analysis too (the conventional NIPT, another pregnancy) signs out
+  // each on its own (the owner's decisions of 2026-11-19 and 2026-11-21): this report signs out
+  // its pregnancy's monogenic NIPT, and reads its latest signed version and check; a family of
+  // that analysis alone is signed out whole.
+  const signOutAnalysis = niptReportAnalysis(family?.metadata, niptAnalysis);
   // Read once the family is: until then it is not known which analysis's record is the latest,
   // and a check naming none would be refused for a family of several. A family of the monogenic
   // NIPT alone reads that analysis's record, as the check does.
@@ -499,7 +517,11 @@ const FamilyNiptReportPage: React.FC = () => {
         <div className="space-y-1">
           <p className="page-kicker">Monogenic NIPT report</p>
           <h1 className="page-state-title">Family {familyId}</h1>
+          {pregnancyOf(niptAnalysis) !== null ? (
+            <p className="report-header-meta">Pregnancy {pregnancyOf(niptAnalysis)}</p>
+          ) : null}
           <p className="report-header-meta">{referenceLabel}</p>
+          <MultiplePregnancyNote note={summary?.multiple_pregnancy_note} fetuses={summary?.fetuses} />
           {/* In the header, which prints: the sign-out stops on a partly imported family, but
               this live report prints without one, so the printout itself must say so. */}
           <FamilyPageBanners
@@ -514,7 +536,15 @@ const FamilyNiptReportPage: React.FC = () => {
           />
         </div>
         <div className="report-header-actions no-print">
-          <Link to={routePath`/families/${familyId}/nipt`} className="button-secondary hover:no-underline">
+          <AnalysisSelect
+            analyses={pregnancyAnalyses(family?.metadata, 'monogenic_nipt')}
+            analysis={niptAnalysis}
+            onChange={selectAnalysis}
+          />
+          <Link
+            to={routePath`/families/${familyId}/nipt${raw(analysisQuery(namedNipt))}`}
+            className="button-secondary hover:no-underline"
+          >
             Back to NIPT
           </Link>
           <button type="button" className="button-secondary" onClick={() => window.print()}>

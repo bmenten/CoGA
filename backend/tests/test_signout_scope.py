@@ -34,7 +34,7 @@ def _record(datasets: list[str], snv_callset: str | None = None) -> dict[str, An
 
 def _two_nipts(**extra_records: dict[str, Any]) -> dict[str, Any]:
     return {
-        "analysis_types": ["conventional_nipt", "monogenic_nipt"],
+        "analyses": ["conventional_nipt", "monogenic_nipt"],
         "package_imports": {
             "monogenic_nipt": _record(["snv", "coverage", "haplotypes"], "nipt"),
             "conventional_nipt": _record(["ccnv"]),
@@ -46,9 +46,9 @@ def _two_nipts(**extra_records: dict[str, Any]) -> dict[str, Any]:
 def test_a_family_of_one_analysis_or_none_is_signed_out_whole() -> None:
     for metadata, analysis in (
         (None, None),
-        ({"analysis_types": ["long_read_wgs"]}, "long_read_wgs"),
+        ({"analyses": ["long_read_wgs"]}, "long_read_wgs"),
         # Even when asked for an analysis: one alone is the whole family.
-        ({"analysis_types": ["monogenic_nipt"], "package_imports": {"monogenic_nipt": {}}}, "monogenic_nipt"),
+        ({"analyses": ["monogenic_nipt"], "package_imports": {"monogenic_nipt": {}}}, "monogenic_nipt"),
     ):
         scope = signout_scope(metadata, analysis)
         assert scope.whole and scope.analysis == analysis
@@ -88,7 +88,7 @@ def test_data_no_other_analysis_claims_belong_to_every_analysis() -> None:
 
 def _short_and_long_read() -> dict[str, Any]:
     return {
-        "analysis_types": ["long_read_wgs", "short_read_wgs"],
+        "analyses": ["long_read_wgs", "short_read_wgs"],
         "package_imports": {
             "long_read_wgs": _record(["snv", "repeats_trgt", "paraphase"], "clair3"),
             "short_read_wgs": _record(["snv"], "gatk"),
@@ -123,13 +123,13 @@ def test_the_analysis_listing_a_source_is_the_one_whose_record_lists_it() -> Non
     unnamed = {**metadata, "package_imports": {**metadata["package_imports"], "unspecified": _record(["sv_needlr"])}}
     assert analysis_listing_source(unnamed, "structural_variants", "needlr") is None
     # A family of one analysis: its record's sources are its own.
-    single = {"analysis_types": ["short_read_wgs"], "package_imports": {"short_read_wgs": _record(["snv"], "gatk")}}
+    single = {"analyses": ["short_read_wgs"], "package_imports": {"short_read_wgs": _record(["snv"], "gatk")}}
     assert analysis_listing_source(single, "small_variants", "gatk") == "short_read_wgs"
 
 
 def test_an_analysis_with_no_package_record_holds_what_no_other_claims() -> None:
     metadata = {
-        "analysis_types": ["conventional_nipt", "monogenic_nipt"],
+        "analyses": ["conventional_nipt", "monogenic_nipt"],
         "package_imports": {"monogenic_nipt": _record(["snv"], "nipt")},
     }
     scope = signout_scope(metadata, "conventional_nipt")
@@ -139,7 +139,7 @@ def test_an_analysis_with_no_package_record_holds_what_no_other_claims() -> None
 
 def test_an_import_mark_is_the_analysis_s_it_records_or_every_analysis_s() -> None:
     metadata = {
-        "analysis_types": ["long_read_wgs", "short_read_wgs"],
+        "analyses": ["long_read_wgs", "short_read_wgs"],
         "package_imports": {
             "long_read_wgs": _record(["snv", "qc"], "deepvariant"),
             "short_read_wgs": _record(["snv", "qc"], "haplotypecaller"),
@@ -172,7 +172,7 @@ def test_package_records_and_application_sections_by_analysis() -> None:
     assert signout_scope(_two_nipts(), "monogenic_nipt").holds_application(PGT_SECTION_ANALYSES)
     # An application none of whose analyses the family holds is every analysis's.
     germline = signout_scope(
-        {"analysis_types": ["long_read_wgs", "short_read_wgs"], "package_imports": {}}, "short_read_wgs"
+        {"analyses": ["long_read_wgs", "short_read_wgs"], "package_imports": {}}, "short_read_wgs"
     )
     assert germline.holds_application(PGT_SECTION_ANALYSES)
 

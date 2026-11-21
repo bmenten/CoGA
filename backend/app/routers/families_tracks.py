@@ -22,6 +22,7 @@ from ..schemas import (
     StructuralVariantSampleCountsOut,
     VariantLengthOut,
 )
+from ..services.family_analysis_types import ANALYSIS_KEY_MAX_LENGTH
 from ..services.family_metadata_context import build_family_metadata_context
 from ..services.family_service import (
     get_family_haplotypes_batch_for_user,
@@ -230,7 +231,9 @@ async def get_family_mitochondrial_dna(
     project_id: str | None = None,
     count_only: bool = False,
     analysis: str | None = Query(
-        default=None, max_length=64, description="The family's analysis whose chrM calls are read (analysis_type)."
+        default=None,
+        max_length=ANALYSIS_KEY_MAX_LENGTH,
+        description="The family's analysis whose chrM calls are read (its key).",
     ),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),

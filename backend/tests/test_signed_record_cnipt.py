@@ -16,6 +16,7 @@ import pytest
 from backend.app.services import cnipt_service
 from backend.app.services import signed_record_cnipt as src
 from backend.app.services.hash_chain import canonical_hash
+from backend.app.services.family_package_records import suffixed_source
 from backend.tests._ccnv_output import qc_payload
 
 _LOADED = datetime(2026, 11, 19, 9, 30, tzinfo=timezone.utc)
@@ -59,15 +60,22 @@ class _Session:
         return _Result(self.files)
 
 
+# The conventional NIPT of the pregnancy ZW1, by its key; its package lists the plasma and the fetus.
+CNIPT = "conventional_nipt:ZW1"
+
+
 def _context(sample_metadata: dict[str, Any]) -> Any:
     return SimpleNamespace(
         family_id="CNIPT1",
         family_uuid="family-uuid",
         assembly_name="GRCh38",
         sample_rows=[
-            {"sample_id": "CFDNA1", "sample_uuid": "uuid-1", "sample_metadata": sample_metadata},
-            {"sample_id": "FATHER1", "sample_uuid": "uuid-2", "sample_metadata": {}},
+            {"sample_id": "CFDNA1", "sample_uuid": "uuid-1", "sample_metadata": sample_metadata, "role": "mother"},
+            {"sample_id": "FATHER1", "sample_uuid": "uuid-2", "sample_metadata": {}, "role": "father"},
+            {"sample_id": "FETUS1", "sample_uuid": "uuid-3", "sample_metadata": {}, "role": "fetus"},
         ],
+        family_metadata={"analyses": [CNIPT], "package_imports": {CNIPT: {"members": ["CFDNA1", "FETUS1"]}}},
+        scope=SimpleNamespace(analysis=CNIPT),
     )
 
 
@@ -108,7 +116,8 @@ async def test_the_section_freezes_the_page_result_with_its_inputs(monkeypatch: 
     section = await src.cnipt_results(session, context)  # type: ignore[arg-type]
 
     # The cNIPT page's object, from the same code, beside what it was computed from.
-    page = (await cnipt_service.family_cnipt_results(None, context))[0].result.model_dump(mode="json")  # type: ignore[arg-type]
+    pregnancy = cnipt_service.cnipt_pregnancy(context, CNIPT)
+    page = (await cnipt_service.family_cnipt_results(None, context, pregnancy))[0].result.model_dump(mode="json")  # type: ignore[arg-type]
     (sample,) = section["samples"]
     inputs = sample.pop("inputs")
     assert sample == page
@@ -122,9 +131,16 @@ async def test_the_section_freezes_the_page_result_with_its_inputs(monkeypatch: 
         "segment_files": [{"file": "CFDNA1_segments.bed.gz", "rows": 2, "loaded_at": _LOADED.isoformat()}],
     }
     assert len(inputs["segments_digest"]) == 64
-    assert session.asked == [{"family_uuid": "family-uuid", "source": "ccnv"}]
+    # The pregnancy's own ccnv source (family_package_records.suffixed_source).
+    assert session.asked == [{"family_uuid": "family-uuid", "source": suffixed_source("ccnv", "ZW1")}]
+    assert (section["analysis"], section["fetuses"], section["multiple_pregnancy_note"]) == (CNIPT, ["FETUS1"], None)
     # Deterministic, and as JSONB keeps it.
-    assert await src.cnipt_results(_Session(session.files), context) == {"samples": [{**sample, "inputs": inputs}]}  # type: ignore[arg-type]
+    assert await src.cnipt_results(_Session(session.files), context) == {  # type: ignore[arg-type]
+        "analysis": CNIPT,
+        "fetuses": ["FETUS1"],
+        "multiple_pregnancy_note": None,
+        "samples": [{**sample, "inputs": inputs}],
+    }
     assert json.loads(json.dumps(section, allow_nan=False)) == section
 
 

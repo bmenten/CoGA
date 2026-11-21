@@ -217,6 +217,8 @@ class ImportDeliveryOut(ApiDocumentModel):
     project_id: Optional[ApiId] = None
     project: Optional[str] = None
     analysis_type: Optional[str] = None
+    # The pregnancy a NIPT package is of (coga_package.CogaPackage.pregnancy_id).
+    pregnancy_id: Optional[str] = None
     pipeline_name: Optional[str] = None
     pipeline_version: Optional[str] = None
     request_id: Optional[str] = None
@@ -262,7 +264,8 @@ class ImportDeliveryApprove(BaseModel):
 class ImportDeliveryAdd(BaseModel):
     """A package folder added to Deliveries by hand (import_manual_delivery.py): the folder under
     the import roots, the project it belongs to, and, where they differ from what CoGA reads in
-    the folder, the family ID (the folder's name by default) and the analysis."""
+    the folder, the family ID (the folder's name by default), the analysis and, for a NIPT, its
+    pregnancy."""
 
     folder_path: str = Field(min_length=1, max_length=4096)
     project_id: str = Field(min_length=1)
@@ -278,6 +281,8 @@ class ImportDeliveryAdd(BaseModel):
             "conventional_nipt",
         ]
     ] = None
+    # The pregnancy of a monogenic or a conventional NIPT (coga_package.CogaPackage.pregnancy_id).
+    pregnancy_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class ImportDeliveryRefuse(BaseModel):

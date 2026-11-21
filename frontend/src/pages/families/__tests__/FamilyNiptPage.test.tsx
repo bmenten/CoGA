@@ -57,7 +57,7 @@ describe('FamilyNiptPage', () => {
           data: {
             family_id: 'NIPT001',
             members: [],
-            metadata: { analysis_types: ['monogenic_nipt'] },
+            metadata: { analyses: ['monogenic_nipt'] },
           },
         });
       }
@@ -271,7 +271,7 @@ describe('FamilyNiptPage', () => {
               { sample_id: 'CFDNA', role: 'proband', active: true },
               { sample_id: 'FATHER', role: 'father', active: true },
             ],
-            metadata: { analysis_types: ['monogenic_nipt'] },
+            metadata: { analyses: ['monogenic_nipt'] },
           },
         });
       }
@@ -327,7 +327,7 @@ describe('FamilyNiptPage', () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/NIPT001') {
         return Promise.resolve({
-          data: { family_id: 'NIPT001', members: [], metadata: { analysis_types: ['monogenic_nipt'] } },
+          data: { family_id: 'NIPT001', members: [], metadata: { analyses: ['monogenic_nipt'] } },
         });
       }
       if (url === '/families/NIPT001/nipt/variants') {
@@ -398,7 +398,7 @@ describe('FamilyNiptPage', () => {
               { sample_id: 'CFDNA', role: 'proband', active: true },
               { sample_id: 'FATHER', role: 'father', active: true },
             ],
-            metadata: { analysis_types: ['monogenic_nipt'] },
+            metadata: { analyses: ['monogenic_nipt'] },
           },
         });
       }
@@ -498,7 +498,7 @@ describe('FamilyNiptPage', () => {
               { sample_id: 'FATHER1', role: 'father', sex: 'male', active: true },
               { sample_id: 'MOTHER', role: 'mother', sex: 'female', active: true },
             ],
-            metadata: { analysis_types: ['monogenic_nipt'] },
+            metadata: { analyses: ['monogenic_nipt'] },
           },
         });
       }
@@ -507,7 +507,7 @@ describe('FamilyNiptPage', () => {
           data: {
             family_id: 'NIPT001',
             // The plasma is held by the mother's sample.
-            trio: { cfdna_sample_id: 'MOTHER', father_sample_id: 'FATHER1', fetus_sample_id: 'EMB1' },
+            trio: { cfdna_sample_id: 'MOTHER', father_sample_id: 'FATHER1', fetus_sample_ids: ['EMB1'] },
             total: 1,
             fetal_fraction: FETAL_FRACTION,
             variants: [
@@ -582,7 +582,7 @@ describe('FamilyNiptPage', () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/NIPT001') {
         return Promise.resolve({
-          data: { family_id: 'NIPT001', members: [], metadata: { analysis_types: ['monogenic_nipt'] } },
+          data: { family_id: 'NIPT001', members: [], metadata: { analyses: ['monogenic_nipt'] } },
         });
       }
       if (url === '/families/NIPT001/nipt/summary') {
@@ -614,6 +614,72 @@ describe('FamilyNiptPage', () => {
     expect(screen.queryByRole('heading', { name: 'Loading the NIPT analysis' })).not.toBeInTheDocument();
   });
 
+  // Two pregnancies of one woman (the owner's decision of 2026-11-21): the page reads one
+  // pregnancy's monogenic NIPT, the last imported unless the URL names one, names it in every
+  // NIPT request, and says what a twin pregnancy's fetal result can and cannot tell.
+  it('reads one pregnancy of several, and warns of a twin pregnancy', async () => {
+    const record = (at: string) => ({
+      sources: { small_variants: [`nipt_p${at.slice(8, 10)}a1b2c3`], structural_variants: [], tracks: [], repeats: [], paraphase: [] },
+      registered_at: at,
+    });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            members: [],
+            metadata: {
+              analyses: ['monogenic_nipt:ZW1', 'monogenic_nipt:ZW2'],
+              package_imports: {
+                'monogenic_nipt:ZW1': record('2026-11-01T10:00:00'),
+                'monogenic_nipt:ZW2': record('2026-11-20T10:00:00'),
+              },
+            },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/summary') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            analysis: 'monogenic_nipt:ZW2',
+            fetuses: ['TWIN1', 'TWIN2'],
+            multiple_pregnancy_note:
+              'Multiple pregnancy (2 fetuses): a fetal result may be present in one fetus or in more than one.',
+            fetal_fraction: FETAL_FRACTION,
+            category_counts: {},
+            filter_counts: { total_in: 0, failed_quality: 0, failed_artifact: 0, passed: 0 },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({ data: { family_id: 'NIPT001', total: 0, variants: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderPage('NIPT001');
+
+    const select = await screen.findByRole('combobox', { name: 'Analysis whose data are shown' });
+    expect(select).toHaveValue('monogenic_nipt:ZW2');
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'monogenic NIPT of pregnancy ZW1',
+      'monogenic NIPT of pregnancy ZW2',
+    ]);
+    const note = await screen.findByTestId('multiple-pregnancy-note');
+    expect(note).toHaveTextContent('Multiple pregnancy (TWIN1, TWIN2)');
+    expect(note).toHaveTextContent('may be present in one fetus or in more than one');
+    const summaryCalls = apiMock.get.mock.calls.filter(([url]) => url === '/families/NIPT001/nipt/summary');
+    expect(summaryCalls.at(-1)?.[1]).toEqual({ params: { analysis: 'monogenic_nipt:ZW2' } });
+    await waitFor(() =>
+      expect(
+        apiMock.get.mock.calls.some(
+          ([url, config]) => url === '/families/NIPT001/nipt/variants' && config?.params?.analysis === 'monogenic_nipt:ZW2',
+        ),
+      ).toBe(true),
+    );
+  });
+
   // A NIPT family can be partly imported like any other, and on an assembly outside the
   // validated scope: the header warns of both, as on every family page.
   it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
@@ -624,7 +690,7 @@ describe('FamilyNiptPage', () => {
             family_id: 'NIPT001',
             members: [],
             projects: ['p1'],
-            metadata: { analysis_types: ['monogenic_nipt'], ...INCOMPLETE_IMPORT_METADATA },
+            metadata: { analyses: ['monogenic_nipt'], ...INCOMPLETE_IMPORT_METADATA },
           },
         });
       }
@@ -715,7 +781,7 @@ describe('FamilyNiptPage', () => {
                 { sample_id: 'CFDNA', role: 'mother', active: true },
                 { sample_id: 'FATHER', role: 'father', active: true },
               ],
-              metadata: { analysis_types: ['monogenic_nipt'] },
+              metadata: { analyses: ['monogenic_nipt'] },
             },
           });
         }
@@ -1092,7 +1158,7 @@ describe('FamilyNiptPage', () => {
         }
         if (url === '/families/NIPT001') {
           return Promise.resolve({
-            data: { family_id: 'NIPT001', members: [], metadata: { analysis_types: ['monogenic_nipt'] } },
+            data: { family_id: 'NIPT001', members: [], metadata: { analyses: ['monogenic_nipt'] } },
           });
         }
         if (url === '/families/NIPT001/nipt/summary') {

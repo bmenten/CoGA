@@ -11,9 +11,10 @@ can state its provenance (see docs/clinical-traceability.md). It merges two laye
   the gene loci, the Monarch and HPO releases), read live from the reference tables.
 
 A family may hold several analyses, each imported from a package of its own: short-read and
-then long-read WGS of the same DNA, or the monogenic and the conventional NIPT of one pregnancy.
-So the pipeline manifest is kept per analysis: one row per family and analysis, keyed as the
-family's package records are (``family_package_records.package_record_key``). An import writes
+then long-read WGS of the same DNA, or the monogenic and the conventional NIPT of each of a
+woman's pregnancies. So the pipeline manifest is kept per analysis: one row per family and
+analysis, keyed as the family's package records are (``family_package_records.package_record_key``:
+a NIPT's key names its pregnancy). An import writes
 its own analysis's row and keeps the others; a single-file upload, which belongs to no analysis,
 writes the row of no analysis (``UNSPECIFIED_ANALYSIS``), as a package that names none does.
 
@@ -34,9 +35,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .clinical_audit_service import audit_actor, record_clinical_event
-from .family_analysis_types import family_analysis_types
+from .family_analysis_types import family_analyses
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
-from .family_package_records import ANALYSIS_LABELS, UNSPECIFIED_ANALYSIS, package_record_key
+from .family_package_records import UNSPECIFIED_ANALYSIS, analysis_label
 from .hpo_service import get_loaded_hpo_release
 from .access_control import CurrentUser, is_admin_user
 from .signout_scope import analysis_listing_source
@@ -167,7 +168,7 @@ async def _lock_family_manifest(session: AsyncSession, family_uuid: str) -> None
 def manifest_key(analysis: str | None) -> str:
     """The row of the family's manifest that holds the versions of ``analysis``: its package
     record's key; for a family that holds no analysis (None), the row of no analysis."""
-    return package_record_key(analysis)
+    return analysis or UNSPECIFIED_ANALYSIS
 
 
 async def _family_manifest_row(
@@ -427,7 +428,7 @@ async def get_family_annotation_manifest(
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
-    held = family_analysis_types(await _family_metadata(session, context.family_uuid))
+    held = family_analyses(await _family_metadata(session, context.family_uuid))
     rows = await _family_manifest_rows(session, context.family_uuid)
     platform_modules = await _platform_modules(session, context.assembly_id)
     analyses: list[str | None] = [*sorted(held)] or [None]
@@ -650,7 +651,7 @@ def _manifest_replacement_summary(
     listed = "; ".join(changes[:_SUMMARY_MAX_CHANGES]) or "no module changed"
     if len(changes) > _SUMMARY_MAX_CHANGES:
         listed += f"; and {len(changes) - _SUMMARY_MAX_CHANGES} more"
-    of = f" of the {ANALYSIS_LABELS.get(analysis, analysis)}" if analysis else ""
+    of = f" of the {analysis_label(analysis) or analysis}" if analysis else ""
     if prior_source is None:
         return f"Annotation manifest{of} recorded ({source}): {listed}"
     return f"Annotation manifest{of} replaced (was {prior_source}, now {source}): {listed}"
@@ -708,7 +709,7 @@ async def set_family_annotation_manifest(
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user
     )
-    held = family_analysis_types(await _family_metadata(session, context.family_uuid))
+    held = family_analyses(await _family_metadata(session, context.family_uuid))
     analysis = resolve_manifest_analysis(held, analysis_type)
     await _lock_family_manifest(session, context.family_uuid)
     # What the analysis's manifest stated until now: the modules a sign-out of it froze.

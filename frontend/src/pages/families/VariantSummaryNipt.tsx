@@ -848,15 +848,20 @@ const Facts: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ stats }) => {
   );
 };
 
-const VariantSummaryNipt: React.FC<{ familyId: string; projectId?: string | null }> = ({
+const VariantSummaryNipt: React.FC<{ familyId: string; projectId?: string | null; analysis?: string | null }> = ({
   familyId,
   projectId,
+  analysis,
 }) => {
   const query = useQuery<NiptVariantStatisticsOut>({
-    queryKey: ['family', familyId, 'nipt-statistics', projectId || null],
+    queryKey: ['family', familyId, 'nipt-statistics', projectId || null, analysis || null],
     queryFn: async () => {
+      // The pregnancy's monogenic NIPT, of a family that holds one per pregnancy.
+      const params: Record<string, string> = {};
+      if (projectId) params.project_id = projectId;
+      if (analysis) params.analysis = analysis;
       const res = await api.get(apiPath`/families/${familyId}/nipt/statistics`, {
-        params: projectId ? { project_id: projectId } : undefined,
+        params: Object.keys(params).length ? params : undefined,
       });
       return res.data as NiptVariantStatisticsOut;
     },

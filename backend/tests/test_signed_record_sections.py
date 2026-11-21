@@ -546,7 +546,7 @@ def test_what_a_section_cannot_use_is_left_out_not_guessed() -> None:
 
 
 def _nipt_family_session(analysis_type: str | None = "monogenic_nipt") -> _Session:
-    return _Session({"FROM families": [{"metadata": {"analysis_types": [analysis_type]} if analysis_type else {}}]})
+    return _Session({"FROM families": [{"metadata": {"analyses": [analysis_type]} if analysis_type else {}}]})
 
 
 def _sections_of(
@@ -788,7 +788,7 @@ def test_a_nipt_familys_fetus_read_as_an_embryo_brings_no_pgt_section(monkeypatc
     # The father's blocks are no input of an embryo call: the fetus has none of its own.
     session = _Session(
         {
-            "FROM families": [{"metadata": {"analysis_types": ["monogenic_nipt"]}}],
+            "FROM families": [{"metadata": {"analyses": ["monogenic_nipt"]}}],
             _HAPLOTYPE_SOURCES: [_haplotype_source("FATHER1")],
         }
     )
@@ -819,7 +819,7 @@ def test_a_nipt_family_whose_embryo_has_haplotype_blocks_keeps_the_pgt_section(m
     monkeypatch.setattr(srs, "family_pgt_analysis", _analysis_of)
     session = _Session(
         {
-            "FROM families": [{"metadata": {"analysis_types": ["monogenic_nipt"]}}],
+            "FROM families": [{"metadata": {"analyses": ["monogenic_nipt"]}}],
             _HAPLOTYPE_SOURCES: [_haplotype_source("FETUS1")],
         }
     )
@@ -1000,7 +1000,7 @@ def test_each_nipt_of_a_pregnancy_holds_its_own_application_section(monkeypatch)
     monkeypatch.setattr(srs, "cnipt_results", results)
     monkeypatch.setattr(srs, "nipt_results", nipt)
     held = frozenset({"conventional_nipt", "monogenic_nipt"})
-    session = _Session({"FROM families": [{"metadata": {"analysis_types": sorted(held)}}]})
+    session = _Session({"FROM families": [{"metadata": {"analyses": sorted(held)}}]})
 
     def _sections(analysis: str) -> dict[str, Any]:
         return asyncio.run(

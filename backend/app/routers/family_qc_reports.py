@@ -40,6 +40,7 @@ from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import FamilyQcReportLinkOut
+from ..services.family_analysis_types import ANALYSIS_KEY_MAX_LENGTH
 from ..services.family_package_common import _metadata_dict
 from ..services.family_package_source import local_family_package_folder
 from ..services.metadata_service import get_family_record
@@ -176,7 +177,7 @@ def _resolve_report_file(relative_path: str, package_folder: object) -> Path:
 
 # The analysis whose import recorded the report (samples.metadata.sequencing_qc): a sample
 # sequenced short-read and then long-read has a report of each.
-_ANALYSIS = Query(..., min_length=1, max_length=64)
+_ANALYSIS = Query(..., min_length=1, max_length=ANALYSIS_KEY_MAX_LENGTH)
 
 
 @router.get("/{family_id}/qc-report/{sample_id}/link", response_model=FamilyQcReportLinkOut)

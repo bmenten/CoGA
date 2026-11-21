@@ -41,7 +41,7 @@ def _record(datasets: list[str], callset: str | None, members: list[str], at: st
 # Short-read WGS of a trio, then long-read WGS of the proband's second sample (linked as the same
 # individual) with the mtDNA calls.
 _TWO_WGS = {
-    "analysis_types": ["long_read_wgs", "short_read_wgs"],
+    "analyses": ["long_read_wgs", "short_read_wgs"],
     "package_imports": {
         "short_read_wgs": _record(["snv"], "haplotypecaller", ["PROBAND", "MOTHER", "FATHER1"], "2026-11-01T10:00:00"),
         "long_read_wgs": _record(["snv", "mito"], "deepvariant", ["PROBAND2"], "2026-11-02T10:00:00"),
@@ -49,7 +49,7 @@ _TWO_WGS = {
 }
 # A monogenic and a conventional NIPT of one pregnancy: only the monogenic NIPT holds small variants.
 _TWO_NIPTS = {
-    "analysis_types": ["conventional_nipt", "monogenic_nipt"],
+    "analyses": ["conventional_nipt", "monogenic_nipt"],
     "package_imports": {
         "monogenic_nipt": _record(["snv"], "nipt", ["CFDNA1", "FATHER1", "FETUS1"], "2026-11-01T10:00:00"),
         "conventional_nipt": _record(["ccnv"], None, ["CFDNA1"], "2026-11-02T10:00:00"),
@@ -86,7 +86,7 @@ def test_a_family_whose_one_analysis_holds_small_variants_is_read_as_it() -> Non
     assert scope.left_out_sources("small_variants") == frozenset()
     assert scope.left_out_members == frozenset()
     # A family of one analysis, and one of none.
-    one = {"analysis_types": ["pgt"], "package_imports": {"pgt": _record(["haplotypes"], None, ["S1"], "t")}}
+    one = {"analyses": ["pgt"], "package_imports": {"pgt": _record(["haplotypes"], None, ["S1"], "t")}}
     assert analysis_scope(one).analysis == "pgt"
     assert analysis_scope({}) == WHOLE_FAMILY_SCOPE
     assert WHOLE_FAMILY_SCOPE.review_analysis == NO_ANALYSIS

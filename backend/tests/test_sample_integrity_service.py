@@ -112,10 +112,10 @@ def _patch_nipt_family(monkeypatch) -> None:
     """The trio as a monogenic NIPT family: FATHER, and MOTHER's plasma as the cfDNA sample
     (the mother member's maternal-plasma sample; there is no separate maternal germline
     sample). The NIPT analysis itself is left to each test."""
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_types": ["monogenic_nipt"]})
+    _patch(monkeypatch, swap_child=False, metadata={"analyses": ["monogenic_nipt"]})
     monkeypatch.setattr(
         sample_integrity_service, "resolve_nipt_trio",
-        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
+        lambda family, analysis: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
     )
 
 
@@ -232,16 +232,16 @@ def test_a_sign_out_of_one_analysis_runs_its_qc_on_its_own_callset(monkeypatch) 
             session=_Session(),
             family_id="FAM1",
             user=None,
-            analysis_types=["short_read_wgs"],
+            analysis="short_read_wgs",
             genotype_source_held=lambda source: source == "gatk",
         )
     )
     assert report.genotype_source == "gatk" and set(read) == {"gatk"}
     # The conventional NIPT of a family holding both NIPTs: its profile, which runs no check.
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_types": ["conventional_nipt", "monogenic_nipt"]})
+    _patch(monkeypatch, swap_child=False, metadata={"analyses": ["conventional_nipt", "monogenic_nipt"]})
     cnipt = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=_Session(), family_id="FAM1", user=None, analysis_types=["conventional_nipt"]
+            session=_Session(), family_id="FAM1", user=None, analysis="conventional_nipt"
         )
     )
     assert cnipt.application == "cnipt"
@@ -507,8 +507,8 @@ def test_service_a_nipt_family_whose_trio_is_not_resolved_runs_no_cfdna_check(mo
     # gate holds as a NIPT family none of whose checks could be assessed.
     from backend.app.services.report_signout_service import _unverifiable_swap_checks
 
-    _patch(monkeypatch, swap_child=False, metadata={"analysis_types": ["monogenic_nipt"]})
-    monkeypatch.setattr(sample_integrity_service, "resolve_nipt_trio", lambda family: None)
+    _patch(monkeypatch, swap_child=False, metadata={"analyses": ["monogenic_nipt"]})
+    monkeypatch.setattr(sample_integrity_service, "resolve_nipt_trio", lambda family, analysis: None)
 
     async def _not_run(*args, **kwargs):
         raise AssertionError("no NIPT analysis runs without a trio")
@@ -750,7 +750,7 @@ def _copgtm_qc(monkeypatch, context: FamilyMetadataContext):
         context=context,
         sources=["glimpse2"],
         sample=lambda scope, limit, source: [] if scope == "chrX" else _imputed_autosome_rows(2_400),
-        metadata={"analysis_types": ["pgt"]},
+        metadata={"analyses": ["pgt"]},
     )
     return asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="PGT2", user=None)

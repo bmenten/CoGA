@@ -87,7 +87,7 @@ const serve = (result: CniptSampleResultOut) =>
           family_id: 'F1',
           members: [{ sample_id: 'CFDNA1', role: 'mother', affected: false, sex: 'female' }],
           projects: [],
-          metadata: { analysis_types: ['conventional_nipt'] },
+          metadata: { analyses: ['conventional_nipt'] },
         },
       });
     }

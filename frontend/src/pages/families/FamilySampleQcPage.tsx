@@ -7,6 +7,8 @@ import { QC_STATUS_CHIP, QC_STATUS_LABEL, worstIntegrityStatus } from '../../lib
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyCaseHeader from './FamilyCaseHeader';
+import AnalysisSelect, { useAnalysisNavigation } from './AnalysisSelect';
+import { ANALYSIS_PARAM, pregnancyAnalyses, pregnancyAnalysisOf } from '../../lib/familyAnalyses';
 import FamilyAncestryPanel from './FamilyAncestryPanel';
 import InfoTip from '../../components/InfoTip';
 import Pedigree, { type PedigreeQcStatus } from '../../components/visualizations/Pedigree';
@@ -430,21 +432,6 @@ const FamilySampleQcPage: React.FC = () => {
   const location = useLocation();
   const requestedProject = new URLSearchParams(location.search).get('project_id') || undefined;
 
-  const {
-    data: qc,
-    isLoading: qcLoading,
-    isError: qcError,
-    isFetching: qcFetching,
-    refetch: refetchQc,
-  } = useQuery<ApiSampleIntegrityQc>({
-    queryKey: ['family', familyId, 'sample-integrity-qc'],
-    enabled: Boolean(familyId),
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/qc/sample-integrity`);
-      return res.data as ApiSampleIntegrityQc;
-    },
-  });
-
   // The pedigree drawing + members table are reused from the family record, which also holds
   // what the header warns of: an import that left the family incomplete.
   const {
@@ -458,6 +445,31 @@ const FamilySampleQcPage: React.FC = () => {
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
       return res.data as ApiFamilyRecord;
+    },
+  });
+  // The pregnancy whose QC is read, of a family that holds the monogenic NIPT of several (the URL
+  // names it, else the last imported); none for any other family, whose QC is the family's.
+  const niptAnalyses = pregnancyAnalyses(family?.metadata, 'monogenic_nipt');
+  const qcAnalysis =
+    niptAnalyses.length > 1 ? pregnancyAnalysisOf(family?.metadata, 'monogenic_nipt', location.search) : null;
+  const selectAnalysis = useAnalysisNavigation();
+
+  const {
+    data: qc,
+    isLoading: qcLoading,
+    isError: qcError,
+    isFetching: qcFetching,
+    refetch: refetchQc,
+  } = useQuery<ApiSampleIntegrityQc>({
+    queryKey: ['family', familyId, 'sample-integrity-qc', qcAnalysis],
+    // Once the family is read: of a family that holds the monogenic NIPT of several pregnancies,
+    // the QC is one pregnancy's.
+    enabled: Boolean(familyId && family),
+    queryFn: async () => {
+      const res = await api.get(apiPath`/families/${familyId}/qc/sample-integrity`, {
+        params: qcAnalysis ? { [ANALYSIS_PARAM]: qcAnalysis } : undefined,
+      });
+      return res.data as ApiSampleIntegrityQc;
     },
   });
   // The family's assembly, for the validated-scope warning every family page carries.
@@ -564,6 +576,7 @@ const FamilySampleQcPage: React.FC = () => {
         family={family}
         projectId={projectId}
         current="qc"
+        actions={<AnalysisSelect analyses={niptAnalyses} analysis={qcAnalysis} onChange={selectAnalysis} />}
         facts={
           <div className="family-workspace-stat">
             <span className="stat-label">Read from</span>

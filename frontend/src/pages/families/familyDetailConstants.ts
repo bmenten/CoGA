@@ -12,6 +12,7 @@ export const ROLE_OPTIONS: StructureMemberDraft['role'][] = [
   'mother',
   'sibling',
   'embryo',
+  'fetus',
   'relative',
 ];
 export const SEX_OPTIONS: StructureMemberDraft['sex'][] = ['male', 'female', 'und'];

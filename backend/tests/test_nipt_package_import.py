@@ -71,7 +71,7 @@ def test_scan_returns_empty_without_roots(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_manifest_accepts_analysis_type() -> None:
-    manifest = PackageManifest(analysis_type="monogenic_nipt")
+    manifest = PackageManifest(analysis_type="monogenic_nipt", pregnancy_id="ZW1")
     assert manifest.analysis_type == "monogenic_nipt"
 
 
@@ -149,6 +149,7 @@ def test_the_demo_deliverys_manifest_names_the_trio_the_plasmas_assay_and_the_da
         "schema_version": 1,
         "family_id": "FAM_NIPT_DEMO",
         "analysis_type": "monogenic_nipt",
+        "pregnancy_id": "PREG_NIPT_DEMO",
         "family": {
             "add_members": [
                 {"sample_id": "FATHER_NIPT", "sex": "male", "clinical_status": "unaffected"},
@@ -159,6 +160,7 @@ def test_the_demo_deliverys_manifest_names_the_trio_the_plasmas_assay_and_the_da
                     "clinical_status": "affected",
                     "father": "FATHER_NIPT",
                     "mother": "CFDNA_NIPT",
+                    "role": "fetus",
                 },
             ]
         },
@@ -245,7 +247,7 @@ _PAIR_MANIFEST = (
 def test_a_nipt_pair_package_validates(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setattr(settings, "family_import_roots", [])
     package = tmp_path / "NIPTPAIR"
-    _write_pair_folder(package, manifest=_PAIR_MANIFEST.format(analysis_type="analysis_type: monogenic_nipt\n"))
+    _write_pair_folder(package, manifest=_PAIR_MANIFEST.format(analysis_type="analysis_type: monogenic_nipt\npregnancy_id: ZW1\n"))
     validation, _bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
     assert validation.valid, validation.errors
     datasets = {summary.dataset_type: summary for summary in validation.datasets}
@@ -269,7 +271,7 @@ def test_a_per_sample_file_must_hold_one_sample_and_a_table_its_columns(
 
     monkeypatch.setattr(settings, "family_import_roots", [])
     package = tmp_path / "NIPTPAIR"
-    _write_pair_folder(package, manifest=_PAIR_MANIFEST.format(analysis_type="analysis_type: monogenic_nipt\n"))
+    _write_pair_folder(package, manifest=_PAIR_MANIFEST.format(analysis_type="analysis_type: monogenic_nipt\npregnancy_id: ZW1\n"))
     with gzip.open(package / "FATHER1.mutect2.vcf.gz", "wt") as handle:
         handle.write(_one_sample_vcf("FATHER1").replace("\tFATHER1\n", "\tFATHER1\tCFDNA1\n"))
     (package / "coverage_CFDNA1.txt").write_text("#build\tchromosome\tstart\tend\n")
@@ -306,7 +308,7 @@ def _pair_whose_father_column_is(
     import gzip
 
     package = tmp_path / "NIPTPAIR"
-    text = _PAIR_MANIFEST.format(analysis_type="analysis_type: monogenic_nipt\n").replace(
+    text = _PAIR_MANIFEST.format(analysis_type="analysis_type: monogenic_nipt\npregnancy_id: ZW1\n").replace(
         "FATHER1: {vcf: FATHER1.mutect2.vcf.gz}", f"FATHER1: {{vcf: {father_file}{father_entry}}}"
     )
     _write_pair_folder(package, manifest=text if manifest else None)

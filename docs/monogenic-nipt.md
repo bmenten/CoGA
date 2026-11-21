@@ -14,28 +14,46 @@ validation against invasive exomes stays in the R project.
 
 ## Family model and tags
 
-A NIPT case is a trio backed by two samples (`backend/app/services/nipt.py`, `resolve_nipt_trio`):
+A NIPT case is a trio backed by two samples (`backend/app/services/nipt.py`, `resolve_nipt_trio`),
+one per pregnancy: a family may hold several pregnancies of one woman, each pregnancy's monogenic
+NIPT an analysis of its own (the owner's decision of 2026-11-21).
 
-- `"monogenic_nipt"` among the family's analysis types (`family.metadata.analysis_types`) marks the
-  family and shows the NIPT page. Family Builder sets it; a package import adds its `analysis_type`
-  to the list, beside any other (a conventional NIPT of the same pregnancy).
+- A monogenic NIPT among the family's analyses (`family.metadata.analyses`) marks the family and
+  shows the NIPT page. Its key names its pregnancy (`monogenic_nipt:ZW1`): a package import adds the
+  key of its `analysis_type` and `pregnancy_id` (required for a NIPT, [coga-package.md](coga-package.md)),
+  beside any other (the conventional NIPT of the same pregnancy, another pregnancy's NIPTs); Family
+  Builder sets it with the pregnancy ID it asks for.
+- A reading names its pregnancy (`analysis=`) when the family holds the monogenic NIPT of several:
+  the NIPT summary, statistics, variants and coverage, the Sample QC and the sign-out read one
+  pregnancy's (`nipt_analysis_of`, 422 without one). The pages offer the pregnancy beside the
+  family's name, the last imported first. Each pregnancy's calls, coverage tables and ccnv output
+  are stored under sources of its own (`family_package_records.suffixed_source`: `nipt_p…`,
+  `coverage_table_p…`), the father's among them: an import of one pregnancy never replaces another's.
 - The cfDNA sample's assays (`sample.metadata.assays`) hold `"nipt_cfdna"`, and it has the `mother`
   role. Without the tag, the active `mother` member's sample is used.
-- Of two samples that could be the plasma (a mother sampled twice, linked as the same individual),
-  the plasma is the one the monogenic NIPT's package lists (`package_imports.monogenic_nipt.members`,
-  `analysis_members`), else, without the tag, the one that is no conventional NIPT's plasma alone
-  (`cnipt_cfdna`). The father is chosen the same way of two `father` members. When that leaves none
+- Of two samples that could be the plasma (a mother sampled twice, linked as the same individual,
+  or the plasma of each pregnancy), the plasma is the one the pregnancy's monogenic NIPT's package
+  lists (`package_imports["monogenic_nipt:ZW1"].members`, `analysis_members`), else, without the
+  tag, the one that is no conventional NIPT's plasma alone (`cnipt_cfdna`). The father is chosen the same way of two `father` members. When that leaves none
   or several, the trio is not resolved rather than guessed: the NIPT page answers 400 and the signed
   record freezes `NIPT_TRIO_UNRESOLVED`, which also holds the sign-out.
 - The capture panel the monogenic NIPT's package names for the cfDNA sample (its `assay_panel`,
-  optional; kept as the analysis's in `sample.metadata.assay_panels.monogenic_nipt`) scopes the
-  artifact list. Without it, every NIPT family on the assembly shares the `nipt_cfdna` list. A
+  optional; kept as the analysis's in `sample.metadata.assay_panels["monogenic_nipt:ZW1"]`) scopes
+  the artifact list. Without it, every NIPT family on the assembly shares the `nipt_cfdna` list. A
   conventional NIPT of the same plasma keeps its own panel beside it, which no artifact list reads.
-- The father is the active `father` member. The fetus (`embryo`, else `proband`) is an optional
-  placeholder without data. A NIPT pedigree usually gives the fetus an unknown sex and status; the
-  import reads such a child, with both parents and no role given, as an `embryo`. It has no
-  haplotype blocks, so the signed record holds no PGT section for it: `pgt_analysis` only where an
-  embryo has blocks of its own.
+- The father is the active `father` member. The fetuses are the `fetus` members the pregnancy's
+  package lists (`pregnancy_fetuses`): placeholders without data, none when the fetus is purely
+  inferred, two or more in a multiple pregnancy. A fetus is a role of its own, no proband and no PGT
+  embryo (the owner's decision of 2026-11-21). A NIPT pedigree usually gives the fetus an unknown
+  sex and status; in a NIPT package the import reads such a child, with both parents and no role
+  given, as a `fetus`. It has no haplotype blocks, and the signed record holds no PGT section for it.
+- A maternal plasma and a fetus are one pregnancy's: an import of another pregnancy whose package
+  lists one of them is refused before anything is written (`_shared_pregnancy_sample_message`).
+- A pregnancy whose package lists two or more fetuses is a multiple pregnancy. Its summary, its
+  NIPT report and its signed record carry `multiple_pregnancy_note`: a fetal result may be present
+  in one fetus or in more than one, which does not apply to a monozygotic twin; the parents'
+  carrier status is read as in a singleton pregnancy. CoGA is not told the zygosity, so the note is
+  shown for every multiple pregnancy (the owner's decision of 2026-11-21).
 
 ## Input
 
@@ -44,8 +62,9 @@ Two inputs, one model:
 - **The pair** (the NIPT-M pipeline's output): a single-sample VCF of the plasma (Mutect2 tumour-only)
   and one of the father, each with a per-target coverage table.
   - `family_package_nipt.py` discovers the pair (`discover_nipt_package_files`), and
-    `family_package_datasets.py` imports each VCF into the per-sample small-variant callset `nipt`
-    (`NIPT_SMALL_VARIANT_SOURCE`, merged per sample as the mtDNA callset is).
+    `family_package_datasets.py` imports each VCF into the pregnancy's per-sample small-variant
+    callset (`nipt` with the pregnancy's suffix, `NIPT_SMALL_VARIANT_SOURCE`, merged per sample as
+    the mtDNA callset is).
   - The plasma goes first, then the father's file through `paternal_record_filter`, which keeps a
     record whose call reaches 15% alt reads or that lies over a plasma call position (an MNV over
     any of its bases).
@@ -250,12 +269,14 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
 Endpoints (`routers/families_nipt.py`, under `/api`):
 
 - `GET /families/{id}/nipt/summary`;
-- `/nipt/variants` (with `trio`: the samples read as the plasma and the father, and the fetus's
-  placeholder, by which the list's genotypes show each sample's reads);
+- `/nipt/variants` (with `trio`: the samples read as the plasma and the father, and the
+  placeholders of the pregnancy's fetuses, by which the list's genotypes show each sample's reads
+  and leave out the fetuses and another pregnancy's plasma);
 - `/nipt/variants/export` (the list as CSV: the same search, read through one dependency,
   `_nipt_variant_search`; the small-variant export's columns but the genotypes, then the NIPT
-  classification; a list cut at the 5,000 limit is named `TRUNCATED-partial-search`, reason
-  `candidate-limit`);
+  classification; the file is named after the pregnancy it reads,
+  `family-{family_id}-{pregnancy}-nipt-variants.csv`, and a list cut at the 5,000 limit is named
+  `TRUNCATED-partial-search`, reason `candidate-limit`);
 - `/nipt/coverage` (with `targets` from the target table; `all_genes=true` also lists the genes
   whose targets all pass, for the coverage page);
 - `/nipt/coverage/targets?gene=` (one gene's targets, each with `weak`).

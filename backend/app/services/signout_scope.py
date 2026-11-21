@@ -1,8 +1,9 @@
 """What a sign-out of one of a family's analyses freezes and checks: its scope.
 
 A family may hold several analyses, each imported from a package of its own: the monogenic and the
-conventional NIPT of one pregnancy, or short-read and then long-read WGS of the same DNA. Each
-analysis is signed out on its own, and its sign-out freezes and checks that analysis's data only
+conventional NIPT of each of a woman's pregnancies, or short-read and then long-read WGS of the same
+DNA. Each analysis (by its key: a NIPT's names its pregnancy, ``family_analysis_types``) is signed
+out on its own, and its sign-out freezes and checks that analysis's data only
 (the owner's decisions of 2026-11-19): its reported variants and their evidence drift, its repeat
 and Paraphase findings with their reviews, its coverage tracks, its application's section and
 Sample QC, its package's delivery and changes, and what its imports left unfinished or failed to
@@ -29,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-from .family_analysis_types import family_analysis_types
+from .family_analysis_types import analysis_type_of, family_analyses
 from .family_package_records import (
     SOURCE_KINDS,
     family_package_records,
@@ -94,11 +95,15 @@ class SignoutScope:
         return analysis_type is None or self.holds_record(analysis_type)
 
     def holds_application(self, analyses: Collection[str]) -> bool:
-        """Whether the record section of an application read for ``analyses`` (the NIPT results:
-        monogenic NIPT) is the analysis's: it is one of them, or the family holds none of them."""
+        """Whether the record section of an application read for the analysis types ``analyses``
+        (the NIPT results: monogenic NIPT) is the analysis's: it is of one of them, or the family
+        holds an analysis of none of them. The section reads the analysis's own data: a NIPT's,
+        its pregnancy's."""
         if self.own is None:
             return True
-        return self.analysis in analyses or not self.held.intersection(analyses)
+        return analysis_type_of(self.analysis) in analyses or not any(
+            analysis_type_of(held) in analyses for held in self.held
+        )
 
 
 # The scope of a sign-out of the whole family.
@@ -109,7 +114,7 @@ def signout_scope(metadata: Mapping[str, Any] | None, analysis: str | None) -> S
     """The scope of a sign-out of ``analysis`` (``report_signout_service.resolve_signout_analysis``)
     of the family whose ``families.metadata`` is ``metadata``: the whole family when it holds one
     analysis or none, else the analysis's data by its package records."""
-    held = frozenset(family_analysis_types(metadata))
+    held = family_analyses(metadata)
     if analysis is None or len(held) < 2:
         return SignoutScope(analysis=analysis)
     own: dict[str, frozenset[str]] = {kind: frozenset() for kind in SOURCE_KINDS}
@@ -136,7 +141,7 @@ def analysis_listing_source(metadata: Mapping[str, Any] | None, kind: str, sourc
     name = str(source) if source is not None else ""
     if not name:
         return None
-    held = family_analysis_types(metadata)
+    held = family_analyses(metadata)
     listing = [
         key
         for key, record in family_package_records(metadata).items()

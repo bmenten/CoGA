@@ -34,6 +34,8 @@ from .family_package_nipt import nipt_vcf_column_issue
 from .ccnv_output import CcnvOutputError, ccnv_vcf_header_problems
 from .family_package_ccnv import CCNV_DATASET, ccnv_entry_paths, ccnv_sample_issues, check_ccnv_track_header, read_ccnv_qc_file, read_ccnv_vcf_header
 from .nipt import CONVENTIONAL_NIPT_ANALYSIS_TYPE, MONOGENIC_NIPT_ANALYSIS_TYPE
+from .family_analysis_types import PREGNANCY_ANALYSIS_TYPES, is_pregnancy_analysis_type, pregnancy_id_problem
+from .family_identifiers import visible
 from .small_variant_callsets import is_callset_name, is_direct_callset, is_family_vcf_callset
 from .nipt_target_coverage import target_table_missing_columns
 from .coverage_content import COVERAGE_CONTENT_KEY, DECLARED_COVERAGE_CONTENTS
@@ -479,6 +481,41 @@ def _validate_wisecondorx_dataset(
         samples=samples,
     )
 
+
+
+def manifest_pregnancy_issues(manifest: PackageManifest) -> list[FamilyImportValidationIssue]:
+    """What is wrong with the pregnancy a package names (``pregnancy_id``, the owner's decision of
+    2026-11-21): a monogenic or a conventional NIPT names the pregnancy it is of, by the rule of a
+    family ID and of at most ``PREGNANCY_ID_MAX_LENGTH`` characters (``pregnancy_id_problem``), and
+    a package of any other analysis names none."""
+    analysis_type = (manifest.analysis_type or "").strip()
+    pregnancy = manifest.pregnancy_id
+    if not analysis_type:
+        if pregnancy is not None:
+            return [_issue("pregnancy_without_analysis", "The package names a pregnancy but no analysis_type")]
+        return []
+    if not is_pregnancy_analysis_type(analysis_type):
+        if pregnancy is not None:
+            return [
+                _issue(
+                    "pregnancy_not_nipt",
+                    f"The package names a pregnancy (pregnancy_id), which only a "
+                    f"{' or a '.join(PREGNANCY_ANALYSIS_TYPES)} package names; this is a {analysis_type} package",
+                )
+            ]
+        return []
+    if pregnancy is None or not pregnancy.strip():
+        return [
+            _issue(
+                "pregnancy_missing",
+                f"A {analysis_type} package names the pregnancy it is of (pregnancy_id): a family may "
+                "hold several pregnancies, each pregnancy's NIPT an analysis of its own",
+            )
+        ]
+    problem = pregnancy_id_problem(pregnancy)
+    if problem is not None:
+        return [_issue("pregnancy_id_invalid", f"The pregnancy ID {visible(pregnancy)} {problem}")]
+    return []
 
 
 def _validate_ccnv_dataset(
@@ -1916,12 +1953,15 @@ def load_validated_family_package(
     folder_path: str | Path,
     *,
     manifest_text: str,
+    proposal: bool = False,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     """Validate the package at ``folder_path`` and load it for import.
 
     ``manifest_text`` is the manifest CoGA keeps for the import's job, the one a delivery's
     package makes (``_validate_and_load_package``): the import reads no file of the folder as its
-    manifest, and no PED.
+    manifest, and no PED. A ``proposal`` is Discover's draft of a folder, read for the members and
+    datasets it proposes a package that leaves them out: the pregnancy of a NIPT is the package's,
+    which the delivery's check reads (``coga_package.package_issues``), and is not read here.
 
     The fingerprint of a local package folder, read with that manifest, is taken before the
     validation reads anything in it (``take_package_fingerprint``), and given with the report
@@ -1932,7 +1972,7 @@ def load_validated_family_package(
     fingerprint, refusal = take_package_fingerprint(folder_path, manifest_text=manifest_text)
     if refusal is not None:
         return FamilyPackageValidationOut(valid=False, errors=[refusal]), None
-    validation, bundle = _validate_and_load_package(folder_path, manifest_text=manifest_text)
+    validation, bundle = _validate_and_load_package(folder_path, manifest_text=manifest_text, proposal=proposal)
     if fingerprint is not None:
         validation = validation.model_copy(update={"package_fingerprint": fingerprint.sha256})
         if bundle is not None:
@@ -1972,6 +2012,7 @@ def _validate_and_load_package(
     folder_path: str | Path,
     *,
     manifest_text: str,
+    proposal: bool = False,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     """Validate the package at ``folder_path`` and load it for import.
 
@@ -2096,6 +2137,9 @@ def _validate_and_load_package(
             errors.extend(ped_errors)
         elif not added_errors:
             errors.append(_issue("ped_empty", "family.add_members names no member the package can import"))
+
+    if not proposal:
+        errors.extend(manifest_pregnancy_issues(manifest))
 
     if ped is not None and any(issue.code in IDENTIFIER_ISSUE_CODES for issue in errors):
         # Nothing else is read under an ID that cannot be stored: the dataset summaries and the

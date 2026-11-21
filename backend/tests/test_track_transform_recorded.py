@@ -32,7 +32,7 @@ import pytest
 from backend.app.schemas import FamilyImportDatasetSummary
 from backend.app.services import family_package_datasets, family_package_tracks
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services.family_package_common import ManifestDataset
+from backend.app.services.family_package_common import ManifestDataset, PackageManifest
 from backend.app.services.family_service import get_family_track_availability_for_user
 
 SAMPLE = "PROBAND"
@@ -127,7 +127,7 @@ async def _import(
         monkeypatch.setattr(module, name, fake)
     job = family_package_datasets.DatasetImportJob(
         session=session,  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=root, manifest=SimpleNamespace(analysis_type="long_read_wgs")),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=root, manifest=PackageManifest(analysis_type="long_read_wgs")),  # type: ignore[arg-type]
         dataset=ManifestDataset(per_sample={SAMPLE: entry}),
         summary=FamilyImportDatasetSummary(dataset_type=dataset_type, status="valid"),
         family_context=FamilyMetadataContext(
