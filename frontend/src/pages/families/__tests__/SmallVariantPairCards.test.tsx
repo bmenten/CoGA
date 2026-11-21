@@ -1,4 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -87,6 +88,26 @@ describe('SmallVariantPairCards', () => {
     const curated = screen.getByText('Phase').closest('.variant-compound-het-summary-row') as HTMLElement;
     expect(within(curated).getByText('Likely cis')).toBeInTheDocument();
     expect(within(phasingRow()).getByText('In trans · read-backed')).toBeInTheDocument();
+  });
+});
+
+// A pair card folds to its top bar from the caret before it, and opens again from it.
+describe('SmallVariantPairCards collapse', () => {
+  it('folds the pair to its top bar and opens it again', async () => {
+    const { container } = renderPair({ phase: 'trans', phase_evidence: 'read' });
+    const card = container.querySelector('article') as HTMLElement;
+
+    await userEvent.click(
+      within(card).getByRole('button', { name: 'Collapse the card of the compound het pair in TRNT1' }),
+    );
+    expect(card).toHaveClass('variant-card--collapsed');
+    expect(card.querySelector('.variant-card-body')).toBeNull();
+    expect(within(card).getByRole('button', { name: 'Review pair' })).toBeInTheDocument();
+
+    await userEvent.click(
+      within(card).getByRole('button', { name: 'Expand the card of the compound het pair in TRNT1' }),
+    );
+    expect(card.querySelector('.variant-card-body')).not.toBeNull();
   });
 });
 

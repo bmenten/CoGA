@@ -389,6 +389,52 @@ button.sv-second-hit-badge--del:hover {
   min-width: 0;
 }
 
+/* The caret before a card's heading folds the card to that heading (CardCollapseToggle): it
+   points down on an open card and right on a folded one. */
+.variant-card-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  min-width: 1.25rem;
+  min-height: 1.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+
+.variant-card-collapse-toggle:hover,
+.variant-card-collapse-toggle:active,
+.variant-card-collapse-toggle:focus-visible {
+  background: none;
+  color: var(--color-link-hover);
+}
+
+.variant-card-collapse-caret {
+  font-size: var(--fs-xl);
+  line-height: 1;
+  transition: transform 140ms ease;
+}
+
+.variant-card-collapse-toggle[aria-expanded='false'] .variant-card-collapse-caret {
+  transform: rotate(-90deg);
+}
+
+/* A folded card is brought into view below the sticky header and breadcrumbs. */
+.variant-card--collapsed {
+  scroll-margin-top: calc(var(--sticky-offset) + 0.5rem);
+}
+
+/* Under a folded card's heading: the change, which tells two variants in one gene apart. */
+.variant-card-collapsed-summary {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
 .variant-card-gene {
   font-size: var(--fs-md);
   font-weight: 600;
