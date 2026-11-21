@@ -1273,8 +1273,8 @@ analysis's folder is followed against its own reference, never another's.
   otherwise is a change again.
 - **What it shows.** Every page of the family shows one *Package folder changed after import* (or
   *Package folder gone*, or *Source files archived*) banner per analysis whose folder changed,
-  naming the analysis (*The package folder this family's monogenic NIPT data was imported
-  from …*), with what changed (`GET /families/{family_id}`, `package_source_changes`: a list, one
+  naming the analysis (*The package folder the data of this family's monogenic NIPT of pregnancy
+  ZW1 was imported from …*), with what changed (`GET /families/{family_id}`, `package_source_changes`: a list, one
   entry per such analysis, each with its `analysis_type`; it answers 404 for a family outside the
   caller's projects as the family does). The Deliveries list shows the reference delivery as
   *Changed after import*, with what changed and what ends it, among the deliveries that wait, and
