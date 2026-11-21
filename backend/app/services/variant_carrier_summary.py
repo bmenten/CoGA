@@ -16,13 +16,16 @@ class whole.
 
 * A variant whose rows in the family share one class (nearly every variant) adds one
   *aggregate row*: one family, its carriers, heterozygous and homozygous carriers, deduplicated
-  over the family's rows (two callsets of the same calls count each sample once). Aggregate
+  over the family's rows (two callsets of the same calls count each person once). Aggregate
   rows of the same variant, project set and class are summed over the families.
 * A variant whose rows in the family fall in several classes (two callsets annotated apart, a
-  called and an imputed callset), or that a sample carries whom another family shows too (a
+  called and an imputed callset), or that a person carries whom another family shows too (a
   member of two families), adds one *carrier row* per class and carrier, named by family and
-  sample. A page counts each sample once over the classes and families its filters keep, as
-  the explorer counts a sample by its ID.
+  person. A page counts each person once over the classes and families its filters keep.
+
+**A carrier is a person.** Two samples linked as the same individual (a person sampled twice,
+``same_individual``) are one carrier, named by the first of their sample IDs over the links of
+every family of the assembly: within a family, and across the families that show either sample.
 
 **One table.** ``<assembly>/SNV_INDEL/carriers`` (a SummingMergeTree, sorted by ``xpos, key``)
 holds both kinds, and a *marker* row per family (``xpos = key = 0``) whose ``applied`` column
@@ -31,19 +34,19 @@ marker are written to a staging table, merged into one part and attached in one 
 (``ATTACH PARTITION … FROM``), so the table holds a family's contribution and its marker
 together or neither. Taking a contribution out writes the same rows negated, with the marker
 at -1: the rows cancel, and merges drop the rows that sum to zero. ``carrier_generations``
-holds what each generation was computed from: the family's projects, the samples it showed,
-the project whose copy was read and the family's data version.
+holds what each generation was computed from: the family's projects, the samples it showed and
+the persons they are, the project whose copy was read and the family's data version.
 
 **Who keeps it.** Every writer of a family's ``entries`` rows takes the family's contribution
 out before its first write (:func:`detach_family_variant_carriers`), under the family's write
 lock, recomputing it from the rows it was computed from: the data version proves they have not
 changed. The reconciler (:func:`reconcile_variant_carriers`) adds the contribution of every
-family whose rows, members or projects differ from what the table holds, under the family's
-write lock; the variant-carrier worker runs it every few seconds where the imports run. A
-family that a writer holds (an import in progress) waits for it, and the explorer names the
-families its page leaves out or counts as before (``pending``). A contribution that cannot be
-taken out exactly (rows changed while it was in) empties the whole table, after which the
-reconciler adds every family again.
+family whose rows, members, same-individual links or projects differ from what the table holds,
+under the family's write lock; the variant-carrier worker runs it every few seconds where the
+imports run. A family that a writer holds (an import in progress) waits for it, and the
+explorer names the families its page leaves out or counts as before (``pending``). A
+contribution that cannot be taken out exactly (rows changed while it was in) empties the whole
+table, after which the reconciler adds every family again.
 """
 
 from __future__ import annotations
@@ -69,6 +72,7 @@ from ..core.sql import uuid_list_bindparam, uuid_values
 from .clickhouse_variant_ids import _require_clickhouse_identifier, _small_table_name
 from .family_variant_write_lock import SMALL_VARIANTS, family_variant_lock_key
 from .genotypes import ALT_CLASSES, HOM_ALT, clickhouse_genotype_condition
+from .same_individual import SAME_INDIVIDUAL_LINK, person_of
 from .worker_tasks import stop_worker
 
 logger = logging.getLogger(__name__)
@@ -168,6 +172,8 @@ def carrier_generations_table_ddl(database: str, dataset: str) -> str:
             `projects` Array(String),
             `shown_samples` Array(String),
             `shared_samples` Array(String),
+            `person_samples` Array(String),
+            `person_keys` Array(String),
             `source_project` String,
             `data_version` String,
             `created_at` DateTime64(3) DEFAULT now64(3)
@@ -193,14 +199,19 @@ def _generations(assembly_name: str) -> str:
 @dataclass(frozen=True, slots=True)
 class FamilyCarrierState:
     """A family as its contribution reads it: the projects it is linked to on the assembly
-    (sorted), the sample IDs of the members it shows (sorted), those of them another family
-    of the assembly shows too (sorted), and its data version
-    (``get_family_small_variant_data_version``)."""
+    (sorted), the sample IDs of the members it shows (sorted), the persons among them another
+    family of the assembly shows too (by person, sorted), its data version
+    (``get_family_small_variant_data_version``), and the person each shown sample linked as the
+    same individual as another is (``persons``, sorted ``(sample, person)`` pairs).
+
+    A person is named by the first of their sample IDs (``same_individual.person_of``), over the
+    same-individual links of every family of the assembly: a person sampled twice counts once."""
 
     projects: tuple[str, ...]
     shown_samples: tuple[str, ...]
     shared_samples: tuple[str, ...]
     data_version: str
+    persons: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,13 +243,18 @@ def _sorted_unique(values: Iterable[Any]) -> tuple[str, ...]:
     return tuple(sorted({str(value) for value in values if str(value or "").strip()}))
 
 
+_DesiredState = tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]
+
+
 async def _desired_states(
     session: AsyncSession, assembly_id: str, family_uuids: Collection[str] | None = None
-) -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]:
+) -> dict[str, _DesiredState]:
     """Per family linked to a project of the assembly: its projects on the assembly, the
     sample IDs of its active members (the samples the family page shows,
-    ``build_family_metadata_context``), and those of them another family of the assembly shows
-    too. With ``family_uuids``, those families alone."""
+    ``build_family_metadata_context``), the persons among them another family of the assembly
+    shows too, and the person each of them linked as the same individual as another sample is
+    (``FamilyCarrierState``). With ``family_uuids``, those families alone; the persons are read
+    over the links of every family of the assembly."""
     clauses = ["p.assembly_id = CAST(:assembly_id AS uuid)"]
     params: dict[str, Any] = {"assembly_id": assembly_id}
     binds = []
@@ -278,28 +294,65 @@ async def _desired_states(
     shown: dict[str, set[str]] = {}
     for row in members.mappings().all():
         shown.setdefault(str(row["family_uuid"]), set()).add(str(row["sample_id"]))
-    # The samples shown by more than one family of the assembly. With ``family_uuids``, those
-    # families' samples are looked up in every family that shows them.
-    shared = await _samples_shown_twice(session, assembly_id, set().union(*shown.values()) if shown else set())
-    return {
-        family: (
+    person = person_of(await _same_individual_links(session, assembly_id))
+    # The persons shown by more than one family of the assembly. With ``family_uuids``, those
+    # families' persons are looked up in every family that shows one of their samples.
+    shared = await _persons_shown_twice(
+        session, assembly_id, set().union(*shown.values()) if shown else set(), person
+    )
+    states: dict[str, _DesiredState] = {}
+    for family, projects_of in linked.items():
+        samples = shown.get(family, set())
+        states[family] = (
             _sorted_unique(projects_of),
-            _sorted_unique(shown.get(family, ())),
-            _sorted_unique(shown.get(family, set()) & shared),
+            _sorted_unique(samples),
+            _sorted_unique(person.get(sample, sample) for sample in samples if person.get(sample, sample) in shared),
+            tuple(sorted((sample, person[sample]) for sample in samples if person.get(sample, sample) != sample)),
         )
-        for family, projects_of in linked.items()
-    }
+    return states
 
 
-async def _samples_shown_twice(session: AsyncSession, assembly_id: str, sample_ids: Collection[str]) -> set[str]:
-    """Of ``sample_ids``, those an active membership of more than one family linked to a
-    project of the assembly names."""
-    if not sample_ids:
-        return set()
+async def _same_individual_links(session: AsyncSession, assembly_id: str) -> list[tuple[str, str]]:
+    """The same-individual links of every family linked to a project of the assembly, as pairs
+    of sample IDs: two samples one family links are one person in every family."""
     result = await session.execute(
         text(
             """
-            SELECT s.sample_id
+            SELECT sa.sample_id, sb.sample_id
+            FROM family_relationships fr
+            JOIN samples sa ON sa.id = fr.sample_id_a
+            JOIN samples sb ON sb.id = fr.sample_id_b
+            WHERE fr.active
+              AND fr.relationship_type = :same_individual
+              AND EXISTS (
+                  SELECT 1 FROM family_projects fp JOIN projects p ON p.id = fp.project_id
+                  WHERE fp.family_id = fr.family_id AND p.assembly_id = CAST(:assembly_id AS uuid)
+              )
+            """
+        ),
+        {"same_individual": SAME_INDIVIDUAL_LINK, "assembly_id": assembly_id},
+    )
+    return [(str(first), str(second)) for first, second in result.all()]
+
+
+async def _persons_shown_twice(
+    session: AsyncSession, assembly_id: str, sample_ids: Collection[str], person: dict[str, str]
+) -> set[str]:
+    """Of the persons ``sample_ids`` are (``person``, sample to person), those that active
+    memberships of more than one family linked to a project of the assembly show, by any of
+    their samples."""
+    if not sample_ids:
+        return set()
+    samples_of: dict[str, set[str]] = {}
+    for sample, key in person.items():
+        samples_of.setdefault(key, set()).add(sample)
+    wanted = {
+        sample for shown in sample_ids for sample in samples_of.get(person.get(shown, shown), {shown})
+    }
+    result = await session.execute(
+        text(
+            """
+            SELECT s.sample_id, fm.family_id::text
             FROM family_members fm
             JOIN samples s ON s.id = fm.sample_id
             WHERE fm.active
@@ -308,14 +361,15 @@ async def _samples_shown_twice(session: AsyncSession, assembly_id: str, sample_i
                   SELECT 1 FROM family_projects fp JOIN projects p ON p.id = fp.project_id
                   WHERE fp.family_id = fm.family_id AND p.assembly_id = CAST(:assembly_id AS uuid)
               )
-            GROUP BY s.sample_id
-            HAVING count(DISTINCT fm.family_id) > 1
             """
         ),
         # One array parameter: asyncpg takes at most 32,767 parameters a statement.
-        {"sample_ids": sorted(sample_ids), "assembly_id": assembly_id},
+        {"sample_ids": sorted(wanted), "assembly_id": assembly_id},
     )
-    return {str(row[0]) for row in result.all()}
+    families: dict[str, set[str]] = {}
+    for sample, family in result.all():
+        families.setdefault(person.get(str(sample), str(sample)), set()).add(str(family))
+    return {key for key, showing in families.items() if len(showing) > 1}
 
 
 async def _data_versions(assembly_name: str, family_uuids: Collection[str] | None = None) -> dict[str, str]:
@@ -371,14 +425,15 @@ async def _generation_records(
         return {}
     rows = await execute_clickhouse(
         f"""
-        SELECT family_guid, generation, projects, shown_samples, shared_samples, source_project, data_version
+        SELECT family_guid, generation, projects, shown_samples, shared_samples, person_samples, person_keys,
+               source_project, data_version
         FROM {_generations(assembly_name)} FINAL
         WHERE (family_guid, generation) IN %(wanted)s
         """,
         {"wanted": tuple(wanted)},
     )
     records: dict[tuple[str, int], _Generation] = {}
-    for family, generation, projects, shown, shared, source_project, data_version in rows or []:
+    for family, generation, projects, shown, shared, person_samples, person_keys, source_project, data_version in rows or []:
         records[(str(family), int(generation))] = _Generation(
             generation=int(generation),
             state=FamilyCarrierState(
@@ -386,6 +441,7 @@ async def _generation_records(
                 shown_samples=tuple(str(value) for value in shown or ()),
                 shared_samples=tuple(str(value) for value in shared or ()),
                 data_version=str(data_version),
+                persons=tuple(zip((str(value) for value in person_samples), (str(value) for value in person_keys))),
             ),
             source_project=str(source_project),
         )
@@ -423,8 +479,9 @@ def _contribution_insert(
     the rows a merge leaves, whatever has merged yet), each call of a member the family shows
     (``shown_samples``) with an ALT allele a carrier, a ``1/1`` or haploid ``1`` homozygous
     and every other carrier heterozygous, by the one genotype classification
-    (``genotypes``). A variant's rows are grouped in the order ``entries`` holds them, so the
-    query keeps one variant at a time."""
+    (``genotypes``). A carrier is counted by the person it is (``persons``): two samples of one
+    person carrying a variant are one carrier. A variant's rows are grouped in the order
+    ``entries`` holds them, so the query keeps one variant at a time."""
     from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
 
     params: dict[str, Any] = {
@@ -440,6 +497,13 @@ def _contribution_insert(
     carrier = clickhouse_genotype_condition("g", ALT_CLASSES, param="carrier_alt", params=params)
     hom = clickhouse_genotype_condition("g", {HOM_ALT}, param="carrier_hom", params=params)
     shown = "has(%(shown)s, s)"
+    # A carrier by the person it is: a sample linked as the same individual as another counts
+    # under its person's first sample ID, as every family of the assembly counts that person.
+    as_person = "s"
+    if generation.state.persons:
+        params["person_samples"] = [sample for sample, _ in generation.state.persons]
+        params["person_keys"] = [person for _, person in generation.state.persons]
+        as_person = "transform(s, %(person_samples)s, %(person_keys)s, s)"
     calls = "e.`calls.sampleId`, e.`calls.gt`"
     columns = ", ".join(f"`{column}`" for column in CARRIER_COLUMNS)
     entries = _small_table_name(assembly_name, "entries")
@@ -495,9 +559,9 @@ def _contribution_insert(
                     e.pos AS pos,
                     e.ref AS ref,
                     e.alt AS alt,
-                    arrayFilter((s, g) -> {carrier} AND {shown}, {calls}) AS carriers,
-                    arrayFilter((s, g) -> {carrier} AND NOT {hom} AND {shown}, {calls}) AS hets,
-                    arrayFilter((s, g) -> {hom} AND {shown}, {calls}) AS homs
+                    arrayMap(s -> {as_person}, arrayFilter((s, g) -> {carrier} AND {shown}, {calls})) AS carriers,
+                    arrayMap(s -> {as_person}, arrayFilter((s, g) -> {carrier} AND NOT {hom} AND {shown}, {calls})) AS hets,
+                    arrayMap(s -> {as_person}, arrayFilter((s, g) -> {hom} AND {shown}, {calls})) AS homs
                 FROM {entries} AS e FINAL
                 WHERE e.project_guid = %(source_project)s
                   AND e.family_guid = %(family)s
@@ -607,7 +671,8 @@ async def _attach(
     )
     await execute_clickhouse(
         f"INSERT INTO {_generations(assembly_name)} "
-        "(family_guid, generation, projects, shown_samples, shared_samples, source_project, data_version) VALUES",
+        "(family_guid, generation, projects, shown_samples, shared_samples, person_samples, person_keys, "
+        "source_project, data_version) VALUES",
         [
             (
                 family_uuid,
@@ -615,6 +680,8 @@ async def _attach(
                 list(state.projects),
                 list(state.shown_samples),
                 list(state.shared_samples),
+                [sample for sample, _ in state.persons],
+                [person for _, person in state.persons],
                 generation.source_project,
                 state.data_version,
             )
@@ -778,8 +845,9 @@ async def _family_states(
             shown_samples=shown,
             shared_samples=shared,
             data_version=versions.get(family, _DATA_VERSION_NEVER_WRITTEN),
+            persons=persons,
         )
-        for family, (projects, shown, shared) in desired.items()
+        for family, (projects, shown, shared, persons) in desired.items()
     }
 
 

@@ -39,6 +39,7 @@ def test_the_table_sums_rows_of_one_identity_sorted_by_variant() -> None:
     generations = " ".join(summary.carrier_generations_table_ddl("coga", "GRCh38").split())
     assert "ORDER BY (family_guid, generation)" in generations
     assert "`shared_samples` Array(String)" in generations
+    assert "`person_samples` Array(String), `person_keys` Array(String)" in generations
 
 
 def test_a_contribution_reads_the_familys_shown_carriers_of_one_project_copy() -> None:
@@ -61,6 +62,27 @@ def test_a_contribution_reads_the_familys_shown_carriers_of_one_project_copy() -
     # The imputed callsets are marked, not left out: the explorer includes them on request.
     assert params["imputed_sources"] == ("glimpse2", "shapeit")
     bind_query(query, params)
+
+
+def test_a_contribution_counts_a_carrier_by_the_person_it_is() -> None:
+    # MOTHER2 is MOTHER sampled again: each carrier sample is counted under its person.
+    persons = FamilyCarrierState(
+        projects=("p1",),
+        shown_samples=("MOTHER", "MOTHER2", "PROBAND"),
+        shared_samples=(),
+        data_version="3:99",
+        persons=(("MOTHER2", "MOTHER"),),
+    )
+    query, params = summary._contribution_insert(
+        "GRCh38", "coga.`stage`", _Generation(generation=5, state=persons, source_project="p1"), family_uuid="f1", sign=1
+    )
+    flat = " ".join(query.split())
+    assert (params["person_samples"], params["person_keys"]) == (["MOTHER2"], ["MOTHER"])
+    assert flat.count("arrayMap(s -> transform(s, %(person_samples)s, %(person_keys)s, s), arrayFilter(") == 3
+    bind_query(query, params)
+    # A family without such a link counts its samples as they are.
+    plain, plain_params = summary._contribution_insert("GRCh38", "coga.`stage`", _APPLIED, family_uuid="f1", sign=1)
+    assert "transform(" not in plain and "person_samples" not in plain_params
 
 
 def test_a_family_without_rows_under_its_projects_contributes_its_marker_alone() -> None:
@@ -266,9 +288,15 @@ def test_markers_that_sum_to_more_than_one_generation_are_inconsistent(clickhous
 def test_a_generation_reads_back_what_it_was_computed_from(clickhouse: _ClickHouse) -> None:
     clickhouse.answers = [
         ("HAVING n != 0", [("f1", 42, 1)]),
-        ("carrier_generations", [("f1", 42, ["p1", "p2"], ["MOTHER", "PROBAND"], ["MOTHER"], "p1", "3:99")]),
+        ("carrier_generations", [("f1", 42, ["p1", "p2"], ["MOTHER", "PROBAND"], ["MOTHER"], [], [], "p1", "3:99")]),
     ]
     assert asyncio.run(summary._applied("GRCh38", ["f1"])) == {"f1": _APPLIED}
+    clickhouse.answers = [
+        ("HAVING n != 0", [("f1", 42, 1)]),
+        ("carrier_generations", [("f1", 42, ["p1"], ["M", "M2"], [], ["M2"], ["M"], "p1", "3:99")]),
+    ]
+    applied = asyncio.run(summary._applied("GRCh38", ["f1"]))["f1"]
+    assert applied.state.persons == (("M2", "M"),)
 
 
 class _Session:
@@ -305,20 +333,46 @@ def test_a_familys_state_is_its_projects_on_the_assembly_its_shown_members_and_t
             {"family_uuid": f1, "sample_id": "MOTHER"},
             {"family_uuid": f2, "sample_id": "MOTHER"},
         ],
-        [("MOTHER",)],
+        [],
+        [("MOTHER", f1), ("MOTHER", f2), ("PROBAND", f1)],
     )
     states = asyncio.run(summary._desired_states(session, "a1"))
     assert states == {
-        f1: (("p1", "p2"), ("MOTHER", "PROBAND"), ("MOTHER",)),
-        f2: (("p1",), ("MOTHER",), ("MOTHER",)),
+        f1: (("p1", "p2"), ("MOTHER", "PROBAND"), ("MOTHER",), ()),
+        f2: (("p1",), ("MOTHER",), ("MOTHER",), ()),
     }
-    projects, members, shared = session.statements
+    projects, members, links, shared = session.statements
     assert "p.assembly_id = CAST(:assembly_id AS uuid)" in projects[0]
     assert "WHERE fm.active" in members[0]
+    # The same-individual links of every family on the assembly.
+    assert "fr.relationship_type = :same_individual" in links[0] and links[1]["same_individual"] == "same_individual"
     # Shown twice: in two families linked to the assembly; the IDs as one array parameter.
-    assert "HAVING count(DISTINCT fm.family_id) > 1" in shared[0]
     assert "s.sample_id = ANY(CAST(:sample_ids AS text[]))" in shared[0]
     assert shared[1]["sample_ids"] == ["MOTHER", "PROBAND"]
+
+
+def test_a_person_sampled_twice_is_one_carrier_in_and_across_families() -> None:
+    # f1 links MOTHER2 to MOTHER; f2 shows MOTHER2 alone. The person is MOTHER in both, and
+    # shown by both families.
+    f1, f2 = "00000000-0000-0000-0000-0000000000f1", "00000000-0000-0000-0000-0000000000f2"
+    session = _Session(
+        [{"family_uuid": f1, "project_id": "p1"}, {"family_uuid": f2, "project_id": "p1"}],
+        [
+            {"family_uuid": f1, "sample_id": "MOTHER"},
+            {"family_uuid": f1, "sample_id": "MOTHER2"},
+            {"family_uuid": f1, "sample_id": "PROBAND"},
+            {"family_uuid": f2, "sample_id": "MOTHER2"},
+        ],
+        [("MOTHER2", "MOTHER")],
+        [("MOTHER", f1), ("MOTHER2", f1), ("MOTHER2", f2), ("PROBAND", f1)],
+    )
+    states = asyncio.run(summary._desired_states(session, "a1"))
+    assert states == {
+        f1: (("p1",), ("MOTHER", "MOTHER2", "PROBAND"), ("MOTHER",), (("MOTHER2", "MOTHER"),)),
+        f2: (("p1",), ("MOTHER2",), ("MOTHER",), (("MOTHER2", "MOTHER"),)),
+    }
+    # Each sample of the persons shown is looked up in every family.
+    assert session.statements[3][1]["sample_ids"] == ["MOTHER", "MOTHER2", "PROBAND"]
 
 
 def _reconcile_fakes(

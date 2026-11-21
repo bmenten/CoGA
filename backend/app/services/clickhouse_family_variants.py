@@ -3364,6 +3364,7 @@ def _kept_small_candidates(
             context.sample_rows,
             context.relationship_rows,
             assembly_name=context.assembly_name,
+            left_out=context.scope.left_out_members,
         )
     return list(records)
 

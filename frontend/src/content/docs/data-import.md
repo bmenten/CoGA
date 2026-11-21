@@ -579,7 +579,9 @@ and its log says so.
 **Two samples of one person.** A package may link a member to another sample of the same person with
 `same_individual_as`: a conventional NIPT's plasma names the monogenic NIPT's plasma of the same
 pregnancy when the two carry different sample IDs. The pedigree then draws them as one person, and
-Sample QC expects their genotypes identical. A sample the package does not list must already be an
+Sample QC expects their genotypes identical. *Expanded carrier screening* reads a partner on each of
+their samples the analysis holds, the Variant Explorer counts the person once, and of a parent sampled
+twice the monogenic NIPT and the PGT analysis read the sample that holds their data. A sample the package does not list must already be an
 active member of the family, its ID written exactly as the family holds it; otherwise the delivery
 needs attention and its import is refused before anything is written. Import the monogenic NIPT's
 package first (the delivery is then checked again), or leave the link out and link the two samples

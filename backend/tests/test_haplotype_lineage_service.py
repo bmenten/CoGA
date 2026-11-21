@@ -155,6 +155,42 @@ def test_identify_core_single_parent_donor_family():
     assert "GM" not in core.members
 
 
+def _mother_sampled_twice():
+    """A couple whose embryos name two samples of the mother, linked as the same individual:
+    one cycle's embryos (E1, E2) were read with M, a later one's (E3) with M2."""
+    members = [
+        _member("F", "father"), _member("M", "mother"), _member("M2", "mother"),
+        _member("E1", "embryo"), _member("E2", "embryo"), _member("E3", "embryo"),
+    ]
+    rels = [
+        *(_parent_child("F", embryo, "father") for embryo in ("E1", "E2", "E3")),
+        _parent_child("M", "E1", "mother"), _parent_child("M", "E2", "mother"), _parent_child("M2", "E3", "mother"),
+        {"relationship_type": "same_individual", "sample_id_a": "M2", "sample_id_b": "M"},
+    ]
+    return members, rels
+
+
+def test_identify_core_of_a_mother_sampled_twice_reads_the_sample_holding_the_data():
+    members, rels = _mother_sampled_twice()
+    pedigree = build_pedigree(members, rels)
+    # The sample whose blocks or phased genotypes are read is the core's mother, and its own
+    # embryos are the core's children: an embryo of the other sample is read as a relative.
+    core = identify_core(pedigree, holding={"F", "M2", "E3"})
+    assert (core.father, core.mother, core.children) == ("F", "M2", {"E3"})
+    core = identify_core(pedigree, holding={"F", "M", "E1", "E2"})
+    assert (core.father, core.mother, core.children) == ("F", "M", {"E1", "E2"})
+    # Neither or both hold data: the sample most embryos name.
+    assert identify_core(pedigree).mother == "M"
+    assert identify_core(pedigree, holding={"F", "M", "M2"}).mother == "M"
+
+
+def test_identify_core_of_embryos_naming_two_mothers_who_are_two_people_has_no_mother():
+    members, rels = _mother_sampled_twice()
+    unlinked = [rel for rel in rels if rel.get("relationship_type") != "same_individual"]
+    core = identify_core(build_pedigree(members, unlinked), holding={"F", "M", "M2"})
+    assert (core.father, core.mother) == ("F", None)
+
+
 def test_identify_core_without_embryos_is_the_couple_sharing_the_most_children():
     # A family without embryos (a WGS trio and the father's parents): the index couple is
     # the one with the most children together, not the grandparents with their one.

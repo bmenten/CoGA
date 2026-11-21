@@ -21,6 +21,12 @@ A NIPT case is a trio backed by two samples (`backend/app/services/nipt.py`, `re
   to the list, beside any other (a conventional NIPT of the same pregnancy).
 - The cfDNA sample's assays (`sample.metadata.assays`) hold `"nipt_cfdna"`, and it has the `mother`
   role. Without the tag, the active `mother` member's sample is used.
+- Of two samples that could be the plasma (a mother sampled twice, linked as the same individual),
+  the plasma is the one the monogenic NIPT's package lists (`package_imports.monogenic_nipt.members`,
+  `analysis_members`), else, without the tag, the one that is no conventional NIPT's plasma alone
+  (`cnipt_cfdna`). The father is chosen the same way of two `father` members. When that leaves none
+  or several, the trio is not resolved rather than guessed: the NIPT page answers 400 and the signed
+  record freezes `NIPT_TRIO_UNRESOLVED`, which also holds the sign-out.
 - The capture panel the monogenic NIPT's package names for the cfDNA sample (its `assay_panel`,
   optional; kept as the analysis's in `sample.metadata.assay_panels.monogenic_nipt`) scopes the
   artifact list. Without it, every NIPT family on the assembly shares the `nipt_cfdna` list. A

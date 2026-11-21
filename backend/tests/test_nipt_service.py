@@ -324,6 +324,37 @@ async def test_run_family_nipt_analysis_rejects_non_nipt_family(
     )
 
 
+@pytest.mark.asyncio
+async def test_run_family_nipt_analysis_says_why_a_nipt_familys_trio_is_not_resolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Two untagged mothers (a mother sampled twice) and no package naming one: not guessed.
+    family = FamilyOut(
+        id="family-uuid",
+        family_id="FAM001",
+        created_at=datetime.now(timezone.utc),
+        members=[
+            FamilyMemberOut(sample_id="father-1", role="father", affected=False),
+            FamilyMemberOut(sample_id="mother-1", role="mother", affected=False),
+            FamilyMemberOut(sample_id="mother-2", role="mother", affected=False),
+        ],
+        metadata={"analysis_types": ["monogenic_nipt"]},
+    )
+
+    async def fake_get_family_record(_session, _family_id, _user):
+        return family
+
+    monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
+
+    with pytest.raises(HTTPException) as excinfo:
+        await run_family_nipt_analysis(
+            session=None,  # type: ignore[arg-type]
+            family_id="FAM001",
+            user=None,  # type: ignore[arg-type]
+        )
+    assert (excinfo.value.status_code, excinfo.value.detail) == (400, nipt_service.NIPT_TRIO_UNRESOLVED)
+
+
 # --------------------------------------------------------------------------- #
 # get_family_nipt_variants (I/O mocked)
 # --------------------------------------------------------------------------- #

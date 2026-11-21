@@ -183,6 +183,18 @@ def family_package_records(metadata: Mapping[str, Any] | None) -> dict[str, dict
     return {str(key): dict(record) for key, record in records.items() if isinstance(record, Mapping)}
 
 
+def record_members(record: Mapping[str, Any] | None) -> list[str]:
+    """The members a package record lists: those its import read."""
+    members = (record or {}).get("members")
+    return [str(member) for member in members] if isinstance(members, list) else []
+
+
+def analysis_members(metadata: Mapping[str, Any] | None, analysis: str) -> frozenset[str]:
+    """The members the package record of ``analysis`` lists, the samples its last import read
+    and whose data the family holds for it; none when the family holds no package of it."""
+    return frozenset(record_members(family_package_records(metadata).get(analysis)))
+
+
 def analyses_writing(metadata: Mapping[str, Any] | None, kind: str, source: str) -> list[str]:
     """The analyses, sorted, whose package record lists ``source`` among the sources of ``kind``
     its import wrote (``SOURCES_KEY``): those whose data of that source the family holds."""

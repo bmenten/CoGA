@@ -1888,6 +1888,12 @@ own, and each stays apart from the others (the owner's decisions of 2026-11-20):
 - **The family's region of interest is kept**: a package of another analysis gives one only to a
   family without one, and is refused when it names another (`package_roi_conflict`). A member it
   adds whose sample ID another family holds is refused before the family is marked.
+- **A person sampled twice is one person.** *Expanded carrier screening* reads a partner on each of
+  their samples the analysis reads, a call of either counting (`_carrier_partners`). The Variant
+  Explorer counts the person once ([database.md](database.md), "The variant carrier summary"). Of
+  a parent sampled twice, the monogenic NIPT reads the plasma and the father its package lists
+  ([monogenic-nipt.md](monogenic-nipt.md)), and the PGT analysis the sample with phased genotypes
+  ([haplotype-segregation-analysis.md](haplotype-segregation-analysis.md)).
 
 A package's `snv` dataset and an upload name their callset (`source_format`), and that name is used
 as given. With `auto`, the default, the loader reads it from the family VCF

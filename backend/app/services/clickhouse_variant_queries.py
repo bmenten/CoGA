@@ -1226,6 +1226,10 @@ def _is_male_sex(value: str) -> bool:
     return value in {"m", "male", "1"}
 
 
+def _is_female_sex(value: str) -> bool:
+    return value in {"f", "female", "2"}
+
+
 def _pair_phase_for_sample(
     left_call: SmallVariantCall | None,
     right_call: SmallVariantCall | None,
@@ -1382,41 +1386,64 @@ def _normalize_small_variant_inheritance(value: str | None) -> str | None:
     return normalized
 
 
-def _carrier_partner_names(
+def _carrier_partners(
     sample_rows: Sequence[dict[str, Any]],
     relationship_rows: Sequence[dict[str, Any]] | None = None,
-) -> tuple[str, str] | None:
-    """The couple of a carrier screen, a sample of each partner: the two a couple relationship
-    names; else the mother and the father; else the family's two people. Read per person (the
-    family's same-individual links, ``same_individual.persons``): two samples of one person are
-    never a couple, and a family of one person sampled twice has none."""
+    *,
+    left_out: Collection[str] = frozenset(),
+) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+    """The couple of a carrier screen, each partner as the samples of that person the reading
+    reads. The couple is the two people a couple relationship names; else the mother and the
+    father; else the family's two people. Read per person (the family's same-individual links,
+    ``same_individual.persons``): two samples of one person are never a couple, a family of one
+    person sampled twice has none, and a partner sampled twice is read on each of their samples
+    the reading reads, a call of either counting. A sample only another analysis's package lists
+    (``AnalysisScope.left_out_members``, ``left_out``) is not read: the analysis's callset holds
+    no call of it. None without a couple, or when a partner has no sample the reading reads."""
     sample_names = [
         str(row.get("sample_id") or "").strip()
         for row in sample_rows
         if str(row.get("sample_id") or "").strip()
     ]
-    person = person_of(same_individual_pairs(relationship_rows or []))
+    pairs = same_individual_pairs(relationship_rows or [])
+    person = person_of(pairs)
 
     def two_people(left: str, right: str) -> bool:
         return bool(left and right) and person.get(left, left) != person.get(right, right)
 
-    for relationship in relationship_rows or []:
-        if relationship.get("relationship_type") != "couple":
-            continue
-        left = str(relationship.get("sample_id_a") or "").strip()
-        right = str(relationship.get("sample_id_b") or "").strip()
-        if two_people(left, right) and left in sample_names and right in sample_names:
-            return left, right
-    mother, father = (
-        next((str(row.get("sample_id") or "").strip() for row in sample_rows if row.get("role") == role), "")
-        for role in ("mother", "father")
+    def couple() -> tuple[str, str] | None:
+        for relationship in relationship_rows or []:
+            if relationship.get("relationship_type") != "couple":
+                continue
+            left = str(relationship.get("sample_id_a") or "").strip()
+            right = str(relationship.get("sample_id_b") or "").strip()
+            if two_people(left, right) and left in sample_names and right in sample_names:
+                return left, right
+        mother, father = (
+            next((str(row.get("sample_id") or "").strip() for row in sample_rows if row.get("role") == role), "")
+            for role in ("mother", "father")
+        )
+        if two_people(mother, father):
+            return mother, father
+        people = persons(sample_names, pairs)
+        if len(people) == 2:
+            return people[0][0], people[1][0]
+        return None
+
+    found = couple()
+    if found is None:
+        return None
+    partners = tuple(
+        tuple(
+            sample
+            for sample in sample_names
+            if person.get(sample, sample) == person.get(partner, partner) and sample not in left_out
+        )
+        for partner in found
     )
-    if two_people(mother, father):
-        return mother, father
-    people = persons(sample_names, same_individual_pairs(relationship_rows or []))
-    if len(people) == 2:
-        return people[0][0], people[1][0]
-    return None
+    if not all(partners):
+        return None
+    return partners[0], partners[1]
 
 
 def _is_mitochondrial_chromosome(chromosome: str | None) -> bool:
@@ -1433,8 +1460,11 @@ def _filter_expanded_carrier_screening(
     relationship_rows: Sequence[dict[str, Any]] | None = None,
     *,
     assembly_name: str | None = None,
+    left_out: Collection[str] = frozenset(),
 ) -> list[SmallVariantRecord]:
-    """The couple's at-risk findings (REQ-CARR-002), in the order given.
+    """The couple's at-risk findings (REQ-CARR-002), in the order given. A partner is read on
+    each of their samples the reading reads (``_carrier_partners``, ``left_out`` the samples it
+    does not): a partner sampled twice carries what either sample carries.
 
     A gene in which both partners carry a variant: every variant either of them carries
     in it (a recessive condition needs a variant from each). On chrX outside the
@@ -1448,14 +1478,22 @@ def _filter_expanded_carrier_screening(
     a variant in one chrM gene says nothing of a child's risk (the mtDNA analysis reads
     the female partner's chrM calls).
     """
-    partners = _carrier_partner_names(sample_rows, relationship_rows)
+    partners = _carrier_partners(sample_rows, relationship_rows, left_out=left_out)
     if partners is None:
         return []
     sample_sex = _sample_sex_map(sample_rows)
-    x_carrier_partners = [partner for partner in partners if not _is_male_sex(sample_sex.get(partner, ""))]
+    # A partner sampled twice is male when a sample of theirs is recorded male and none female.
+    x_carrier_partners = [
+        index
+        for index, samples in enumerate(partners)
+        if not (
+            any(_is_male_sex(sample_sex.get(sample, "")) for sample in samples)
+            and not any(_is_female_sex(sample_sex.get(sample, "")) for sample in samples)
+        )
+    ]
     qualifying_ids: set[str] = set()
     carrier_variants: dict[tuple[str, str], list[SmallVariantRecord]] = {}
-    carrier_sets: dict[tuple[str, str], set[str]] = {}
+    carrier_sets: dict[tuple[str, str], set[int]] = {}
     for record in records:
         if _is_mitochondrial_chromosome(record.chr):
             continue
@@ -1468,7 +1506,11 @@ def _filter_expanded_carrier_screening(
         if not keys:
             continue
         call_map = {call.sample: call.gt for call in record.calls}
-        carriers = {partner for partner in partners if genotype_has_alt(call_map.get(partner, "./."))}
+        carriers = {
+            index
+            for index, samples in enumerate(partners)
+            if any(genotype_has_alt(call_map.get(sample, "./.")) for sample in samples)
+        }
         if not carriers:
             continue
         if any(partner in carriers for partner in x_carrier_partners) and (
@@ -1479,7 +1521,7 @@ def _filter_expanded_carrier_screening(
             carrier_sets.setdefault(key, set()).update(carriers)
             carrier_variants.setdefault(key, []).append(record)
     for key, carriers in carrier_sets.items():
-        if all(partner in carriers for partner in partners):
+        if len(carriers) == len(partners):
             qualifying_ids.update(record.variant_id for record in carrier_variants.get(key, []))
     return [record for record in records if record.variant_id in qualifying_ids]
 
@@ -2099,12 +2141,14 @@ def _small_native_inheritance_clauses(
     clauses: list[str] = []
 
     if filters.expanded_carrier_screening:
-        partners = _carrier_partner_names(context.sample_rows, context.relationship_rows)
+        partners = _carrier_partners(
+            context.sample_rows, context.relationship_rows, left_out=context.scope.left_out_members
+        )
         if partners is None:
             return ["0"], params
         partner_alt_clauses = _small_all_samples_have_gts_condition(
             context,
-            sample_names=partners,
+            sample_names=[*partners[0], *partners[1]],
             classes=ALT_CLASSES,
             prefix="carrier_screen_partner_alt",
             params=params,

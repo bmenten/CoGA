@@ -91,6 +91,32 @@ def test_the_builder_keeps_the_basis_of_the_samples_its_file_held() -> None:
     assert builder.basis()["children"] == ["E1"]
 
 
+def test_of_a_mother_sampled_twice_the_builder_reads_the_sample_its_file_holds() -> None:
+    # E1 was read with MOTHER, E2 with MOTHER2, the same woman sampled again; this file holds
+    # MOTHER2 and E2, so its couple is FATHER and MOTHER2, and so is its basis.
+    members = [*_MEMBERS, {"sample_id": "MOTHER2", "role": "mother", "sex": "female", "affected": False}]
+    relationships = [
+        {"relationship_type": "parent_child", "sample_id_a": "FATHER", "sample_id_b": embryo, "role_a": "father"}
+        for embryo in ("E1", "E2")
+    ] + [
+        {"relationship_type": "parent_child", "sample_id_a": "MOTHER", "sample_id_b": "E1", "role_a": "mother"},
+        {"relationship_type": "parent_child", "sample_id_a": "MOTHER2", "sample_id_b": "E2", "role_a": "mother"},
+        {"relationship_type": "same_individual", "sample_id_a": "MOTHER", "sample_id_b": "MOTHER2"},
+    ]
+    context = _context(members, relationship_rows=relationships)
+    builder = HaplotypeBlockBuilder(
+        context=context, sample_contexts={name: None for name in ("FATHER", "MOTHER", "MOTHER2", "E1", "E2")},  # type: ignore[misc]
+        chromosome_sizes={}, metadata_json="{}",
+    )
+    for name in ("FATHER", "MOTHER2", "E2"):
+        builder.add_sample(name)
+
+    assert (builder.father_name, builder.mother_name, builder.couple_children) == ("FATHER", "MOTHER2", {"E2"})
+    assert builder.use_segregation
+    assert builder.basis() == haplotype_block_basis(context, ["FATHER", "MOTHER2", "E2"])
+    assert (builder.basis()["mother"], builder.basis()["children"]) == ("MOTHER2", ["E2"])
+
+
 @pytest.mark.asyncio
 async def test_the_loader_keeps_the_basis_beside_each_members_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
     kept: list[dict[str, Any]] = []

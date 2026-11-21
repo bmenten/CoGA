@@ -30,7 +30,7 @@ from ..services.clickhouse_family_variants import (
 )
 from ..services.family_metadata_context import build_family_metadata_context, family_sample_contexts
 from ..services.family_variant_statistics import get_family_small_variant_statistics
-from ..services.signed_record_nipt import is_nipt_family, nipt_trio_of
+from ..services.signed_record_nipt import family_nipt_trio, is_nipt_family
 from ..services.access_control import CurrentUser, changes_only_own_data
 from ..services.panel_use_audit import record_family_panel_use
 from ..services.raw_import_files_pg import record_upload_file_obj
@@ -308,7 +308,7 @@ async def get_family_small_variant_statistics_route(
         analysis=analysis,
     )
     # A monogenic NIPT family's plasma and father: their GT is not their genotype.
-    trio = nipt_trio_of(context) if await is_nipt_family(session, context) else None
+    trio = await family_nipt_trio(session, context) if await is_nipt_family(session, context) else None
     nipt_samples = (trio[0].cfdna_sample_id, trio[0].father_sample_id) if trio is not None else ()
     return await get_family_small_variant_statistics(context, nipt_samples=nipt_samples)
 
