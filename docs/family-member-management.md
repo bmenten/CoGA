@@ -90,8 +90,9 @@ that adds a member, of the sex chosen for it). A choice replaces the member's li
 with three samples is linked one pair at a time. Read only, the table shows the column for a
 family that holds such a link. The table keeps a row per sample. The pedigree draws the person as
 one symbol labelled with all its IDs (*PLASMA1 / PLASMA2*), with the sex, clinical status, carrier
-status and parents any of its samples records, and Sample QC expects the samples' genotypes
-identical ([sample-qc.md](../frontend/src/content/docs/sample-qc.md)). *Expanded carrier
+status and parents any of its samples records, and Sample QC compares the samples in every
+application and expects their genotypes identical, unless one is a maternal plasma
+([sample-qc.md](../frontend/src/content/docs/sample-qc.md)). *Expanded carrier
 screening* reads a partner on each of their samples, and the Variant Explorer counts the person
 once ([data-import.md](data-import.md), "Several analyses in one family").
 
@@ -143,7 +144,8 @@ old ID of one it renames (400).
   - no two samples of one person are also linked as parent and child, as a couple or by an
     unknown degree, directly or through another of its samples;
   - the samples of one person agree on their sex, clinical status and carrier status (a value not
-    known agrees with any);
+    known agrees with any), and a known sex holds for every sample: none of them is a father if
+    one is recorded female, or a mother if one is recorded male;
   - a parent is read as the person it is: the samples of one person have one father and one
     mother, no person is both, and they have no more than two parents (a `parent` link counted
     too). Two samples of a child may each record another sample of one mother;
@@ -151,9 +153,13 @@ old ID of one it renames (400).
     (no one is the mother and the daughter of one person).
 
   Otherwise the change is refused (400: *PLASMA1 and PLASMA2 are linked as the same individual
-  but their sex differs (female, male)*), also when a member edit makes them disagree. A
-  structure update without `same_individual` keeps the family's same-individual links between
-  active members; a list replaces them. A renamed member keeps its links.
+  but their sex differs (female, male)*), also when a member edit makes them disagree, whichever
+  was recorded first. A package import is held to the same rules: its pedigree is refused as an
+  edit is, and its registration refuses the import before it writes when the statuses it gives
+  or keeps would leave two samples of one person with different known clinical or carrier
+  statuses ([data-import.md](data-import.md#the-existing-familys-members)). A structure update
+  without `same_individual` keeps the family's same-individual links between active members; a
+  list replaces them. A renamed member keeps its links.
 - A father cannot be a member recorded as female, and a mother cannot be one recorded as
   male. A member of unknown sex may be either.
 - Removing a member makes them inactive. The sample row is kept for auditability.
