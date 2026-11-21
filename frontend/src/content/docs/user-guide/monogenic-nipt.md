@@ -49,7 +49,8 @@ must carry FORMAT/AD.
   every project, its allele is called, and how (maternal, the father's allele, or an *unexplained
   low-VAF* call that no parent explains, the mark of a recurrent artefact). This sits next to the usual
   annotation, tags and ACMG classification. As on the small-variant page, the diseases its gene is
-  linked to are named under the card's heading.
+  linked to are named under the card's heading, and **Collapse** folds a card you are done with to
+  its heading.
 - **Hide recurrent low-VAF calls** leaves out the variants that are an unexplained low-VAF call in more
   than the number of other cfDNA samples you give. A variant that ClinVar may call pathogenic, or that
   is common in the population, stays listed, marked *kept by the recurrence filter*. The filter narrows

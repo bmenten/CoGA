@@ -44,6 +44,7 @@ import FamilyGenotypeGrid, { type GenotypeColumn, type GenotypeRow, type Genotyp
 import { FindingLinks } from './FindingCard';
 import ReviewTagChip from './ReviewTagChip';
 import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
+import CardCollapseToggle, { keepCardHeadingInView, useCollapsedCards } from './CardCollapseToggle';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import NiptClassificationBlock from './NiptClassificationBlock';
@@ -676,6 +677,8 @@ export default function SmallVariantCards({
   // detail arrays are built only for those (collapsed is the default).
   const [openCardIds, setOpenCardIds] = useState<Set<string>>(() => new Set());
   const excludedCards = useUnfoldedExcludedCards();
+  // The cards the analyst folded when done with them; an excluded card folds by its exclusion.
+  const collapsedCards = useCollapsedCards();
   // The diseases every card's gene is linked to, in one lookup for the page.
   const geneDiseases = useGeneDiseaseLinks(variants.map((variant) => variant.gene));
   const handleCardToggle = (variantId: string, open: boolean) => {
@@ -740,6 +743,14 @@ export default function SmallVariantCards({
         // The change in g. notation from the VCF record: the card's HGVS.g where the annotation
         // has no HGVSg of VEP's, and what an excluded card is named by.
         const genomicChange = formatGenomicChange(variant);
+        const cardSubject = variant.gene || variant.gene_id || genomicChange || variant._id;
+        // An excluded card is folded until it is shown; any other card until the analyst
+        // folded it. One caret folds and opens both.
+        const folded = isExcluded
+          ? !excludedCards.isUnfolded(variant._id)
+          : collapsedCards.isCollapsed(variant._id);
+        const toggleFold = () =>
+          isExcluded ? excludedCards.toggle(variant._id) : collapsedCards.toggle(variant._id);
         const variantIds = parseVariantIds(variant.rsid);
         const popFreq = variant.population_frequencies || {};
         // AlphaMissense arrives as two first-class fields: annotation_extra holds the
@@ -829,10 +840,11 @@ export default function SmallVariantCards({
             key={variant._id}
             className={`variant-card finding-card variant-card--clinvar-${getClinvarHighlightTone(
               variant.clinvar,
-            )}${isExcluded ? ' variant-card--excluded' : ''}`}
+            )}${isExcluded ? ' variant-card--excluded' : ''}${folded ? ' variant-card--collapsed' : ''}`}
           >
             <div className="variant-card-head">
               <div className="variant-card-headline">
+                <CardCollapseToggle collapsed={folded} onToggle={toggleFold} subject={cardSubject} />
                 {geneInfoHref ? (
                   <Link to={geneInfoHref} className="variant-card-gene">
                     {variant.gene || variant.gene_id || 'Intergenic variant'}
@@ -893,19 +905,29 @@ export default function SmallVariantCards({
 
             {isExcluded ? (
               <ExcludedCardBar
-                subject={variant.gene || variant.gene_id || genomicChange || variant._id}
-                expanded={excludedCards.isUnfolded(variant._id)}
-                onToggleExpanded={() => excludedCards.toggle(variant._id)}
+                subject={cardSubject}
+                expanded={!folded}
+                onToggleExpanded={toggleFold}
                 onUndoExclude={() => {
                   void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.excluded);
                 }}
                 readOnly={readOnly}
                 pending={reviewIsPending}
               />
+            ) : folded ? (
+              // The heading names the gene only: the change tells two variants in one gene apart.
+              <p className="variant-card-collapsed-summary">
+                {[hgvsWithoutAccession(variant.hgvsc), hgvsWithoutAccession(variant.hgvsp)]
+                  .filter(Boolean)
+                  .join(' · ') ||
+                  variant.hgvsg ||
+                  genomicChange ||
+                  formatLocus(variant)}
+              </p>
             ) : null}
 
-            {/* An excluded variant folds to its heading and the bar above. */}
-            {isExcluded && !excludedCards.isUnfolded(variant._id) ? null : (
+            {/* A folded card shows its heading, and the bar or the change above. */}
+            {folded ? null : (
               <>
                 {/* Which diseases the gene is linked to, at a glance; every link is under
                     "More annotations & detail". Then the gene's curated modes of inheritance
@@ -1192,6 +1214,18 @@ export default function SmallVariantCards({
                       onClick={() => onAcmgClassify(variant)}
                     >
                       ACMG classify
+                    </button>
+                    {/* Done with this card: it folds to its heading, and the next one is up. */}
+                    <button
+                      type="button"
+                      className="variant-review-link"
+                      onClick={(event) => {
+                        const card = event.currentTarget.closest('article');
+                        toggleFold();
+                        keepCardHeadingInView(card);
+                      }}
+                    >
+                      Collapse
                     </button>
                   </div>
                   {/* The links every finding card has, in the same order (FindingLinks). */}

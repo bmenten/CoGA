@@ -18,6 +18,7 @@ import {
   reviewClassChips,
   sortReviewTagKeys,
 } from './smallVariantResultUtils';
+import CardCollapseToggle, { useCollapsedCards } from './CardCollapseToggle';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import ReviewTagChip from './ReviewTagChip';
 import VariantPriorityBlock from './VariantPriorityBlock';
@@ -62,6 +63,8 @@ export default function SmallVariantPairCards({
   rankedBy = null,
 }: SmallVariantPairCardsProps) {
   const tagMap = getTagDefinitionMap(tags);
+  // The pairs the analyst folded when done with them.
+  const collapsedCards = useCollapsedCards();
 
   return (
     <div className="variant-card-list">
@@ -87,11 +90,20 @@ export default function SmallVariantPairCards({
           sortReviewTagKeys(group.review?.tags || [], tagMap),
         );
         const pairReviewTags = pairClass.tagKeys;
+        const folded = collapsedCards.isCollapsed(group.group_key);
 
         return (
-          <article key={group.group_key} className="variant-card">
+          <article
+            key={group.group_key}
+            className={`variant-card${folded ? ' variant-card--collapsed' : ''}`}
+          >
             <div className="variant-card-topbar">
               <div className="variant-card-topline">
+                <CardCollapseToggle
+                  collapsed={folded}
+                  onToggle={() => collapsedCards.toggle(group.group_key)}
+                  subject={`the compound het pair in ${groupGene || 'an unnamed gene'}`}
+                />
                 <span className="variant-card-toplabel">Compound het pair</span>
                 <span className="variant-card-banner variant-card-banner--strong">
                   {groupGene || 'Grouped result'}
@@ -110,124 +122,126 @@ export default function SmallVariantPairCards({
               ) : null}
             </div>
 
-            <div className="variant-card-body">
-              <div className="variant-card-column variant-card-column--primary">
-                <div className="variant-card-review-panel">
-                  <div className="variant-card-review-header variant-card-review-header--compact">
-                    <p className="variant-card-section-title">Pair review</p>
-                    {geneInfoHref && groupGene ? (
-                      <Link to={geneInfoHref} className="variant-card-inline-link">
-                        Gene context
-                      </Link>
+            {folded ? null : (
+              <div className="variant-card-body">
+                <div className="variant-card-column variant-card-column--primary">
+                  <div className="variant-card-review-panel">
+                    <div className="variant-card-review-header variant-card-review-header--compact">
+                      <p className="variant-card-section-title">Pair review</p>
+                      {geneInfoHref && groupGene ? (
+                        <Link to={geneInfoHref} className="variant-card-inline-link">
+                          Gene context
+                        </Link>
+                      ) : null}
+                    </div>
+                    <div className="variant-compound-het-summary">
+                      <div className="variant-compound-het-summary-row">
+                        <span className="analysis-pill analysis-pill--muted">Gene</span>
+                        <span>{groupGene || 'Not annotated'}</span>
+                      </div>
+                      <div className="variant-compound-het-summary-row">
+                        <span className="analysis-pill analysis-pill--muted">Phase</span>
+                        <span>{formatCompoundHetPhaseStatus(group.review?.phase_status)}</span>
+                      </div>
+                      {/* What the reads or the parents' genotypes say, as opposed to what the
+                          curator recorded above. Cis pairs never reach the client — they are
+                          dropped as candidates. */}
+                      <div className="variant-compound-het-summary-row">
+                        <span className="analysis-pill analysis-pill--muted">Phasing</span>
+                        {group.phase === 'trans' ? (
+                          <span className="variant-card-chip variant-card-chip--success">
+                            {transPhaseLabel(group.phase_evidence)}
+                          </span>
+                        ) : (
+                          <span>Not resolved by reads or segregation</span>
+                        )}
+                      </div>
+                    </div>
+                    {/* The class the pair review shows: a class word as its label, not as typed. */}
+                    {pairClass.label ? (
+                      <span className={`variant-card-chip variant-card-chip--${pairClass.tone}`}>
+                        {pairClass.label}
+                      </span>
                     ) : null}
+                    {pairReviewTags.length ? (
+                      <div className="variant-card-chip-row">
+                        {pairReviewTags.map((tagKey) => (
+                          <ReviewTagChip
+                            key={`${group.group_key}:${tagKey}`}
+                            className="variant-card-chip variant-card-chip--tag"
+                            tagKey={tagKey}
+                            tagMap={tagMap}
+                            tagMetadata={group.review?.tag_metadata}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                    <p className="variant-card-review-note">
+                      {group.review?.note || 'No pair review saved.'}
+                    </p>
                   </div>
-                  <div className="variant-compound-het-summary">
-                    <div className="variant-compound-het-summary-row">
-                      <span className="analysis-pill analysis-pill--muted">Gene</span>
-                      <span>{groupGene || 'Not annotated'}</span>
-                    </div>
-                    <div className="variant-compound-het-summary-row">
-                      <span className="analysis-pill analysis-pill--muted">Phase</span>
-                      <span>{formatCompoundHetPhaseStatus(group.review?.phase_status)}</span>
-                    </div>
-                    {/* What the reads or the parents' genotypes say, as opposed to what the
-                        curator recorded above. Cis pairs never reach the client — they are
-                        dropped as candidates. */}
-                    <div className="variant-compound-het-summary-row">
-                      <span className="analysis-pill analysis-pill--muted">Phasing</span>
-                      {group.phase === 'trans' ? (
-                        <span className="variant-card-chip variant-card-chip--success">
-                          {transPhaseLabel(group.phase_evidence)}
-                        </span>
-                      ) : (
-                        <span>Not resolved by reads or segregation</span>
-                      )}
-                    </div>
-                  </div>
-                  {/* The class the pair review shows: a class word as its label, not as typed. */}
-                  {pairClass.label ? (
-                    <span className={`variant-card-chip variant-card-chip--${pairClass.tone}`}>
-                      {pairClass.label}
-                    </span>
-                  ) : null}
-                  {pairReviewTags.length ? (
-                    <div className="variant-card-chip-row">
-                      {pairReviewTags.map((tagKey) => (
-                        <ReviewTagChip
-                          key={`${group.group_key}:${tagKey}`}
-                          className="variant-card-chip variant-card-chip--tag"
-                          tagKey={tagKey}
-                          tagMap={tagMap}
-                          tagMetadata={group.review?.tag_metadata}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                  <p className="variant-card-review-note">
-                    {group.review?.note || 'No pair review saved.'}
-                  </p>
+                </div>
+
+                <div className="variant-card-column variant-card-column--middle">
+                  {group.variants.map((variant, index) => {
+                    const { igvHref, locus, viewHref } = buildSmallVariantNavigation({
+                      variant,
+                      familyId,
+                      locationSearch,
+                      projectId,
+                    });
+                    return (
+                      <div key={variant._id} className="variant-card-note-box">
+                        <div className="variant-card-review-header variant-card-review-header--compact">
+                          <p className="variant-card-section-title">Variant {index + 1}</p>
+                          <div className="variant-card-actions">
+                            <GenomeWorkspaceLink
+                              to={igvHref}
+                              className="button-secondary"
+                              label={`Open IGV at ${locus}`}
+                            >
+                              IGV
+                            </GenomeWorkspaceLink>
+                            <GenomeWorkspaceLink
+                              to={viewHref}
+                              className="button-secondary"
+                              label={`Open chromosome view around ${locus}`}
+                            >
+                              View
+                            </GenomeWorkspaceLink>
+                          </div>
+                        </div>
+                        <p className="variant-card-subtitle">
+                          {formatLocus(variant)} · {variant.ref || '—'} → {variant.alt || '—'}
+                        </p>
+                        <p className="table-subtle">
+                          {variant.hgvsp || variant.hgvsc || formatTokenLabel(variant.effect)}
+                        </p>
+                        <div className="variant-card-chip-row">
+                          <span
+                            className={`variant-card-chip variant-card-chip--${getImpactTone(variant.impact)}`}
+                          >
+                            {variant.impact || 'Impact n/a'}
+                          </span>
+                          <span className="variant-card-chip variant-card-chip--neutral">
+                            {formatTokenLabel(variant.effect)}
+                          </span>
+                          <span className="variant-card-chip variant-card-chip--neutral">
+                            gnomAD {formatFrequency(variant.gnomad_af)}
+                          </span>
+                        </div>
+                        {variant.priority ? (
+                          <VariantPriorityBlock priority={variant.priority} rankedBy={rankedBy} />
+                        ) : null}
+                        <p className="table-subtle">
+                          {buildCompactGenotypeText(variant, members) || 'No family genotypes available'}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-
-              <div className="variant-card-column variant-card-column--middle">
-                {group.variants.map((variant, index) => {
-                  const { igvHref, locus, viewHref } = buildSmallVariantNavigation({
-                    variant,
-                    familyId,
-                    locationSearch,
-                    projectId,
-                  });
-                  return (
-                    <div key={variant._id} className="variant-card-note-box">
-                      <div className="variant-card-review-header variant-card-review-header--compact">
-                        <p className="variant-card-section-title">Variant {index + 1}</p>
-                        <div className="variant-card-actions">
-                          <GenomeWorkspaceLink
-                            to={igvHref}
-                            className="button-secondary"
-                            label={`Open IGV at ${locus}`}
-                          >
-                            IGV
-                          </GenomeWorkspaceLink>
-                          <GenomeWorkspaceLink
-                            to={viewHref}
-                            className="button-secondary"
-                            label={`Open chromosome view around ${locus}`}
-                          >
-                            View
-                          </GenomeWorkspaceLink>
-                        </div>
-                      </div>
-                      <p className="variant-card-subtitle">
-                        {formatLocus(variant)} · {variant.ref || '—'} → {variant.alt || '—'}
-                      </p>
-                      <p className="table-subtle">
-                        {variant.hgvsp || variant.hgvsc || formatTokenLabel(variant.effect)}
-                      </p>
-                      <div className="variant-card-chip-row">
-                        <span
-                          className={`variant-card-chip variant-card-chip--${getImpactTone(variant.impact)}`}
-                        >
-                          {variant.impact || 'Impact n/a'}
-                        </span>
-                        <span className="variant-card-chip variant-card-chip--neutral">
-                          {formatTokenLabel(variant.effect)}
-                        </span>
-                        <span className="variant-card-chip variant-card-chip--neutral">
-                          gnomAD {formatFrequency(variant.gnomad_af)}
-                        </span>
-                      </div>
-                      {variant.priority ? (
-                        <VariantPriorityBlock priority={variant.priority} rankedBy={rankedBy} />
-                      ) : null}
-                      <p className="table-subtle">
-                        {buildCompactGenotypeText(variant, members) || 'No family genotypes available'}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            )}
           </article>
         );
       })}

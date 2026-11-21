@@ -1466,6 +1466,113 @@ describe('SmallVariantCards excluded variant', () => {
   });
 });
 
+// An analyst going through the list folds each card when done with it, from its foot or from the
+// caret before its heading, and opens it again from that caret. The fold is the analyst's view
+// only: it touches no review.
+describe('SmallVariantCards collapse', () => {
+  const brca2 = (id: string, hgvsc: string, hgvsp: string) =>
+    smallVariant({
+      _id: id,
+      chr: '13',
+      start: 32340000,
+      end: 32340000,
+      type: 'SNV',
+      gene: 'BRCA2',
+      ref: 'A',
+      alt: 'G',
+      hgvsc: `ENST00000380152.8:${hgvsc}`,
+      hgvsp: `ENSP00000369497.3:${hgvsp}`,
+    });
+  const renderTwo = (onToggleReviewTag = vi.fn(async () => undefined), onEditReview = vi.fn()) =>
+    renderCards(
+      <SmallVariantCards
+        variants={[brca2('first', 'c.100A>G', 'p.Lys34Glu'), brca2('second', 'c.200A>G', 'p.Asn67Asp')]}
+        members={[{ sample_id: 'P1', role: 'proband', affected: true, sex: 'female' }]}
+        familyId="F1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={onEditReview}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={onToggleReviewTag}
+      />,
+    );
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockGeneProfile([]);
+  });
+
+  it('folds a card from its foot to its heading and change, and opens it from the caret', async () => {
+    const onToggleReviewTag = vi.fn(async () => undefined);
+    const onEditReview = vi.fn();
+    const { container } = renderTwo(onToggleReviewTag, onEditReview);
+    const [first, second] = Array.from(container.querySelectorAll('article')) as HTMLElement[];
+
+    await userEvent.click(within(first).getByRole('button', { name: 'Collapse' }));
+    expect(first).toHaveClass('variant-card--collapsed');
+    expect(first.querySelector('.variant-card-cols')).toBeNull();
+    expect(first.querySelector('.variant-card-footer')).toBeNull();
+    expect(within(first).getByRole('link', { name: 'BRCA2' })).toBeInTheDocument();
+    // The change, without its accession, tells it from the other BRCA2 card.
+    expect(within(first).getByText('c.100A>G · p.Lys34Glu')).toBeInTheDocument();
+    // Not an excluded card, and the next card stays open.
+    expect(first).not.toHaveClass('variant-card--excluded');
+    expect(within(first).queryByText('Excluded')).not.toBeInTheDocument();
+    expect(second.querySelector('.variant-card-cols')).not.toBeNull();
+
+    const caret = within(first).getByRole('button', { name: 'Expand the card of BRCA2' });
+    expect(caret).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(caret);
+    expect(first).not.toHaveClass('variant-card--collapsed');
+    expect(first.querySelector('.variant-card-cols')).not.toBeNull();
+    expect(within(first).queryByText('c.100A>G · p.Lys34Glu')).not.toBeInTheDocument();
+
+    await userEvent.click(within(first).getByRole('button', { name: 'Collapse the card of BRCA2' }));
+    expect(first.querySelector('.variant-card-cols')).toBeNull();
+
+    expect(onToggleReviewTag).not.toHaveBeenCalled();
+    expect(onEditReview).not.toHaveBeenCalled();
+  });
+
+  it('opens and folds an excluded card from the same caret as its bar', async () => {
+    const excluded = smallVariant({
+      _id: 'pkd1-var',
+      chr: '16',
+      start: 2100000,
+      end: 2100000,
+      type: 'SNV',
+      gene: 'PKD1',
+      review: review({ variant_id: 'pkd1-var', tags: ['excluded'] }),
+    });
+    const { container } = renderCards(
+      <SmallVariantCards
+        variants={[excluded]}
+        members={[]}
+        familyId="F1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+    const card = container.querySelector('article') as HTMLElement;
+    expect(card).toHaveClass('variant-card--collapsed');
+
+    await userEvent.click(within(card).getByRole('button', { name: 'Expand the card of PKD1' }));
+    expect(card.querySelector('.variant-card-cols')).not.toBeNull();
+    expect(within(card).getByRole('button', { name: /hide the excluded card of PKD1/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+
+    // Folded from its foot, it is the excluded heading and bar again.
+    await userEvent.click(within(card).getByRole('button', { name: 'Collapse' }));
+    expect(card.querySelector('.variant-card-cols')).toBeNull();
+    expect(within(card).getByText('Excluded')).toBeInTheDocument();
+  });
+});
+
 // The owner's decision of 2026-11-10: a card shows its review's class by the one rule of the
 // family page, once: text "VUS" beside the tag of class 4 shows *VUS - class 3* alone, never
 // beside *Likely pathogenic - class 4* on one card.

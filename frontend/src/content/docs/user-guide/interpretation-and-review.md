@@ -12,6 +12,13 @@ classify**. An excluded variant stays in the list. Its card folds to its heading
 *Excluded*: **Show card** unfolds it, and **Undo exclude** takes the tag off again. In the table view
 its row is dimmed.
 
+To go through the list one card at a time, fold each card when you are done with it: **Collapse**, at
+the foot of the card, folds it to its heading and the change (HGVS.c and HGVS.p), and the next card is
+the first open one. The caret before a card's heading folds and opens it too, an excluded card's
+included; a compound-het pair card folds from its caret. A fold changes no review and is saved nowhere:
+the cards you folded open again when you load the page anew. The small-variant and monogenic NIPT
+cards fold alike.
+
 - **Tags.** The built-in tags are *Review*, *Send for validation*, *Validated*, *Validation did not
   confirm*, *Confident AR single hit*, *Excluded* and *Report*, the ACMG class tags, the VUS tiers and
   *Secondary finding*. A superuser or an administrator can add custom tags for one project or for
