@@ -3,10 +3,11 @@
 With local storage a family's files lie in two folders of the data directory: the flat
 ``<data>/<family>`` and its imported package, ``<data>/families/<family>``. The endpoints that
 serve a family's files from there look a file up only inside those folders: the aligned reads
-of a sample no import recorded an alignment of (``routers/cram.py``) and the CNV caller's signal
-files (``routers/signal_tracks.py``). What names the file is data: the
-family and sample IDs come from the request, and may hold ``/`` and ``..`` (the ID rule refuses
-both in a stored ID, but a request is not held to it); a
+of a sample no import recorded an alignment of (``routers/cram.py``). A file an import recorded
+(an alignment, a CNV caller's signal file, a QC report) is looked up in its analysis's package
+folder alone, kept the same way (``path_in_family_folder`` with that folder as the only one).
+What names the file is data: the family and sample IDs come from the request, and may hold
+``/`` and ``..`` (the ID rule refuses both in a stored ID, but a request is not held to it); a
 recorded path comes back from ``samples.metadata``, where an edited row can hold ``..`` or an
 absolute path.
 
