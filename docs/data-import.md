@@ -1384,6 +1384,7 @@ the top of the folder, and a folder per sample for its alignment:
 FAM001/
   FAM001.ped
   FAM001.GRCh38.annotated.vcf.gz (+ .tbi)   the callset, VEP-annotated: the family's SNV callset
+                                            (or FAM001.GRCh38.annotated.<suffix>.vcf.gz)
   FAM001.vcf.gz (+ .tbi)                    the same callset unannotated: not read
   vep-commands.json                         the annotation's VEP commands: not read
   PROBAND/PROBAND.cram (+ .crai)            and MOTHER's, FATHER1's; optional
@@ -1392,6 +1393,11 @@ FAM001/
 - Discover takes the annotated callset as the family's SNV callset, never the unannotated one, and
   `<sample>/<sample>.cram` (or `.bam`) as each sample's alignment; a sample without one has calls
   but no reads in the genome browser.
+- The annotated callset's name may carry a suffix after `annotated` that names what else annotated
+  it (`FAM001.GRCh38.annotated.gnomad41j.vcf.gz`); its index is the `.tbi` or `.csi` beside it,
+  named after it. A folder with two annotated callsets (`FAM001.GRCh38.annotated.vcf.gz` beside
+  `FAM001.GRCh38.annotated.gnomad41j.vcf.gz`, say) is refused (`snv_multiple_candidates`):
+  Discover does not choose between them.
 - It sets `source_format: haplotypecaller`, the caller the header names
   (`##GATKCommandLine=<ID=HaplotypeCaller,…`). The header also describes GATK's physical phasing,
   and the first record can be physically phased (`0|1`); the caller's name decides, so the file is
@@ -3137,6 +3143,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
 | `nipt_pair_detected` (warning) | Discover took the folder for a monogenic NIPT pair. Check the samples it took for the maternal plasma and for the father. |
 | `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when of opposite sex). Check them before approving the delivery. |
+| `snv_multiple_candidates` | A short-read WGS folder holds two or more annotated callsets of the family (`<family>.GRCh38.annotated.vcf.gz`, `<family>.GRCh38.annotated.<suffix>.vcf.gz`), and Discover does not choose between them: nothing is proposed. Leave one in the folder, or name the family's SNV callset in the package file's `snv` dataset. |
 
 **Import jobs**
 
