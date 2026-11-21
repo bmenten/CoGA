@@ -50,7 +50,7 @@ from .family_structure_audit import (
 from .family_identifiers import visible
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .metadata_service import get_accessible_family_mapping, get_family_record
-from .same_individual import person_of, same_individual_groups
+from .same_individual import SAME_INDIVIDUAL_LINK, person_of, person_value_conflict, same_individual_groups
 from .access_control import CurrentUser
 from .ped_service import (
     _phenotype_code_from_clinical_status,
@@ -62,8 +62,6 @@ from .ped_service import (
 CLINICAL_STATUS_VALUES = {"unknown", "unaffected", "affected"}
 CARRIER_STATUS_VALUES = {"unknown", "not_carrier", "carrier"}
 MEMBER_ROLES = {"proband", "father", "mother", "sibling", "embryo", "fetus", "relative"}
-# Two samples of one person (``FamilyStructureSameIndividualUpdate``).
-SAME_INDIVIDUAL = "same_individual"
 SEX_VALUES = {"male", "female", "und"}
 
 
@@ -502,7 +500,7 @@ def _relationship_rows_from_payload(
         rows.extend(
             relationship
             for relationship in current_relationships
-            if relationship.get("relationship_type") == SAME_INDIVIDUAL
+            if relationship.get("relationship_type") == SAME_INDIVIDUAL_LINK
             and target_members.get(_sample_key(str(relationship["sample_id_a"])), {}).get("active")
             and target_members.get(_sample_key(str(relationship["sample_id_b"])), {}).get("active")
         )
@@ -538,7 +536,7 @@ def _same_individual_relationship_row(
 ) -> dict[str, Any]:
     first, second = (_ensure_relationship_member(sample_id, target_members=target_members) for sample_id in link.samples)
     return {
-        "relationship_type": SAME_INDIVIDUAL,
+        "relationship_type": SAME_INDIVIDUAL_LINK,
         "sample_id_a": first,
         "sample_id_b": second,
         "role_a": None,
@@ -658,7 +656,7 @@ def _validate_relationship_graph(
             if edge_key in relative_edges:
                 raise HTTPException(status_code=400, detail=f"Duplicate relative link for {sample_a} and {sample_b}")
             relative_edges.add(edge_key)
-        elif relationship_type == SAME_INDIVIDUAL:
+        elif relationship_type == SAME_INDIVIDUAL_LINK:
             if key_a == key_b:
                 raise HTTPException(status_code=400, detail="A sample is not linked to itself as the same individual")
             edge_key = (min(key_a, key_b), max(key_a, key_b))
@@ -739,9 +737,8 @@ def _refuse_parent_cycles(
             visit(of(member_key))
 
 
-# What a same-individual link says the two samples share: one person has one sex, one phenotype and
-# one carrier status. A value that is not known agrees with any.
-_PERSON_FIELDS = (("sex", "sex", "und"), ("clinical status", "clinical_status", "unknown"), ("carrier status", "carrier_status", "unknown"))
+# The parent role each sex refuses.
+_PARENT_ROLE_REFUSED = {"female": "father", "male": "mother"}
 
 
 def _named_samples(samples: Sequence[str]) -> str:
@@ -762,7 +759,8 @@ def _refuse_same_individual_conflicts(
     - two samples of one person also recorded as relatives (``related_pairs``: parent and child,
       a couple, or of an unknown degree);
     - a child whose two recorded parents are samples of one person;
-    - another known sex, clinical status or carrier status;
+    - another known sex, clinical status or carrier status (``same_individual.PERSON_FIELDS``);
+    - a known sex that contradicts the father or mother role one of the samples holds for a child;
     - another recorded father or mother, a person recorded as both, or more than two parents.
 
     A parent is read as the person it is: the two mothers recorded for two samples of one child
@@ -798,13 +796,30 @@ def _refuse_same_individual_conflicts(
                 )
     for group in same_individual_groups(edges):
         named = _named_samples([sample_id(key) for key in group])
-        for label, field, unknown in _PERSON_FIELDS:
-            known = {str(target_members[key].get(field) or unknown) for key in group} - {unknown}
-            if len(known) > 1:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{named} are linked as the same individual but their {label} differs ({', '.join(sorted(known))})",
-                )
+        conflict = person_value_conflict(target_members[key] for key in group)
+        if conflict is not None:
+            label, known = conflict
+            raise HTTPException(
+                status_code=400,
+                detail=f"{named} are linked as the same individual but their {label} differs ({', '.join(known)})",
+            )
+        # The person's sex, known on one of its samples, holds for every sample: none of them is a
+        # father of a child if she is female, or a mother if he is male.
+        sex = next(
+            (str(target_members[key]["sex"]) for key in group if target_members[key].get("sex") in _PARENT_ROLE_REFUSED),
+            None,
+        )
+        for child_key, parents in sorted(parents_by_child.items()):
+            for parent in parents:
+                parent_key = _sample_key(str(parent["sample_id"]))
+                if sex is not None and parent_key in group and parent.get("role") == _PARENT_ROLE_REFUSED[sex]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"{sample_id(parent_key)} cannot be recorded as {parent['role']} of {sample_id(child_key)} "
+                            f"because {named} are linked as the same individual and their sex is {sex}"
+                        ),
+                    )
         recorded = [
             (of(_sample_key(str(parent["sample_id"]))), str(parent.get("role") or "parent"))
             for key in group
@@ -846,7 +861,7 @@ def refuse_package_same_individual_conflicts(
         if not {key_a, key_b} <= target_members.keys() or key_a == key_b:
             continue
         pair = (min(key_a, key_b), max(key_a, key_b))
-        if link.get("relationship_type") == SAME_INDIVIDUAL:
+        if link.get("relationship_type") == SAME_INDIVIDUAL_LINK:
             edges.add(pair)
             continue
         related_pairs.add(pair)
@@ -922,12 +937,12 @@ def _relationship_key(relationship: dict[str, Any]) -> tuple[Any, ...]:
     members editor over a package's links, or a package naming a link the editor made, is no
     change, and writes no structure version."""
     metadata_key = json.dumps(relationship.get("metadata") or {}, sort_keys=True, default=str)
-    if relationship.get("relationship_type") == SAME_INDIVIDUAL:
+    if relationship.get("relationship_type") == SAME_INDIVIDUAL_LINK:
         sample_keys = sorted([
             _sample_key(str(relationship.get("sample_id_a"))),
             _sample_key(str(relationship.get("sample_id_b"))),
         ])
-        return (SAME_INDIVIDUAL, *sample_keys, metadata_key)
+        return (SAME_INDIVIDUAL_LINK, *sample_keys, metadata_key)
     if relationship.get("relationship_type") == "relative":
         return (
             "relative",
@@ -1566,7 +1581,7 @@ def _link_payload(
                     related_to=str(link["sample_id_a"]), member=str(link["sample_id_b"]), metadata=metadata
                 )
             )
-        elif kind == SAME_INDIVIDUAL:
+        elif kind == SAME_INDIVIDUAL_LINK:
             same_individual.append(
                 FamilyStructureSameIndividualUpdate(
                     samples=[str(link["sample_id_a"]), str(link["sample_id_b"])], metadata=metadata
@@ -1711,18 +1726,6 @@ async def take_package_pedigree(
     return await update_family_structure_for_admin(
         session, family_id=family_id, update=update, user=user, source=PACKAGE_IMPORT
     )
-
-
-def _link_identity(link: Mapping[str, Any]) -> tuple[Any, ...]:
-    """A link as two pedigrees name it, whatever its source or metadata: its kind and its ends (a
-    parent and a child, with the parent's role; two partners, relatives or samples of one person,
-    in either order)."""
-    kind = link.get("relationship_type")
-    ends = (_sample_key(str(link["sample_id_a"])), _sample_key(str(link["sample_id_b"])))
-    if kind == "parent_child":
-        role = link.get("role_a")
-        return (kind, *ends, role if role in ("father", "mother") else "parent")
-    return (kind, *sorted(ends))
 
 
 async def _merge_package_pedigree(

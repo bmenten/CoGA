@@ -86,7 +86,7 @@ from .raw_import_files_pg import (
     unlink_managed_files,
 )
 from .roi_gene_lookup import resolve_roi
-from .same_individual import person_of
+from .same_individual import PERSON_STATUS_FIELDS, person_of, person_value_conflict, same_individual_groups, same_individual_pairs
 from .vcf_header_provenance import reference_name
 
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ImportRefused, ParsedPed, ManifestDataset, _display_path, _issue, _resolve_package_path, manifest_text_sha256
@@ -877,6 +877,13 @@ async def _register_package_samples(
     package filling only an unknown one (``merge_member_values``); a known status it states
     otherwise refuses the import before anything is written (``ImportRefused``).
 
+    The samples of one person (the family's same-individual links, read here, after the family's
+    pedigree took the package's links, ``_take_package_pedigree``) agree on their statuses as a
+    structure edit has them agree: each member's statuses as they are once written (the package's,
+    or those it keeps), a known clinical or carrier status that differs from another sample's of
+    the person refuses the import before anything is written (``same_individual_statuses_message``).
+    A link a later structure edit makes is checked by that edit against the statuses written here.
+
     Returns, per sample whose metadata it changed, the registered keys' values before (None for
     a key the sample lacked)."""
     entries = _normalize_manifest_samples(bundle.manifest.samples)
@@ -905,16 +912,21 @@ async def _register_package_samples(
     sample_writes: list[tuple[str, dict[str, Any]]] = []
     previous: dict[str, dict[str, Any]] = {}
     conflicts: list[tuple[str, str]] = []
+    # Each member's statuses once written: those the package gives it, or those it keeps.
+    statuses: dict[str, dict[str, Any]] = {}
     for row in rows:
         sample_id = str(row["sample_id"])
+        if row.get("is_member"):
+            statuses[sample_id] = _held_member_statuses(dict(row))
         if sample_id in given and row.get("is_member"):
-            held = _held_member_statuses(dict(row))
+            held = statuses[sample_id]
             wanted = {field: given[sample_id].get(field) for field in MEMBER_STATUS_FIELDS}
             if others:
                 values = merge_member_values(sample_id, given=wanted, held=held, fields=MEMBER_STATUS_FIELDS)
                 conflicts.extend(values.conflicts)
                 wanted = values.merged
             wanted = _coherent_statuses(wanted)
+            statuses[sample_id] = wanted
             if wanted != held:
                 status_writes.append((str(row["sample_uuid"]), wanted))
         metadata = _json_object(row.get("metadata"))
@@ -931,6 +943,10 @@ async def _register_package_samples(
             sample_writes.append((str(row["sample_uuid"]), changed))
     if conflicts:
         raise ImportRefused(member_values_conflict_message(family_identifier, others, conflicts))
+    held_links = (await family_samples_held(session, family_id=family_identifier)).links
+    disagreeing = same_individual_statuses_message(family_identifier, statuses, held_links)
+    if disagreeing is not None:
+        raise ImportRefused(disagreeing)
     for sample_uuid, wanted in status_writes:
         await session.execute(
             text(
@@ -4107,11 +4123,7 @@ SAME_INDIVIDUAL_NOT_MADE = "package_same_individual_not_made"
 def package_same_individual_links(bundle: FamilyPackageBundle) -> list[tuple[str, str]]:
     """The package's same-individual links (``family.relationships.same_individual``), as pairs of
     sample IDs as the package writes them."""
-    return [
-        (str(link["sample_id_a"]).strip(), str(link["sample_id_b"]).strip())
-        for link in _manifest_relationships(bundle.manifest)
-        if link["relationship_type"] == "same_individual"
-    ]
+    return same_individual_pairs(_manifest_relationships(bundle.manifest))
 
 
 @dataclass(frozen=True)
@@ -4380,6 +4392,26 @@ def members_added_message(family_id: str, differences: MemberDifferences) -> str
 
 def _analyses_named(analyses: Iterable[str]) -> str:
     return ", ".join(analyses) or "another analysis"
+
+
+def same_individual_statuses_message(
+    family_id: str, statuses: Mapping[str, Mapping[str, Any]], links: Iterable[tuple[str, str]]
+) -> str | None:
+    """The sentence that refuses an import after which two samples of one person (the family's
+    same-individual ``links``, joined directly or through another sample) would differ on a known
+    clinical or carrier status (``same_individual.PERSON_STATUS_FIELDS``; a status not known agrees
+    with any), each member's ``statuses`` as the import leaves them. None when they agree."""
+    for group in same_individual_groups(links):
+        conflict = person_value_conflict((statuses.get(sample_id, {}) for sample_id in group), PERSON_STATUS_FIELDS)
+        if conflict is not None:
+            label, known = conflict
+            named = ", ".join(map(visible, group[:-1])) + f" and {visible(group[-1])}"
+            return (
+                f"The package's statuses cannot be those of family '{visible(family_id)}': {named} are linked as "
+                f"the same individual but their {label} differs ({', '.join(known)}). The samples of one person "
+                "agree on their statuses: correct the package, or the members in the family's members editor first."
+            )
+    return None
 
 
 def member_values_conflict_message(

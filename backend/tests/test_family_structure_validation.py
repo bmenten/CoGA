@@ -406,3 +406,55 @@ def test_a_new_family_from_a_package_is_refused_samples_of_one_person_recorded_a
         )
 
     assert "PLASMA1 and PLASMA2 are linked as the same individual and also as relatives" in str(exc.value.detail)
+
+
+def _one_parent_sampled_twice(second_sex: str) -> dict[str, dict[str, object]]:
+    """PARENT1 (sex unknown) and PARENT2, two samples of one person, and their child PROBAND."""
+    return {
+        "parent1": _member("PARENT1", "und"),
+        "parent2": _member("PARENT2", second_sex),
+        "proband": _member("PROBAND", "und"),
+    }
+
+
+@pytest.mark.parametrize(("sex", "role"), [("female", "father"), ("male", "mother")])
+def test_a_parent_role_the_persons_known_sex_contradicts_is_refused_whichever_comes_first(sex: str, role: str) -> None:
+    detail = (
+        f"PARENT1 cannot be recorded as {role} of PROBAND because PARENT1 and PARENT2 are linked as the "
+        f"same individual and their sex is {sex}"
+    )
+    # The link and PARENT2's sex first, then PARENT1 recorded as PROBAND's parent in that role:
+    # PARENT1's own sex is not known, the person's is.
+    members = _one_parent_sampled_twice(sex)
+    update = FamilyStructureUpdate.model_validate(
+        {"relationships": {"parent_child": [{"parent": "PARENT1", "child": "PROBAND", "parent_role": role}]}}
+    )
+    rows = _relationship_rows_from_payload(update, target_members=members, current_relationships=[_same("PARENT1", "PARENT2")])
+    with pytest.raises(HTTPException) as exc:
+        _validate_relationship_graph(rows, target_members=members)
+    assert (exc.value.status_code, exc.value.detail) == (400, detail)
+
+    # The link and the role first, then PARENT2's sex (a member edit, which keeps the links).
+    linked = [_same("PARENT1", "PARENT2"), _parent_child("PARENT1", "PROBAND", role)]
+    members = _one_parent_sampled_twice("und")
+    _validate_relationship_graph(linked, target_members=members)
+    members["parent2"]["sex"] = sex
+    with pytest.raises(HTTPException) as exc:
+        _validate_relationship_graph(linked, target_members=members)
+    assert (exc.value.status_code, exc.value.detail) == (400, detail)
+
+    # A package that makes a new family is checked as an edit is.
+    package_members = [{**member, "clinical_status": "unknown", "carrier_status": "unknown"} for member in members.values()]
+    with pytest.raises(HTTPException) as exc:
+        refuse_package_same_individual_conflicts(package_members, linked)
+    assert exc.value.detail == detail
+
+
+def test_a_parent_role_the_persons_sex_agrees_with_is_accepted() -> None:
+    members = _one_parent_sampled_twice("female")
+    _validate_relationship_graph(
+        [_same("PARENT1", "PARENT2"), _parent_child("PARENT1", "PROBAND", "mother")], target_members=members
+    )
+    _validate_relationship_graph(
+        [_same("PARENT1", "PARENT2"), _parent_child("PARENT1", "PROBAND", "parent")], target_members=members
+    )

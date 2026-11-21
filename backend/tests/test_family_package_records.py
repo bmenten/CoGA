@@ -399,6 +399,32 @@ def test_a_family_holding_another_analysis_keeps_its_members_values_and_links(
     )
 
 
+def test_a_package_link_the_family_holds_under_another_parent_role_is_one_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The family records FATHER1 as the fetus's parent (a structure edit), the package as its
+    # father: one parent and child, the family's link, never two links of one pair, which the
+    # structure update refuses as a duplicate.
+    family = _PedigreeFamily(monkeypatch)
+    family.links[0] = {**family.links[0], "role_a": "parent"}
+    package_links = [
+        {"relationship_type": "parent_child", "sample_id_a": "FATHER1", "sample_id_b": "FETUS1", "role_a": "father", "source": "package"},
+        {"relationship_type": "parent_child", "sample_id_a": "CFDNA1", "sample_id_b": "SIB1", "role_a": "mother"},
+    ]
+
+    taken = family.take(
+        replace=False, members=[{"sample_id": "SIB1", "sex": "female", "role": "sibling"}], relationships=package_links
+    )
+
+    assert sorted((link.parent, link.child, link.parent_role) for link in taken.relationships.parent_child) == [
+        ("CFDNA1", "FETUS1", "mother"),
+        ("CFDNA1", "SIB1", "mother"),
+        ("FATHER1", "FETUS1", "parent"),
+    ]
+    members = {structure._sample_key(sample): dict(row) for sample, row in family.held.items()}
+    members["sib1"] = {"sample_id": "SIB1", "sex": "female", "active": True}
+    rows = structure._relationship_rows_from_payload(taken, target_members=members, current_relationships=family.links)
+    structure._validate_relationship_graph(rows, target_members=members)
+
+
 def test_a_package_that_adds_nothing_to_a_family_holding_another_analysis_changes_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -466,11 +492,17 @@ class _Samples:
         self.statuses: dict[str, dict[str, Any]] = {}
         self.metadata: dict[str, dict[str, Any]] = {}
         self.locked = False
+        # The family's same-individual links (family_samples_held).
+        self.links: list[tuple[str, str]] = []
 
     async def execute(self, statement: Any, params: Any = None) -> Any:
         import json
 
         sql = " ".join(str(statement).split())
+        if "relationship_type = 'same_individual'" in sql:
+            return list(self.links)
+        if sql.startswith("SELECT s.sample_id FROM family_members"):
+            return [(row["sample_id"],) for row in self.rows if row["is_member"]]
         if sql.startswith("SELECT"):
             self.locked = "FOR UPDATE OF s" in sql
             rows = self.rows
@@ -563,6 +595,70 @@ def test_a_package_of_the_familys_only_analysis_gives_its_members_their_statuses
     assert session.statuses == {
         "uuid-cfdna1": {"clinical_status": "unknown", "carrier_status": "unknown", "carrier_type": None, "affected": False}
     }
+
+
+def _with_second_plasma(session: _Samples, clinical_status: str) -> _Samples:
+    """``session``'s family with CNIPT1 too, the same woman's plasma under another sample ID,
+    linked to CFDNA1 as the same individual: a link the family held before the import, or the
+    package's own, which the family's pedigree took earlier in the import
+    (``_take_package_pedigree``). The registration reads it from the family either way."""
+    session.rows.append(
+        {
+            "sample_uuid": "uuid-cnipt1",
+            "sample_id": "CNIPT1",
+            "metadata": {},
+            "is_member": True,
+            "clinical_status": clinical_status,
+            "carrier_status": "unknown",
+            "carrier_type": None,
+            "carrier_evidence": {},
+        }
+    )
+    session.links = [("CNIPT1", "CFDNA1")]
+    return session
+
+
+@pytest.mark.parametrize(
+    ("ped_text", "others", "held"),
+    [
+        # The family's only analysis: the package gives the plasma a status its other sample
+        # does not hold.
+        ("F1\tCFDNA1\t0\t0\t2\t2\n", registration.OtherAnalyses(), "unaffected"),
+        # Another analysis held: the package fills CNIPT1's unknown status with one CFDNA1's
+        # known status contradicts (merge_member_values).
+        ("F1\tCNIPT1\t0\t0\t2\t2\n", _HOLDS_A_MONOGENIC_NIPT, "unknown"),
+    ],
+    ids=["the package's statuses", "a status the package fills"],
+)
+def test_an_import_after_which_two_samples_of_one_person_differ_on_a_status_is_refused_before_it_writes(
+    ped_text: str, others: Any, held: str
+) -> None:
+    session = _with_second_plasma(_Samples(), held)
+
+    with pytest.raises(registration.ImportRefused) as refused:
+        _register_samples(session, _cnipt_bundle(ped_text), others)
+
+    assert (
+        "CFDNA1 and CNIPT1 are linked as the same individual but their clinical status differs (affected, unaffected)"
+        in str(refused.value)
+    )
+    assert (session.statuses, session.metadata) == ({}, {})
+
+
+def test_an_import_whose_statuses_the_samples_of_one_person_agree_on_is_registered() -> None:
+    # CNIPT1's status not known: it agrees with CFDNA1's.
+    session = _with_second_plasma(_Samples(), "unknown")
+
+    _register_samples(session, _cnipt_bundle("F1\tCFDNA1\t0\t0\t2\t2\n"), registration.OtherAnalyses())
+
+    assert session.statuses == {
+        "uuid-cfdna1": {"clinical_status": "affected", "carrier_status": "unknown", "carrier_type": None, "affected": True}
+    }
+    assert registration.same_individual_statuses_message(
+        "F1",
+        {"CFDNA1": {"clinical_status": "affected"}, "CNIPT1": {"clinical_status": "unknown"}, "OTHER1": {"clinical_status": "unaffected"}},
+        [("CNIPT1", "CFDNA1")],
+    ) is None
 
 
 # --- A sample's records of each analysis: its alignment and its sequencing QC ----------------
