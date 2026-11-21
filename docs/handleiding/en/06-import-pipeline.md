@@ -174,6 +174,7 @@ CoGA also reads from the run:
 - the role `fetus` for the child: the pregnancy's fetus, without data of its own, no proband and no PGT embryo;
 - the two VCFs under `datasets.snv.per_sample`;
 - the coverage tables under `datasets.coverage.per_sample` as `target_table`;
+- the CRAM of the plasma and of the father, with the index beside it, under `datasets.alignments.per_sample`, so the genome browser shows their reads under their calls (`<sample>.cram`, or with the pipeline's tags after a dot or an underscore: `<sample>_<anything>.cram`). When several such files are named after a sample, or the file has no index, none is proposed and a warning says why (`nipt_alignment_not_proposed`);
 - a warning (`nipt_pair_detected`) that says which sample was taken as the plasma and which as the father. Whoever imports checks both before the import.
 
 One combined VCF with a column for the father and one for the plasma is also possible, as an ordinary `family_vcf`.

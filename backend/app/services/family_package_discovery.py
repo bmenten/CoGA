@@ -1806,7 +1806,8 @@ def _apply_nipt_package_files(
     files: NiptPackageFiles,
 ) -> None:
     """Make the manifest a monogenic NIPT one: the analysis type, the plasma sample's
-    assay tag, the per-sample SNV files and the per-target coverage tables."""
+    assay tag, the per-sample SNV files, the per-target coverage tables and the parents'
+    aligned reads."""
     payload["analysis_type"] = MONOGENIC_NIPT_ANALYSIS_TYPE
     samples = payload.setdefault("samples", {})
     samples[files.cfdna_sample_id] = {**samples.get(files.cfdna_sample_id, {}), "assay": NIPT_CFDNA_ASSAY}
@@ -1845,6 +1846,21 @@ def _apply_nipt_package_files(
             ],
             samples=list(files.coverage_tables),
             message="Per-target coverage tables",
+        )
+    if files.alignments:
+        # The plasma's and the father's reads, for the genome browser under their calls.
+        datasets["alignments"] = {"enabled": True, "per_sample": dict(files.alignments)}
+        blocks["alignments"] = FamilyManifestDatasetAvailability(
+            dataset_type="alignments",
+            enabled=True,
+            complete=True,
+            files=[
+                _availability_file(root=root, role=role, path_value=path, sample_id=sample_id)
+                for sample_id, entry in files.alignments.items()
+                for role, path in entry.items()
+            ],
+            samples=list(files.alignments),
+            message="The parents' aligned reads",
         )
     for dataset_type, item in blocks.items():
         index = next((i for i, existing in enumerate(availability) if existing.dataset_type == dataset_type), None)
@@ -2064,6 +2080,15 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
                     dataset="snv",
                 )
             )
+            for sample_id, note in nipt_files.alignment_notes.items():
+                warnings.append(
+                    _issue(
+                        "nipt_alignment_not_proposed",
+                        f"No aligned reads are proposed for {sample_id}: {note}. Name its alignment in "
+                        "the package to see its reads in the genome browser.",
+                        dataset="alignments",
+                    )
+                )
     # A PGT family's indexes, from its PED (one with embryos; a NIPT pair's fetus is none): with
     # the inheritance model set, the import derives their status as it does the affected parent's.
     index_roles: dict[str, str] = {}

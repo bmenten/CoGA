@@ -1597,6 +1597,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li>de rol <code>fetus</code> voor het kind: de foetus van de zwangerschap, zonder eigen data, geen proband en geen PGT-embryo;</li>
 <li>de twee VCF's onder <code>datasets.snv.per_sample</code>;</li>
 <li>de dekkingstabellen onder <code>datasets.coverage.per_sample</code> als <code>target_table</code>;</li>
+<li>de CRAM van het plasma en van de vader, met de index ernaast, onder <code>datasets.alignments.per_sample</code>, zodat de genoombrowser hun reads onder hun calls toont (<code>&lt;sample&gt;.cram</code>, of met de tags van de pipeline na een punt of een underscore: <code>&lt;sample&gt;_&lt;anything&gt;.cram</code>). Zijn er meerdere zulke bestanden voor een sample, of heeft het bestand geen index, dan wordt er geen voorgesteld en zegt een waarschuwing waarom (<code>nipt_alignment_not_proposed</code>);</li>
 <li>een waarschuwing (<code>nipt_pair_detected</code>) die zegt welk sample als plasma en welk als vader werd genomen. Wie importeert, kijkt beide na vóór de import.</li>
 </ul>
 <p>Eén gecombineerde VCF met een kolom voor de vader en een voor het plasma kan ook, als gewone <code>family_vcf</code>.</p>
@@ -6575,6 +6576,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li>the role <code>fetus</code> for the child: the pregnancy's fetus, without data of its own, no proband and no PGT embryo;</li>
 <li>the two VCFs under <code>datasets.snv.per_sample</code>;</li>
 <li>the coverage tables under <code>datasets.coverage.per_sample</code> as <code>target_table</code>;</li>
+<li>the CRAM of the plasma and of the father, with the index beside it, under <code>datasets.alignments.per_sample</code>, so the genome browser shows their reads under their calls (<code>&lt;sample&gt;.cram</code>, or with the pipeline's tags after a dot or an underscore: <code>&lt;sample&gt;_&lt;anything&gt;.cram</code>). When several such files are named after a sample, or the file has no index, none is proposed and a warning says why (<code>nipt_alignment_not_proposed</code>);</li>
 <li>a warning (<code>nipt_pair_detected</code>) that says which sample was taken as the plasma and which as the father. Whoever imports checks both before the import.</li>
 </ul>
 <p>One combined VCF with a column for the father and one for the plasma is also possible, as an ordinary <code>family_vcf</code>.</p>

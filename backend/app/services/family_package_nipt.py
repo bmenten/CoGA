@@ -253,18 +253,55 @@ _NIPT_COVERAGE_GLOBS: tuple[str, ...] = (
     "*/coverage_{sample}.txt",
     "*/coverage_{sample}.tsv",
 )
+# Where Discover looks for a parent's aligned reads, beside the PED or one folder down: a CRAM
+# (or BAM) named after the sample, with the pipeline's tags after a dot or an underscore
+# (``<sample>_consensus.minreads2.mapped.filtered.cram``), so the genome browser shows the reads
+# under the plasma's and the father's calls.
+_NIPT_ALIGNMENT_GLOBS: tuple[str, ...] = tuple(
+    f"{folder}{{sample}}{tag}.{ext}"
+    for folder in ("", "*/")
+    for ext in ("cram", "bam")
+    for tag in ("", ".*", "_*")
+)
+# An alignment's index, beside it: ``<file>.crai`` or the file's name with ``.crai`` for its
+# extension (``.bai`` for a BAM).
+_ALIGNMENT_INDEX_SUFFIXES: dict[str, tuple[str, ...]] = {
+    ".cram": (".cram.crai", ".crai"),
+    ".bam": (".bam.bai", ".bai"),
+}
 
 
 @dataclass(slots=True)
 class NiptPackageFiles:
     """A monogenic NIPT pair Discover found: the plasma (mother) and paternal sample, each
-    with its one-sample VCF, and the per-target coverage tables there are."""
+    with its one-sample VCF, and the per-target coverage tables and aligned reads (with their
+    index) there are. ``alignment_notes`` says, per parent, why an alignment file named after
+    it was not proposed."""
 
     cfdna_sample_id: str
     father_sample_id: str
     fetus_sample_id: str
     vcfs: dict[str, str] = field(default_factory=dict)  # sample id -> package path
     coverage_tables: dict[str, str] = field(default_factory=dict)
+    alignments: dict[str, dict[str, str]] = field(default_factory=dict)  # sample id -> file, index
+    alignment_notes: dict[str, str] = field(default_factory=dict)
+
+
+def _pattern_matches(root: Path, rendered: str) -> list[Path]:
+    """The files in the package the glob ``rendered`` finds, in name order: none when it is
+    absolute or climbs out with ``..``, and none that resolves outside the package (a symlink)."""
+    if os.path.isabs(rendered) or os.pardir in Path(rendered).parts:
+        return []
+    try:
+        found = sorted(root.glob(rendered))
+    except (OSError, ValueError):
+        # A NUL in the ID: no file is named after it.
+        return []
+    return [
+        path
+        for path in found
+        if package_path_within(root, path.relative_to(root).as_posix()) is not None and path.is_file()
+    ]
 
 
 def _first_match(root: Path, patterns: Sequence[str], sample_id: str) -> Path | None:
@@ -277,22 +314,48 @@ def _first_match(root: Path, patterns: Sequence[str], sample_id: str) -> Path | 
     Discover reads the header of the VCF it finds, and reads nothing outside the package."""
     name = glob.escape(sample_id)
     for pattern in patterns:
-        rendered = pattern.format(sample=name)
-        if os.path.isabs(rendered) or os.pardir in Path(rendered).parts:
-            continue
-        try:
-            found = sorted(root.glob(rendered))
-        except (OSError, ValueError):
-            # A NUL in the ID: no file is named after it.
-            continue
-        matches = [
-            path
-            for path in found
-            if package_path_within(root, path.relative_to(root).as_posix()) is not None and path.is_file()
-        ]
+        matches = _pattern_matches(root, pattern.format(sample=name))
         if matches:
             return matches[0]
     return None
+
+
+def _named_after_another(file_name: str, sample_id: str, members: Iterable[str]) -> bool:
+    """Whether ``file_name`` is named after another member whose ID begins with ``sample_id``
+    (``S1_2_consensus.cram`` is S1_2's, not S1's)."""
+    return any(
+        other != sample_id
+        and other.startswith(sample_id)
+        and (file_name.startswith(f"{other}.") or file_name.startswith(f"{other}_"))
+        for other in members
+    )
+
+
+def _parent_alignment(
+    root: Path, sample_id: str, members: Iterable[str]
+) -> tuple[dict[str, str] | None, str | None]:
+    """The parent's aligned reads in the package (``_NIPT_ALIGNMENT_GLOBS``) as an
+    ``alignments`` entry (``file``, ``index``), or why the file named after it is not proposed:
+    several files are (which one holds the sample's reads is the person's to say), or it has no
+    index beside it (the genome browser reads by its index). (None, None) when none is."""
+    name = glob.escape(sample_id)
+    found: list[Path] = []
+    for pattern in _NIPT_ALIGNMENT_GLOBS:
+        for path in _pattern_matches(root, pattern.format(sample=name)):
+            if path not in found and not _named_after_another(path.name, sample_id, members):
+                found.append(path)
+    if not found:
+        return None, None
+    if len(found) > 1:
+        named = ", ".join(_display_path(root, path) for path in found)
+        return None, f"several alignment files are named after {sample_id} ({named})"
+    path = found[0]
+    stem = path.name[: -len(path.suffix)]
+    for index_suffix in _ALIGNMENT_INDEX_SUFFIXES[path.suffix]:
+        index = path.with_name(stem + index_suffix)
+        if index.is_file() and package_path_within(root, index.relative_to(root).as_posix()) is not None:
+            return {"file": _display_path(root, path), "index": _display_path(root, index)}, None
+    return None, f"{_display_path(root, path)} has no index beside it"
 
 
 def discover_nipt_package_files(
@@ -301,6 +364,8 @@ def discover_nipt_package_files(
     """A monogenic NIPT pair in a folder without a joint VCF: a PED child without a VCF
     of its own (the fetus) whose mother and father each have a one-sample VCF named after
     them. The mother is taken as the plasma sample. None when the folder is no such pair.
+    Each parent's per-target coverage table and aligned reads are taken where the folder
+    holds them (``_parent_alignment``).
 
     A parent's VCF that cannot be read (cut short, damaged, not gzip) makes no pair, and is
     refused by name in ``errors`` (``dataset_vcf_unreadable``) rather than raised out of
@@ -330,15 +395,24 @@ def discover_nipt_package_files(
         if len(vcfs) != 2:
             continue
         coverage_tables = {}
+        alignments: dict[str, dict[str, str]] = {}
+        alignment_notes: dict[str, str] = {}
         for sample_id in (mother, father):
             table = _first_match(root, _NIPT_COVERAGE_GLOBS, sample_id)
             if table is not None:
                 coverage_tables[sample_id] = _display_path(root, table)
+            alignment, note = _parent_alignment(root, sample_id, ped.sample_ids)
+            if alignment is not None:
+                alignments[sample_id] = alignment
+            if note is not None:
+                alignment_notes[sample_id] = note
         return NiptPackageFiles(
             cfdna_sample_id=mother,
             father_sample_id=father,
             fetus_sample_id=member.iid,
             vcfs=vcfs,
             coverage_tables=coverage_tables,
+            alignments=alignments,
+            alignment_notes=alignment_notes,
         )
     return None

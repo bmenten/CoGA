@@ -174,6 +174,7 @@ Verder leest CoGA uit de run:
 - de rol `fetus` voor het kind: de foetus van de zwangerschap, zonder eigen data, geen proband en geen PGT-embryo;
 - de twee VCF's onder `datasets.snv.per_sample`;
 - de dekkingstabellen onder `datasets.coverage.per_sample` als `target_table`;
+- de CRAM van het plasma en van de vader, met de index ernaast, onder `datasets.alignments.per_sample`, zodat de genoombrowser hun reads onder hun calls toont (`<sample>.cram`, of met de tags van de pipeline na een punt of een underscore: `<sample>_<anything>.cram`). Zijn er meerdere zulke bestanden voor een sample, of heeft het bestand geen index, dan wordt er geen voorgesteld en zegt een waarschuwing waarom (`nipt_alignment_not_proposed`);
 - een waarschuwing (`nipt_pair_detected`) die zegt welk sample als plasma en welk als vader werd genomen. Wie importeert, kijkt beide na vóór de import.
 
 Eén gecombineerde VCF met een kolom voor de vader en een voor het plasma kan ook, als gewone `family_vcf`.

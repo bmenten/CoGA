@@ -37,6 +37,7 @@ from backend.app.services.family_package_nipt import (
     _NIPT_VCF_GLOBS,
     NIPT_PATERNAL_KEEP_MIN_VAF,
     _first_match,
+    _named_after_another,
     call_alt_fraction,
     discover_nipt_package_files,
     nipt_import_order,
@@ -385,6 +386,73 @@ def test_discover_finds_a_parent_pair_with_one_vcf_each(tmp_path: Path) -> None:
     assert (found.cfdna_sample_id, found.father_sample_id, found.fetus_sample_id) == ("CFDNA1", "FATHER1", "FETUS1")
     assert found.vcfs == {"CFDNA1": "CFDNA1.mutect2.vcf.gz", "FATHER1": "FATHER1.mutect2.vcf.gz"}
     assert found.coverage_tables == {"CFDNA1": "coverage_CFDNA1.txt"}
+
+
+def _write_pair(root: Path) -> None:
+    _write_gz(root / "CFDNA1.mutect2.vcf.gz", _PLASMA_VCF)
+    _write_gz(root / "FATHER1.mutect2.vcf.gz", _FATHER_VCF)
+
+
+def test_discover_takes_each_parent_s_aligned_reads_with_its_index(tmp_path: Path) -> None:
+    _write_pair(tmp_path)
+    # The pipeline's name: the sample ID, then its tags after an underscore; the index beside it.
+    (tmp_path / "CFDNA1_consensus.minreads2.mapped.filtered.cram").write_bytes(b"CRAM")
+    (tmp_path / "CFDNA1_consensus.minreads2.mapped.filtered.cram.crai").write_bytes(b"crai")
+    # One folder down, tags after a dot, the index named with .crai for the extension.
+    (tmp_path / "bams").mkdir()
+    (tmp_path / "bams" / "FATHER1.dedup.cram").write_bytes(b"CRAM")
+    (tmp_path / "bams" / "FATHER1.dedup.crai").write_bytes(b"crai")
+    found = discover_nipt_package_files(tmp_path, _ped(_TRIO))
+    assert found is not None
+    assert found.alignments == {
+        "CFDNA1": {
+            "file": "CFDNA1_consensus.minreads2.mapped.filtered.cram",
+            "index": "CFDNA1_consensus.minreads2.mapped.filtered.cram.crai",
+        },
+        "FATHER1": {"file": "bams/FATHER1.dedup.cram", "index": "bams/FATHER1.dedup.crai"},
+    }
+    assert found.alignment_notes == {}
+
+
+def test_a_parent_s_reads_are_not_proposed_without_an_index_or_when_several_files_are_its(tmp_path: Path) -> None:
+    _write_pair(tmp_path)
+    # No index beside the plasma's CRAM: the genome browser could not read it.
+    (tmp_path / "CFDNA1_consensus.cram").write_bytes(b"CRAM")
+    # Two files named after the father: which holds his reads is the person's to say.
+    for name in ("FATHER1_raw.cram", "FATHER1_consensus.cram"):
+        (tmp_path / name).write_bytes(b"CRAM")
+        (tmp_path / f"{name}.crai").write_bytes(b"crai")
+    found = discover_nipt_package_files(tmp_path, _ped(_TRIO))
+    assert found is not None
+    assert found.alignments == {}
+    assert found.alignment_notes == {
+        "CFDNA1": "CFDNA1_consensus.cram has no index beside it",
+        "FATHER1": "several alignment files are named after FATHER1 (FATHER1_consensus.cram, FATHER1_raw.cram)",
+    }
+    # No alignment at all: nothing proposed, nothing to say.
+    for path in tmp_path.glob("*.cram*"):
+        path.unlink()
+    found = discover_nipt_package_files(tmp_path, _ped(_TRIO))
+    assert found is not None and (found.alignments, found.alignment_notes) == ({}, {})
+
+
+def test_a_parent_never_takes_another_member_s_reads(tmp_path: Path) -> None:
+    # A relative whose ID begins with the father's: its CRAM is its own, not the father's.
+    rows = [*_TRIO, ("FATHER1_2", "0", "0", "1")]
+    _write_pair(tmp_path)
+    (tmp_path / "FATHER1_2_consensus.cram").write_bytes(b"CRAM")
+    (tmp_path / "FATHER1_2_consensus.cram.crai").write_bytes(b"crai")
+    found = discover_nipt_package_files(tmp_path, _ped(rows))
+    assert found is not None
+    assert "FATHER1" not in found.alignments and "FATHER1" not in found.alignment_notes
+    assert _named_after_another("FATHER1_2.cram", "FATHER1", ["FATHER1", "FATHER1_2"])
+    assert not _named_after_another("FATHER1_2x.cram", "FATHER1", ["FATHER1", "FATHER1_2"])
+    # The father's own file beside it is his.
+    (tmp_path / "FATHER1_consensus.cram").write_bytes(b"CRAM")
+    (tmp_path / "FATHER1_consensus.cram.crai").write_bytes(b"crai")
+    found = discover_nipt_package_files(tmp_path, _ped(rows))
+    assert found is not None
+    assert found.alignments["FATHER1"]["file"] == "FATHER1_consensus.cram"
 
 
 def test_discover_looks_for_a_sample_s_files_inside_the_package_only(tmp_path: Path) -> None:
