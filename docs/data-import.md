@@ -1525,7 +1525,8 @@ run writes no chrM VCF.
 
 A monogenic NIPT package from the NIPT-M pipeline holds a one-sample VCF per parent: the
 maternal plasma's (cfDNA) and the father's, both called by Mutect2 in tumour-only mode. A
-per-target coverage table per sample gives each capture target's depth:
+per-target coverage table per sample gives each capture target's depth, and each sample's CRAM
+its aligned reads:
 
 ```text
 NIPTFAM1/
@@ -1534,6 +1535,8 @@ NIPTFAM1/
   FATHER1.mutect2.vcf.gz     the father's calls
   coverage_CFDNA1.txt        per-target coverage of the plasma
   coverage_FATHER1.txt       per-target coverage of the father
+  CFDNA1_consensus.minreads2.mapped.filtered.cram (+ .crai)   the plasma's reads
+  FATHER1_consensus.minreads2.mapped.filtered.cram (+ .crai)  the father's reads
 ```
 
 When Discover finds no joint SNV VCF, it looks for such a pair: a PED child without a VCF of its
@@ -1541,11 +1544,19 @@ own (the fetus) whose mother and father each have a one-sample VCF named after t
 (`<sample>.vcf.gz` or `<sample>.<anything>.vcf.gz`), in the package folder or one folder down. It
 takes the mother's sample as the maternal-plasma cfDNA and drafts a NIPT manifest:
 `analysis_type: monogenic_nipt`, `assay: nipt_cfdna` on the plasma's sample, the two VCFs under
-`datasets.snv.per_sample`, and the coverage tables it finds (`coverage_<sample>.txt` or `.tsv`,
-in the same places) under `datasets.coverage.per_sample` as `target_table`.
+`datasets.snv.per_sample`, the coverage tables it finds (`coverage_<sample>.txt` or `.tsv`,
+in the same places) under `datasets.coverage.per_sample` as `target_table`, and each parent's
+aligned reads under `datasets.alignments.per_sample`, so the genome browser shows the plasma's and
+the father's reads under their calls: a CRAM (or BAM) named after the sample (`<sample>.cram`, or
+with the pipeline's tags after a dot or an underscore, `<sample>_<anything>.cram`), in the same
+places, with its index beside it (`<file>.crai` or `<name>.crai`; `.bai` for a BAM).
 
 - Its warning (`nipt_pair_detected`) names the samples it took for the plasma and for the father:
   check both before the import.
+- A parent's alignment is not proposed when several files are named after the sample (which one
+  holds its reads is the person's to say), or when the file has no index beside it; a warning says
+  which (`nipt_alignment_not_proposed`). A file named after another member whose ID begins with the
+  parent's (`CFDNA1_2_….cram` of `CFDNA1_2`) is that member's, not the parent's.
 - A VCF whose one column is named neither after its sample nor after its entry's `vcf_sample`
   (another tube's name, say) is warned of too (`nipt_vcf_column_named_otherwise`), as in
   validation.
@@ -2225,6 +2236,10 @@ datasets:
     per_sample:
       CFDNA1: {target_table: coverage_CFDNA1.txt}
       FATHER1: {target_table: coverage_FATHER1.txt}
+  alignments:
+    per_sample:
+      CFDNA1: {file: CFDNA1_consensus.minreads2.mapped.filtered.cram, index: CFDNA1_consensus.minreads2.mapped.filtered.cram.crai}
+      FATHER1: {file: FATHER1_consensus.minreads2.mapped.filtered.cram, index: FATHER1_consensus.minreads2.mapped.filtered.cram.crai}
 ```
 
 The VCFs under `snv.per_sample` become one small-variant callset, source `nipt`
@@ -3141,6 +3156,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `dataset_vcf_sample_unknown` | The phased family VCF has a sample column no member is, such as an affected relative or a PGT index the PED lacks: add it as a member with **Correct…** in Deliveries, or leave the haplotypes out of the import. |
 | `ped_file_missing` | The package folder holds no PED at its top (`<family>.ped`). A PGT folder whose only PED is the pipeline's `ped/combined.ped` needs the family's PED put at its top: the couple, the embryos (`role=embryo`) and the index ([PGT package](#4-package-layout-and-manifest)). |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
+| `nipt_alignment_not_proposed` (warning) | Discover proposed no aligned reads for a parent of a monogenic NIPT pair: several files are named after the sample, or its file has no index beside it. Name the parent's alignment with **Correct…** in Deliveries, or add the index, to see its reads in the genome browser. |
 | `nipt_pair_detected` (warning) | Discover took the folder for a monogenic NIPT pair. Check the samples it took for the maternal plasma and for the father. |
 | `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when of opposite sex). Check them before approving the delivery. |
 | `snv_multiple_candidates` | A short-read WGS folder holds two or more annotated callsets of the family (`<family>.GRCh38.annotated.vcf.gz`, `<family>.GRCh38.annotated.<suffix>.vcf.gz`), and Discover does not choose between them: nothing is proposed. Leave one in the folder, or name the family's SNV callset in the package file's `snv` dataset. |

@@ -224,6 +224,53 @@ def test_discover_proposes_a_nipt_manifest_for_a_parent_pair(monkeypatch: pytest
     assert any(issue.code == "nipt_pair_detected" for issue in result.warnings)
     availability = {item.dataset_type: item for item in result.datasets}
     assert availability["snv"].complete and availability["coverage"].complete
+    # No CRAM in the folder: no alignments proposed, nothing said of them.
+    assert not manifest["datasets"].get("alignments", {}).get("enabled")
+    assert not any(issue.code == "nipt_alignment_not_proposed" for issue in result.warnings)
+
+
+def test_discover_proposes_the_parents_aligned_reads_for_the_genome_browser(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import json
+    import yaml
+
+    monkeypatch.setattr(settings, "family_import_roots", [])
+    package = tmp_path / "NIPTPAIR"
+    _write_pair_folder(package)
+    # The NIPT-M pipeline's names: the sample ID, its tags after an underscore, the index beside.
+    for sample in ("CFDNA1", "FATHER1"):
+        (package / f"{sample}_consensus.minreads2.mapped.filtered.cram").write_bytes(b"CRAM\x03\x00")
+        (package / f"{sample}_consensus.minreads2.mapped.filtered.cram.crai").write_bytes(b"\x1f\x8b")
+    result = discover_family_package_manifest(FamilyPackageManifestBuildRequest(folder_path=str(package)))
+    manifest = yaml.safe_load(result.manifest_yaml)
+    assert manifest["datasets"]["alignments"] == {
+        "enabled": True,
+        "per_sample": {
+            sample: {
+                "file": f"{sample}_consensus.minreads2.mapped.filtered.cram",
+                "index": f"{sample}_consensus.minreads2.mapped.filtered.cram.crai",
+            }
+            for sample in ("CFDNA1", "FATHER1")
+        },
+    }
+    availability = {item.dataset_type: item for item in result.datasets}
+    assert availability["alignments"].complete and availability["alignments"].samples == ["CFDNA1", "FATHER1"]
+    # The draft validates: the import records each parent's CRAM under the NIPT's analysis.
+    validation, bundle = load_validated_family_package(
+        str(package), manifest_text=json.dumps({**manifest, "pregnancy_id": "ZW1"})
+    )
+    assert validation.valid, validation.errors
+    assert bundle is not None
+    assert {item.dataset_type: item.status for item in validation.datasets if item.enabled}["alignments"] == "valid"
+
+    # A CRAM without its index is not proposed, and the warning says why.
+    (package / "FATHER1_consensus.minreads2.mapped.filtered.cram.crai").unlink()
+    result = discover_family_package_manifest(FamilyPackageManifestBuildRequest(folder_path=str(package)))
+    manifest = yaml.safe_load(result.manifest_yaml)
+    assert set(manifest["datasets"]["alignments"]["per_sample"]) == {"CFDNA1"}
+    [warning] = [issue for issue in result.warnings if issue.code == "nipt_alignment_not_proposed"]
+    assert "FATHER1" in warning.message and "no index" in warning.message
 
 
 _PAIR_MANIFEST = (
