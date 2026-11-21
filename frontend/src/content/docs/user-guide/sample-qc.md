@@ -12,7 +12,7 @@ The page first works out what kind of case it is and runs only the checks that f
 - **Shallow-WGS PGT** — embryo sex and parentage (each embryo a child of both parents), Mendelian
   errors.
 - **Monogenic NIPT** — paternity, fetal sex, parent sex and a check of the cfDNA categories, one
-  pregnancy at a time: in a family of several, choose it in **Analysis whose data are shown**.
+  pregnancy at a time: in a family of several, choose it in the analysis list beside the family name.
 - **Conventional NIPT** — no check: ccnv's output holds no genotypes, and the fetal sex is known only
   from the analysis, as an embryo's is in PGT.
 - **Carrier couple** — sex per partner, and that the two are unrelated.

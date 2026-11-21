@@ -209,6 +209,77 @@ describe('FamilyStructuralVariantsPage', () => {
     expect(JSON.parse(JSON.stringify(body))).not.toHaveProperty('cnv_acmg');
   });
 
+  // The monogenic and the conventional NIPT of each of two pregnancies: the SVs (ccnv) are the
+  // conventional NIPTs', so the page reads one of those at a time, never a monogenic NIPT (which
+  // holds none) and never both pregnancies at once.
+  it('reads a family with the conventional NIPT of two pregnancies one pregnancy at a time', async () => {
+    const record = (smallVariants: string[], structuralVariants: string[], registeredAt: string) => ({
+      sources: {
+        small_variants: smallVariants,
+        structural_variants: structuralVariants,
+        tracks: [],
+        repeats: [],
+        paraphase: [],
+      },
+      registered_at: registeredAt,
+    });
+    const get = api.get as unknown as Mock;
+    const workingGet = get.getMockImplementation()!;
+    get.mockImplementation((url: string) =>
+      url === '/families/F1'
+        ? (workingGet(url) as Promise<{ data: Record<string, unknown> }>).then((res) => ({
+            data: {
+              ...res.data,
+              metadata: {
+                analyses: [
+                  'conventional_nipt:ZW1',
+                  'conventional_nipt:ZW2',
+                  'monogenic_nipt:ZW1',
+                  'monogenic_nipt:ZW2',
+                ],
+                package_imports: {
+                  'monogenic_nipt:ZW1': record(['nipt_p1'], [], '2026-11-01T10:00:00'),
+                  'conventional_nipt:ZW1': record([], ['ccnv_p1'], '2026-11-02T10:00:00'),
+                  'monogenic_nipt:ZW2': record(['nipt_p2'], [], '2026-11-03T10:00:00'),
+                  'conventional_nipt:ZW2': record([], ['ccnv_p2'], '2026-11-04T10:00:00'),
+                },
+              },
+            },
+          }))
+        : workingGet(url),
+    );
+    try {
+      renderPage();
+      const select = await screen.findByRole('combobox', { name: 'Analysis whose data are shown' });
+      expect(select).toHaveValue('conventional_nipt:ZW2');
+      expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual([
+        'conventional NIPT of pregnancy ZW1',
+        'conventional NIPT of pregnancy ZW2',
+      ]);
+      await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
+      expect(get).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/families\/F1\/structural-variants\?page=1&page_size=100.*analysis=conventional_nipt%3AZW2/),
+      );
+      // A review saved is that pregnancy's conventional NIPT's.
+      fireEvent.click(screen.getAllByRole('button', { name: /^review$/i })[0]);
+      await waitFor(() => expect(screen.getByText(/Variant review saved/i)).toBeInTheDocument());
+      const [path] = (api.put as unknown as Mock).mock.calls.at(-1)!;
+      expect(path).toBe('/families/F1/structural-variants/v1/review?analysis=conventional_nipt%3AZW2');
+
+      fireEvent.change(select, { target: { value: 'conventional_nipt:ZW1' } });
+      await waitFor(() =>
+        expect(get).toHaveBeenCalledWith(expect.stringMatching(/structural-variants\?.*analysis=conventional_nipt%3AZW1/)),
+      );
+      // No request reads the family's SVs without naming the analysis, nor names a monogenic NIPT.
+      const svReads = get.mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.startsWith('/families/F1/structural-variants?'));
+      expect(svReads.filter((url) => !url.includes('analysis=conventional_nipt'))).toEqual([]);
+    } finally {
+      get.mockImplementation(workingGet);
+    }
+  });
+
   it('sends a quick tag toggle with the rest of the review: its class, its tags in order, its note', async () => {
     const get = api.get as unknown as Mock;
     const workingGet = get.getMockImplementation()!;

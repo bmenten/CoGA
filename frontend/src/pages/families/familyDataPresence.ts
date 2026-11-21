@@ -1,4 +1,5 @@
-import { useVariantAnalysis } from './useVariantAnalysis';
+import { useStructuralVariantAnalysis, useVariantAnalysis } from './useVariantAnalysis';
+import { ANALYSIS_PARAM } from '../../lib/familyAnalyses';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { apiPath, raw } from '../../lib/apiPath';
@@ -59,12 +60,22 @@ export const useFamilyDataPresence = ({
     return `?${params.toString()}`;
   })();
   const enabled = Boolean(familyId) && ready;
+  // `&analysis=…` for a check that names the analysis it reads, or ''.
+  const analysisSuffix = (analysis: string | null) =>
+    analysis ? `&${ANALYSIS_PARAM}=${encodeURIComponent(analysis)}` : '';
 
+  // Of a family with several analyses with structural variants of their own, the one the page
+  // reads, as the SV page does.
+  const structuralAnalysis = useStructuralVariantAnalysis(familyId);
   const structural = useQuery<Pick<VariantPage, 'total'>>({
-    queryKey: ['family', familyId, 'has-data', 'structural-variants', projectId || null],
+    queryKey: ['family', familyId, 'has-data', 'structural-variants', projectId || null, structuralAnalysis],
     enabled,
     queryFn: async () =>
-      (await api.get(apiPath`/families/${familyId}/structural-variants${raw(presenceParams)}`)).data as VariantPage,
+      (
+        await api.get(
+          apiPath`/families/${familyId}/structural-variants${raw(presenceParams)}${raw(analysisSuffix(structuralAnalysis))}`,
+        )
+      ).data as VariantPage,
   });
   // Of a family with several analyses with small variants, the one the page reads.
   const analysis = useVariantAnalysis(familyId);
@@ -74,7 +85,7 @@ export const useFamilyDataPresence = ({
     queryFn: async () =>
       (
         await api.get(
-          apiPath`/families/${familyId}/small-variants${raw(presenceParams)}${raw(analysis ? `&analysis=${encodeURIComponent(analysis)}` : '')}`,
+          apiPath`/families/${familyId}/small-variants${raw(presenceParams)}${raw(analysisSuffix(analysis))}`,
         )
       ).data as VariantPage,
   });

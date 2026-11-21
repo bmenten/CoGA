@@ -1,4 +1,10 @@
-import { ANALYSIS_PARAM, analysisQuery, smallVariantAnalyses, variantAnalysisOf, withAnalysisParam } from '../../lib/familyAnalyses';
+import {
+  ANALYSIS_PARAM,
+  analysisQuery,
+  structuralVariantAnalyses,
+  structuralVariantAnalysisOf,
+  withAnalysisParam,
+} from '../../lib/familyAnalyses';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
@@ -564,11 +570,12 @@ export const useStructuralVariantSearchState = ({
     [orderedMembers],
   );
   const defaultInitKeyRef = useRef<string | null>(null);
-  // The analysis a family with several analyses with small variants is read for: its SV list,
-  // like its small-variant list, is that analysis's own (the owner's decision of 2026-11-20).
-  const analyses = useMemo(() => smallVariantAnalyses(family?.metadata), [family?.metadata]);
+  // The analysis a family with several analyses with structural variants of their own is read
+  // for (the conventional NIPT of each pregnancy): its SV list, count, export and reviews are that
+  // analysis's own (the owner's decision of 2026-11-20).
+  const analyses = useMemo(() => structuralVariantAnalyses(family?.metadata), [family?.metadata]);
   const analysis = useMemo(
-    () => variantAnalysisOf(family?.metadata, locationSearch),
+    () => structuralVariantAnalysisOf(family?.metadata, locationSearch),
     [family?.metadata, locationSearch],
   );
 

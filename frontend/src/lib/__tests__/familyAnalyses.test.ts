@@ -14,6 +14,8 @@ import {
   reportPageAnalyses,
   separatelySignedAnalyses,
   smallVariantAnalyses,
+  structuralVariantAnalyses,
+  structuralVariantAnalysisOf,
   variantAnalysisOf,
   soleAnalysis,
   withAnalysisParam,
@@ -150,6 +152,57 @@ describe('the analysis a page of the family’s variants reads', () => {
     expect(withAnalysisParam(new URLSearchParams('page=1'), 'short_read_wgs').toString()).toBe(
       'page=1&analysis=short_read_wgs',
     );
+  });
+});
+
+// The monogenic and the conventional NIPT of each of two pregnancies: the small variants are the
+// monogenic NIPTs', the structural variants (ccnv) the conventional NIPTs'. Each kind is read one
+// analysis at a time among the analyses that hold it (backend analysis_scope.analyses_with).
+const CNIPT2 = 'conventional_nipt:ZW2';
+const svRecord = (smallVariants: string[], structuralVariants: string[], registeredAt: string) => ({
+  sources: {
+    small_variants: smallVariants,
+    structural_variants: structuralVariants,
+    tracks: [],
+    repeats: [],
+    paraphase: [],
+  },
+  registered_at: registeredAt,
+});
+const TWO_PREGNANCIES_BOTH_NIPTS = {
+  analyses: [CNIPT1, CNIPT2, MNIPT1, MNIPT2],
+  package_imports: {
+    [MNIPT1]: svRecord(['nipt_p1a2b3c4d'], [], '2026-11-01T10:00:00'),
+    [CNIPT1]: svRecord([], ['ccnv_p1a2b3c4d'], '2026-11-02T10:00:00'),
+    [MNIPT2]: svRecord(['nipt_p9f8e7d6c'], [], '2026-11-03T10:00:00'),
+    [CNIPT2]: svRecord([], ['ccnv_p9f8e7d6c'], '2026-11-04T10:00:00'),
+  },
+};
+
+describe('the analysis a page or view of the family’s structural variants reads', () => {
+  it('lists the analyses with structural variants of their own, in the order they were imported', () => {
+    expect(structuralVariantAnalyses(TWO_PREGNANCIES_BOTH_NIPTS)).toEqual([CNIPT1, CNIPT2]);
+    // Analyses whose records list no SV caller hold none.
+    expect(structuralVariantAnalyses(TWO_WGS)).toEqual([]);
+    expect(structuralVariantAnalyses(null)).toEqual([]);
+  });
+
+  it('reads the conventional NIPT the URL names, else the one imported last, never a monogenic NIPT', () => {
+    expect(structuralVariantAnalysisOf(TWO_PREGNANCIES_BOTH_NIPTS, `?analysis=${encodeURIComponent(CNIPT1)}`)).toBe(
+      CNIPT1,
+    );
+    expect(structuralVariantAnalysisOf(TWO_PREGNANCIES_BOTH_NIPTS, '')).toBe(CNIPT2);
+    // The small-variant page's analysis in the URL names no SV analysis: the last one is read.
+    expect(structuralVariantAnalysisOf(TWO_PREGNANCIES_BOTH_NIPTS, `?analysis=${encodeURIComponent(MNIPT1)}`)).toBe(
+      CNIPT2,
+    );
+    // And the other way round: the small-variant analysis ignores an SV analysis in the URL.
+    expect(variantAnalysisOf(TWO_PREGNANCIES_BOTH_NIPTS, `?analysis=${encodeURIComponent(CNIPT1)}`)).toBe(MNIPT2);
+  });
+
+  it('names none for a family with at most one analysis with structural variants', () => {
+    expect(structuralVariantAnalysisOf(ONE_PREGNANCY, `?analysis=${encodeURIComponent(CNIPT1)}`)).toBeNull();
+    expect(structuralVariantAnalysisOf(TWO_WGS, '?analysis=long_read_wgs')).toBeNull();
   });
 });
 

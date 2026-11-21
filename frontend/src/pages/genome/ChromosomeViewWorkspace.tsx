@@ -35,6 +35,7 @@ import QueryFailure from '../../components/QueryFailure';
 import FamilyPageBanners from '../../components/FamilyPageBanners';
 import type { CcnvTrackSummaryOut, FamilyPackageSourceChangeOut } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { ANALYSIS_PARAM } from '../../lib/familyAnalyses';
 import { normalizeHaplotypeChrom, resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
@@ -97,6 +98,8 @@ interface ChromosomeViewWorkspaceProps {
   familyId: string;
   /** Of a family with several analyses with small variants, the one whose calls are drawn. */
   variantAnalysis?: string | null;
+  /** Of a family with several analyses with structural variants, the one whose SVs are drawn. */
+  structuralAnalysis?: string | null;
   familyDisplayId: string;
   chrom: string;
   speciesName?: string;
@@ -187,6 +190,7 @@ const buildGeneJumpRegion = (profile: GeneJumpProfile): { chrom: string; start: 
 const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   familyId,
   variantAnalysis = null,
+  structuralAnalysis = null,
   familyDisplayId,
   chrom,
   speciesName,
@@ -693,6 +697,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                               sample_filter: sampleFilterMap[member.sample_id],
                             }
                           : {}),
+                        ...(structuralAnalysis ? { [ANALYSIS_PARAM]: structuralAnalysis } : {}),
                       }}
                     />
                   </ViewerTrackBlock>

@@ -37,6 +37,7 @@ Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the r
 | The present HPO terms of the affected members | `individual_hpo` |
 | The pedigree, who is affected and each member's sex (they name a carrier screen's couple and decide its X-linked findings) | the loaded family the ranking is computed on: members with sex, role and status, and the relationships |
 | The family's small-variant data | the ClickHouse `SNV_INDEL/family_data_version` table: every insert, delete or re-import of the family's variants adds a token |
+| The analysis the family is read for, of a family with several: its key, the other analyses' callsets it leaves out, and the members only another analysis's package lists | the request's `analysis` and the family's package records (`families.metadata`), as `analysis_scope.py` reads them |
 | The Monarch release | `monarch_gene_disease.release_version` |
 | The loaded HPO ontology: its release and import time | the most recently written `hpo_term` row (`release_version`, `updated_at`), read as the signed record reads it ([annotation-provenance.md](annotation-provenance.md#the-reference-modules)) |
 | Gene constraint (pLI, missense-Z) | the latest `gene_info.updated_at` for the assembly |

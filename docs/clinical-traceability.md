@@ -819,8 +819,9 @@ another analysis's record lists is refused before it writes anything
 ([data-import.md](data-import.md), *Several analyses in one family*). So "X's sources" and "another
 analysis's sources" never overlap, and no import of one analysis replaces, skips or claims another's
 data. The family's variant pages read one analysis at a time too (`analysis=`; a family with two
-or more analyses with small variants of their own names it, or the reading is refused), so what an
-analyst reviews is the analysis's own callset, as its sign-out freezes it.
+or more analyses with small variants of their own names it, and its SV list one of its analyses
+with structural variants of their own, or the reading is refused), so what an analyst reviews is
+the analysis's own callset, as its sign-out freezes it.
 
 The family's report pages show its current data whole; a sign-out freezes the analysis's part of it.
 The NIPT report signs out the monogenic NIPT, and the Report page every other analysis (*The live

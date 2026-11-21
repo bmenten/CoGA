@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Annotated, Any, Dict, List
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
@@ -22,7 +22,6 @@ from ..schemas import (
     VariantOut,
     VariantPage,
 )
-from ..services.family_analysis_types import ANALYSIS_KEY_MAX_LENGTH
 from ..services.clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
     export_family_small_variants,
@@ -55,20 +54,10 @@ from ..services.small_variant_review_presets import (
 from ..services.variant_prioritization import RANK_BY_COMBINED_SCORE, RankBy
 from ..services.small_variant_callsets import IMPUTED_CALLSETS, is_nipt_callset
 from ..services.variant_upload_service import upload_family_small_variant_file
-from .query_params import FiniteThreshold
+from .query_params import AnalysisParam, FiniteThreshold
 
 
 router = APIRouter()
-
-# The analysis of the family whose variants a request reads or reviews (analysis_scope.py): named
-# when the family holds several analyses with small variants of their own.
-AnalysisParam = Annotated[
-    str | None,
-    Query(
-        max_length=ANALYSIS_KEY_MAX_LENGTH,
-        description="The family's analysis to read or review (its key: monogenic_nipt:ZW1).",
-    ),
-]
 
 
 @router.get(

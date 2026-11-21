@@ -352,6 +352,69 @@ describe('FamilySmallVariantsPage', () => {
     expect(unnamed).toEqual([]);
   });
 
+  // A card folded in one analysis is that analysis's view: the same variant read in the other
+  // analysis (its own row and review) opens unfolded.
+  it('opens every card again when another analysis is read', async () => {
+    const record = (smallVariants: string[], registeredAt: string) => ({
+      sources: { small_variants: smallVariants, structural_variants: [], tracks: [], repeats: [], paraphase: [] },
+      registered_at: registeredAt,
+    });
+    const variant = {
+      _id: 'v1',
+      chr: '2',
+      start: 120,
+      end: 120,
+      type: 'SNV',
+      gene: 'BRCA2',
+      ref: 'A',
+      alt: 'G',
+      impact: 'LOW',
+      effect: 'synonymous_variant',
+      genotypes: [],
+    };
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            members: TRIO,
+            projects: [],
+            metadata: {
+              analyses: ['long_read_wgs', 'short_read_wgs'],
+              package_imports: {
+                short_read_wgs: record(['haplotypecaller'], '2026-11-01T10:00:00'),
+                long_read_wgs: record(['deepvariant'], '2026-11-02T10:00:00'),
+              },
+            },
+          },
+        });
+      }
+      if (url === '/panels') return Promise.resolve({ data: [] });
+      if (url === '/families/F1/small-variant-filter-presets' || url === '/families/F1/small-variant-tags') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.startsWith('/families/F1/small-variants?')) {
+        return Promise.resolve({ data: { variants: [variant], total: 1 } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    renderPage();
+
+    const fold = await screen.findByRole('button', { name: 'Collapse the card of BRCA2' });
+    fireEvent.click(fold);
+    expect(screen.getByRole('button', { name: 'Expand the card of BRCA2' })).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Analysis whose data are shown' }), {
+      target: { value: 'short_read_wgs' },
+    });
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringMatching(/small-variants\?.*analysis=short_read_wgs/));
+    });
+    expect(await screen.findByRole('button', { name: 'Collapse the card of BRCA2' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
   // Long-read WGS of the proband alone, whose package lists the parents: the list says they have
   // no calls in it, and while the de novo / dominant filter is applied, that the filter cannot
   // leave out variants inherited from them (the owner's decision of 2026-11-20).

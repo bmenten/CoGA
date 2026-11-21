@@ -21,11 +21,15 @@ The page opens with the **Phenotype priority (Exomiser-style)** preset on the **
 A family can hold several analyses, on the same DNA or on different samples of one person: short-read
 and then long-read WGS, for instance. Each stays apart. When two or more of them have small variants
 of their own, the page reads one analysis at a time: pick it in the list beside the family's name (the
-analysis imported last is shown first). The list, its counts, the filters, the ranking, the CSV
-export and the variant summary are that analysis's alone, and a review you save is that analysis's
-review: a variant both callsets hold has a review in each analysis, and each sign-out freezes its own.
-An inheritance filter reads the members the analysis sequenced. The **Structural variants** page
-offers the same choice, and the genome view reads the analysis the page you came from named.
+analysis imported last is shown first). The list, its counts, the filters, the ranking and the CSV
+export are that analysis's alone (a callset filter reads only the analysis's own callsets), and a
+review you save is that analysis's review: a variant both callsets hold has a review in each
+analysis, and each sign-out freezes its own. An inheritance filter reads the members the analysis's
+package lists. The **Variant summary** offers the same list for its small-variant counts, and on the
+workspace each curation line names the analysis whose reviews it counts. The **Structural variants**
+page reads one at a time the analyses with structural variants of their own (the conventional NIPT of
+each pregnancy), from a list of its own. The links between the family's pages keep the analysis you
+read, and the genome view reads the analysis the page you came from named.
 
 A member the analysis's package lists can still have no calls in it: long-read WGS of the proband
 alone whose package lists the parents. A note above the results names such members. An inheritance

@@ -36,8 +36,8 @@ import { fetchFamilyReviewTags, quickTagTogglePayload, searchReadsReviews } from
 import { apiPath, raw } from '../../lib/apiPath';
 import { routePath } from '../../lib/routePath';
 
-// A review is the analysis's the page reads, of a family with several analyses with small
-// variants (`variantAnalysisOf`).
+// A review is the analysis's the page reads, of a family with several analyses with structural
+// variants (`structuralVariantAnalysisOf`).
 const buildStructuralVariantReviewPath = (familyId: string, variantId: string, analysis: string | null): string =>
   apiPath`/families/${familyId}/structural-variants/${variantId}/review${raw(analysisQuery(analysis))}`;
 

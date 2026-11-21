@@ -6,6 +6,7 @@ from typing import Any
 
 from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
 from ..core.config import settings
+from .analysis_scope import left_out_source_clauses
 from .clickhouse_variant_queries import (
     IMPUTED_SMALL_VARIANT_SOURCES,
     _collect_annotations,
@@ -92,10 +93,7 @@ async def get_small_variant_family_record(
         "variant_id": variant_id,
         "imputed_sources": tuple(IMPUTED_SMALL_VARIANT_SOURCES),
     }
-    left_out_clause = ""
-    if left_out_sources:
-        params["left_out_sources"] = tuple(sorted(left_out_sources))
-        left_out_clause = 'AND e.source NOT IN %(left_out_sources)s'
+    left_out_clause = "".join(f"AND {clause}" for clause in left_out_source_clauses(left_out_sources, params))
     details_table = _table_name(assembly_name, "variants/details")
     # A variant has a row per callset (the clair3 call and the GLIMPSE2 imputation of it).
     # Reviews and the drift check read one: the direct call, as the diagnostic list shows,

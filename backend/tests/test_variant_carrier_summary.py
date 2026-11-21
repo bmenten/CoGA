@@ -85,6 +85,34 @@ def test_a_contribution_counts_a_carrier_by_the_person_it_is() -> None:
     assert "transform(" not in plain and "person_samples" not in plain_params
 
 
+def test_a_person_counts_once_as_heterozygous_or_homozygous() -> None:
+    # Two samples of a person (or two callsets) called 0/1 and 1/1: one homozygous carrier, in
+    # the aggregate row and in each carrier row, so het + hom adds up to the carriers.
+    query, params = summary._contribution_insert("GRCh38", "coga.`stage`", _APPLIED, family_uuid="f1", sign=1)
+    flat = " ".join(query.split())
+    assert (
+        "%(sign)s * length(arrayDistinct(arrayFilter(p -> NOT has(arrayFlatten(row_homs), p), "
+        "arrayFlatten(row_hets)))), %(sign)s * length(arrayDistinct(arrayFlatten(row_homs))))]"
+    ) in flat
+    of_class = "arrayFlatten(arrayFilter((x, k) -> k = cl, {}, row_classes))"
+    assert (
+        f"%(sign)s * (has({of_class.format('row_hets')}, s) AND NOT has({of_class.format('row_homs')}, s)), "
+        f"%(sign)s * has({of_class.format('row_homs')}, s))"
+    ) in flat
+    bind_query(query, params)
+
+
+def test_the_explorer_counts_a_person_homozygous_in_any_kept_row_once() -> None:
+    # Over the carrier rows a page keeps (two classes, two families), a person heterozygous in one
+    # and homozygous in another counts once, as homozygous.
+    from backend.app.services import variant_explorer_service as explorer
+
+    counts = " ".join(explorer._VARIANT_COUNTS.split())
+    het = counts.split(" AS hom_samples, ")[1].split(" AS het_samples")[0]
+    assert het.startswith("sumIf(e.het, NOT e.family_guid != '') + length(arrayDistinct(arrayFilter(person -> NOT has(")
+    assert explorer._netted(5) in het and explorer._netted(4) in het
+
+
 def test_a_family_without_rows_under_its_projects_contributes_its_marker_alone() -> None:
     empty = _Generation(generation=7, state=_STATE, source_project="")
     query, params = summary._contribution_insert("GRCh38", "coga.`stage`", empty, family_uuid="f1", sign=1)

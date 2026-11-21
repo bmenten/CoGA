@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from backend.app.services import panel_use_audit as pua
+from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 from backend.tests._query_results import MappingRows as _Rows
 
@@ -72,7 +73,9 @@ class _Session:
 
 
 def _context() -> types.SimpleNamespace:
-    return types.SimpleNamespace(family_uuid="11111111-1111-1111-1111-111111111111", family_id="FAM1")
+    return types.SimpleNamespace(
+        family_uuid="11111111-1111-1111-1111-111111111111", family_id="FAM1", scope=WHOLE_FAMILY_SCOPE
+    )
 
 
 def _user() -> types.SimpleNamespace:

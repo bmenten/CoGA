@@ -13,6 +13,7 @@ import { compareChromosomes, formatChromosomeLabel, normalizeChrom } from '../..
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
 import { apiPath, raw } from '../../lib/apiPath';
+import { ANALYSIS_PARAM, structuralVariantAnalysisOf, withAnalysisParam } from '../../lib/familyAnalyses';
 import { searchWithResolvedProject } from './viewerShared';
 import { routePath } from '../../lib/routePath';
 
@@ -79,14 +80,19 @@ const CircosPlotPage: FC = () => {
     retry: retryReference,
   } = useFamilyReference(family?.projects, preferredProjectId);
 
+  // Of a family with several analyses with structural variants, the one whose SVs are drawn: the
+  // one the URL names (the SV page's), else the one imported last; no other analysis is sent.
+  const structuralAnalysis = structuralVariantAnalysisOf(family?.metadata, location.search);
   const queryParams = useMemo(() => {
     const p = new URLSearchParams(location.search);
+    p.delete(ANALYSIS_PARAM);
+    withAnalysisParam(p, structuralAnalysis);
     if (resolvedProjectId) {
       p.set('project_id', resolvedProjectId);
     }
     p.set('page_size', '0');
     return p;
-  }, [location.search, resolvedProjectId]);
+  }, [location.search, resolvedProjectId, structuralAnalysis]);
 
   const resolvedSearch = useMemo(
     () => searchWithResolvedProject(location.search, resolvedProjectId),

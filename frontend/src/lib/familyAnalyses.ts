@@ -104,7 +104,10 @@ export const niptReportAnalysis = (metadata: unknown, niptAnalysis: string | nul
 export const reportPageAnalyses = (metadata: unknown): string[] =>
   separatelySignedAnalyses(metadata).filter((key) => analysisTypeOf(key) !== 'monogenic_nipt');
 
-type PackageRecordLike = { sources?: { small_variants?: unknown }; registered_at?: unknown };
+/** The kinds of variants whose sources a package record lists, each read one analysis at a time. */
+type VariantKind = 'small_variants' | 'structural_variants';
+
+type PackageRecordLike = { sources?: Partial<Record<VariantKind, unknown>>; registered_at?: unknown };
 
 const packageRecords = (metadata: unknown): Record<string, PackageRecordLike> => {
   const records = (metadata as { package_imports?: unknown } | null | undefined)?.package_imports;
@@ -120,38 +123,63 @@ const inImportOrder = (metadata: unknown, keys: string[]): string[] => {
   });
 };
 
-/**
- * The family's analyses whose package record lists a small-variant callset of its own, in the
- * order they were imported (backend `analysis_scope.analyses_with_small_variants`). A family with
- * two or more is read one analysis at a time: its small-variant list, filters, counts, export and
- * reviews name the analysis (the owner's decision of 2026-11-20).
- */
-export const smallVariantAnalyses = (metadata: unknown): string[] => {
+/** The family's analyses whose package record lists a source of `kind`, in the order they were imported. */
+const analysesWith = (metadata: unknown, kind: VariantKind): string[] => {
   const held = new Set(familyAnalyses(metadata));
   const records = packageRecords(metadata);
   return inImportOrder(
     metadata,
     Object.keys(records).filter((key) => {
-      const sources = records[key]?.sources?.small_variants;
+      const sources = records[key]?.sources?.[kind];
       return held.has(key) && Array.isArray(sources) && sources.length > 0;
     }),
   );
 };
 
+/**
+ * The family's analyses whose package record lists a small-variant callset of its own, in the
+ * order they were imported (backend `analysis_scope.analyses_with(metadata, "small_variants")`). A
+ * family with two or more is read one analysis at a time: its small-variant list, filters, counts,
+ * export and reviews name the analysis (the owner's decision of 2026-11-20).
+ */
+export const smallVariantAnalyses = (metadata: unknown): string[] => analysesWith(metadata, 'small_variants');
+
+/**
+ * The family's analyses whose package record lists a structural-variant caller of its own (the
+ * conventional NIPT of each pregnancy, with its ccnv calls; long-read WGS with its HiFiCNV calls),
+ * in the order they were imported (backend `analysis_scope.analyses_with(metadata,
+ * "structural_variants")`). A family with two or more is read one analysis at a time: its
+ * structural-variant list, count, export, reviews and their summary name the analysis.
+ */
+export const structuralVariantAnalyses = (metadata: unknown): string[] =>
+  analysesWith(metadata, 'structural_variants');
+
 /** The URL search parameter, and API query parameter, that names the analysis a page reads. */
 export const ANALYSIS_PARAM = 'analysis';
 
-/**
- * The analysis a page of the family's variants reads: of a family with two or more analyses with
- * small variants (`smallVariantAnalyses`), the one the URL names, else the one imported last;
- * null for any other family, which is read whole (or as its one analysis) without naming one.
- */
-export const variantAnalysisOf = (metadata: unknown, search: string): string | null => {
-  const analyses = smallVariantAnalyses(metadata);
+/** Of `analyses`, two or more, the one the URL names, else the one imported last; else null. */
+const analysisNamedOrLast = (analyses: string[], search: string): string | null => {
   if (analyses.length < 2) return null;
   const asked = new URLSearchParams(search).get(ANALYSIS_PARAM);
   return asked && analyses.includes(asked) ? asked : analyses[analyses.length - 1];
 };
+
+/**
+ * The analysis a page of the family's small variants reads: of a family with two or more analyses
+ * with small variants (`smallVariantAnalyses`), the one the URL names, else the one imported last;
+ * null for any other family, which is read whole (or as its one analysis) without naming one.
+ */
+export const variantAnalysisOf = (metadata: unknown, search: string): string | null =>
+  analysisNamedOrLast(smallVariantAnalyses(metadata), search);
+
+/**
+ * The analysis a page or view of the family's structural variants reads (the SV page, the genome
+ * view's SV track, the Circos plot): of a family with two or more analyses with structural
+ * variants (`structuralVariantAnalyses`), the one the URL names, else the one imported last; null
+ * for any other family, whose SVs are read without naming one.
+ */
+export const structuralVariantAnalysisOf = (metadata: unknown, search: string): string | null =>
+  analysisNamedOrLast(structuralVariantAnalyses(metadata), search);
 
 /** `params` with the analysis a request reads set, when there is one to name. */
 export const withAnalysisParam = (params: URLSearchParams, analysis: string | null | undefined): URLSearchParams => {

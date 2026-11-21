@@ -27,7 +27,6 @@ size, and the windows' rows are summed, a variant lying in one window.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Sequence
 
@@ -49,7 +48,6 @@ from .clickhouse_variant_ids import _small_table_name
 from .variant_explorer_service import (
     _VARIANT_COUNTS,
     GNOMAD_AF_CLASS_CONDITIONS,
-    WINDOWS_AT_ONCE,
     ExplorerScope,
     ExplorerWindow,
     GlobalVariantFilters,
@@ -61,6 +59,7 @@ from .variant_explorer_service import (
     _review_filter_variant_ids,
     _shown_members,
     _total_samples_having,
+    _windows_at_once,
     explorer_windows,
     resolve_scope,
 )
@@ -157,14 +156,9 @@ async def _view_inputs(
 
 
 async def _over_windows(inputs: _ViewInputs, label: str) -> list[tuple[Any, ...]]:
-    """Every window's rows, read a few windows at a time."""
-    semaphore = asyncio.Semaphore(WINDOWS_AT_ONCE)
-
-    async def one(window: ExplorerWindow) -> list[tuple[Any, ...]]:
-        async with semaphore:
-            return await inputs.run(window, label)
-
-    results = await asyncio.gather(*(one(window) for window in inputs.windows))
+    """Every window's rows, in the windows' order, read a few windows at a time
+    (``_windows_at_once``, as the variant view reads them)."""
+    results = await _windows_at_once(inputs.windows, lambda window: inputs.run(window, label))
     return [row for rows in results for row in rows]
 
 
