@@ -256,6 +256,10 @@ FAM001/
   PROBAND/    PROBAND.cram (+ .crai)        alignments, one folder per sample; optional
 ```
 
+The annotated call set's name may carry a suffix after `annotated` (`FAM001.GRCh38.annotated.gnomad41j.vcf.gz`),
+with its index beside it. A folder with two annotated call sets is refused (`snv_multiple_candidates`): leave
+one, or name the call set in the package file's `snv` dataset.
+
 CoGA reads the annotated call set as GATK HaplotypeCaller's own calls, stored under the caller's name
 (`haplotypecaller`), never as imputed genotypes (its header speaks of phasing, and some of its genotypes
 are phased). A sample without a CRAM has calls but no reads in the genome browser. Such a family goes
