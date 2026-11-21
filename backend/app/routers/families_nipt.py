@@ -539,9 +539,14 @@ _NIPT_COLUMNS: list[tuple[str, str]] = [
     ("nipt.cf_depth", "Plasma depth"),
     # Yes where the plasma has no call there and its depth is read from its target coverage.
     ("nipt.cf_depth_estimated", "Plasma depth estimated"),
+    # The record a sample's call was read off, where its VCF writes the allele another way
+    # (an MNV for its SNVs, or the reverse); empty where the row's own record holds the call.
+    ("nipt.cf_call_variant_id", "Plasma call read from"),
     ("nipt.father_state", "Father state"),
     ("nipt.father_vaf", "Father VAF"),
     ("nipt.father_depth", "Father depth"),
+    ("nipt.father_alt_reads", "Father alt reads"),
+    ("nipt.father_call_variant_id", "Father call read from"),
     ("nipt.paternal_transmission_probability", "P(paternal allele inherited)"),
     ("nipt.maternal_allele_probability", "P(maternal allele inherited)"),
     ("nipt.fetal_hom_alt_probability", "P(fetus homozygous)"),

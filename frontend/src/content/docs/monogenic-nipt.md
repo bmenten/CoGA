@@ -426,10 +426,10 @@ The table view gives the plasma's allele fraction and the father's genotype clas
 order. The file has the small-variant export's columns except the genotypes: the plasma's genotype
 call is not a genotype (it mixes the mother's and the fetus's DNA), and there is no fetal sample.
 After them come the NIPT columns: the fetal fraction the list was classified against (on every
-row), the category and its confidence, the plasma's and the father's reads, the fetal-inheritance
-probabilities, the de novo triage and the recurrence in the other cfDNA samples. When the list
-stops at the 5,000 limit, the file is named *…-TRUNCATED-partial-search.csv* and the page says the
-file is incomplete.
+row), the category and its confidence, the plasma's and the father's reads (with the record a call
+was read off), the fetal-inheritance probabilities, the de novo triage and the recurrence in the
+other cfDNA samples. When the list stops at the 5,000 limit, the file is named
+*…-TRUNCATED-partial-search.csv* and the page says the file is incomplete.
 
 ---
 
