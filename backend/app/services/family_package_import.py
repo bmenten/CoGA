@@ -460,7 +460,11 @@ async def execute_family_package_import(
     # The existing family the request names, read as every ID is: without the whitespace
     # around it.
     requested_family_id = (requested_family_id or "").strip() or None
-    validation, bundle = load_validated_family_package(folder_path, manifest_text=manifest_text)
+    # In a thread: the validation reads every package VCF whole, which for a genome's callset
+    # takes minutes, and the job's heartbeat beats meanwhile.
+    validation, bundle = await asyncio.to_thread(
+        load_validated_family_package, folder_path, manifest_text=manifest_text
+    )
     conflict_mode = _normalized_conflict_mode(conflict_mode)
     request_metadata = _execution_metadata(
         requested_family_id=requested_family_id,
