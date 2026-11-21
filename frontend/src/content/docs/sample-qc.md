@@ -29,7 +29,7 @@ Any other family shape gets sex, relatedness and Mendelian checks where the data
 counts people, not samples: two samples linked as the same individual are one person, so one person
 sampled twice is a single sample, and a couple with a partner sampled twice a carrier couple. Two
 samples of one person, neither a maternal plasma, are compared with each other in every application,
-whatever its checks: a single sample's two samples too (see *Relatedness*).
+whatever its checks: a single sample's two samples too (see *Relatedness against the pedigree*).
 
 Each call set is named by the caller that made it. The genotypes come from the family's direct calls:
 Clair3's, DeepVariant's, GATK HaplotypeCaller's or GATK Mutect2's, in that order, then any other

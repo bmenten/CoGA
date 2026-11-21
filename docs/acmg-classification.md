@@ -133,7 +133,7 @@ Some pre-evaluation rules repeat a backend rule. Change both sides together:
   one person are one family member, a carrier when one of them carries the variant. The mtDNA
   evaluator counts its calls by sample.
 - **mtDNA maternal transmission.** `_maternal_transmission` in `mitochondrial_analysis.py` reads the
-  proband's mother and father from the same links, per person (`_parent_links_per_person`): a link
+  proband's mother and father from the same links, per person (`same_individual.links_per_person`): a link
   one sample of the proband records to one sample of the mother holds for every sample of each, so
   the mother sampled twice (two tissues) is looked at in both. The mtDNA PP1 needs
   `maternal_shared`.
