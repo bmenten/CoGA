@@ -1,7 +1,12 @@
 
+from functools import partial
+from typing import Any
+
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.csv_export import TRUNCATED_BY_CANDIDATE_LIMIT, csv_document, export_response_headers
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import (
@@ -44,6 +49,7 @@ from ..services.nipt_analysis import (
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
 from ..services.nipt_quality_checks import nipt_quality_checks
 from ..services.nipt_service import (
+    NIPT_VARIANT_FETCH_LIMIT,
     NiptClassifiedVariant,
     NiptFamilySummary,
     NiptRecurrence,
@@ -60,6 +66,7 @@ from ..services.nipt_variant_statistics import (
     VAF_BIN_WIDTH,
     nipt_variant_statistics,
 )
+from .families_small_variants import _FAMILY_EXPORT_COLUMNS, _MEMBERS_WITHOUT_CALLS_FIELD, _family_export_cell
 from .query_params import FiniteThreshold
 
 
@@ -337,12 +344,7 @@ async def get_family_nipt_statistics(
     )
 
 
-@router.get("/{family_id}/nipt/variants", response_model=NiptVariantPage)
-async def get_family_nipt_variants_page(
-    family_id: str,
-    page: int = 1,
-    page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
-    project_id: str | None = None,
+def _nipt_variant_search(
     category: list[int] | None = Query(None),
     min_confidence: FiniteThreshold = None,
     inheritance: str | None = None,
@@ -396,15 +398,11 @@ async def get_family_nipt_variants_page(
     # more than this many other cfDNA samples of the assay (unless ClinVar or a population
     # frequency protects them).
     max_unexplained_recurrence: int | None = Query(None, ge=0),
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> NiptVariantPage:
-    result = await get_family_nipt_variants(
-        session,
-        family_id=family_id,
-        user=user,
-        project_id=project_id,
-        query_filters={
+) -> dict[str, Any]:
+    """A NIPT variant search, as ``get_family_nipt_variants`` takes it: the variant list and
+    its CSV export read the same parameters, so the file holds the list the page showed."""
+    return {
+        "query_filters": {
             "gene": gene,
             "exclude_gene": exclude_gene,
             "panel_id": panel_id,
@@ -442,16 +440,35 @@ async def get_family_nipt_variants_page(
             "mane_only": mane_only,
             "lof_only": lof_only,
         },
-        categories=category,
-        min_confidence=min_confidence,
-        inheritance=inheritance,
-        include_not_inherited=include_not_inherited,
-        de_novo_priority=de_novo_priority,
+        "categories": category,
+        "min_confidence": min_confidence,
+        "inheritance": inheritance,
+        "include_not_inherited": include_not_inherited,
+        "de_novo_priority": de_novo_priority,
+        "review_tags": review_tags,
+        "exclude_review_tags": exclude_review_tags,
+        "max_unexplained_recurrence": max_unexplained_recurrence,
+    }
+
+
+@router.get("/{family_id}/nipt/variants", response_model=NiptVariantPage)
+async def get_family_nipt_variants_page(
+    family_id: str,
+    page: int = 1,
+    page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
+    project_id: str | None = None,
+    search: dict[str, Any] = Depends(_nipt_variant_search),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptVariantPage:
+    result = await get_family_nipt_variants(
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
         page=page,
         page_size=page_size,
-        review_tags=review_tags,
-        exclude_review_tags=exclude_review_tags,
-        max_unexplained_recurrence=max_unexplained_recurrence,
+        **search,
     )
     return NiptVariantPage(
         family_id=family_id,
@@ -465,6 +482,135 @@ async def get_family_nipt_variants_page(
             NiptNotClassifiedOut(variant_id=variant_id, reason=reason)  # type: ignore[arg-type]
             for variant_id, reason in sorted(result.not_classified.items())
         ],
+    )
+
+
+# The NIPT export's columns: the small-variant export's, but its genotypes and its members
+# without calls. The plasma's GT is no genotype (a mixture of the mother's and the fetus's
+# DNA), the fetus has no sample of its own, and the NIPT list reads no member's genotype for an
+# inheritance filter. The NIPT columns after them hold what the list shows of each variant: the
+# fetal fraction it was classified against (the same on every row), its category, the plasma's
+# and the father's reads, the fetal-inheritance probabilities, the de novo triage and the
+# recurrence in the assay's other cfDNA samples.
+_NIPT_SMALL_VARIANT_COLUMNS: list[tuple[str, str]] = [
+    (field, label)
+    for field, label in _FAMILY_EXPORT_COLUMNS
+    if field not in {"genotypes", _MEMBERS_WITHOUT_CALLS_FIELD}
+]
+
+_NIPT_FIELD = "nipt."
+_FETAL_FRACTION_FIELD = "fetal_fraction"
+_FETAL_FRACTION_LOW_CONFIDENCE_FIELD = "fetal_fraction_low_confidence"
+
+_NIPT_COLUMNS: list[tuple[str, str]] = [
+    (_FETAL_FRACTION_FIELD, "Fetal fraction"),
+    (_FETAL_FRACTION_LOW_CONFIDENCE_FIELD, "Fetal fraction low confidence"),
+    ("nipt.category", "NIPT category"),
+    ("nipt.category_label", "NIPT category label"),
+    ("nipt.maternal_state", "Maternal state"),
+    ("nipt.fetal_inheritance", "Fetal inheritance"),
+    ("nipt.confidence", "NIPT confidence"),
+    ("nipt.runner_up_category", "Runner-up category"),
+    ("nipt.runner_up_confidence", "Runner-up confidence"),
+    ("nipt.observed_vaf", "Observed VAF"),
+    ("nipt.expected_vaf", "Expected VAF"),
+    ("nipt.cf_alt_reads", "Plasma alt reads"),
+    ("nipt.cf_depth", "Plasma depth"),
+    # Yes where the plasma has no call there and its depth is read from its target coverage.
+    ("nipt.cf_depth_estimated", "Plasma depth estimated"),
+    ("nipt.father_state", "Father state"),
+    ("nipt.father_vaf", "Father VAF"),
+    ("nipt.father_depth", "Father depth"),
+    ("nipt.paternal_transmission_probability", "P(paternal allele inherited)"),
+    ("nipt.maternal_allele_probability", "P(maternal allele inherited)"),
+    ("nipt.fetal_hom_alt_probability", "P(fetus homozygous)"),
+    ("nipt.fetal_genotype_posterior", "Fetal genotype posterior"),
+    ("nipt.flags", "NIPT flags"),
+    ("nipt.quality_failures", "Quality failures"),
+    # The de novo view's triage; empty in the other views.
+    ("nipt.de_novo.label", "De novo priority"),
+    ("nipt.de_novo.score", "De novo score"),
+    ("nipt.de_novo.window", "De novo window"),
+    ("nipt.de_novo.reasons", "De novo reasons"),
+    ("nipt.recurrence.other_samples", "Other cfDNA samples"),
+    ("nipt.recurrence.carriers", "Recurrence carriers"),
+    ("nipt.recurrence.maternal", "Recurrence maternal"),
+    ("nipt.recurrence.paternal_low_vaf", "Recurrence paternal low-VAF"),
+    ("nipt.recurrence.unexplained_low_vaf", "Recurrence unexplained low-VAF"),
+    ("nipt.recurrence.unexplained_median_vaf", "Recurrence unexplained median VAF"),
+    ("nipt.recurrence.protection", "Recurrence protection"),
+]
+
+NIPT_EXPORT_COLUMNS: list[tuple[str, str]] = [*_NIPT_SMALL_VARIANT_COLUMNS, *_NIPT_COLUMNS]
+
+
+def _nipt_value_text(value: Any) -> str:
+    """A NIPT value as a cell: nothing for none, yes or no for a flag, a list joined by "; ",
+    the fetal genotype posterior as "0/1=0.8; 1/1=0.2"."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, list):
+        return "; ".join(str(item) for item in value)
+    if isinstance(value, dict):
+        return "; ".join(f"{key}={item}" for key, item in value.items())
+    return str(value)
+
+
+def _nipt_export_cell(row: NiptVariantOut, field: str, fetal_fraction: NiptFetalFractionOut) -> str:
+    """The text of ``row``'s cell of the NIPT export column ``field``; the fetal fraction's
+    columns hold ``fetal_fraction``, the same on every row."""
+    if field == _FETAL_FRACTION_FIELD:
+        return _nipt_value_text(fetal_fraction.ff)
+    if field == _FETAL_FRACTION_LOW_CONFIDENCE_FIELD:
+        return _nipt_value_text(fetal_fraction.low_confidence)
+    if not field.startswith(_NIPT_FIELD):
+        return _family_export_cell(row, field)
+    value: Any = row.nipt
+    for name in field.removeprefix(_NIPT_FIELD).split("."):
+        value = getattr(value, name) if value is not None else None
+    return _nipt_value_text(value)
+
+
+@router.get("/{family_id}/nipt/variants/export")
+async def export_family_nipt_variants_csv(
+    family_id: str,
+    project_id: str | None = None,
+    search: dict[str, Any] = Depends(_nipt_variant_search),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> StreamingResponse:
+    """Download the NIPT variant list of this search as a CSV file: every variant the list
+    classifies, in its order.
+
+    The list classifies the first variants of its search, up to its limit. A search that
+    matched more is not cut silently: the file name says TRUNCATED and the X-CoGA-Export-*
+    headers report it (X-CoGA-Export-Truncated-Reason: candidate-limit), since a match can be
+    missing however few rows the file holds.
+    """
+    result = await get_family_nipt_variants(
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+        page=1,
+        page_size=None,
+        panel_search="nipt_variants_export",
+        **search,
+    )
+    rows = [_nipt_variant_out(item) for item in result.variants]
+    cell = partial(_nipt_export_cell, fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction))
+    return StreamingResponse(
+        iter([csv_document(NIPT_EXPORT_COLUMNS, rows, cell)]),
+        media_type="text/csv",
+        headers=export_response_headers(
+            f"family-{family_id}-nipt-variants",
+            rows=len(rows),
+            truncated=result.total_is_estimated,
+            limit=result.count_limit if result.count_limit is not None else NIPT_VARIANT_FETCH_LIMIT,
+            reason=TRUNCATED_BY_CANDIDATE_LIMIT if result.total_is_estimated else None,
+        ),
     )
 
 

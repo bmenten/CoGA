@@ -25,6 +25,13 @@ import { FamilyReadOnlyContext } from '../../lib/familyAccess';
 
 type ResultViewMode = 'auto' | 'table' | 'cards';
 
+export interface CsvExportTarget {
+  /** The export's API path, with the list's query string. */
+  path: string;
+  /** The saved file's name before `.csv`, marked when the export was cut. */
+  filenameStem: string;
+}
+
 // Compact "x ago" for the prioritised-ranking cache indicator.
 const formatRelativeTime = (iso: string): string => {
   const then = new Date(iso).getTime();
@@ -59,9 +66,10 @@ type SmallVariantResultsProps = {
   onOpenReview?: () => void;
   reviewIsPending?: boolean;
   reviewError?: string | null;
-  // The CSV export hits the small-variant export endpoint; callers without one
-  // (e.g. the NIPT page) hide the button by passing false.
-  showCsvExport?: boolean;
+  // What Download CSV downloads: the export endpoint with the list's query, and the stem of the
+  // saved file's name. Without one, the family's small-variant export of `requestQueryString`;
+  // the NIPT page names its own.
+  csvExport?: CsvExportTarget;
   // The caller is a reader in the family's projects: the review controls inside are
   // disabled, and the reviews stay readable.
   readOnly?: boolean;
@@ -87,7 +95,7 @@ export default function SmallVariantResults({
   onOpenReview,
   reviewIsPending = false,
   reviewError = null,
-  showCsvExport = true,
+  csvExport,
   readOnly = false,
 }: SmallVariantResultsProps) {
   const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
@@ -104,18 +112,23 @@ export default function SmallVariantResults({
   const countNote = gnomadCountNote(requestQueryString, data);
 
   const handleDownloadCsv = async () => {
-    if (!familyId) {
+    const target =
+      csvExport ??
+      (familyId
+        ? {
+            path: apiPath`/families/${familyId}/small-variants/export?${raw(requestQueryString)}`,
+            filenameStem: `family-${familyId}-small-variants`,
+          }
+        : null);
+    if (!target) {
       return;
     }
     setExportError(null);
     setExportWarning(null);
     setIsExporting(true);
     try {
-      const res = await api.get(
-        apiPath`/families/${familyId}/small-variants/export?${raw(requestQueryString)}`,
-        { responseType: 'blob' },
-      );
-      const info = describeCsvExport(res, `family-${familyId}-small-variants`);
+      const res = await api.get(target.path, { responseType: 'blob' });
+      const info = describeCsvExport(res, target.filenameStem);
       saveCsvBlob(res.data, info.filename);
       if (info.truncated) setExportWarning(truncatedExportMessage(info));
     } catch {
@@ -151,17 +164,15 @@ export default function SmallVariantResults({
             </p>
           </div>
           <div className="variant-results-toolbar-actions">
-            {showCsvExport && (
-              <button
-                type="button"
-                className="button-secondary variant-explorer-download"
-                onClick={handleDownloadCsv}
-                disabled={isExporting || !hasResults}
-                title="Download all filtered variants with annotation data as CSV"
-              >
-                {isExporting ? 'Preparing…' : 'Download CSV'}
-              </button>
-            )}
+            <button
+              type="button"
+              className="button-secondary variant-explorer-download"
+              onClick={handleDownloadCsv}
+              disabled={isExporting || !hasResults}
+              title="Download all filtered variants with annotation data as CSV"
+            >
+              {isExporting ? 'Preparing…' : 'Download CSV'}
+            </button>
             <div className="variant-results-toggle" role="tablist" aria-label="Variant display mode">
               {[
                 { value: 'auto', label: 'Auto' },

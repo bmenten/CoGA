@@ -19,6 +19,7 @@ from backend.app.services.clickhouse_variant_records import (
 )
 from backend.app.services.genotypes import GENOTYPE_CLASSES, classify_genotype, genotype_vocabulary
 from backend.app.services.nipt_analysis import NiptQualityThresholds, run_nipt_analysis
+from backend.app.services.panel_use_audit import PANEL_SEARCHES
 from backend.app.services.nipt_service import (
     build_nipt_observations,
     derive_father_state,
@@ -825,7 +826,7 @@ async def test_a_variant_list_past_the_classification_limit_says_so(
         filtered=[*_de_novo_and_cat3_records(), _a_third_record_after_the_others()],
     )
     limits = _record_variant_load_limits(monkeypatch)
-    monkeypatch.setattr(nipt_service, "_NIPT_VARIANT_FETCH_LIMIT", 2)
+    monkeypatch.setattr(nipt_service, "NIPT_VARIANT_FETCH_LIMIT", 2)
 
     result = await get_family_nipt_variants(
         session=None,  # type: ignore[arg-type]
@@ -849,7 +850,7 @@ async def test_a_variant_list_that_fits_the_classification_limit_is_complete(
     _wire_variants_mocks(
         monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records()
     )
-    monkeypatch.setattr(nipt_service, "_NIPT_VARIANT_FETCH_LIMIT", 2)
+    monkeypatch.setattr(nipt_service, "NIPT_VARIANT_FETCH_LIMIT", 2)
 
     result = await get_family_nipt_variants(
         session=None,  # type: ignore[arg-type]
@@ -860,6 +861,36 @@ async def test_a_variant_list_that_fits_the_classification_limit_is_complete(
 
     assert (result.total_is_estimated, result.count_limit) == (False, None)
     assert result.total == 2
+
+
+@pytest.mark.asyncio
+async def test_without_a_page_size_the_list_holds_every_classified_variant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The CSV export writes the whole list, not its first page: page_size None gives every
+    # variant the search classifies, each as the page serves it (its recurrence and its
+    # small-variant payload).
+    _wire_variants_mocks(
+        monkeypatch,
+        cohort=_cohort_cat7_records(),
+        filtered=[*_de_novo_and_cat3_records(), _a_third_record_after_the_others()],
+    )
+
+    async def listed(page_size: int | None) -> list[str]:
+        result = await get_family_nipt_variants(
+            session=None,  # type: ignore[arg-type]
+            family_id="NIPT001",
+            user=None,  # type: ignore[arg-type]
+            query_filters={"gene": "BRCA1"},
+            page_size=page_size,
+        )
+        assert result.total == 3
+        assert all(item.recurrence is not None and item.variant_out is not None for item in result.variants)
+        return [item.record.variant_id for item in result.variants]
+
+    every = await listed(None)
+    assert every == ["1-9000-A-G", "1-9100-A-G", every[2]] and len(set(every)) == 3
+    assert await listed(1) == every[:1]
 
 
 @pytest.mark.asyncio
@@ -950,6 +981,25 @@ async def test_a_panel_is_recorded_on_the_audit_trail_before_it_narrows_the_list
         ("variant load", constraints),
     ]
     assert result.total == 2
+
+
+@pytest.mark.asyncio
+async def test_the_export_records_its_panel_under_its_own_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The audit trail names which search applied the panel: the list or its CSV export.
+    _wire_variants_mocks(monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records())
+    steps = _wire_panel(monkeypatch, PanelFilterConstraints(genes=("GENEA",)))
+
+    await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "BRCA1", "panel_id": "panel-1"},
+        page_size=None,
+        panel_search="nipt_variants_export",
+    )
+
+    assert steps[0] == ("recorded", "panel-1", "nipt_variants_export", "family-uuid")
+    assert "nipt_variants_export" in PANEL_SEARCHES
 
 
 @pytest.mark.asyncio
@@ -1139,7 +1189,7 @@ async def test_a_tagged_variant_past_the_classification_limit_is_listed(
     # limit, the review tags would lose a reported variant beyond it; read by id in the
     # load, they never do.
     _wire_family_rows(monkeypatch, _family_records())
-    monkeypatch.setattr(nipt_service, "_NIPT_VARIANT_FETCH_LIMIT", 2)
+    monkeypatch.setattr(nipt_service, "NIPT_VARIANT_FETCH_LIMIT", 2)
     session = _ReviewSession({"1-9200-A-G": {"tags": ["report"]}})
 
     listed = await _nipt_list(session, review_tags=["report"])

@@ -59,6 +59,7 @@ NOT_JSON = {
     ("get", "/api/admin/families/{family_id}/ped"),  # the PED file
     ("get", "/api/families/{family_id}/qc-report/{sample_id}"),  # the QC report page
     ("get", "/api/families/{family_id}/small-variants/export"),  # CSV
+    ("get", "/api/families/{family_id}/nipt/variants/export"),  # CSV
     ("get", "/api/families/{family_id}/structural-variants/export"),  # CSV
     ("get", "/api/variant-explorer/small-variants/export"),  # CSV
     # The alignments, their indexes and header, and the callers' signal files.

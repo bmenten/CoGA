@@ -379,6 +379,112 @@ describe('FamilyNiptPage', () => {
     ).toHaveAttribute('role', 'status');
   });
 
+  // The file holds the list the page shows: the NIPT export, with the list's own search.
+  it('downloads the list as CSV from the NIPT export, with the search the list read', async () => {
+    const createObjectURL = vi.fn(() => 'blob:nipt-variants');
+    const revokeObjectURL = vi.fn();
+    const original = { createObjectURL: window.URL.createObjectURL, revokeObjectURL: window.URL.revokeObjectURL };
+    Object.assign(window.URL, { createObjectURL, revokeObjectURL });
+    const saved: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      saved.push(this.download);
+    });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            members: [
+              { sample_id: 'CFDNA', role: 'proband', active: true },
+              { sample_id: 'FATHER', role: 'father', active: true },
+            ],
+            metadata: { analysis_types: ['monogenic_nipt'] },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            total: 1,
+            fetal_fraction: FETAL_FRACTION,
+            variants: [
+              {
+                _id: '1-100-A-G',
+                chr: '1',
+                start: 100,
+                end: 100,
+                type: 'SNV',
+                ref: 'A',
+                alt: 'G',
+                gene: 'BRCA1',
+                genotypes: [],
+                nipt: {
+                  category: 7,
+                  category_label: 'paternal, transmitted to fetus',
+                  maternal_state: 'hom_ref',
+                  fetal_inheritance: 'paternal_transmitted',
+                  expected_vaf: 0.05,
+                  observed_vaf: 0.05,
+                  confidence: 0.97,
+                  flags: [],
+                  recurrence: NO_RECURRENCE,
+                },
+              },
+            ],
+          },
+        });
+      }
+      if (url.startsWith('/families/NIPT001/nipt/variants/export?')) {
+        // The search behind the file stopped at the classification limit.
+        return Promise.resolve({
+          data: 'Chromosome\n1\n',
+          headers: {
+            'x-coga-export-truncated': 'true',
+            'x-coga-export-truncated-reason': 'candidate-limit',
+            'x-coga-export-rows': '1',
+            'x-coga-export-limit': '5000',
+          },
+        });
+      }
+      if (url === '/panels') {
+        return Promise.resolve({ data: [{ _id: 'panel-mendeliome', name: 'Mendeliome', source: 'mendeliome' }] });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    try {
+      renderPage('NIPT001');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Download CSV' }));
+
+      await waitFor(() => expect(saved).toEqual(['family-NIPT001-nipt-variants-TRUNCATED-partial-search.csv']));
+      const listed = apiMock.get.mock.calls.filter(([url]) => url === '/families/NIPT001/nipt/variants').at(-1);
+      const [exportUrl, exportConfig] = apiMock.get.mock.calls.find(([url]) =>
+        String(url).startsWith('/families/NIPT001/nipt/variants/export?'),
+      ) as [string, { responseType?: string }];
+      expect(exportConfig).toEqual({ responseType: 'blob' });
+      const exported = new URLSearchParams(exportUrl.split('?')[1]);
+      // Every parameter of the list's search, and none of its paging.
+      const search: Record<string, unknown> = Object.fromEntries(
+        Object.entries(listed?.[1]?.params ?? {}).filter(([key]) => key !== 'page' && key !== 'page_size'),
+      );
+      expect(search.inheritance).toBe('de_novo');
+      expect(search.exclude_clinvar).toEqual(['Benign', 'Likely benign']);
+      Object.entries(search).forEach(([key, value]) =>
+        expect(exported.getAll(key), key).toEqual(Array.isArray(value) ? value.map(String) : [String(value)]),
+      );
+      expect([...new Set(exported.keys())].sort()).toEqual(Object.keys(search).sort());
+      // A file cut at the limit is said to be incomplete.
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'The search behind this export read only part of the callset',
+      );
+    } finally {
+      click.mockRestore();
+      Object.assign(window.URL, original);
+    }
+  });
+
   it('shows a loader until the analysis has loaded', async () => {
     let resolveSummary: (value: unknown) => void = () => undefined;
     apiMock.get.mockImplementation((url: string) => {

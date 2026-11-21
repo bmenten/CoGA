@@ -10,6 +10,7 @@ from backend.app.routers.families_small_variants import (
     PRIORITY_EXPORT_COLUMNS,
     _family_export_cell,
 )
+from backend.app.routers.families_nipt import NIPT_EXPORT_COLUMNS
 from backend.app.routers.families_structural_variants import (
     _FAMILY_SV_EXPORT_COLUMNS,
     _family_sv_export_cell,
@@ -279,6 +280,7 @@ def _sv_variant() -> VariantOut:
     [
         (_FAMILY_EXPORT_COLUMNS, "small variants"),
         (_FAMILY_SV_EXPORT_COLUMNS, "structural variants"),
+        (NIPT_EXPORT_COLUMNS, "NIPT variants"),
         (_EXPLORER_EXPORT_COLUMNS, "Variant Explorer"),
     ],
 )

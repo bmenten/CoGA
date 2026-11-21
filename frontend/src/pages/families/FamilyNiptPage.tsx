@@ -99,15 +99,15 @@ const niptParamsSerializer = (params: Record<string, unknown>): string => {
   return search.toString();
 };
 
-// Map the shared small-variant filter state to the /nipt/variants params. Only
+// Map the shared small-variant filter state to the /nipt/variants search params. Only
 // the NIPT-supported keys are emitted: the review tags and excluded review tags by the
 // small-variant list's names, but no per-sample genotype, review classification,
 // saved-notes or phenotype params; the maternal/fetal category + inheritance view + min
 // confidence + recurrence filter are NIPT-specific. An inheritance mode that is not one of the list's views, from
 // a saved search made on the small-variant list or a link, is not sent: the server refused
-// the whole search for it (400).
-const buildVariantParams = (f: SmallFilterState, page: number): Record<string, unknown> => {
-  const params: Record<string, unknown> = { page, page_size: PAGE_SIZE };
+// the whole search for it (400). The list and its CSV export send the same search.
+const buildSearchParams = (f: SmallFilterState): Record<string, unknown> => {
+  const params: Record<string, unknown> = {};
   const str = (key: string, value: string) => {
     if (value && value.trim()) params[key] = value.trim();
   };
@@ -172,6 +172,12 @@ const buildVariantParams = (f: SmallFilterState, page: number): Record<string, u
   numeric('max_unexplained_recurrence', f.max_unexplained_recurrence);
   return params;
 };
+
+const buildVariantParams = (f: SmallFilterState, page: number): Record<string, unknown> => ({
+  ...buildSearchParams(f),
+  page,
+  page_size: PAGE_SIZE,
+});
 
 const FamilyNiptPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -733,7 +739,16 @@ const FamilyNiptPage: React.FC = () => {
           speciesName={speciesName}
           totalPages={pageCount}
           tags={tags}
-          showCsvExport={false}
+          csvExport={
+            familyId
+              ? {
+                  path: apiPath`/families/${familyId}/nipt/variants/export?${raw(
+                    niptParamsSerializer(buildSearchParams(filters)),
+                  )}`,
+                  filenameStem: `family-${familyId}-nipt-variants`,
+                }
+              : undefined
+          }
           readOnly={Boolean(family?.read_only)}
           reviewIsPending={reviewMutation.isPending}
           reviewError={

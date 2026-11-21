@@ -67,6 +67,7 @@ def client(monkeypatch: pytest.MonkeyPatch):
         ("/api/families/FAM1/structural-variants", "max_population_af"),
         ("/api/variant-explorer/small-variants", "min_revel"),
         ("/api/families/FAM1/nipt/variants", "min_confidence"),
+        ("/api/families/FAM1/nipt/variants/export", "max_gnomad_af"),
     ],
 )
 @pytest.mark.parametrize("value", ["nan", "NaN", "inf", "-inf"])
