@@ -877,12 +877,13 @@ async def _register_package_samples(
     package filling only an unknown one (``merge_member_values``); a known status it states
     otherwise refuses the import before anything is written (``ImportRefused``).
 
-    The samples of one person (the family's same-individual links, read here, after the family's
-    pedigree took the package's links, ``_take_package_pedigree``) agree on their statuses as a
-    structure edit has them agree: each member's statuses as they are once written (the package's,
-    or those it keeps), a known clinical or carrier status that differs from another sample's of
-    the person refuses the import before anything is written (``same_individual_statuses_message``).
-    A link a later structure edit makes is checked by that edit against the statuses written here.
+    The samples of one person agree on their statuses, as a structure edit has them agree. Each
+    member's statuses are read as the import leaves them (the package's, or those the member
+    keeps), with the family's same-individual links, read here after the family's pedigree took
+    the package's links (``_take_package_pedigree``): a known clinical or carrier status of one
+    sample that differs from another's of the same person refuses the import before anything is
+    written (``same_individual_statuses_message``). A link a later structure edit makes is checked
+    by that edit against the statuses written here.
 
     Returns, per sample whose metadata it changed, the registered keys' values before (None for
     a key the sample lacked)."""
