@@ -363,6 +363,7 @@ def build_nipt_observations(
         if cf_call is None and (not per_sample or father_call is None):
             continue
         representation: str | None = None
+        represented_by: str | None = None
         cf_record_id = record.variant_id
         father_record_id = record.variant_id
         if per_sample and father_call is None:
@@ -371,7 +372,7 @@ def build_nipt_observations(
             borrowed, complete = father_bases.cover(record)
             if borrowed is not None and complete:
                 father_call, father_record_id = borrowed.call, borrowed.record.variant_id
-                representation = FATHER_CALL_OTHER_REPRESENTATION
+                representation, represented_by = FATHER_CALL_OTHER_REPRESENTATION, father_record_id
             elif borrowed is not None:
                 representation = FATHER_CALL_OVERLAPS
         elif per_sample and cf_call is None:
@@ -380,7 +381,7 @@ def build_nipt_observations(
             borrowed, complete = plasma_bases.cover(record)
             if borrowed is not None and complete:
                 cf_call, cf_record_id = borrowed.call, borrowed.record.variant_id
-                representation = PLASMA_CALL_OTHER_REPRESENTATION
+                representation, represented_by = PLASMA_CALL_OTHER_REPRESENTATION, cf_record_id
             elif borrowed is not None:
                 representation = PLASMA_CALL_OVERLAPS
         father_reads = father_site_depths.get(father_record_id)
@@ -416,6 +417,7 @@ def build_nipt_observations(
                     alt=record.alt,
                     cf_depth_estimated=True,
                     representation=representation,
+                    represented_by=represented_by,
                 )
             )
             continue
@@ -448,6 +450,7 @@ def build_nipt_observations(
                 cf_filters=list(cf_call.filters or []),
                 cf_metrics=dict(cf_call.metrics or {}),
                 representation=representation,
+                represented_by=represented_by,
             )
         )
     return sites
@@ -567,6 +570,9 @@ class NiptVariantsResult:
     fetal_fraction: FetalFractionEstimate
     total: int
     variants: list[NiptClassifiedVariant]
+    # The samples the analysis read as the plasma and the father, and the fetus's placeholder
+    # (no data): the list shows each sample's reads by its part in the analysis.
+    trio: NiptTrio
     # True when more variants matched the scope than the list classifies
     # (count_limit): the total is then a lower bound, and the list stops part-way
     # through the genome.
@@ -1348,7 +1354,7 @@ async def get_family_nipt_variants(
             qc,
         )
     if review.matches_nothing:
-        return NiptVariantsResult(fetal_fraction=ff_estimate, total=0, variants=[])
+        return NiptVariantsResult(fetal_fraction=ff_estimate, total=0, variants=[], trio=trio)
 
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
@@ -1361,7 +1367,7 @@ async def get_family_nipt_variants(
         )
         if not panel_constraints.genes and not panel_constraints.regions:
             return NiptVariantsResult(
-                fetal_fraction=ff_estimate, total=0, variants=[], not_classified=not_classified
+                fetal_fraction=ff_estimate, total=0, variants=[], trio=trio, not_classified=not_classified
             )
 
     # One row past the limit tells a cut list from a complete one: a list stopped at the
@@ -1437,6 +1443,7 @@ async def get_family_nipt_variants(
         fetal_fraction=ff_estimate,
         total=total,
         variants=page_items,
+        trio=trio,
         total_is_estimated=capped,
         count_limit=fetch_limit if capped else None,
         recessive_genes=recessive_genes,

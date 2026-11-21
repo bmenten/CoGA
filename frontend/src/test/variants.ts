@@ -241,6 +241,9 @@ export const niptClassification = (
   father_state: null,
   father_vaf: null,
   father_depth: null,
+  father_alt_reads: null,
+  cf_call_variant_id: null,
+  father_call_variant_id: null,
   de_novo: null,
   recurrence: {
     other_samples: 0,

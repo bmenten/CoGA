@@ -155,12 +155,15 @@ def test_the_fathers_mnv_carries_a_plasma_snv() -> None:
     first = sites["7-1000-A-G"]
     assert first.representation == "father_call_other_representation"
     assert (first.father_state, first.father_vaf, first.father_alt_reads) == ("het", 0.5, 150)
+    # The record his call was read from: the plasma's SNV's own record holds none of his.
+    assert first.represented_by == "7-1000-AC-GT"
     # The father's MNV reads the plasma's calls of its bases (the weaker base's), and is
     # marked so it is no second piece of evidence.
     mnv = sites["7-1000-AC-GT"]
     assert mnv.representation == "plasma_call_other_representation"
     assert mnv.cf_present and not mnv.cf_depth_estimated
     assert (mnv.cf_alt_reads, mnv.cf_dp) == (120, 1500)
+    assert mnv.represented_by == "7-1000-A-G"  # the weaker base's call
 
 
 def test_a_plasma_mnv_the_father_calls_in_part() -> None:
@@ -172,10 +175,13 @@ def test_a_plasma_mnv_the_father_calls_in_part() -> None:
     sites = _sites(records)
     mnv = sites["7-1000-AC-GT"]
     assert (mnv.representation, mnv.father_state) == ("father_call_overlaps", "absent")
+    # No call of his was read: none is named.
+    assert mnv.represented_by is None
     snv = sites["7-1001-C-T"]
     # The plasma's MNV carries this base: the father's SNV is marked, not read off it.
     assert snv.representation == "plasma_call_other_representation"
     assert snv.cf_alt_reads == 120
+    assert snv.represented_by == "7-1000-AC-GT"
 
 
 def test_the_other_representation_is_looked_up_in_the_family_records() -> None:
@@ -356,6 +362,8 @@ async def test_the_paternal_view_lists_what_the_fetus_inherited(monkeypatch: pyt
     _wire(monkeypatch, filtered=_gene_sites())
     inherited = await _variants(inheritance="paternal_dominant")
     assert [item.record.variant_id for item in inherited.variants] == ["7-200-C-T"]
+    # The list says which samples it read as the plasma and the father.
+    assert (inherited.trio.cfdna_sample_id, inherited.trio.father_sample_id) == (PLASMA, FATHER)
     everything = await _variants(inheritance="paternal_dominant", include_not_inherited=True)
     ids = [item.record.variant_id for item in everything.variants]
     assert ids == ["7-200-C-T", "7-400-C-T"]
@@ -570,6 +578,15 @@ async def test_the_paternal_view_lists_an_allele_the_plasma_calls_in_part(monkey
     # The plasma's SNV reads the father's genotype off his MNV: a paternal allele, inherited.
     assert "father_call_other_representation" in listed["7-601-C-T"].classification.flags
     assert listed["7-601-C-T"].classification.category == 7
+    # The list names the record his call was read from, with his reads, so the page can show
+    # them where the SNV's own record holds no call of his; the MNV reads no plasma call.
+    from backend.app.routers.families_nipt import _nipt_variant_out
+
+    snv = _nipt_variant_out(listed["7-601-C-T"]).nipt
+    assert (snv.father_call_variant_id, snv.cf_call_variant_id) == ("7-600-AC-GT", None)
+    assert (snv.father_state, snv.father_alt_reads, snv.father_depth) == ("het", 150, 300)
+    mnv = _nipt_variant_out(listed["7-600-AC-GT"]).nipt
+    assert (mnv.father_call_variant_id, mnv.cf_call_variant_id) == (None, None)
 
 
 @pytest.mark.asyncio

@@ -368,6 +368,13 @@ The variant list has the ordinary small-variant filters plus category, confidenc
 - *paternally* or *maternally inherited*, with the probability that the fetus inherited the allele (`include_not_inherited` also shows the alleles it did not inherit);
 - *recessive*, with, per gene for which both parents are heterozygous carriers, the risk that the fetus inherited both alleles.
 
+**The genotypes.** The variant list shows the genotypes of a variant as the analysis read them (`niptGenotypes.ts`). The list says which samples it read as the plasma and the father, and which member is the fetus (`trio`).
+
+- The plasma is a mixture of maternal and fetal DNA and has no genotype. Its row is called *plasma (cfDNA)* and shows *mixture* with the reads the classification used, not the caller's GT: Mutect2 writes `0/1` for every call.
+- The father's row shows his genotype class from his allele depths, as the NIPT block does.
+- If the analysis read a sample's call from another representation of the allele, its row shows those reads and names the record they come from (`father_call_variant_id`, `cf_call_variant_id`). The variant's own record has no call of that sample.
+- The fetus has no sample and so no row; what the analysis infers about the fetus is in the NIPT block.
+
 **Recurrence in other cfDNA samples.** Each variant in the list says how its allele recurs in the other cfDNA samples of the same assay, across all projects (`nipt.recurrence`; counts only, never which family). `count_cfdna_recurrence` in `clickhouse_family_variants.py` counts the samples with a call of at least 5 alt reads and 1% of the reads (`carriers`) and classifies each call:
 
 - `maternal`: an allele fraction of 25% or more (that mother carries the allele);

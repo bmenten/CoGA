@@ -368,6 +368,13 @@ De variantlijst heeft de gewone small-variantfilters plus categorie, betrouwbaar
 - *paternaal* of *maternaal geërfd*, met de kans dat de foetus het allel erfde (`include_not_inherited` toont ook de allelen die hij niet erfde);
 - *recessief*, met per gen waarvoor beide ouders heterozygoot drager zijn het risico dat de foetus beide allelen erfde.
 
+**De genotypes.** De variantlijst toont de genotypes van een variant zoals de analyse ze las (`niptGenotypes.ts`). De lijst zegt welke samples ze als het plasma en de vader las, en welk lid de foetus is (`trio`).
+
+- Het plasma is een mengsel van maternaal en foetaal DNA en heeft geen genotype. Zijn rij heet *plasma (cfDNA)* en toont *mixture* met de reads waarmee de classificatie rekende, niet de GT van de caller: Mutect2 schrijft `0/1` bij elke call.
+- De rij van de vader toont zijn genotypeklasse uit zijn alleldieptes, zoals het NIPT-blok.
+- Las de analyse de call van een sample uit een andere schrijfwijze van het allel, dan toont zijn rij die reads en noemt ze het record waar ze vandaan komen (`father_call_variant_id`, `cf_call_variant_id`). Het eigen record van de variant heeft geen call van dat sample.
+- De foetus heeft geen sample en dus geen rij; wat de analyse over de foetus afleidt, staat in het NIPT-blok.
+
 **Terugkeer in andere cfDNA-samples.** Elke variant van de lijst zegt hoe zijn allel terugkomt in de andere cfDNA-samples van dezelfde assay, over alle projecten heen (`nipt.recurrence`; enkel tellingen, nooit welke familie). `count_cfdna_recurrence` in `clickhouse_family_variants.py` telt de samples met een call van minstens 5 alt-reads en 1% van de reads (`carriers`) en deelt elke call in:
 
 - `maternal`: een allelfractie van 25% of meer (die moeder draagt het allel);

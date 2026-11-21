@@ -2843,6 +2843,13 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li><em>paternaal</em> of <em>maternaal geërfd</em>, met de kans dat de foetus het allel erfde (<code>include_not_inherited</code> toont ook de allelen die hij niet erfde);</li>
 <li><em>recessief</em>, met per gen waarvoor beide ouders heterozygoot drager zijn het risico dat de foetus beide allelen erfde.</li>
 </ul>
+<p><strong>De genotypes.</strong> De variantlijst toont de genotypes van een variant zoals de analyse ze las (<code>niptGenotypes.ts</code>). De lijst zegt welke samples ze als het plasma en de vader las, en welk lid de foetus is (<code>trio</code>).</p>
+<ul>
+<li>Het plasma is een mengsel van maternaal en foetaal DNA en heeft geen genotype. Zijn rij heet <em>plasma (cfDNA)</em> en toont <em>mixture</em> met de reads waarmee de classificatie rekende, niet de GT van de caller: Mutect2 schrijft <code>0/1</code> bij elke call.</li>
+<li>De rij van de vader toont zijn genotypeklasse uit zijn alleldieptes, zoals het NIPT-blok.</li>
+<li>Las de analyse de call van een sample uit een andere schrijfwijze van het allel, dan toont zijn rij die reads en noemt ze het record waar ze vandaan komen (<code>father_call_variant_id</code>, <code>cf_call_variant_id</code>). Het eigen record van de variant heeft geen call van dat sample.</li>
+<li>De foetus heeft geen sample en dus geen rij; wat de analyse over de foetus afleidt, staat in het NIPT-blok.</li>
+</ul>
 <p><strong>Terugkeer in andere cfDNA-samples.</strong> Elke variant van de lijst zegt hoe zijn allel terugkomt in de andere cfDNA-samples van dezelfde assay, over alle projecten heen (<code>nipt.recurrence</code>; enkel tellingen, nooit welke familie). <code>count_cfdna_recurrence</code> in <code>clickhouse_family_variants.py</code> telt de samples met een call van minstens 5 alt-reads en 1% van de reads (<code>carriers</code>) en deelt elke call in:</p>
 <ul>
 <li><code>maternal</code>: een allelfractie van 25% of meer (die moeder draagt het allel);</li>
@@ -7793,6 +7800,13 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li><em>de novo</em> in the fetus, with the triage of the R pipeline: a window around the fetal allele fraction, a score and a priority (<code>de_novo_priority</code>). A candidate that the cfDNA of another family of the assay also carries (<code>carriers</code>, below) drops out as recurring, unless a ClinVar submission can call it pathogenic;</li>
 <li><em>paternally</em> or <em>maternally inherited</em>, with the probability that the fetus inherited the allele (<code>include_not_inherited</code> also shows the alleles it did not inherit);</li>
 <li><em>recessive</em>, with, per gene for which both parents are heterozygous carriers, the risk that the fetus inherited both alleles.</li>
+</ul>
+<p><strong>The genotypes.</strong> The variant list shows the genotypes of a variant as the analysis read them (<code>niptGenotypes.ts</code>). The list says which samples it read as the plasma and the father, and which member is the fetus (<code>trio</code>).</p>
+<ul>
+<li>The plasma is a mixture of maternal and fetal DNA and has no genotype. Its row is called <em>plasma (cfDNA)</em> and shows <em>mixture</em> with the reads the classification used, not the caller's GT: Mutect2 writes <code>0/1</code> for every call.</li>
+<li>The father's row shows his genotype class from his allele depths, as the NIPT block does.</li>
+<li>If the analysis read a sample's call from another representation of the allele, its row shows those reads and names the record they come from (<code>father_call_variant_id</code>, <code>cf_call_variant_id</code>). The variant's own record has no call of that sample.</li>
+<li>The fetus has no sample and so no row; what the analysis infers about the fetus is in the NIPT block.</li>
 </ul>
 <p><strong>Recurrence in other cfDNA samples.</strong> Each variant in the list says how its allele recurs in the other cfDNA samples of the same assay, across all projects (<code>nipt.recurrence</code>; counts only, never which family). <code>count_cfdna_recurrence</code> in <code>clickhouse_family_variants.py</code> counts the samples with a call of at least 5 alt reads and 1% of the reads (<code>carriers</code>) and classifies each call:</p>
 <ul>

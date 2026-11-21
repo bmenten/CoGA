@@ -33,6 +33,7 @@ from ..schemas import (
     NiptTargetCoverageOut,
     NiptTargetDetailOut,
     NiptTargetOut,
+    NiptTrioOut,
     NiptVariantOut,
     NiptVariantPage,
 )
@@ -41,10 +42,13 @@ from ..services.clickhouse_family_variants import (
 )
 from ..services.access_control import CurrentUser
 from ..services.nipt_analysis import (
+    FATHER_CALL_OTHER_REPRESENTATION,
     MATERNAL_HET_BIAS,
     NIPT_MODEL_REFERENCE,
     OVERDISPERSION,
+    PLASMA_CALL_OTHER_REPRESENTATION,
     NiptQualityThresholds,
+    NiptSiteObservation,
 )
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
 from ..services.nipt_quality_checks import nipt_quality_checks
@@ -236,6 +240,14 @@ def _recurrence_out(recurrence: NiptRecurrence | None) -> NiptRecurrenceOut:
     )
 
 
+def _represented_by(site: NiptSiteObservation | None, representation: str) -> str | None:
+    """The record whose call the analysis read for a sample, where it read it off another
+    record (``representation``); None where the variant's own record holds the call."""
+    if site is None or site.representation != representation:
+        return None
+    return site.represented_by
+
+
 def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
     classification = item.classification
     site = item.site
@@ -261,6 +273,9 @@ def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
         father_state=site.father_state if site is not None else None,
         father_vaf=site.father_vaf if site is not None else None,
         father_depth=site.father_dp if site is not None else None,
+        father_alt_reads=site.father_alt_reads if site is not None else None,
+        cf_call_variant_id=_represented_by(site, PLASMA_CALL_OTHER_REPRESENTATION),
+        father_call_variant_id=_represented_by(site, FATHER_CALL_OTHER_REPRESENTATION),
         de_novo=(
             NiptDeNovoTriageOut(
                 window=item.de_novo.window,  # type: ignore[arg-type]
@@ -470,8 +485,14 @@ async def get_family_nipt_variants_page(
         page_size=page_size,
         **search,
     )
+    trio = result.trio
     return NiptVariantPage(
         family_id=family_id,
+        trio=NiptTrioOut(
+            cfdna_sample_id=trio.cfdna_sample_id,
+            father_sample_id=trio.father_sample_id,
+            fetus_sample_id=trio.fetus_sample_id,
+        ),
         total=result.total,
         total_is_estimated=result.total_is_estimated,
         count_limit=result.count_limit,
