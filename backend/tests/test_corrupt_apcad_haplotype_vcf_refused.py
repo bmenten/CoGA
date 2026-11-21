@@ -274,13 +274,14 @@ def test_whole_files_pass(tmp_path: Path, compress: Callable[[bytes], bytes] | N
 def test_the_whole_vcf_reader_reads_columns_and_refuses_a_cut_by_name(tmp_path: Path) -> None:
     path = tmp_path / "EMB1.vcf.gz"
     path.write_bytes(bgzip(_trio("EMB1").encode()))
-    assert common.read_whole_vcf_sample_columns(path) == ["FATHER1", "MOTHER1", "EMB1"]
+    read = common.read_package_vcf_whole(path, label="The APCAD VCF of EMB1", readers=("track",))
+    assert (read.columns, read.holds_a_line) == (["FATHER1", "MOTHER1", "EMB1"], True)
 
     path.write_bytes(_bgzf_cut_in_its_records(_trio("EMB1")))
     # The header reader alone reads the cut file as a whole one.
     assert common.read_vcf_sample_columns(path) == ["FATHER1", "MOTHER1", "EMB1"]
     with pytest.raises(common.UnreadableVcf) as caught:
-        common.read_whole_vcf_sample_columns(path, label="The APCAD VCF of EMB1")
+        common.read_package_vcf_whole(path, label="The APCAD VCF of EMB1", readers=("track",))
     assert str(caught.value) == "The APCAD VCF of EMB1 (EMB1.vcf.gz) could not be read: it is cut short or damaged, or is not gzip"
 
 

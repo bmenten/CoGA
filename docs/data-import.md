@@ -1581,7 +1581,9 @@ is imported: [Conventional NIPT](#conventional-nipt-ccnv).
   left to the loader, which reads it as imputed. Any other file whose header names no caller, or
   files whose headers do not name the same one, get no `source_format`: validation refuses them
   until the delivery names the caller (**Correct…**; `dataset_callset_unnamed`, or
-  `dataset_per_sample_unsupported` for per-sample files).
+  `dataset_per_sample_unsupported` for per-sample files). A file whose header Discover cannot read
+  (cut short, damaged, not gzip) is refused by name (`dataset_vcf_unreadable`, naming a sample's
+  file's sample), and the block is drafted without a `source_format`.
 - A resumed Nextflow run writes an execution report, a trace and a params file at every start,
   failed ones included. For `pipeline_info` Discover names the records of the last run whose
   execution report says it completed (`Workflow execution completed successfully`, read from the
@@ -2070,7 +2072,9 @@ as cut short, like a gzip file cut inside a block (the owner's decision of 2026-
   `gzip -t` passes it (htslib's tools warn that its EOF marker is absent).
 - A plain gzip file, which no BGZF writer wrote, has no end-of-file block and is read without
   that check: one cut exactly between two of its members still reads as whole.
-- A dry run does not read a file's end, just as it does not find a gzip file cut short. The
+- The validation, and so a dry run, reads every package VCF and an embryo's APCAD and segregation
+  tables to their end ([Validation](#validation)): it refuses such a file, and a gzip file cut
+  short, before anything is written. Another file it reads only up to its first lines. The
   reference downloads' reader refuses a BGZF download without its end-of-file block too.
 
 **Every sample's file before any sample's data.** A dataset of one file per sample reads every
@@ -2430,20 +2434,36 @@ Discover, dry run and import check:
   `analysis_type: monogenic_nipt`, or as a callset of germline calls made one sample at a time
   when the dataset names the caller that made them as its `source_format` (`deepvariant`,
   `clair3`, `haplotypecaller`…; otherwise `dataset_per_sample_unsupported`). Each VCF holds
-  exactly one sample (`dataset_vcf_not_single_sample`) and needs no index. A VCF whose header
-  cannot be read (a
-  `.vcf.gz` cut short or damaged, or a plain-text file named `.gz`) is refused by its sample and
-  file name (`dataset_vcf_unreadable`). A NIPT pair's VCF whose one column is named neither as its
-  member nor as its entry's `vcf_sample` is a warning (`nipt_vcf_column_named_otherwise`,
-  [Monogenic NIPT pairs](#monogenic-nipt-pairs)).
-- **APCAD and phased VCFs**: an APCAD VCF (an embryo's, or the family's) and the phased family
-  VCF of `haplotypes` are read up to their `#CHROM` line, and a `.vcf.gz` at its end too. One
-  that cannot be read is refused by name (`dataset_vcf_unreadable`; an embryo's names the
-  embryo): a `.vcf.gz` cut short or damaged, a BGZF file without BGZF's end-of-file block (cut
-  short wherever the cut lies) or a plain-text file named `.gz`. A phased family VCF with no
-  `#CHROM` line naming its samples is refused too (`dataset_vcf_no_sample_columns`): the import
-  reads each member's genotypes from the member's own column. An APCAD VCF without sample columns
-  is read from its records' INFO, and an APCAD file without a VCF record as a BED.
+  exactly one sample (`dataset_vcf_not_single_sample`) and needs no index. A NIPT pair's VCF whose
+  one column is named neither as its member nor as its entry's `vcf_sample` is a warning
+  (`nipt_vcf_column_named_otherwise`, [Monogenic NIPT pairs](#monogenic-nipt-pairs)).
+- **Whole VCFs**: every VCF of `snv`, `sv_needlr` and `repeats_trgt` (a family's or a sample's),
+  a sample's chrM and chrM SV VCF of `mito`, a sample's VCF of `cnv`, the phased family VCF of
+  `haplotypes` and an APCAD VCF (an embryo's, or the family's) is read to its end, with the
+  import's own readers of it, before anything is written. One that cannot be read whole is refused
+  by name, and a sample's file names the sample:
+  - `dataset_vcf_unreadable`: a `.vcf.gz` cut short or damaged anywhere in it, a BGZF file without
+    BGZF's end-of-file block (cut short wherever the cut lies), a plain-text file named `.gz`
+    (NeedlR, TRGT and HiFiCNV VCFs are read by their first bytes, so such a one passes as text),
+    and a NeedlR, TRGT, HiFiCNV, chrM or chrM SV VCF that is not UTF-8 text;
+  - `dataset_vcf_record_cut`: a VCF whose last line is a record cut short (no line end, fewer
+    columns than its `#CHROM` line names), as a plain-text copy cut short leaves it;
+  - `dataset_vcf_too_large`: an SNV, phased or chrM VCF with a line longer than 16 MiB, or a
+    NeedlR, TRGT, HiFiCNV, chrM or chrM SV VCF larger than `MAX_UPLOAD_BYTES` on disk or
+    `MAX_DECOMPRESSED_UPLOAD_BYTES` unpacked, which the import reads whole.
+
+  The readers stream the SNV, phased and APCAD VCFs, a line at a time; the NeedlR, TRGT, HiFiCNV,
+  chrM and chrM SV VCFs are held whole, as the import holds them. A whole-genome SNV callset takes
+  a minute or more (about half a gigabyte of unpacked text a second), at each check of its
+  delivery, each correction and the import's own validation. A phased family VCF with no `#CHROM`
+  line naming its samples is refused too (`dataset_vcf_no_sample_columns`): the import reads each
+  member's genotypes from the member's own column. An APCAD VCF without sample columns is read
+  from its records' INFO, and an APCAD file without a VCF record as a BED.
+- **APCAD tables**: an embryo's APCAD table and segregation table (`.csv` or `.bed`, gzipped or
+  not) are read to their end; one that cannot be read (cut short or damaged, a BGZF file without
+  its end-of-file block, a plain-text file named `.gz`) is refused by name
+  (`dataset_table_unreadable`). One whose `Indiv` column names another embryo is refused
+  (`apcad_table_sample_mismatch`).
 - **Coverage**: a per-target coverage table's header names `chromosome`, `start`, `end`,
   `attribute` and `mean` (`coverage_target_table_columns`). A coverage BED's `content` is
   `read_depth` or `log2_ratio` (`coverage_content_invalid`); a BED without one is a warning
@@ -2452,10 +2472,11 @@ Discover, dry run and import check:
   `sv_needlr`, `repeats_trgt` or `apcad`; a sample's SNV, NeedlR, TRGT or chrM VCF; an embryo's
   APCAD file; a sample's coverage BED) holds a line after its header. One with nothing after it is
   a warning (`dataset_file_without_record`): the import fails that dataset with the stored data as
-  it was ([A file without a record](#where-each-dataset-lands)). The check reads each file up to
-  its first line after the header, so a line the loader cannot read as a record passes it (a
-  BED's `track` line, a column header). A HiFiCNV VCF or a chrM SV VCF without a call is a result
-  and is not warned of; a per-target coverage table is checked for its columns instead.
+  it was ([A file without a record](#where-each-dataset-lands)). A VCF is told by its whole read
+  (above); another file is read up to its first line after the header. Any line counts, so a line
+  the loader cannot read as a record passes it (a BED's `track` line, a column header). A HiFiCNV
+  VCF or a chrM SV VCF without a call is a result and is not warned of; a per-target coverage
+  table is checked for its columns instead.
 - **Datasets**: every dataset key is a known one. A missing `snv` or `sv_needlr` dataset is a
   warning; other datasets are optional, without a warning.
 - A bad phenotype row (an unknown person, HPO ID or status) is a warning: the row is skipped and
@@ -3105,7 +3126,10 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `dataset_callset_invalid` | The SNV dataset's `source_format` is not a callset's name: write the caller in lower-case letters, digits and underscores, starting with a letter (`haplotypecaller`, `deepvariant`, `clair3`, `glimpse2`…). |
 | "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
 | `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |
-| `dataset_vcf_unreadable` | A sample's VCF under `snv.per_sample` (or a NIPT pair's parent VCF, in Discover), an APCAD VCF or the phased family VCF could not be read: a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF named `.gz`; for an APCAD or phased VCF also a BGZF file without its end-of-file block. The message names the file, and the sample where the file is a sample's. Copy the file again from where the pipeline wrote it. An import that meets such a file fails its dataset with "… could not be read: it is cut short or damaged, or is not gzip". |
+| `dataset_vcf_unreadable` | A package VCF could not be read to its end ([Validation](#validation), *Whole VCFs*): a `.vcf.gz` cut short or damaged in a copy, a BGZF file without its end-of-file block, a plain-text VCF named `.gz`, or a NeedlR, TRGT, HiFiCNV, chrM or chrM SV VCF that is not UTF-8 text. Discover refuses so an SNV file or a NIPT pair's parent VCF whose header it cannot read. The message names the file, and the sample where the file is a sample's. Copy the file again from where the pipeline wrote it. An import that meets such a file fails its dataset with "… could not be read: it is cut short or damaged, or is not gzip". |
+| `dataset_vcf_record_cut` | A package VCF's last line is a record cut short: no line end, and fewer columns than its `#CHROM` line names, as a plain-text copy cut short leaves it. The readers would skip that record without a word. Copy the file again from where the pipeline wrote it. |
+| `dataset_vcf_too_large` | A package VCF is larger than the import reads: an SNV, phased or chrM VCF with a line longer than 16 MiB, or a NeedlR, TRGT, HiFiCNV, chrM or chrM SV VCF, which the import reads whole, larger than `MAX_UPLOAD_BYTES` on disk or `MAX_DECOMPRESSED_UPLOAD_BYTES` unpacked. Check that the manifest names the right file; the import would refuse it. |
+| `dataset_table_unreadable` | An embryo's APCAD table or segregation table (`.csv` or `.bed`, gzipped or not) could not be read to its end: cut short or damaged in a copy, a BGZF file without its end-of-file block, or a plain-text file named `.gz`. The message names the embryo and the file. Copy the file again from where the pipeline wrote it. |
 | `dataset_vcf_no_sample_columns` | The phased family VCF of `haplotypes` has no `#CHROM` line naming its samples (none at all, or one with only the fixed columns): the import could give no member a genotype from it. Copy the file again from where the pipeline wrote it. |
 | `nipt_vcf_column_named_otherwise` (warning) | A NIPT pair's VCF names its one sample column neither as the member nor as the entry's `vcf_sample`; the import reads it as the member's calls ([Monogenic NIPT pairs](#monogenic-nipt-pairs)). If the file holds the member's verified tube, set the entry's `vcf_sample` to the column's name; if not, correct the manifest. |
 | `coverage_target_table_columns` | A per-target coverage table's header lacks `chromosome`, `start`, `end`, `attribute` or `mean`. |

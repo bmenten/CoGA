@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 import csv
 import json
 from pathlib import Path
@@ -23,7 +24,7 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, manifest_text_problem, manifest_text_sha256, package_text_handle, read_vcf_sample_columns, read_whole_vcf_sample_columns, unreadable_vcf_issue, UnreadableVcf, vcf_holds_a_data_line
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, UNREADABLE_FILE_ERRORS, FamilyPackageBundle, ManifestDataset, PackageManifest, PackageVcfRead, PackageVcfReader, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _unreadable_reason, _vcf_index_candidates, family_id_issue, manifest_text_problem, manifest_text_sha256, read_package_vcf_whole, unreadable_vcf_issue, UnreadableVcf, vcf_holds_a_data_line, whole_package_text_handle
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_fingerprint import PackageFingerprint, PackageFolderTooLarge, package_fingerprint
 from .family_package_mito_table import mito_sample_calls, read_mito_table
@@ -175,17 +176,24 @@ def _warn_file_without_a_record(
     path: Path | None,
     warnings: list[FamilyImportValidationIssue] | None,
     sample_id: str | None = None,
+    read: PackageVcfRead | None = None,
 ) -> None:
     """A warning for a data file with nothing after its header, which the import refuses: it
-    fails the dataset with the stored data as it was. A dry run did not report it. A file that cannot be read here is left to the import, which says what is
-    wrong with it."""
+    fails the dataset with the stored data as it was. A VCF is told by its whole read
+    (``read``, from ``_whole_vcf_or_refusal``, which refuses one it cannot read); another file
+    (a BED, an APCAD file read as one) is read here up to its first line after its header, and
+    one that cannot be read so is left to the import, which says what is wrong with it."""
     if warnings is None or path is None or not path.is_file():
         return
-    try:
-        if vcf_holds_a_data_line(path):
+    if read is not None:
+        if read.holds_a_line:
             return
-    except (OSError, EOFError, ValueError, zlib.error):
-        return
+    else:
+        try:
+            if vcf_holds_a_data_line(path):
+                return
+        except (OSError, EOFError, ValueError, zlib.error):
+            return
     of_sample = f" of {sample_id}" if sample_id else ""
     warnings.append(
         _issue(
@@ -203,6 +211,23 @@ def _warn_file_without_a_record(
 #: a sample's TRGT VCF, NeedlR VCF and chrM VCF. A HiFiCNV VCF or a chrM SV VCF
 # without a call is a result, and neither is warned of.
 _RECORD_REQUIRED_DATASETS = frozenset({"repeats_trgt", "sv_needlr", "mito"})
+
+# What a refusal calls a dataset's family VCF.
+_FAMILY_VCF_LABELS = {
+    "snv": "The SNV family VCF",
+    "sv_needlr": "The NeedlR family VCF",
+    "repeats_trgt": "The TRGT family VCF",
+}
+
+# The VCFs of a sample's entry the validation reads whole, by dataset and role, with what a
+# refusal calls each ({sample} the entry's sample).
+_SAMPLE_VCF_LABELS = {
+    ("sv_needlr", "vcf"): "The NeedlR file of {sample}",
+    ("repeats_trgt", "file"): "The TRGT VCF of {sample}",
+    ("mito", "vcf"): "The chrM VCF of {sample}",
+    ("mito", "sv_vcf"): "The chrM SV VCF of {sample}",
+    ("cnv", "vcf"): "The CNV VCF of {sample}",
+}
 
 
 def _validate_family_vcf_dataset(
@@ -223,9 +248,16 @@ def _validate_family_vcf_dataset(
         errors=errors,
         files=files,
     )
-    # Every dataset read through here (snv, sv_needlr, repeats_trgt) refuses a family VCF
-    # without a record.
-    _warn_file_without_a_record(root=root, dataset_type=dataset_type, path=vcf_path, warnings=warnings)
+    # Read whole as the import reads it, before anything is written: one it cannot read whole
+    # is refused by name. Every dataset read through here (snv, sv_needlr, repeats_trgt)
+    # refuses a family VCF without a record.
+    read = _whole_vcf_or_refusal(
+        root, vcf_path, dataset=dataset_type, label=_FAMILY_VCF_LABELS[dataset_type], errors=errors
+    )
+    if read is not None:
+        _warn_file_without_a_record(
+            root=root, dataset_type=dataset_type, path=vcf_path, warnings=warnings, read=read
+        )
     # An uncompressed .vcf without a declared index is accepted for every
     # family-VCF dataset (the small-variant loader reads plain text and needs no
     # tabix index); a .gz still requires its index.
@@ -309,7 +341,7 @@ def _check_snv_callset_named(
         return
 
 
-def _vcf_columns_or_refusal(
+def _whole_vcf_or_refusal(
     root: Path,
     path: Path | None,
     *,
@@ -317,20 +349,38 @@ def _vcf_columns_or_refusal(
     label: str,
     errors: list[FamilyImportValidationIssue],
     sample_id: str | None = None,
-) -> list[str] | None:
-    """The sample columns of a VCF the import reads whole (an APCAD VCF, the phased family
-    VCF), read from its header; None when there is no file here to read, or when it cannot be
-    read: a gzip file cut short (a BGZF file wherever the cut lies), damaged or not gzip at
-    all. Such a file is refused by name in ``errors`` (``dataset_vcf_unreadable``, naming
-    ``sample_id`` where given), never by the error's text: it passed validation and failed
-    its dataset only at import."""
+) -> PackageVcfRead | None:
+    """A package VCF read whole, to its end, by the import's readers of the dataset's files
+    (``read_package_vcf_whole``, ``_VCF_READERS``), before the import writes anything; None
+    when there is no file here to read, or when it cannot be read whole: a gzip file cut
+    short or damaged, a BGZF file without its end-of-file block, wherever it was cut, a file
+    named ``.gz`` that is not gzip, one whose last record is cut short, one larger than the
+    import reads. Such a file is refused by name in ``errors`` (``dataset_vcf_unreadable``,
+    ``dataset_vcf_record_cut``, ``dataset_vcf_too_large``, naming ``sample_id`` where given),
+    never by the error's text, which can quote the file."""
     if path is None or not path.is_file():
         return None
     try:
-        return read_whole_vcf_sample_columns(path, label=label)
-    except UnreadableVcf:
-        errors.append(unreadable_vcf_issue(root, path, dataset=dataset, label=label, sample_id=sample_id))
+        return read_package_vcf_whole(path, label=label, readers=_VCF_READERS[dataset])
+    except UnreadableVcf as refused:
+        errors.append(unreadable_vcf_issue(root, refused, dataset=dataset, sample_id=sample_id))
         return None
+
+
+# The import's readers of each dataset's VCFs (``PackageVcfReader``), with which the validation
+# reads each whole: the small-variant loader's for the SNV files and the phased family VCF; the
+# whole-text read for NeedlR, TRGT and HiFiCNV VCFs; both for a chrM VCF, which the import
+# checks whole before the loader stores it (and its chrM SV VCF, read so too); the track reader
+# for an APCAD VCF.
+_VCF_READERS: dict[str, tuple[PackageVcfReader, ...]] = {
+    "snv": ("loader",),
+    "haplotypes": ("loader",),
+    "sv_needlr": ("text",),
+    "repeats_trgt": ("text",),
+    "cnv": ("text",),
+    "mito": ("text", "loader"),
+    "apcad": ("track",),
+}
 
 
 def _sample_entry_mapping(
@@ -605,20 +655,16 @@ def _validate_per_sample_snv_dataset(
             files=files,
             sample_id=sample_id,
         )
-        _warn_file_without_a_record(
-            root=root, dataset_type="snv", path=vcf_path, warnings=warnings, sample_id=sample_id
+        # Read whole as the import reads it: one it cannot read whole (a BGZF file cut in its
+        # records included) is refused by name, before anything is written.
+        read = _whole_vcf_or_refusal(
+            root, vcf_path, dataset="snv", label=f"The SNV file of {sample_id}", errors=errors, sample_id=sample_id
         )
-        if vcf_path is not None and vcf_path.is_file():
-            try:
-                columns = read_vcf_sample_columns(vcf_path)
-            except UnreadableVcf:
-                # Refused by name: the read raised out of the request, a 500.
-                errors.append(
-                    unreadable_vcf_issue(
-                        root, vcf_path, dataset="snv", label=f"The SNV file of {sample_id}", sample_id=sample_id
-                    )
-                )
-                continue
+        if read is not None:
+            _warn_file_without_a_record(
+                root=root, dataset_type="snv", path=vcf_path, warnings=warnings, sample_id=sample_id, read=read
+            )
+            columns = read.columns
             if len(columns) != 1:
                 errors.append(
                     _issue(
@@ -853,11 +899,14 @@ def _validate_apcad_dataset(
             errors=errors,
             files=files,
         )
-        # One the validation cannot read is refused by name; the import failed on it.
-        _vcf_columns_or_refusal(
+        # Read whole as the import reads it: one it cannot read whole is refused by name.
+        read = _whole_vcf_or_refusal(
             root, family_vcf_path, dataset="apcad", label="The family APCAD VCF", errors=errors
         )
-        _warn_file_without_a_record(root=root, dataset_type="apcad", path=family_vcf_path, warnings=warnings)
+        if read is not None:
+            _warn_file_without_a_record(
+                root=root, dataset_type="apcad", path=family_vcf_path, warnings=warnings, read=read
+            )
         _note_family_vcf_index(
             root=root,
             dataset_type="apcad",
@@ -955,16 +1004,18 @@ def _check_apcad_sample_vcf_columns(
     """A per-sample APCAD VCF must hold the sample's column. A trio VCF (the PGT
     pipeline's) also holds the parents' columns, which give each site its parental
     origin: without one, the import still runs but cannot say which parent an allele
-    came from, so that is a warning. One that cannot be read (cut short, damaged, not gzip)
-    is refused, naming the sample and the file. One without sample columns is
-    read from its records' INFO, and one without a VCF record as a BED, by the import."""
+    came from, so that is a warning. It is read whole as the import reads it: one it cannot
+    read whole (cut short, damaged, not gzip) is refused, naming the sample and the file. One
+    without sample columns is read from its records' INFO, and one without a VCF record as a
+    BED, by the import."""
     value = entry.get("vcf") or entry.get("bed") or entry.get("file")
     if not isinstance(value, str) or not value.lower().endswith((".vcf", ".vcf.gz")):
         return
     path = _package_path_or_none(root, value)
-    columns = _vcf_columns_or_refusal(
+    read = _whole_vcf_or_refusal(
         root, path, dataset="apcad", label=f"The APCAD VCF of {sample_id}", errors=errors, sample_id=sample_id
     )
+    columns = read.columns if read is not None else []
     if not columns:
         return
     column = entry.get("vcf_sample") or entry.get("sample_name") or sample_id
@@ -1007,10 +1058,15 @@ def _check_apcad_table_sample(
     """The PGT pipeline's APCAD table of an embryo, and its segregation table, name the embryo
     in their ``Indiv`` column: a table naming another (an embryo's file under its sibling's
     entry) is refused, as a per-sample VCF without the sample's column is, before anything is
-    written. Each one's first record is read; a table without that column, or one that cannot
-    be read here, is left to the import."""
-    for kind, value in (("APCAD table", entry.get("file") or entry.get("bed")), ("Segregation table", entry.get("segregation"))):
+    written. Each one's first record is read for it, and the table read to its end: one that
+    cannot be read is refused (``_check_table_names_sample``); a table without that column is
+    left to the import."""
+    for kind, value in (("APCAD table", entry.get("file") or entry.get("bed")), ("segregation table", entry.get("segregation"))):
         _check_table_names_sample(root=root, sample_id=sample_id, entry=entry, kind=kind, value=value, errors=errors)
+
+
+# The names of an embryo's APCAD table and segregation table: a CSV or a BED, gzipped or not.
+_APCAD_TABLE_SUFFIXES = (".csv", ".csv.gz", ".bed", ".bed.gz")
 
 
 def _check_table_names_sample(
@@ -1022,21 +1078,42 @@ def _check_table_names_sample(
     value: Any,
     errors: list[FamilyImportValidationIssue],
 ) -> None:
-    if not isinstance(value, str) or not value.lower().endswith(".csv"):
+    """An embryo's table (``kind``: its APCAD table or its segregation table) read whole, as
+    the import reads it (``whole_package_text_handle``), before anything is written: one that
+    cannot be read to its end (a gzip file cut short or damaged, a BGZF file without its
+    end-of-file block, a file named ``.gz`` that is not gzip) is refused, naming the embryo and
+    the file (``dataset_table_unreadable``), never by the error's text. Then the ``Indiv``
+    column of its first record (see ``_check_apcad_table_sample``)."""
+    if not isinstance(value, str) or not value.lower().endswith(_APCAD_TABLE_SUFFIXES):
         return
     path = _package_path_or_none(root, value)
     if path is None or not path.is_file():
         return
+    header: list[str] = []
+    first: list[str] | None = None
     try:
-        with package_text_handle(path) as handle:
+        with whole_package_text_handle(path) as handle:
             rows = csv.reader(handle)
-            header = [cell.strip().lower() for cell in next(rows, [])]
-            if "indiv" not in header:
-                return
-            first = next(rows, None)
-    except (OSError, UnicodeDecodeError, csv.Error):
+            # A first row CSV cannot read is left to the import.
+            with suppress(csv.Error):
+                header = [cell.strip().lower() for cell in next(rows, [])]
+                first = next(rows, None)
+            # The rest of the table, read to its end.
+            for _line in handle:
+                pass
+    except UNREADABLE_FILE_ERRORS:
+        errors.append(
+            _issue(
+                "dataset_table_unreadable",
+                f"The {kind} of {sample_id} ({_display_path(root, path)}) could not be read"
+                f"{_unreadable_reason(path)}. Copy it again from where the pipeline wrote it.",
+                dataset="apcad",
+                sample_id=sample_id,
+                path=path,
+            )
+        )
         return
-    if not first or len(first) <= header.index("indiv"):
+    if "indiv" not in header or not first or len(first) <= header.index("indiv"):
         return
     named = first[header.index("indiv")].strip()
     expected = {sample_id, entry.get("vcf_sample"), entry.get("sample_name")} - {None}
@@ -1044,7 +1121,7 @@ def _check_table_names_sample(
         errors.append(
             _issue(
                 "apcad_table_sample_mismatch",
-                f"{kind} {value} is {named}'s (its Indiv column), not {sample_id}'s; "
+                f"{kind[:1].upper()}{kind[1:]} {value} is {named}'s (its Indiv column), not {sample_id}'s; "
                 "name the right file, or the table's sample with vcf_sample",
                 dataset="apcad",
                 sample_id=sample_id,
@@ -1147,10 +1224,11 @@ def _validate_haplotypes_dataset(
             errors=errors,
             files=files,
         )
-        # One that cannot be read is refused by name; the import failed on it.
-        columns = _vcf_columns_or_refusal(
+        # Read whole as the import reads it: one it cannot read whole is refused by name.
+        read = _whole_vcf_or_refusal(
             root, family_vcf_path, dataset="haplotypes", label="The phased family VCF", errors=errors
         )
+        columns = read.columns if read is not None else None
         if columns == [] and family_vcf_path is not None:
             # The import reads each member's genotypes from the member's own column: from a
             # file naming none it could give no member one.
@@ -1396,13 +1474,16 @@ def _validate_per_sample_file_dataset(
                 files=files,
                 sample_id=sample_id,
             )
-            if dataset_type in _RECORD_REQUIRED_DATASETS:
+            read = _read_sample_vcf(
+                root, path, dataset_type=dataset_type, role=role, sample_id=sample_id, errors=errors
+            )
+            if dataset_type in _RECORD_REQUIRED_DATASETS and read is not None:
                 _warn_file_without_a_record(
-                    root=root, dataset_type=dataset_type, path=path, warnings=warnings, sample_id=sample_id
+                    root=root, dataset_type=dataset_type, path=path, warnings=warnings, sample_id=sample_id, read=read
                 )
         for role in optional_roles:
             if entry.get(role):
-                _require_file(
+                path = _require_file(
                     root=root,
                     dataset_type=dataset_type,
                     value=entry.get(role),
@@ -1411,6 +1492,7 @@ def _validate_per_sample_file_dataset(
                     files=files,
                     sample_id=sample_id,
                 )
+                _read_sample_vcf(root, path, dataset_type=dataset_type, role=role, sample_id=sample_id, errors=errors)
         if dataset_type == "qc" and not any(entry.get(role) for role in optional_roles):
             errors.append(
                 _issue(
@@ -1426,6 +1508,26 @@ def _validate_per_sample_file_dataset(
         status="error" if len(errors) > before else "valid",
         files=list(dict.fromkeys(files)),
         samples=samples,
+    )
+
+
+def _read_sample_vcf(
+    root: Path,
+    path: Path | None,
+    *,
+    dataset_type: str,
+    role: str,
+    sample_id: str,
+    errors: list[FamilyImportValidationIssue],
+) -> PackageVcfRead | None:
+    """A sample's VCF under ``role`` read whole (``_whole_vcf_or_refusal``) when the dataset's
+    entry holds one there (``_SAMPLE_VCF_LABELS``); None for any other file (an alignment, an
+    index, a QC file), one not here, and one refused."""
+    label = _SAMPLE_VCF_LABELS.get((dataset_type, role))
+    if label is None:
+        return None
+    return _whole_vcf_or_refusal(
+        root, path, dataset=dataset_type, label=label.format(sample=sample_id), errors=errors, sample_id=sample_id
     )
 
 

@@ -318,11 +318,9 @@ def discover_nipt_package_files(
             if path is None:
                 break
             try:
-                columns = read_vcf_sample_columns(path)
-            except UnreadableVcf:
-                issue = unreadable_vcf_issue(
-                    root, path, dataset="snv", label=f"The SNV file of {sample_id}", sample_id=sample_id
-                )
+                columns = read_vcf_sample_columns(path, label=f"The SNV file of {sample_id}")
+            except UnreadableVcf as refused:
+                issue = unreadable_vcf_issue(root, refused, dataset="snv", sample_id=sample_id)
                 if errors is not None and issue not in errors:
                     errors.append(issue)
                 break

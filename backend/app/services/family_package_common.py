@@ -6,16 +6,17 @@ from dataclasses import dataclass, field
 import errno
 import gzip
 import hashlib
+import io
 import json
 import logging
 import math
 import os
 from pathlib import Path
 import re
-from typing import Any, Awaitable, Callable, Coroutine, Iterable, TextIO
+from typing import Any, Awaitable, Callable, Coroutine, Iterable, Literal, TextIO
 import zlib
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import String, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -612,33 +613,56 @@ def _unreadable_reason(path: Path) -> str:
     return ""
 
 
-class UnreadableVcf(ValueError):
-    """A VCF whose header could not be read: a gzip file cut short or damaged, a file named
-    ``.gz`` that is not gzip, or one the disk would not give. Its message names the
-    file by its name, with ``label`` (the VCF, the SNV file of a sample), and never the
-    error's own text, which can quote the file. A ValueError, so a reader that left such a
-    file to the import still does."""
-
-    def __init__(self, path: Path, *, label: str = "The VCF") -> None:
-        self.path = path
-        super().__init__(f"{label} ({path.name}) could not be read{_unreadable_reason(path)}")
-
-
+# The issues a package VCF that cannot be read whole is refused with (``UnreadableVcf``): one
+# that could not be read (a gzip file cut short or damaged, a BGZF file without its end-of-file
+# block, a file named ``.gz`` that is not gzip, one read whole that is not UTF-8 text); one
+# whose last record is cut short; one larger than the import reads.
 DATASET_VCF_UNREADABLE = "dataset_vcf_unreadable"
+DATASET_VCF_RECORD_CUT = "dataset_vcf_record_cut"
+DATASET_VCF_TOO_LARGE = "dataset_vcf_too_large"
+
+_COPY_IT_AGAIN = "Copy it again from where the pipeline wrote it."
+
+
+class UnreadableVcf(ValueError):
+    """A VCF that could not be read: a gzip file cut short or damaged, a file named ``.gz``
+    that is not gzip, or one the disk would not give; read whole (``read_package_vcf_whole``),
+    also a BGZF file without its end-of-file block, one whose last record is cut short, one
+    the import reads whole that is not UTF-8 text, and one larger than the import reads. Its
+    message names the file by its name, with ``label`` (the VCF, the SNV file of a sample),
+    and says what is wrong with it in fixed words (``problem``), never the error's own text,
+    which can quote the file. ``code`` is the issue a validation refuses it with
+    (``unreadable_vcf_issue``), and ``remedy`` what that issue asks. A ValueError, so a reader
+    that left such a file to the import still does."""
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        label: str = "The VCF",
+        problem: str | None = None,
+        code: str = DATASET_VCF_UNREADABLE,
+        remedy: str = _COPY_IT_AGAIN,
+    ) -> None:
+        self.path = path
+        self.label = label
+        self.problem = problem if problem is not None else f"could not be read{_unreadable_reason(path)}"
+        self.code = code
+        self.remedy = remedy
+        super().__init__(f"{label} ({path.name}) {self.problem}")
 
 
 def unreadable_vcf_issue(
-    root: Path, path: Path, *, dataset: str, label: str, sample_id: str | None = None
+    root: Path, refused: UnreadableVcf, *, dataset: str, sample_id: str | None = None
 ) -> FamilyImportValidationIssue:
-    """The refusal of a VCF Discover or the validation could not read (``UnreadableVcf``),
-    naming the file as the package does and, when given, the sample."""
+    """The refusal of a VCF Discover or the validation could not read (``refused``), with its
+    code, naming the file as the package does and, when given, the sample."""
     return _issue(
-        DATASET_VCF_UNREADABLE,
-        f"{label} ({_display_path(root, path)}) could not be read{_unreadable_reason(path)}. "
-        "Copy it again from where the pipeline wrote it.",
+        refused.code,
+        f"{refused.label} ({_display_path(root, refused.path)}) {refused.problem}. {refused.remedy}",
         dataset=dataset,
         sample_id=sample_id,
-        path=path,
+        path=refused.path,
     )
 
 
@@ -662,16 +686,128 @@ def read_vcf_sample_columns(path: Path, *, label: str = "The VCF") -> list[str]:
     return []
 
 
-def read_whole_vcf_sample_columns(path: Path, *, label: str = "The VCF") -> list[str]:
-    """``read_vcf_sample_columns`` for a VCF the import reads whole: a BGZF file that does not
-    end with BGZF's end-of-file block, cut short wherever the cut lies, raises
-    ``UnreadableVcf`` too, as the import's reader refuses it (``whole_package_text_handle``).
-    Only the file's first bytes, its header and its last 28 bytes are read."""
+# The import's readers of a package VCF, each of which ``read_package_vcf_whole`` reads a file
+# with to its end:
+# - ``loader``: the small-variant loader's (``variant_upload_service._iter_upload_text_lines``),
+#   which streams the file line by line: gzip by its first bytes or its name, a BGZF file's end
+#   checked first, a line longer than it reads refused. The SNV files (a family's, a sample's),
+#   the phased family VCF and a chrM VCF are stored through it.
+# - ``text``: ``_read_package_text``, which holds the file whole in memory, within the upload
+#   caps (``MAX_UPLOAD_BYTES`` on disk, ``MAX_DECOMPRESSED_UPLOAD_BYTES`` unpacked): gzip by
+#   its first bytes, every member whole, a BGZF file's end, UTF-8 text. The NeedlR, TRGT,
+#   HiFiCNV, chrM and chrM SV VCFs are read with it.
+# - ``track``: ``whole_package_text_handle``, which streams the file: gzip by its name, a BGZF
+#   file's end checked first. An APCAD VCF is read with it.
+PackageVcfReader = Literal["loader", "text", "track"]
+
+
+@dataclass(frozen=True)
+class PackageVcfRead:
+    """What reading a package VCF whole found (``read_package_vcf_whole``)."""
+
+    # The sample columns of its #CHROM line before its first record, as
+    # ``read_vcf_sample_columns`` reads them: none without one, or for a file whose #CHROM
+    # line names only the fixed columns.
+    columns: list[str]
+    # Whether it holds a line after its header, as ``vcf_holds_a_data_line`` reads it.
+    holds_a_line: bool
+
+
+def read_package_vcf_whole(
+    path: Path, *, label: str, readers: Iterable[PackageVcfReader]
+) -> PackageVcfRead:
+    """The package VCF ``path`` read to its end with each of ``readers``, the import's
+    readers of it (``PackageVcfReader``), storing nothing: what the validation reads of a
+    package VCF before the import writes anything, so a file the import cannot read whole is
+    refused then, not when its dataset has begun writing.
+
+    A file one of them refuses raises ``UnreadableVcf``, named with ``label``: one that could
+    not be read (``DATASET_VCF_UNREADABLE``: a gzip file cut short or damaged, a BGZF file
+    without its end-of-file block, wherever it was cut, a file named ``.gz`` that is not gzip,
+    one read ``text`` that is not UTF-8 text), and one larger than the reader reads
+    (``DATASET_VCF_TOO_LARGE``). So does a file whose last line is a record cut short
+    (``DATASET_VCF_RECORD_CUT``): a line without its line end, with fewer columns than its
+    #CHROM line names, as a plain-text copy cut short leaves it. The readers skip such a
+    record; a gzip file cut short is refused by its reader already.
+
+    The file is read once by each reader: a ``loader`` or ``track`` read streams it, holding a
+    line at a time; a ``text`` read holds it whole, as the import does."""
+    read = PackageVcfRead(columns=[], holds_a_line=False)
+    for reader in dict.fromkeys(readers):
+        read = _read_package_vcf_with(path, label=label, reader=reader)
+    return read
+
+
+def _read_package_vcf_with(path: Path, *, label: str, reader: PackageVcfReader) -> PackageVcfRead:
     try:
-        require_bgzf_path_end(path, label=path.name)
+        if reader == "text":
+            return _whole_vcf_lines(io.StringIO(_read_package_text(path)), path=path, label=label)
+        if reader == "track":
+            with whole_package_text_handle(path) as handle:
+                return _whole_vcf_lines(handle, path=path, label=label)
+        # Imported here: the loader imports this module.
+        from .variant_upload_service import _iter_upload_text_lines
+
+        with path.open("rb") as raw:
+            lines = _iter_upload_text_lines(UploadFile(file=raw, filename=path.name), kind="VCF")
+            return _whole_vcf_lines(lines, path=path, label=label)
+    except HTTPException as exc:
+        raise _refused_by_reader(path, label=label, reader=reader, refusal=exc) from exc
     except UNREADABLE_FILE_ERRORS as exc:
         raise UnreadableVcf(path, label=label) from exc
-    return read_vcf_sample_columns(path, label=label)
+
+
+def _refused_by_reader(
+    path: Path, *, label: str, reader: PackageVcfReader, refusal: HTTPException
+) -> UnreadableVcf:
+    """A reader's refusal (a 400 or a 413) of the file as ``UnreadableVcf``, in fixed words."""
+    if refusal.status_code == 413:
+        if reader == "loader":
+            problem = "holds a line longer than the import reads (16 MiB)"
+        else:
+            problem = (
+                "is larger than the import reads whole (MAX_UPLOAD_BYTES on disk, "
+                "MAX_DECOMPRESSED_UPLOAD_BYTES unpacked)"
+            )
+        return UnreadableVcf(
+            path, label=label, problem=problem, code=DATASET_VCF_TOO_LARGE, remedy="The import would refuse it."
+        )
+    if isinstance(refusal.__cause__, UnicodeDecodeError):
+        return UnreadableVcf(path, label=label, problem="could not be read: it is not UTF-8 text")
+    return UnreadableVcf(path, label=label)
+
+
+def _whole_vcf_lines(lines: Iterable[str], *, path: Path, label: str) -> PackageVcfRead:
+    """``PackageVcfRead`` of a VCF's ``lines``, read to the last; raises ``UnreadableVcf``
+    (``DATASET_VCF_RECORD_CUT``) when the last is a record cut short."""
+    columns: list[str] = []
+    # The columns the #CHROM line names, the fixed ones included; 0 without one.
+    width = 0
+    holds_a_line = False
+    last = ""
+    for line in lines:
+        last = line
+        if line.startswith("#"):
+            if not width and not holds_a_line and line.startswith("#CHROM"):
+                fields = line.rstrip("\n\r").split("\t")
+                columns, width = fields[9:], len(fields)
+            continue
+        if not holds_a_line and line.strip():
+            holds_a_line = True
+    if (
+        width
+        and last.strip()
+        and not last.endswith("\n")
+        and not last.startswith("#")
+        and len(last.rstrip("\r").split("\t")) < width
+    ):
+        raise UnreadableVcf(
+            path,
+            label=label,
+            problem="ends in a record cut short, as a copy cut short leaves it",
+            code=DATASET_VCF_RECORD_CUT,
+        )
+    return PackageVcfRead(columns=columns, holds_a_line=holds_a_line)
 
 
 def vcf_holds_a_data_line(path: Path, *, label: str = "The VCF") -> bool:

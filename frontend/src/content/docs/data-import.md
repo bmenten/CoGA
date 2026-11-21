@@ -698,13 +698,19 @@ Paraphase results are replaced.
   refused (`ccnv_results_disagree`, `ccnv_samples_disagree`). A QC file that is not ccnv's prenatal
   output of format version 2 is refused (`ccnv_qc_invalid`). A sample named otherwise than its member is
   read as the member's, with a warning (`ccnv_sample_named_otherwise`), as a NIPT pair's file is.
-- A sample's SNV file that cannot be read (a `.vcf.gz` cut short or damaged in a copy, or a plain-text VCF
-  named `.gz`) is an error that names the sample and the file (`dataset_vcf_unreadable`), as CoGA proposes members too
-  for a NIPT pair's parent file. Copy the file again from where the pipeline wrote it.
-- So is an embryo's or the family's APCAD VCF, or the phased family VCF, that cannot be read, a BGZF file
-  that lacks its end-of-file block (cut short anywhere) included: the error names the file, and the embryo
-  for an embryo's (`dataset_vcf_unreadable`). A phased family VCF without a `#CHROM` line naming its
-  samples is an error too (`dataset_vcf_no_sample_columns`): no member's genotypes can be read from it.
+- Every VCF the import reads (the SNV, NeedlR and TRGT files of the family or a sample, a sample's chrM
+  and CNV files, the phased family VCF, an APCAD VCF) is read to its end before anything is written, as
+  the import reads it. One that cannot be read whole is an error that names the file, and the sample
+  for a sample's: a `.vcf.gz` cut short or damaged in a copy, a BGZF file that lacks its end-of-file
+  block (cut short anywhere), a plain-text VCF named `.gz` (`dataset_vcf_unreadable`); a VCF whose last
+  record is cut short (`dataset_vcf_record_cut`); one larger than the import reads
+  (`dataset_vcf_too_large`). Copy the file again from where the pipeline wrote it. For a whole genome's
+  calls this read takes a minute or more. CoGA refuses so too, when it proposes members, an SNV file or
+  a NIPT pair's parent file whose header it cannot read.
+- An embryo's APCAD table and segregation table, gzipped or not, are read to their end too: one that
+  cannot be read is an error naming the embryo and the file (`dataset_table_unreadable`). A phased
+  family VCF without a `#CHROM` line naming its samples is an error too
+  (`dataset_vcf_no_sample_columns`): no member's genotypes can be read from it.
 - A manifest's `roi` (a gene, or a region such as `chr7:117480025-117668665`) is looked up in the
   assembly of the import's project, or of the existing family. One the import does not find clears the
   family's region of interest, so no embryo is called at a region the package does not name. The import
