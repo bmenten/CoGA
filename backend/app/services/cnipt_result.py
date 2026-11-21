@@ -11,7 +11,10 @@ segmental CNVs. Each gets one result:
   sex-chromosome call of an aneuploidy at the confidence bound;
 - ``inconclusive``: such a segment that is not concordant (sub- or super-fetal, flagged
   discordant by ccnv, of maternal or mosaic origin), a segment in the grey zone below the call
-  bound, or a sex-chromosome call below the confidence bound or of mixed signals;
+  bound, or a sex-chromosome call below the confidence bound or of mixed signals; and a claimed
+  target that would be low risk while the fetal fraction is below ccnv's limit of detection of
+  arm-level events (``lod_ff_35mb``: the owner's decision of 2026-11-21), which cannot say that
+  such an aneuploidy is absent;
 - ``low_risk``: none of these;
 - ``no_result``: the plasma's fetal fraction is below its bound, or a bound the rule needs is not
   set; or, for a chromosome, ccnv gives no segment of it;
@@ -475,6 +478,18 @@ def evaluate_cnipt(
                     "reasons": reasons if worst_segmental != "low_risk" else [resolution, *reasons],
                 }
             )
+        if lod_arm is not None and fetal_fraction < lod_arm:
+            # Below ccnv's limit of detection of arm-level events, a claimed target is never read as
+            # low risk: the plasma cannot show its aneuploidy (the owner's decision of 2026-11-21). A
+            # finding it did show keeps its verdict.
+            below_lod = (
+                f"the fetal fraction ({_percent(fetal_fraction)}) is below ccnv's limit of detection of "
+                f"arm-level events ({_percent(lod_arm)}), so it cannot be read as low risk"
+            )
+            for entry in targets:
+                if entry["target"] in CLAIMED_TARGETS and entry["verdict"] == "low_risk":
+                    entry["verdict"] = "inconclusive"
+                    entry["reasons"] = [*entry["reasons"], below_lod]
 
     return {
         "status": "no_result" if no_result else "result",

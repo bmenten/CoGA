@@ -29,7 +29,9 @@ analysis cannot tell which (not so for a monozygotic twin).
 
 - **Result**, headed with the plasma's sample ID, lists chromosomes 21, 18 and 13, the sex chromosomes
   and the segmental CNVs first, each **High risk**, **Inconclusive**, **Low risk**, **No result** or
-  **Not assessed**, with why. Another autosome is listed with them when it is not low risk; every
+  **Not assessed**, with why. When the fetal fraction is below ccnv's limit of detection of
+  arm-level events, chromosomes 21, 18 and 13 and the sex chromosomes are **Inconclusive** rather
+  than low risk. Another autosome is listed with them when it is not low risk; every
   autosome is under *Every other autosome*. The segmental CNVs and every autosome other than 21, 18
   and 13 are marked **outside the validated claim**, here, on the report page and in the signed
   version: screen them as findings outside the claim.
