@@ -221,7 +221,7 @@ describe('MonarchPhenotypeMatchPanel', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Re-run match' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('read timeout');
+    expect(await screen.findByRole('alert')).toHaveTextContent('(ReadTimeout)');
     expect(screen.queryByRole('link', { name: 'TG' })).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
