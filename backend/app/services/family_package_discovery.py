@@ -31,6 +31,16 @@ from .family_package_source import _ensure_authorized_package_path, package_fold
 from .small_variant_callsets import caller_from_vcf_header, header_shows_imputation
 
 
+# Conventional short-read (Illumina) WGS: the joint GATK callset, VEP-annotated, at the top of the
+# family folder and named after its assembly, with or without a suffix after `annotated` that names
+# what else annotated it (`<family>.GRCh38.annotated.gnomad41j.vcf.gz`). The unannotated callset
+# beside it (`<family>.vcf.gz`) is not read, nor is any of two or more annotated ones
+# (`_without_ambiguous_short_read_wgs_callsets`).
+SHORT_READ_WGS_CALLSET_PATTERNS = (
+    "{family_id}.GRCh38.annotated.vcf.gz",
+    "{family_id}.GRCh38.annotated.*.vcf.gz",
+)
+
 # The file names Discover looks for, by dataset.
 NAMING_SCHEME = "standard_v1"
 NAMING_SCHEMES: dict[str, dict[str, Any]] = {
@@ -44,16 +54,15 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "snv/{family_id}/{family_id}.vcf.gz",
                     "snv/{family_id}_phased.vcf.gz",
                     "snv/family.annotated.vcf.gz",
-                    # Conventional short-read (Illumina) WGS: the joint GATK callset,
-                    # VEP-annotated, at the top of the family folder and named after its
-                    # assembly. The unannotated callset beside it (<family>.vcf.gz) is not read.
-                    "{family_id}.GRCh38.annotated.vcf.gz",
+                    *SHORT_READ_WGS_CALLSET_PATTERNS,
                     # nf-core/lrsvar writes the VEP-annotated callset per sample. For a
                     # single-sample family that file *is* the family callset, so these
                     # are only rendered when the family has exactly one sample.
                     "snv/{sample_id}/annotation/{sample_id}_annot.vcf.gz",
                     "snv/annotation/{sample_id}/{sample_id}_annot.vcf.gz",
                 ],
+                # A family VCF found takes the index beside it (`_index_beside`): these name the
+                # index to show as expected when no family VCF is found.
                 "index": [
                     "snv/{family_id}.annotated.vcf.gz.tbi",
                     "snv/{family_id}/{family_id}_phased.vcf.gz.tbi",
@@ -615,6 +624,28 @@ def _glob_candidate_paths(root: Path, pattern: str) -> list[str]:
     return sorted(matches, key=_natural_sort_key)
 
 
+def _candidate_paths(root: Path, pattern: str, *, family_id: str, sample_id: str | None = None) -> list[str]:
+    """The files in the package that ``pattern`` names for the family and sample, newest-looking
+    last (``_glob_candidate_paths``).
+
+    The IDs are names. A pattern's own wildcards match, but an ID's ``*``, ``?`` or ``[``
+    matches only itself, so sample ``S?`` never takes ``S1``'s file; and a path an ID leads
+    out of the package is not looked up (``package_path_within``)."""
+    if _has_glob(pattern):
+        # Only the discovery scanner understands globs; a written manifest always holds the
+        # concrete path a glob resolved to, so validation and import keep treating manifest
+        # values as literal paths.
+        escaped = _format_pattern(
+            pattern,
+            family_id=glob.escape(family_id),
+            sample_id=glob.escape(sample_id) if sample_id else sample_id,
+        )
+        return _glob_candidate_paths(root, escaped)
+    value = _format_pattern(pattern, family_id=family_id, sample_id=sample_id)
+    path = package_path_within(root, value)
+    return [value] if path is not None and path.is_file() else []
+
+
 def _choose_candidate_path(
     root: Path,
     patterns: list[str],
@@ -623,31 +654,15 @@ def _choose_candidate_path(
     sample_id: str | None = None,
 ) -> tuple[str, bool]:
     """The first of ``patterns`` that names a file in the package for the family and
-    sample, and True; else the path to show as expected, and False.
-
-    The IDs are names. A pattern's own wildcards match, but an ID's ``*``, ``?`` or ``[``
-    matches only itself, so sample ``S?`` never takes ``S1``'s file; and a path an ID leads
-    out of the package is not looked up (``package_path_within``)."""
+    sample (``_candidate_paths``; of a glob's files the newest-looking), and True; else the
+    path to show as expected, and False."""
     literal: list[str] = []
     for pattern in patterns:
-        if _has_glob(pattern):
-            # Only the discovery scanner understands globs; a written manifest always
-            # holds the concrete path a glob resolved to, so validation and import keep
-            # treating manifest values as literal paths.
-            escaped = _format_pattern(
-                pattern,
-                family_id=glob.escape(family_id),
-                sample_id=glob.escape(sample_id) if sample_id else sample_id,
-            )
-            matches = _glob_candidate_paths(root, escaped)
-            if matches:
-                return matches[-1], True
-            continue
-        value = _format_pattern(pattern, family_id=family_id, sample_id=sample_id)
-        literal.append(value)
-        path = package_path_within(root, value)
-        if path is not None and path.is_file():
-            return value, True
+        matches = _candidate_paths(root, pattern, family_id=family_id, sample_id=sample_id)
+        if matches:
+            return matches[-1], True
+        if not _has_glob(pattern):
+            literal.append(_format_pattern(pattern, family_id=family_id, sample_id=sample_id))
     # Nothing matched: fall back to a literal candidate for the "expected path" display
     # so a glob pattern is never written into a manifest, and to one in the package
     # when an ID leads the first ones out of it.
@@ -655,6 +670,19 @@ def _choose_candidate_path(
     if expected is None:
         expected = literal[0] if literal else _format_pattern(patterns[0], family_id=family_id, sample_id=sample_id)
     return expected, False
+
+
+def _index_beside(root: Path, vcf_value: str) -> tuple[str, bool]:
+    """The index of the package's VCF ``vcf_value``: the file beside it named after it
+    (``<vcf>.tbi``, else ``<vcf>.csi``), and True; else the ``.tbi`` to show as expected, and
+    False. Never another file's index, which an index pattern of its own could find (a glob's
+    newest-looking index beside an older VCF)."""
+    for suffix in (".tbi", ".csi"):
+        value = f"{vcf_value}{suffix}"
+        path = package_path_within(root, value)
+        if path is not None and path.is_file():
+            return value, True
+    return f"{vcf_value}.tbi", False
 
 
 def _availability_file(
@@ -774,12 +802,15 @@ def _family_dataset_availability(
         family_id=family_id,
         sample_id=sample_id,
     )
-    index_value, index_exists = _choose_candidate_path(
-        root,
-        _patterns_for_family_scope(patterns["index"], sample_id),
-        family_id=family_id,
-        sample_id=sample_id,
-    )
+    if vcf_exists:
+        index_value, index_exists = _index_beside(root, vcf_value)
+    else:
+        index_value, index_exists = _choose_candidate_path(
+            root,
+            _patterns_for_family_scope(patterns["index"], sample_id),
+            family_id=family_id,
+            sample_id=sample_id,
+        )
     index_optional = dataset_type == "repeats_trgt" and _is_uncompressed_vcf(vcf_value)
     complete = vcf_exists and (index_exists or index_optional)
     files = [_availability_file(root=root, role="family_vcf", path_value=vcf_value)]
@@ -1541,6 +1572,43 @@ def _haplotypes_dataset_availability(
     )
 
 
+def _without_ambiguous_short_read_wgs_callsets(
+    root: Path,
+    *,
+    family_id: str,
+    patterns: dict[str, list[str]],
+    errors: list[FamilyImportValidationIssue],
+) -> dict[str, list[str]]:
+    """The ``snv`` patterns, but for a short-read WGS family's annotated callset when the folder
+    holds two or more (``SHORT_READ_WGS_CALLSET_PATTERNS``: ``<family>.GRCh38.annotated.vcf.gz``
+    beside ``<family>.GRCh38.annotated.gnomad41j.vcf.gz``, say). Which of them is the family's
+    callset is not Discover's to guess: it proposes none and refuses by name in ``errors``, so a
+    delivery is not imported without its SNVs."""
+    found = sorted(
+        {
+            value
+            for pattern in SHORT_READ_WGS_CALLSET_PATTERNS
+            for value in _candidate_paths(root, pattern, family_id=family_id)
+        },
+        key=_natural_sort_key,
+    )
+    if len(found) < 2:
+        return patterns
+    errors.append(
+        _issue(
+            "snv_multiple_candidates",
+            f"The folder holds {len(found)} annotated callsets of the family ({', '.join(found)}): leave one "
+            "in the folder, or name the family's SNV callset in the package file's snv dataset",
+            dataset="snv",
+            path=root,
+        )
+    )
+    return {
+        **patterns,
+        "family_vcf": [pattern for pattern in patterns["family_vcf"] if pattern not in SHORT_READ_WGS_CALLSET_PATTERNS],
+    }
+
+
 def _build_manifest_payload(
     *,
     root: Path,
@@ -1557,11 +1625,16 @@ def _build_manifest_payload(
     datasets: dict[str, Any] = {}
     availability: list[FamilyManifestDatasetAvailability] = []
     for dataset_type in ("snv", "sv_needlr", "repeats_trgt"):
+        patterns = scheme[dataset_type]
+        if dataset_type == "snv":
+            patterns = _without_ambiguous_short_read_wgs_callsets(
+                root, family_id=family_id, patterns=patterns, errors=errors
+            )
         item, block = _family_dataset_availability(
             root=root,
             family_id=family_id,
             dataset_type=dataset_type,
-            patterns=scheme[dataset_type],
+            patterns=patterns,
             sample_ids=sample_ids,
         )
         if not item.complete and dataset_type in ("snv", "sv_needlr") and len(sample_ids) > 1:
