@@ -78,9 +78,9 @@ the segmental CNVs.
 **Findings.** CoGA looks at every segment ccnv called and every segment whose |z-score| reaches the
 grey zone.
 
-- A segment spanning at least half of its chromosome is read as an **aneuploidy** of that chromosome
-  (whole, or of an arm).
-- A shorter segment is a **segmental CNV**. Segmental CNVs are assessed from 3 Mb, or from 35 Mb
+- Findings of one direction (gains, or losses) that together span at least half of their
+  chromosome are an **aneuploidy** of that chromosome, however many segments ccnv cut it into.
+- Any other finding is a **segmental CNV**. Segmental CNVs are assessed from 3 Mb, or from 35 Mb
   where the fetal fraction is below ccnv's limit of detection of 3 Mb events. None is assessed where
   the fetal fraction is below ccnv's limit for arm-level events.
 - A finding is **high risk** when its |z-score| reaches the call bound (3) and it is concordant with
@@ -92,9 +92,10 @@ grey zone.
   or the mother's own mosaic event), super-fetal (the mother's own CNV), maternal or mosaic by its
   fragment sizes. It is inconclusive too when its |z-score| lies in the grey zone (2.5 to 3).
 
-**The sex chromosomes** follow ccnv's sex-chromosome call. An aneuploidy (XO, XXX, XXY, XYY) at a
-confidence of 99 % or more is high risk; a euploid call (XX, XY) at that confidence is low risk;
-anything else is inconclusive.
+**The sex chromosomes** follow ccnv's sex-chromosome call. At a confidence of 99 % or more, a
+euploid call (XX, XY) is low risk, and any other call (XO, XXX, XXY, XYY…), or one ccnv marks
+aneuploid, is high risk. A call below that confidence, or of mixed signals, is inconclusive. An
+aneuploidy finding on X or Y raises the verdict.
 
 **Twins.** In a twin pregnancy an aneuploidy of one fetus lies at about half the fetal fraction, at
 the edge of the concordant band. The page says when ccnv reads a twin pregnancy.

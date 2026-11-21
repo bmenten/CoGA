@@ -332,7 +332,8 @@ async def end_changes_no_family_names(session_factory: async_sessionmaker[AsyncS
     reference any more: back to ``imported``, recorded with the reference the family's record of
     the delivery's analysis names now (a delivery of the family, or of the folder, imported with
     overwrite: resolution ``overwritten``), or, when none does, ``not_named``. Only the record of
-    the analysis the delivery's package names (its key, ``package_record_key``) is read: the
+    the analysis the delivery's package names (its key, ``package_record_key``, as the package's
+    latest correction in CoGA names it, ``import_delivery_revisions``) is read: the
     reference of another of the family's analyses (another pregnancy's among them) replaced
     nothing of it. A delivery whose
     family's new reference is still being imported (``queued``) is left to the round after its
@@ -344,9 +345,17 @@ async def end_changes_no_family_names(session_factory: async_sessionmaker[AsyncS
                 text(
                     f"""
                     SELECT d.id::text AS id, d.folder_path, d.folder_name, d.package_fingerprint, d.family_id,
-                           d.package ->> 'analysis_type' AS analysis_type,
-                           d.package ->> 'pregnancy_id' AS pregnancy_id
+                           COALESCE(latest.package, d.package) ->> 'analysis_type' AS analysis_type,
+                           COALESCE(latest.package, d.package) ->> 'pregnancy_id' AS pregnancy_id
                     FROM import_deliveries d
+                    -- The package as the laboratory last corrected it in CoGA, which names the
+                    -- analysis and the pregnancy the delivery was imported as.
+                    LEFT JOIN LATERAL (
+                        SELECT revision.package FROM import_delivery_revisions revision
+                        WHERE revision.delivery_id = d.id
+                        ORDER BY revision.revision DESC
+                        LIMIT 1
+                    ) latest ON TRUE
                     WHERE d.state = ANY(CAST(:raised AS text[]))
                       AND NOT EXISTS (SELECT 1 FROM {_FAMILY_RECORDS} WHERE {_REFERENCE_OF_A_FAMILY})
                       AND NOT EXISTS (

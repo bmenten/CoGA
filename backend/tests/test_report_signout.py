@@ -2537,7 +2537,14 @@ def test_the_import_flag_reader_is_deterministic_and_reads_only_the_written_shap
     assert read(messy)["failed_datasets"] == ["snv", "sv"]
     # Each failed dataset's job: the one the flag names for it (None: it failed outside one),
     # never the flag's own job, which may be another failure's.
-    kept = {**_INCOMPLETE_FLAG, "failed_jobs": {"sv": "job-earlier", "snv": None}}
+    kept = {
+        **_INCOMPLETE_FLAG,
+        "failed_jobs": {"sv": "job-earlier", "snv": None},
+        "failed_scopes": {
+            "snv": [_failure({"source": "clair3", "samples": None}, None)],
+            "sv": [_failure({"source": None, "samples": None}, "job-earlier")],
+        },
+    }
     assert read(kept)["failed_jobs"] == {"snv": None, "sv": "job-earlier"}
     # Set, but not in the shape the import writes: the read raises, so the sign-out fails and
     # its gate stays closed. Never read as a complete import, nor as one that names nothing.
@@ -3667,6 +3674,8 @@ def test_a_sign_out_names_the_analysis_it_closes() -> None:
 def test_the_record_of_a_family_holding_two_analyses_names_the_one_signed_out(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0)
     _holds(monkeypatch, "conventional_nipt", "monogenic_nipt")
+    # A conventional NIPT's record holds its result (else its sign-out is gated).
+    _with_sections(monkeypatch, cnipt=_cnipt_section())
     out = asyncio.run(
         rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), analysis_type="conventional_nipt")
     )
@@ -4201,7 +4210,7 @@ def test_signout_check_reads_a_changed_qc_verdict_or_threshold_as_a_change(monke
 
 # --- A conventional NIPT family's record: its cNIPT results (signed_record_cnipt) ----------
 
-_CNIPT_CONCERN = "A conventional NIPT plasma has no result, or its result rests on provisional bounds."
+_CNIPT_CONCERN = "A conventional NIPT has no result, or its result rests on provisional bounds."
 
 
 def _cnipt_bound(key: str, label: str, *, provisional: bool) -> dict:
@@ -4300,6 +4309,23 @@ def test_a_cnipt_plasma_on_qa_bounds_signs_out_without_a_sample_qc_acknowledgeme
     assert out["snapshot"]["acknowledged_qc"] is False
     assert out["snapshot"]["sample_qc"]["application"] == "cnipt"
     assert captured["after"]["qc_unverifiable"] == [] and captured["after"]["cnipt_concerns"] == []
+
+
+def test_a_conventional_nipt_record_that_froze_no_result_gates_the_sign_out() -> None:
+    # The sign-out of a conventional NIPT closes its result: a section that could not be read,
+    # none, or one without a plasma is a concern; another analysis's record without one is not.
+    unread = {"unavailable": "The conventional NIPT results could not be read."}
+    assert rss._cnipt_concerns({"analysis_type": "conventional_nipt:ZW1", "cnipt": unread}) == [
+        "Conventional NIPT: the results could not be read: the record holds no result of a maternal plasma."
+    ]
+    assert rss._cnipt_concerns({"analysis_type": "conventional_nipt:ZW1"}) == [
+        "Conventional NIPT: the results were not read: the record holds no result of a maternal plasma."
+    ]
+    assert rss._cnipt_concerns({"analysis_type": "conventional_nipt:ZW1", "cnipt": {"samples": []}}) == [
+        "Conventional NIPT: no maternal plasma of the analysis holds a ccnv result."
+    ]
+    assert rss._cnipt_concerns({"analysis_type": "monogenic_nipt:ZW1", "cnipt": unread}) == []
+    assert rss._cnipt_concerns({"analysis_type": None}) == []
 
 
 def test_a_family_without_ccnv_output_holds_no_cnipt_section(monkeypatch) -> None:

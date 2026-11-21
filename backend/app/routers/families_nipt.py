@@ -534,10 +534,12 @@ _NIPT_SMALL_VARIANT_COLUMNS: list[tuple[str, str]] = [
 _NIPT_FIELD = "nipt."
 _FETAL_FRACTION_FIELD = "fetal_fraction"
 _FETAL_FRACTION_LOW_CONFIDENCE_FIELD = "fetal_fraction_low_confidence"
+_MULTIPLE_PREGNANCY_FIELD = "multiple_pregnancy_note"
 
 _NIPT_COLUMNS: list[tuple[str, str]] = [
     (_FETAL_FRACTION_FIELD, "Fetal fraction"),
     (_FETAL_FRACTION_LOW_CONFIDENCE_FIELD, "Fetal fraction low confidence"),
+    (_MULTIPLE_PREGNANCY_FIELD, "Multiple pregnancy note"),
     ("nipt.category", "NIPT category"),
     ("nipt.category_label", "NIPT category label"),
     ("nipt.maternal_state", "Maternal state"),
@@ -596,13 +598,18 @@ def _nipt_value_text(value: Any) -> str:
     return str(value)
 
 
-def _nipt_export_cell(row: NiptVariantOut, field: str, fetal_fraction: NiptFetalFractionOut) -> str:
+def _nipt_export_cell(
+    row: NiptVariantOut, field: str, fetal_fraction: NiptFetalFractionOut, pregnancy_note: str | None
+) -> str:
     """The text of ``row``'s cell of the NIPT export column ``field``; the fetal fraction's
-    columns hold ``fetal_fraction``, the same on every row."""
+    columns hold ``fetal_fraction``, and the multiple-pregnancy column the note of a pregnancy
+    of two or more fetuses (``multiple_pregnancy_note``), each the same on every row."""
     if field == _FETAL_FRACTION_FIELD:
         return _nipt_value_text(fetal_fraction.ff)
     if field == _FETAL_FRACTION_LOW_CONFIDENCE_FIELD:
         return _nipt_value_text(fetal_fraction.low_confidence)
+    if field == _MULTIPLE_PREGNANCY_FIELD:
+        return _nipt_value_text(pregnancy_note)
     if not field.startswith(_NIPT_FIELD):
         return _family_export_cell(row, field)
     value: Any = row.nipt
@@ -638,7 +645,11 @@ async def export_family_nipt_variants_csv(
         **search,
     )
     rows = [_nipt_variant_out(item) for item in result.variants]
-    cell = partial(_nipt_export_cell, fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction))
+    cell = partial(
+        _nipt_export_cell,
+        fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
+        pregnancy_note=multiple_pregnancy_note(len(result.trio.fetus_sample_ids)),
+    )
     # The file names the pregnancy whose analysis it holds: a family holds one per pregnancy.
     pregnancy = pregnancy_of(result.trio.analysis)
     return StreamingResponse(

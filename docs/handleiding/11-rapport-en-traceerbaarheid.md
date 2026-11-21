@@ -182,7 +182,8 @@ De `409` noemt ze in `nipt_failed_checks` en in `qc_summary.messages` (dat van h
 Bij een familie met ccnv-output telt, onder dezelfde erkenning, uit de sectie `cnipt`:
 
 - een maternaal plasma zonder resultaat, met de redenen;
-- een resultaat dat op voorlopige grenzen steunt, die QA nog niet zette, met die grenzen.
+- een resultaat dat op voorlopige grenzen steunt, die QA nog niet zette, met die grenzen;
+- bij de ondertekening van een conventionele NIPT: een record dat geen resultaat bevroor (een sectie die niet gelezen kon worden, geen sectie, of een zonder plasma van de analyse).
 
 De `409` noemt ze in `cnipt_concerns` en in `qc_summary.messages`; het auditevent legt ze vast (`cnipt_concerns`). De sample-QC van een conventionele NIPT draait geen controle (toepassing `cnipt`, oordeel *skip*), dus niets anders houdt de ondertekening tegen: de output van ccnv heeft geen genotypes, en het foetale geslacht is, zoals bij een PGT-embryo, alleen uit de analyse bekend.
 

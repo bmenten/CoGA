@@ -1335,7 +1335,7 @@ describe('FamilyReportPage', () => {
           sca: { call: 'XX', is_aneuploid: false, confidence: 0.998 },
           limits_of_detection: { statement: 'Segmental CNVs are assessed from 3 Mb.' },
           read_metrics: {},
-          warnings: [],
+          warnings: ['ccnv warns of a low fetal fraction'],
           targets: [
             { target: '1', verdict: 'low_risk', reasons: [], claimed: false },
             { target: '8', verdict: 'inconclusive', reasons: ['its origin is MATERNAL_MOSAIC'], claimed: false },
@@ -1368,8 +1368,14 @@ describe('FamilyReportPage', () => {
     renderPage();
 
     const block = await screen.findByRole('region', { name: 'Conventional NIPT result' });
+    // ccnv's warnings, as the cNIPT page and the signed view show them.
+    expect(within(await within(block).findByRole('list', { name: 'Warnings of CFDNA1' })).getByRole('listitem')).toHaveTextContent(
+      'ccnv warns of a low fetal fraction',
+    );
     expect(
-      (await within(block).findAllByRole('listitem')).map((item) => item.textContent),
+      within(within(block).getByRole('list', { name: 'Result of CFDNA1' }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
     ).toEqual([
       'Chromosome 21 (T21): High risk — |z| 9.0 at or above 3',
       'Chromosome 18 (T18): Low risk',

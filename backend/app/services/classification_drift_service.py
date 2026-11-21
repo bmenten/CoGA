@@ -210,8 +210,14 @@ async def evaluate_classification_drift(
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id, analysis=analysis
     )
+    # A family with several analyses with small variants of their own names the one whose
+    # drift is read (``AnalysisNotNamed``, 422), as its variant list does: never read across them.
+    scope = context.scope.require_named()
+    # Each variant's evidence now is read from the analysis's own callsets, as its review froze
+    # it (``small_variant_review_pg``): the other analyses' rows are left out.
+    left_out_sources = scope.left_out_sources("small_variants")
     params: dict[str, Any] = {"family_uuid": context.family_uuid}
-    belongs = scope_review_clause(context.scope, params)
+    belongs = scope_review_clause(scope, params)
     reviews = effective_reviews(
         (
             dict(row)
@@ -254,6 +260,7 @@ async def evaluate_classification_drift(
                 assembly_name=context.assembly_name,
                 family_guid=context.family_uuid,
                 variant_id=row["variant_id"],
+                left_out_sources=left_out_sources,
             )
         compared.append((row, snapshot, current_record))
     # The genes' missense Z as the variant list serves it now, read at once for every variant

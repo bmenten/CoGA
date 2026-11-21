@@ -84,6 +84,7 @@ from .nipt_service import (
     SharedNiptAnalysis,
     get_family_nipt_record,
     nipt_coverage_notes,
+    nipt_coverage_source,
     roi_target_region,
 )
 from .nipt_target_coverage import TARGET_COVERAGE_TRACK_TYPE, TargetCoverageSummary
@@ -117,6 +118,7 @@ _TARGET_TABLES_SQL = text(
     JOIN samples s ON s.id = src.sample_id
     WHERE src.family_id = CAST(:family_uuid AS uuid)
       AND src.track_type = :track_type
+      AND src.source = :source
       AND s.sample_id = ANY(CAST(:samples AS text[]))
     ORDER BY s.sample_id, src.filename
     """
@@ -208,14 +210,16 @@ def nipt_trio_of(
 async def _target_tables(
     session: AsyncSession, context: FamilyMetadataContext, trio: NiptTrio
 ) -> list[dict[str, Any]]:
-    """The per-target coverage tables the analysis read: the father's and the plasma's, each
-    with its file, its number of targets and when it was loaded."""
+    """The per-target coverage tables the analysis read: the father's and the plasma's of its
+    pregnancy (``nipt_coverage_source``: a father sampled for two pregnancies holds a table of
+    each), each with its file, its number of targets and when it was loaded."""
     rows = (
         await session.execute(
             _TARGET_TABLES_SQL,
             {
                 "family_uuid": context.family_uuid,
                 "track_type": TARGET_COVERAGE_TRACK_TYPE,
+                "source": nipt_coverage_source(trio),
                 "samples": sorted({trio.father_sample_id, trio.cfdna_sample_id}),
             },
         )

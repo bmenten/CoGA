@@ -21,6 +21,7 @@ and a report, rather than three clients re-deriving it from raw numbers.
 
 from __future__ import annotations
 
+import math
 import re
 
 from dataclasses import dataclass
@@ -682,6 +683,10 @@ async def set_qc_threshold(
     metric = QC_METRICS_BY_KEY.get(metric_key)
     if metric is None:
         raise HTTPException(status_code=400, detail=f"Unknown QC metric: {metric_key}")
+    # A cut-off is a finite number: NaN or infinity would switch off the check it bounds (no
+    # value is below NaN, every value below infinity) without anything saying so.
+    if any(value is not None and not math.isfinite(value) for value in (warn_value, error_value)):
+        raise HTTPException(status_code=400, detail="A QC cut-off must be a finite number.")
     clearing = warn_value is None and error_value is None
     profile_id = (
         await session.execute(

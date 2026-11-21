@@ -21,7 +21,8 @@ and what a result of a multiple pregnancy says of them:
 
 A family without a ccnv output holds no ``cnipt`` key. A plasma without a result, or a result
 that applied a provisional bound, gates the sign-out under the Sample QC's acknowledgement
-(``cnipt_signout_concerns``), as the monogenic NIPT's failed quality checks do.
+(``cnipt_signout_concerns``), as the monogenic NIPT's failed quality checks do; so does the record
+of a conventional NIPT that froze no result.
 
 Deterministic and JSON-safe, as every section is: the plasmas in sample order, each list in the
 rule's own order, numbers that JSONB cannot hold (NaN, infinity) frozen as null, and -0.0 as
@@ -131,6 +132,8 @@ async def cnipt_results(session: AsyncSession, context: FamilyMetadataContext) -
 # The catalogue's labels name the application first ("cNIPT: fetal fraction"); the concern names
 # it in its subject.
 _LABEL_PREFIX = "cNIPT: "
+# The subject of a concern of the section as a whole.
+_SUBJECT = "Conventional NIPT"
 
 
 def _provisional_labels(bounds: Any) -> list[str]:
@@ -143,15 +146,23 @@ def _provisional_labels(bounds: Any) -> list[str]:
     ]
 
 
-def cnipt_signout_concerns(section: Any) -> list[tuple[str | None, str]]:
+def cnipt_signout_concerns(section: Any, *, of_cnipt: bool) -> list[tuple[str | None, str]]:
     """What in a record's ``cnipt`` section gates the sign-out, each as (what it is about, why):
     a plasma without a result, with its reasons, and a result that applied a provisional bound,
     which QA has not set, with those bounds. They gate it like a failed Sample QC check, under
-    the same acknowledgement. [] for a section that holds no plasma (none, or one that could not
-    be read: the record's gaps name it)."""
+    the same acknowledgement.
+
+    The record of a conventional NIPT (``of_cnipt``) is gated too when it froze no result: a
+    section that could not be read, none, or one that holds no plasma. The analysis's result is
+    what its sign-out closes. [] for the record of another analysis without the section."""
     if not isinstance(section, Mapping) or section.get("unavailable"):
-        return []
+        if not of_cnipt:
+            return []
+        why = "could not be read" if isinstance(section, Mapping) else "were not read"
+        return [(_SUBJECT, f"The results {why}: the record holds no result of a maternal plasma.")]
     concerns: list[tuple[str | None, str]] = []
+    if of_cnipt and not any(isinstance(sample, Mapping) for sample in section.get("samples") or []):
+        concerns.append((_SUBJECT, "No maternal plasma of the analysis holds a ccnv result."))
     for sample in section.get("samples") or []:
         if not isinstance(sample, Mapping):
             continue

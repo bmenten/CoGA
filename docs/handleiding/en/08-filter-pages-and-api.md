@@ -404,7 +404,7 @@ Conventional NIPT screens a pregnancy for aneuploidies and copy-number changes t
 **The rule.** The owner's choice of 2026-11-19, *z-score and concordance with the fetal fraction* (`cnipt_result.py`, pure):
 
 - The fetal fraction is ccnv's effective one; the other estimates are shown beside it. Below the bound `cnipt.fetal_fraction` there is no result for any target.
-- A segment spanning at least half of its chromosome is an aneuploidy of that chromosome; a shorter segment a segmental CNV, assessed from a size that ccnv's limits of detection raise at this fetal fraction.
+- Findings of one direction (gain or loss) that together span at least half of their chromosome are an aneuploidy of that chromosome, however many segments ccnv cut them into; any other finding is a segmental CNV, assessed from a size that ccnv's limits of detection raise at this fetal fraction.
 - A segment with a |z-score| from the error bound of `cnipt.call_zscore` is **high risk** when it is concordant with the fetal fraction: the implied fetal fraction within the band, ccnv does not call it discordant, and the origin is not maternal or mosaic. Otherwise, or in the grey zone below the error bound, it is **inconclusive**.
 - The sex chromosomes follow ccnv's sex-chromosome call and its confidence (`cnipt.sca_confidence`).
 

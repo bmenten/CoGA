@@ -43,7 +43,7 @@ const AnalysisSignouts: React.FC<{
   analyses: string[];
   signouts: ApiReportSignoutList | undefined;
   versionLink: (version: number) => To;
-  signedOutOn: (analysisType: string) => React.ReactNode;
+  signedOutOn: (analysis: string) => React.ReactNode;
 }> = ({ familyId, analyses, signouts, versionLink, signedOutOn }) => {
   const latest = analyses.map((analysisType) => latestSignoutOf(signouts, analysisType));
   const checks = useQueries({

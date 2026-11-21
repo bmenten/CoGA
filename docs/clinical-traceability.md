@@ -738,8 +738,9 @@ cNIPT results (`cnipt`, above).
 
 - The ccnv calls a reviewer tags `report` are frozen in `reported_structural_variants` and
   `variant_descriptions`, like any reported CNV.
-- A plasma without a result, and a result that rests on provisional bounds, gate the sign-out under
-  the Sample QC's acknowledgement (gate 4 below): signing out such a result is a choice the signer
+- A plasma without a result, a result that rests on provisional bounds, and a conventional NIPT's
+  record that froze no result (a section that could not be read, none, or one without a plasma of
+  the analysis) gate the sign-out under the Sample QC's acknowledgement (gate 4 below): signing out such a result is a choice the signer
   makes with a reason, which the record and the audit event keep.
 - The bounds are read at sign-out. A bound QA sets afterwards changes the section (the bound's value
   or its provisional mark), so the sign-out check names `cnipt` as changed.

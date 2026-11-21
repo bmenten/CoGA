@@ -74,9 +74,15 @@ export const orderCniptTargets = (
 export const percent = (fraction: number | null | undefined, digits = 1): string =>
   fraction == null ? 'n/a' : `${(fraction * 100).toFixed(digits)}%`;
 
-/** A bound's value in its unit: a fraction as a percentage, the rest as it is. */
+/**
+ * A bound's value in its unit: a fraction as a percentage, with the decimals (up to two) its value
+ * holds, and one at least below 10 % (4.0 %, 99 %, 99.5 %); the rest as it is.
+ */
 export const boundValue = (value: number | null | undefined, unit: string): string => {
   if (value == null) return '—';
-  if (unit === 'fraction') return percent(value, value < 0.1 ? 1 : 0);
+  if (unit === 'fraction') {
+    const held = [0, 1].find((digits) => Math.abs(Number((value * 100).toFixed(digits)) - value * 100) < 1e-9) ?? 2;
+    return percent(value, value < 0.1 ? Math.max(1, held) : held);
+  }
   return `${Number(value.toPrecision(4))}${unit === 'Mb' ? ' Mb' : unit === '× FF' ? ' × FF' : ''}`;
 };

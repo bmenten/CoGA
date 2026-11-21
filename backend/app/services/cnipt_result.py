@@ -72,9 +72,10 @@ PROVISIONAL_BOUNDS: dict[str, tuple[float | None, float | None]] = {
 #: (the call z-score's is the grey zone; the fetal fraction's a warning on the result).
 _REQUIRED_ERROR_BOUNDS = tuple(PROVISIONAL_BOUNDS)
 
-#: A segment spanning at least this share of its chromosome's segmented length is read as an
-#: aneuploidy of that chromosome (whole, or of an arm), not as a segmental CNV. Fixed in code,
-#: frozen with every result.
+#: The findings of one direction (gain or loss) on a chromosome that span together at least this
+#: share of its segmented length are read as an aneuploidy of that chromosome (whole, or of most of
+#: it), not as segmental CNVs: one segment or several, as ccnv cut it (``_aneuploid_signals``).
+#: Fixed in code, frozen with every result.
 WHOLE_CHROMOSOME_SHARE = 0.5
 
 #: ccnv's fragmentomic origins that make a finding inconclusive: maternal (the mother's own
@@ -294,6 +295,41 @@ def _sca_target(qc_payload: Mapping[str, Any], minimum: float) -> tuple[str, lis
     return "low_risk", [f"ccnv calls {call} (confidence {_percent(confidence)})"]
 
 
+def _direction(segment: CcnvSegment) -> str:
+    return "gain" if segment.ratio >= 0 else "loss"
+
+
+def _is_signal(segment: CcnvSegment, rule: _Rule) -> bool:
+    """Whether a segment is a finding (``_finding`` returns one): called by ccnv, or with a
+    |z-score| from the grey zone up."""
+    details = segment.details
+    if details.get("call") in ("gain", "loss"):
+        return True
+    zscore = _number(details.get("zscore"))
+    if zscore is None:
+        return False
+    return abs(zscore) >= (rule.z_warn if rule.z_warn is not None else rule.z_error)
+
+
+def _aneuploid_signals(
+    segments: Sequence[CcnvSegment], segmented: Mapping[str, int], rule: _Rule
+) -> set[tuple[str, str]]:
+    """The chromosomes and directions whose findings are an aneuploidy (``WHOLE_CHROMOSOME_SHARE``):
+    the segments of one direction that are findings span together at least that share of the
+    chromosome's segmented length. A trisomy ccnv cuts into several segments is one aneuploidy of
+    its chromosome, never a few segmental CNVs that leave the chromosome's own target low risk."""
+    spans: dict[tuple[str, str], int] = {}
+    for segment in segments:
+        if _is_signal(segment, rule):
+            key = (segment.chrom, _direction(segment))
+            spans[key] = spans.get(key, 0) + (segment.end - segment.start)
+    return {
+        key
+        for key, span in spans.items()
+        if segmented.get(key[0]) and span / segmented[key[0]] >= WHOLE_CHROMOSOME_SHARE
+    }
+
+
 def _rule(bounds: Mapping[str, CniptBound]) -> _Rule | None:
     """The rule's bounds, or None when an error bound it needs is not set."""
     z, low, high, sca = (
@@ -367,9 +403,9 @@ def evaluate_cnipt(
     findings: list[dict[str, Any]] = []
     rule = _rule(bounds) if not no_result else None
     if rule is not None:
+        aneuploid = _aneuploid_signals(segments, segmented, rule)
         for segment in segments:
-            share = (segment.end - segment.start) / segmented[segment.chrom] if segmented[segment.chrom] else 0.0
-            kind = "chromosome" if share >= WHOLE_CHROMOSOME_SHARE else "segmental"
+            kind = "chromosome" if (segment.chrom, _direction(segment)) in aneuploid else "segmental"
             finding = _finding(
                 segment,
                 kind=kind,
@@ -421,21 +457,22 @@ def evaluate_cnipt(
         if assessed_from_mb is None:
             targets.append({"target": SEGMENTAL_TARGET, "verdict": "not_assessed", "reasons": [resolution]})
         else:
-            worst_segmental = _worst(finding["verdict"] for finding in segmental)
-            # The reasons of the findings that decide, or, with none, the sizes assessed and each
-            # finding left unassessed, so a low risk never hides a CNV it did not look at.
-            deciding = "not_assessed" if worst_segmental is None else worst_segmental
+            worst_segmental = _worst(finding["verdict"] for finding in segmental) or "low_risk"
+            # The reasons of the findings that decide; for a low risk, the sizes assessed and each
+            # finding, those left unassessed among them, so a low risk never hides a CNV it did not
+            # look at.
+            shown = {worst_segmental} if worst_segmental != "low_risk" else {"low_risk", "not_assessed"}
             reasons = [
                 f"chr{finding['chrom']}:{finding['start']}-{finding['end']}: {reason}"
                 for finding in segmental
-                if finding["verdict"] == deciding
+                if finding["verdict"] in shown
                 for reason in finding["reasons"]
             ]
             targets.append(
                 {
                     "target": SEGMENTAL_TARGET,
-                    "verdict": worst_segmental or "low_risk",
-                    "reasons": reasons if worst_segmental is not None else [resolution, *reasons],
+                    "verdict": worst_segmental,
+                    "reasons": reasons if worst_segmental != "low_risk" else [resolution, *reasons],
                 }
             )
 

@@ -404,7 +404,7 @@ Conventionele NIPT onderzoekt een zwangerschap op aneuploïdieën en kopieaantal
 **De regel.** De keuze van de eigenaar van 2026-11-19, *z-score en concordantie met de foetale fractie* (`cnipt_result.py`, zuiver):
 
 - De foetale fractie is de effectieve van ccnv; de andere schattingen staan ernaast. Onder de grens `cnipt.fetal_fraction` is er voor geen enkel doel een uitslag.
-- Een segment dat minstens de helft van zijn chromosoom beslaat, is een aneuploïdie van dat chromosoom; een korter segment een segmentale CNV, beoordeeld vanaf een grootte die de detectielimieten van ccnv bij deze foetale fractie verhogen.
+- Bevindingen in één richting (winst of verlies) die samen minstens de helft van hun chromosoom beslaan, zijn een aneuploïdie van dat chromosoom, in hoeveel segmenten ccnv ze ook knipte; elke andere bevinding is een segmentale CNV, beoordeeld vanaf een grootte die de detectielimieten van ccnv bij deze foetale fractie verhogen.
 - Een segment met een |z-score| vanaf de foutgrens van `cnipt.call_zscore` is **hoog risico** als het concordant is met de foetale fractie: de impliciete foetale fractie binnen de band, ccnv noemt het niet discordant, en de oorsprong is niet maternaal of mozaïek. Anders, of in de grijze zone onder de foutgrens, is het **onbeslist**.
 - De geslachtschromosomen volgen de geslachtschromosoomcall van ccnv en haar betrouwbaarheid (`cnipt.sca_confidence`).
 

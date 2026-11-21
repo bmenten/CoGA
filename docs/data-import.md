@@ -1870,8 +1870,10 @@ owner's decisions of 2026-11-20 and 2026-11-21):
   another's and an import of one pregnancy replaces nothing of another; the readers read such a
   source as the one it is kept for (`source_base`). A maternal plasma and a fetus (role `fetus`) are
   one pregnancy's: an import of another pregnancy whose package lists one of them is refused before
-  anything is written. Two plasmas of one woman, linked as the same individual, are one person,
-  never one pregnancy.
+  anything is written. A plasma is read as the import reads it, whether or not its `assay` is
+  given: a sample tagged `nipt_cfdna` or `cnipt_cfdna`, a monogenic NIPT's PED mother, and each
+  sample of a `ccnv` dataset. Two plasmas of one woman, linked as the same individual, are one
+  person, never one pregnancy.
 
 - **No two analyses share a storage source.** An import is refused before anything is written when
   its package would store data under a source another analysis's package record lists
@@ -1879,7 +1881,12 @@ owner's decisions of 2026-11-20 and 2026-11-21):
   DeepVariant), or a dataset of a fixed source (`mito`, `trgt`, `paraphase`, the coverage BEDs'
   `web`, `hificnv`, `needlr`…). The message names the source and the analysis that holds it: leave
   that dataset out of the package, or, for small variants, name its caller differently
-  (`source_format`). So one analysis's import never replaces, skips or claims another's data.
+  (`source_format`). So one analysis's import never replaces, skips or claims another's data. A
+  record keeps the sources it listed when its analysis is imported again: a dataset the new package
+  leaves out keeps its rows, which stay that analysis's. A small-variant callset whose caller CoGA
+  cannot read from its VCF at the time is refused beside another analysis rather than stored
+  unchecked. The delivery's check names a shared source, or another pregnancy's plasma or fetus,
+  before it is approved (`package_shared_with_another_analysis`).
 - **Each analysis is read on its own** ([analysis_scope.py](../backend/app/services/analysis_scope.py)).
   A family with two or more analyses whose records list a small-variant callset of their own is
   read one analysis at a time: its small-variant list, filters, counts, ranking, export,
@@ -3116,7 +3123,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `pregnancy_missing` | A `monogenic_nipt` or `conventional_nipt` package names no pregnancy (`pregnancy_id`). Give the laboratory's pregnancy ID in the package, or in **Deliveries** with **Correct…**. |
 | `pregnancy_not_nipt`, `pregnancy_without_analysis` | A package that is no monogenic or conventional NIPT, or names no analysis type, names a pregnancy. Leave `pregnancy_id` out, or correct the analysis type. |
 | `pregnancy_id_invalid` | The pregnancy ID breaks the rule of a family ID (printable, no whitespace, no `/` or `\`, not `.` or `..`) or is longer than 64 characters. |
-| A package of another pregnancy that lists a maternal plasma or a fetus of the family's (refused at import) | A maternal plasma and a fetus are one pregnancy's. Give this pregnancy's samples IDs of their own, or correct the package's `pregnancy_id` if it is that pregnancy. |
+| `package_shared_with_another_analysis` | The family holds another analysis, and the package would store data under a source that analysis's record lists (the message names the source and the analysis), or it is another pregnancy's package and lists a maternal plasma or a fetus of the family's. No choice approves it: the import refuses it before anything is written. Leave the dataset out of the package or name its caller differently (`source_format`); for a plasma or a fetus, give this pregnancy's samples IDs of their own, or correct the package's `pregnancy_id` if it is that pregnancy ([Correcting a delivery](#correcting-a-delivery)). |
 | `package_not_in_project_folder` | The package folder lies directly in the watched folder. Move it into the folder of its project (`<watched folder>/<project>/`), or refuse the delivery. |
 | `package_project_folder_differs` | The package lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
 | `package_members_differ_from_family` | The family exists, and the package changes or lacks one of its members (another sex, other parents). In a family that holds another analysis, only a member that only this analysis's package listed can be lacking. An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the pedigree of its analysis and keeps the other analyses' members. |

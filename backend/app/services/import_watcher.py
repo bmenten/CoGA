@@ -101,13 +101,16 @@ from .family_package_registration import (
     ROI_CONFLICT,
     SAME_INDIVIDUAL_NOT_MADE,
     SAME_INDIVIDUAL_OUTSIDE,
+    SHARED_WITH_ANOTHER_ANALYSIS,
     FamilySamplesHeld,
     _existing_package_entity_warnings,
+    _fetch_existing_family,
     _package_members,
     family_member_differences,
     family_samples_held,
     member_values_conflict_message,
     roi_conflict_message,
+    shared_with_another_analysis,
     package_same_individual_links,
     same_individual_not_made,
     same_individual_not_made_message,
@@ -610,6 +613,13 @@ async def assess_content(
             )
             if roi_conflict is not None:
                 issues.append(_issue(ROI_CONFLICT, roi_conflict))
+        if bundle is not None and validation.family_id:
+            # Nor does it store data under another analysis's source, or list another pregnancy's
+            # plasma or fetus: named here, before an approver approves what the import refuses.
+            existing = await _fetch_existing_family(session, family_id=validation.family_id)
+            shared = shared_with_another_analysis(existing.get("metadata"), bundle) if existing is not None else None
+            if shared is not None:
+                issues.append(_issue(SHARED_WITH_ANOTHER_ANALYSIS, shared))
         if project_id is not None:
             roi = await manifest_roi_issue(
                 session, roi_query=validation.metadata.get("roi"), project_id=project_id, family_id=validation.family_id

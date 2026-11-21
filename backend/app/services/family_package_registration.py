@@ -62,6 +62,7 @@ from .family_package_records import (
     PackageRecordShapeError,
     analysis_label,
     family_package_records,
+    merged_sources,
     package_sources,
     record_members,
     source_collision_message,
@@ -76,7 +77,9 @@ from .family_metadata_context import (
 from .family_project_variants import refuse_project_on_other_assembly
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .hpo_service import PHENOTYPES_ROLLED_BACK, PhenotypeImport, record_phenotypes_deleted_with_family
-from .nipt import CNIPT_CFDNA_ASSAY, NIPT_CFDNA_ASSAY
+from .family_package_ccnv import CCNV_DATASET
+from .family_package_nipt import nipt_package_cfdna_sample
+from .nipt import CNIPT_CFDNA_ASSAY, MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import (
@@ -156,6 +159,19 @@ def _shared_source_message(family_metadata: Any, bundle: FamilyPackageBundle) ->
     when it shares none. Checked before the family is marked or written."""
     key = bundle.manifest.analysis_key
     records = family_package_records(family_metadata if isinstance(family_metadata, Mapping) else None)
+    snv = bundle.manifest.datasets.get("snv")
+    if (
+        snv is not None
+        and snv.enabled
+        and any(other != key for other in records)
+        and dataset_scopes(bundle, ["snv"])["snv"]["source"] == UNRESOLVED_SNV_SOURCE
+    ):
+        # The callset it would be stored as cannot be told now: never imported unchecked beside
+        # another analysis, whose callset it might be.
+        return (
+            "CoGA could not read which caller made the package's small-variant callset, so it cannot "
+            "check that callset against the family's other analyses. Check the package's VCF and import it again."
+        )
     try:
         collisions = source_collisions(records, key, _package_record_sources(bundle))
     except PackageRecordShapeError:
@@ -168,18 +184,45 @@ def _shared_source_message(family_metadata: Any, bundle: FamilyPackageBundle) ->
 
 def _pregnancy_samples(bundle: FamilyPackageBundle) -> dict[str, str]:
     """The samples of a pregnancy's package that are its pregnancy's own, by sample ID, each named
-    by what it is: a maternal plasma (its manifest entry's ``assay``, ``nipt_cfdna`` or
-    ``cnipt_cfdna``) or a fetus (a ``fetus`` member)."""
+    by what it is: a maternal plasma or a fetus (a ``fetus`` member). A plasma is read as the
+    import reads it, the ``assay`` tag being optional: a sample its manifest entry tags
+    ``nipt_cfdna`` or ``cnipt_cfdna``, the monogenic NIPT's plasma (``nipt_package_cfdna_sample``:
+    else the PED's mother) and each sample of the ``ccnv`` dataset (a conventional NIPT's)."""
     entries = _normalize_manifest_samples(bundle.manifest.samples)
+    plasmas = {
+        sample_id
+        for sample_id, entry in entries.items()
+        if (entry or {}).get("assay") in (NIPT_CFDNA_ASSAY, CNIPT_CFDNA_ASSAY)
+    }
+    if bundle.manifest.analysis_type == MONOGENIC_NIPT_ANALYSIS_TYPE:
+        plasma = nipt_package_cfdna_sample(bundle)
+        if plasma is not None:
+            plasmas.add(plasma)
+    ccnv = bundle.manifest.datasets.get(CCNV_DATASET)
+    if ccnv is not None and ccnv.enabled:
+        plasmas.update(ccnv.per_sample)
     own: dict[str, str] = {}
     for member in _package_members(bundle):
         sample_id = str(member["sample_id"])
-        assay = (entries.get(sample_id) or {}).get("assay")
-        if assay in (NIPT_CFDNA_ASSAY, CNIPT_CFDNA_ASSAY):
+        if sample_id in plasmas:
             own[sample_id] = "maternal plasma"
         elif member.get("role") == FETUS_ROLE:
             own[sample_id] = "fetus"
     return own
+
+
+# The issue of a delivery whose import would share a storage source, or a pregnancy's plasma or
+# fetus, with another of the family's analyses (``shared_with_another_analysis``).
+SHARED_WITH_ANOTHER_ANALYSIS = "package_shared_with_another_analysis"
+
+
+def shared_with_another_analysis(family_metadata: Any, bundle: FamilyPackageBundle) -> str | None:
+    """Why the package cannot be imported into the family whose metadata is ``family_metadata``:
+    a storage source another analysis's record lists (``_shared_source_message``), or a maternal
+    plasma or a fetus of another pregnancy (``_shared_pregnancy_sample_message``). None when it
+    shares neither. The import refuses it before the family is marked; a delivery's check names
+    it (``import_watcher``)."""
+    return _shared_source_message(family_metadata, bundle) or _shared_pregnancy_sample_message(family_metadata, bundle)
 
 
 def _shared_pregnancy_sample_message(family_metadata: Any, bundle: FamilyPackageBundle) -> str | None:
@@ -705,7 +748,8 @@ async def _register_package_provenance(
         # (family_structure_service.take_package_pedigree).
         "members": sorted({member.iid for member in bundle.ped.members}),
         # The storage sources its import writes, per kind of data: a sign-out of the analysis is
-        # scoped by them (report_signout_service).
+        # scoped by them (report_signout_service). An import of an analysis the family holds keeps
+        # too the sources its record listed: the data of a dataset the package leaves out stay.
         SOURCES_KEY: _package_record_sources(bundle),
         "registered_at": now,
     }
@@ -737,6 +781,22 @@ async def _register_package_provenance(
         record[REFERENCE_KEY] = reference_delivery(
             import_mode=import_mode, delivery=bundle.delivery, previous_reference=previous_reference
         )
+    # The sources the analysis's record listed, read under the pedigree lock: an import replaces
+    # the datasets it imports and leaves the others' rows, which stay the analysis's
+    # (``merged_sources``), so another analysis's import can never take them over.
+    previous_sources = (
+        await session.execute(
+            text(
+                "SELECT metadata -> 'package_imports' -> CAST(:key AS text) -> 'sources' "
+                "FROM families WHERE id = CAST(:family_uuid AS uuid)"
+            ),
+            {"family_uuid": family_uuid, "key": record_key},
+        )
+    ).scalar_one_or_none()
+    if isinstance(previous_sources, str):
+        previous_sources = json.loads(previous_sources)
+    if previous_sources is not None:
+        record[SOURCES_KEY] = merged_sources(record[SOURCES_KEY], previous_sources)
     # The family's other analyses, read under the pedigree lock: with one, the members the family
     # holds keep the values it knows.
     others = await other_analyses_of(session, family_id=family_identifier, analysis=record_key)
@@ -1824,14 +1884,19 @@ def analysis_import_flag(stored: Any, holds: Callable[[str | None], bool]) -> Ma
     failures of the stored flag whose analysis ``holds`` takes
     (``signout_scope.SignoutScope.holds_mark``), and with them alone the flag's time, job and
     imported datasets, those of its latest failure. Built from those failures alone, so that
-    another analysis's failure, or the striking of one, leaves it as it is. None when no
-    failure is left, or there is no flag. Raises ``ImportMarkShapeError`` for a stored flag in
-    another shape."""
+    another analysis's failure, or the striking of one, leaves it as it is. A flag that names
+    no failure (an import that failed after marking the family and before its first dataset)
+    did not record what it left out, or whose: it is every sign-out's, as stored. None when no
+    failure of the scope is left, or there is no flag. Raises ``ImportMarkShapeError`` for a
+    stored flag in another shape."""
     flag = read_import_flag(stored)
     if flag is None:
         return None
+    failures = _flag_failures(flag)
+    if not failures:
+        return flag
     kept: dict[str, list[dict[str, Any]]] = {}
-    for name, items in _flag_failures(flag).items():
+    for name, items in failures.items():
         held = [item for item in items if holds(item[MARK_ANALYSIS_KEY])]
         if held:
             kept[name] = held
@@ -2649,9 +2714,7 @@ async def _ensure_family_from_ped(
         )
         if outside is not None:
             raise ImportRefused(outside)
-        shared = _shared_source_message(existing.get("metadata"), bundle) or _shared_pregnancy_sample_message(
-            existing.get("metadata"), bundle
-        )
+        shared = shared_with_another_analysis(existing.get("metadata"), bundle)
         if shared is not None:
             raise ImportRefused(shared)
         roi_conflict = await roi_conflict_message(

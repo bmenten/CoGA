@@ -59,7 +59,7 @@ from .annotation_manifest_service import (
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import audit_actor, compound_het_pair_state, record_clinical_event
-from .family_analysis_types import family_analyses
+from .family_analysis_types import analysis_type_of, family_analyses
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .finding_review_pg import (
     FINDING_DRIFT_SECTION,
@@ -73,13 +73,13 @@ from .family_package_registration import (
     MARK_ANALYSIS_KEY,
     analysis_import_flag,
     is_whole_family_entry,
-    read_import_flag,
     read_unfinished_entries,
     unfinished_entry_writer,
 )
 from .family_variant_write_lock import try_share_family_variant_writes
 from .hash_chain import ChainVerification, canonical_hash, canonical_json, chain_row_hash, verify_chain
 from .access_control import CurrentUser, RecordNotVisible, require_sign_out_authority
+from .nipt import CONVENTIONAL_NIPT_ANALYSIS_TYPE
 from .nipt_service import SharedNiptAnalysis
 from .package_changed_after_import import (
     check_family_package_folders,
@@ -357,13 +357,14 @@ def _nipt_failed_checks(snapshot: Mapping[str, Any]) -> list[str]:
 
 def _cnipt_concerns(snapshot: Mapping[str, Any]) -> list[str]:
     """What of a conventional NIPT family's record gates the sign-out (signed_record_cnipt): a
-    maternal plasma without a result, and a result that rests on provisional bounds QA has not
-    set, each as the gate lists it. Signed out with its cNIPT results, the family is gated by
-    them like a failed Sample QC check, under the same acknowledgement; [] for any other
-    family."""
+    maternal plasma without a result, a result that rests on provisional bounds QA has not set,
+    and a conventional NIPT's record that froze no result, each as the gate lists it. Signed out
+    with its cNIPT results, the family is gated by them like a failed Sample QC check, under the
+    same acknowledgement; [] for any other family."""
+    of_cnipt = analysis_type_of(snapshot.get("analysis_type")) == CONVENTIONAL_NIPT_ANALYSIS_TYPE
     return [
         _named(subject, message)
-        for subject, message in cnipt_signout_concerns(snapshot.get(CNIPT_RESULTS.key))
+        for subject, message in cnipt_signout_concerns(snapshot.get(CNIPT_RESULTS.key), of_cnipt=of_cnipt)
     ]
 
 
@@ -505,7 +506,7 @@ def _qc_gate_message(
         parts.append("A NIPT quality check failed.")
     if cnipt_concerns:
         parts.append(
-            "A conventional NIPT plasma has no result, or its result rests on provisional bounds."
+            "A conventional NIPT has no result, or its result rests on provisional bounds."
         )
     parts.append(
         "Resolve each concern listed, or acknowledge them with a reason to sign out anyway."
@@ -517,12 +518,13 @@ def frozen_import_flag(raw: Any, scope: SignoutScope) -> dict[str, Any] | None:
     """The family's stored ``import_incomplete`` flag (``raw``) as a sign-out of ``scope``
     freezes it, or None when it holds nothing of that scope.
 
-    A sign-out of the whole family freezes the flag as stored. A sign-out of one of the
-    family's analyses freezes only the failures of that analysis and of no analysis
-    (``SignoutScope.holds_mark``, ``family_package_registration.analysis_import_flag``):
-    each failure records the analysis of the import it failed in (an upload's none), as
-    analyses share dataset types. Its time, job and imported datasets are those of its latest
-    failure, so another analysis's failure, or the striking of one, leaves it as it is.
+    A sign-out freezes the failures of its scope (``SignoutScope.holds_mark``,
+    ``family_package_registration.analysis_import_flag``): of one of the family's analyses, the
+    failures of that analysis and of no analysis -- each failure records the analysis of the
+    import it failed in (an upload's none), as analyses share dataset types --; of the whole
+    family, every failure. Its time, job and imported datasets are those of its latest failure,
+    so another analysis's failure, or the striking of one, leaves it as it is, and a record
+    signed out whole reads the same once the family holds another analysis.
 
     Frozen: when (``at``), the failed and the imported datasets (sorted, for a stable hash),
     the flag's job, the job of each failed dataset's latest failure (``failed_jobs``: None for
@@ -532,7 +534,7 @@ def frozen_import_flag(raw: Any, scope: SignoutScope) -> dict[str, Any] | None:
     (another callset, other samples) is named once; the flag keeps every scope
     (``failed_scopes``), which is not frozen. Raises ``ImportMarkShapeError`` for a flag in
     another shape (``family_package_registration.read_import_flag``)."""
-    flag = read_import_flag(raw) if scope.whole else analysis_import_flag(raw, scope.holds_mark)
+    flag = analysis_import_flag(raw, scope.holds_mark)
     if flag is None:
         return None
     failed = sorted(set(flag["failed_datasets"]))

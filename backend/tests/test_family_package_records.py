@@ -29,6 +29,7 @@ from backend.app.services.family_package_records import (
     analysis_data_words,
     family_package_folders,
     family_package_records,
+    merged_sources,
     package_folder_of,
     package_record_key,
     package_sources,
@@ -151,6 +152,25 @@ def test_an_import_into_a_family_is_refused_when_it_shares_a_source(monkeypatch:
     assert "shape the import writes" in str(
         registration._shared_source_message({"package_imports": {"pgt": {}}}, bundle("long_read_wgs", "x1"))
     )
+    # A callset whose caller cannot be read now is never imported unchecked beside another
+    # analysis; into a family of none, or of this analysis alone, the loader reads it and says why.
+    unresolved = registration._shared_source_message(family, bundle("long_read_wgs", registration.UNRESOLVED_SNV_SOURCE))
+    assert unresolved is not None and "could not read which caller made" in unresolved
+    assert registration._shared_source_message(family, bundle("short_read_wgs", registration.UNRESOLVED_SNV_SOURCE)) is None
+
+
+def test_a_record_keeps_the_sources_it_listed() -> None:
+    held = {"small_variants": ["mito"], "structural_variants": ["mito_sv"], "tracks": [], "repeats": [], "paraphase": []}
+    written = {"small_variants": ["clair3"], "structural_variants": [], "tracks": ["hificnv"], "repeats": [], "paraphase": []}
+    assert merged_sources(written, held) == {
+        "small_variants": ["clair3", "mito"],
+        "structural_variants": ["mito_sv"],
+        "tracks": ["hificnv"],
+        "repeats": [],
+        "paraphase": [],
+    }
+    with pytest.raises(PackageRecordShapeError):
+        merged_sources(written, {"small_variants": "mito"})
 
 
 class _Family:
@@ -641,14 +661,17 @@ def test_an_import_clears_only_its_own_analysis_entries_with_the_analysis_bound(
         family_package_qc.clear_analysis_import_records(session, family_uuid="family-uuid", analysis=analysis)  # type: ignore[arg-type]
     )
 
-    (family_sql, family_params), (samples_sql, samples_params) = session.statements
-    # The run parameters of the analysis, on its family; each of its samples' QC and alignment.
+    (family_sql, family_params), (samples_sql, samples_params), (tracks_sql, tracks_params) = session.statements
+    # The run parameters of the analysis, on its family; each of its samples' QC and alignment,
+    # and the signal tracks that name it.
     assert family_sql.startswith("UPDATE families SET metadata = metadata #- ARRAY['pipeline', CAST(:analysis AS text)]")
     assert "#- ARRAY['sequencing_qc', CAST(:analysis AS text)] #- ARRAY['alignments', CAST(:analysis AS text)]" in samples_sql
     assert "WHERE family_id = CAST(:family_uuid AS uuid)" in samples_sql
+    assert "caller.value ->> 'package' IS DISTINCT FROM CAST(:analysis AS text)" in tracks_sql
+    assert "WHERE family_id = CAST(:family_uuid AS uuid)" in tracks_sql
     # The analysis is a bound parameter, never part of the statement.
-    assert family_params == samples_params == {"family_uuid": "family-uuid", "analysis": analysis}
-    assert "DROP TABLE" not in family_sql + samples_sql
+    assert family_params == samples_params == tracks_params == {"family_uuid": "family-uuid", "analysis": analysis}
+    assert "DROP TABLE" not in family_sql + samples_sql + tracks_sql
     assert session.committed
 
 

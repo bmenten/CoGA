@@ -13,6 +13,7 @@ only: a per-sample callset of a father and a maternal plasma at a fetal fraction
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import math
 from contextlib import asynccontextmanager
@@ -35,6 +36,7 @@ from backend.app.services.clickhouse_variant_records import SmallVariantCall, Sm
 from backend.app.services.coverage_read_depth import SampleCoverageTracks
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.hash_chain import canonical_hash
+from backend.app.services.nipt import NiptTrio
 from backend.app.services.nipt_analysis import NIPT_MODEL_REFERENCE, NiptQualityThresholds
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
 from backend.app.services.sample_integrity_qc import evaluate_nipt_category_qc
@@ -554,8 +556,14 @@ async def test_the_inputs_the_analysis_ran_with(monkeypatch: pytest.MonkeyPatch)
         {"sample": PLASMA, "file": "cfdna.targets.tsv", "targets": 5, "loaded_at": _LOADED.isoformat()}
     ]
     [(sql, params)] = [(sql, params) for sql, params in session.executed if "sample_interval_track_sources" in sql]
-    assert params == {"family_uuid": FAMILY_UUID, "track_type": "target_coverage", "samples": sorted([PLASMA, FATHER])}
-    assert "ANY(CAST(:samples AS text[]))" in sql
+    # The tables of the trio's pregnancy (nipt_coverage_source; this trio names none).
+    assert params == {
+        "family_uuid": FAMILY_UUID,
+        "track_type": "target_coverage",
+        "source": "coverage_table",
+        "samples": sorted([PLASMA, FATHER]),
+    }
+    assert "ANY(CAST(:samples AS text[]))" in sql and "src.source = :source" in sql
     artifacts = inputs["artifact_list"]
     assert artifacts["entries"] == 3
     # The list states no version: its alleles' digest names it.
@@ -563,6 +571,25 @@ async def test_the_inputs_the_analysis_ran_with(monkeypatch: pytest.MonkeyPatch)
     assert artifacts["removed"] == 1
     assert artifacts["kept"] == [{"variant_id": "7-700-A-G", "reason": "clinvar"}]
 
+
+
+@pytest.mark.asyncio
+async def test_the_coverage_tables_frozen_are_the_pregnancys_own() -> None:
+    # A father sampled for two pregnancies holds a table of each: the record of one names the
+    # table its own package gave, never the other pregnancy's.
+    class _Recording:
+        def __init__(self) -> None:
+            self.params: Any = None
+
+        async def execute(self, statement: Any, params: Any = None) -> Any:
+            self.params = params
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: []))
+
+    session = _Recording()
+    trio = NiptTrio(father_sample_id=FATHER, cfdna_sample_id=PLASMA, analysis="monogenic_nipt:ZW2")
+    context = SimpleNamespace(family_uuid=FAMILY_UUID)
+    assert await srn._target_tables(session, context, trio) == []  # type: ignore[arg-type]
+    assert session.params["source"] == "coverage_table_p" + hashlib.sha256(b"ZW2").hexdigest()[:8]
 
 
 def test_the_model_the_analysis_ran_with() -> None:

@@ -182,7 +182,8 @@ The `409` names them in `nipt_failed_checks` and in `qc_summary.messages` (the p
 For a family with ccnv output, the section `cnipt` also counts, under the same acknowledgement:
 
 - a maternal plasma without a result, with the reasons;
-- a result that rests on provisional bounds, which QA has not set yet, with those bounds.
+- a result that rests on provisional bounds, which QA has not set yet, with those bounds;
+- for the sign-out of a conventional NIPT: a record that froze no result (a section that could not be read, no section, or one without a plasma of the analysis).
 
 The `409` names them in `cnipt_concerns` and in `qc_summary.messages`; the audit event records them (`cnipt_concerns`). The sample QC of a conventional NIPT runs no check (application `cnipt`, verdict *skip*), so nothing else holds the sign-out back: ccnv's output has no genotypes, and the fetal sex is, as for a PGT embryo, known only from the analysis.
 

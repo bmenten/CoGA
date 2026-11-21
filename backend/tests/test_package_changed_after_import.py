@@ -745,8 +745,9 @@ class _Registration:
     """A session for ``_register_package_provenance``: it answers the read of the record's reference
     with ``previous`` and keeps the metadata the family's update writes."""
 
-    def __init__(self, previous: Any) -> None:
+    def __init__(self, previous: Any, sources: Any = None) -> None:
         self.previous = previous
+        self.sources = sources
         self.written: dict[str, Any] | None = None
 
     async def execute(self, statement: Any, params: Any = None) -> Any:
@@ -754,6 +755,9 @@ class _Registration:
         previous = self.previous
         if "-> 'reference_delivery' FROM families" in sql:
             return SimpleNamespace(scalar_one_or_none=lambda: previous)
+        if "-> 'sources' FROM families" in sql:
+            sources = self.sources
+            return SimpleNamespace(scalar_one_or_none=lambda: sources)
         if sql.lstrip().startswith("UPDATE families") and params and "record" in params:
             self.written = {"key": params["record_key"], "record": json.loads(params["record"])}
         # The family holds no other analysis, and no sample the package lists.
@@ -827,6 +831,22 @@ async def test_an_imports_record_keeps_its_mode_and_the_reference_delivery(
     assert record["members"] == []
     # A package without datasets writes no source.
     assert record["sources"] == {kind: [] for kind in ("small_variants", "structural_variants", "tracks", "repeats", "paraphase")}
+
+    # An import of an analysis the family holds keeps the sources its record listed: the rows of a
+    # dataset the package leaves out stay the analysis's, so no other analysis's import takes
+    # them over.
+    held = {"small_variants": ["mito"], "structural_variants": ["mito_sv"], "tracks": [], "repeats": [], "paraphase": []}
+    again = _Registration(previous, sources=held)
+    await registration._register_package_provenance(
+        again,  # type: ignore[arg-type]
+        bundle=bundle,  # type: ignore[arg-type]
+        validation=SimpleNamespace(family_id="FAM1"),  # type: ignore[arg-type]
+        family_uuid="family-uuid",
+        family_identifier="FAM1",
+        user=SimpleNamespace(id="u1", username="superuser"),  # type: ignore[arg-type]
+        import_mode=import_mode,
+    )
+    assert again.written is not None and again.written["record"]["sources"] == held
 
 
 # --- an archived folder ---------------------------------------------------------------------------
