@@ -27,7 +27,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .family_analysis_types import family_analysis_types
-from .family_package_records import ANALYSIS_LABELS, SOURCE_KINDS, family_package_records, record_sources
+from .family_package_records import (
+    ANALYSIS_LABELS,
+    SOURCE_KINDS,
+    family_package_records,
+    record_members,
+    record_sources,
+)
 
 # The analysis a review of a family that holds none is stored under: it belongs to each analysis
 # the family later holds.
@@ -161,11 +167,11 @@ def analysis_scope(
     other_members: set[str] = set()
     for key, record in family_package_records(metadata).items():
         if key == analysis:
-            own_members.update(_record_members(record))
+            own_members.update(record_members(record))
         elif key in held:
             for source_kind, names in record_sources(record).items():
                 left_out[source_kind].update(names)
-            other_members.update(_record_members(record))
+            other_members.update(record_members(record))
     return AnalysisScope(
         analysis=analysis,
         left_out={source_kind: frozenset(names) for source_kind, names in left_out.items()},
@@ -173,11 +179,6 @@ def analysis_scope(
         asked=asked,
         held=held,
     )
-
-
-def _record_members(record: Mapping[str, Any]) -> list[str]:
-    members = record.get("members")
-    return [str(member) for member in members] if isinstance(members, list) else []
 
 
 def review_belongs(scope_analysis: str | None, held: frozenset[str], review_analysis: object) -> bool:

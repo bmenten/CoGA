@@ -68,7 +68,14 @@ from .genotypes import classify_genotype
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
 from .family_analysis_types import family_analysis_types
-from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NiptTrio, nipt_assay_key, resolve_nipt_trio
+from .nipt import (
+    MONOGENIC_NIPT_ANALYSIS_TYPE,
+    NIPT_TRIO_UNRESOLVED,
+    NiptTrio,
+    is_monogenic_nipt_family,
+    nipt_assay_key,
+    resolve_nipt_trio,
+)
 from .nipt_artifact_pg import assay_cfdna_carrier_samples, load_nipt_artifact_ids, recurrence_rules
 from .nipt_coverage import (
     DEFAULT_MIN_DEPTH,
@@ -599,12 +606,14 @@ async def _resolve_family_trio_context(
     """The family, its NIPT trio and its metadata context; 400 when the family is not
     configured for monogenic NIPT."""
     family = await get_family_record(session, family_id, user)
-    trio = resolve_nipt_trio(family)
-    if trio is None:
+    if not is_monogenic_nipt_family(family):
         raise HTTPException(
             status_code=400,
             detail="Family is not configured for monogenic NIPT analysis",
         )
+    trio = resolve_nipt_trio(family)
+    if trio is None:
+        raise HTTPException(status_code=400, detail=NIPT_TRIO_UNRESOLVED)
     # The monogenic NIPT is read from its own analysis's callset: a family that also holds
     # another analysis with small variants of its own (the couple's carrier screening) never
     # lends it its rows (analysis_scope.py).

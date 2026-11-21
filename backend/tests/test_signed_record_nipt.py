@@ -747,22 +747,56 @@ async def test_a_family_is_a_nipt_family_by_its_analysis_type() -> None:
 
 
 def test_the_trio_is_resolved_from_the_familys_active_members() -> None:
-    trio, assay_key = srn.nipt_trio_of(_context())  # type: ignore[misc]
+    trio, assay_key = srn.nipt_trio_of(_context(), listed=())  # type: ignore[misc]
     assert (trio.father_sample_id, trio.cfdna_sample_id, trio.fetus_sample_id, assay_key) == (
         FATHER, PLASMA, "FETUS1", "panel-v2",
     )
     # No assay panel: the default artifact-list scope.
-    assert srn.nipt_trio_of(_context(_sample_rows(assay_panel=None)))[1] == "nipt_cfdna"  # type: ignore[index]
+    assert srn.nipt_trio_of(_context(_sample_rows(assay_panel=None)), listed=())[1] == "nipt_cfdna"  # type: ignore[index]
     # No cfDNA tag: the mother's sample is the plasma, as the NIPT page reads it.
     untagged = [
         {"sample_id": FATHER, "role": "father", "sample_metadata": {}},
         {"sample_id": "MOTHER1", "role": "mother", "sample_metadata": "not a mapping"},
         {"sample_id": "CHILD1", "role": "proband", "sample_metadata": {}},
     ]
-    trio, assay_key = srn.nipt_trio_of(_context(untagged))  # type: ignore[misc]
+    trio, assay_key = srn.nipt_trio_of(_context(untagged), listed=())  # type: ignore[misc]
     assert (trio.cfdna_sample_id, trio.fetus_sample_id, assay_key) == ("MOTHER1", "CHILD1", "nipt_cfdna")
     # No father: no trio.
-    assert srn.nipt_trio_of(_context([{"sample_id": PLASMA, "role": "mother", "sample_metadata": {"assays": ["nipt_cfdna"]}}])) is None
+    assert srn.nipt_trio_of(
+        _context([{"sample_id": PLASMA, "role": "mother", "sample_metadata": {"assays": ["nipt_cfdna"]}}]), listed=()
+    ) is None
+
+
+# A mother sampled twice (two samples linked as the same individual) and no cfDNA tag: the plasma
+# is the sample the monogenic NIPT's package read, never the last mother found.
+_MOTHER_TWICE = [
+    {"sample_id": FATHER, "role": "father", "sample_metadata": {}},
+    {"sample_id": "MOTHER1", "role": "mother", "sample_metadata": {}},
+    {"sample_id": "MOTHER2", "role": "mother", "sample_metadata": {}},
+]
+
+
+@pytest.mark.asyncio
+async def test_of_a_mother_sampled_twice_the_plasma_is_the_sample_the_package_read() -> None:
+    class _Listed(_Session):
+        async def execute(self, statement: Any, params: Any = None) -> _Result:
+            if "FROM families" in str(statement):
+                return _Result(
+                    [
+                        {
+                            "metadata": {
+                                "analysis_types": ["monogenic_nipt"],
+                                "package_imports": {"monogenic_nipt": {"members": [FATHER, "MOTHER1"]}},
+                            }
+                        }
+                    ]
+                )
+            return await super().execute(statement, params)
+
+    resolved = await srn.family_nipt_trio(_Listed(), _context(_MOTHER_TWICE))
+    assert resolved is not None and resolved[0].cfdna_sample_id == "MOTHER1"
+    # No package names one of them: the trio is not guessed.
+    assert await srn.family_nipt_trio(_Session(), _context(_MOTHER_TWICE)) is None
 
 
 @pytest.mark.asyncio
@@ -772,7 +806,7 @@ async def test_a_trio_that_cannot_be_resolved_is_frozen_as_such(monkeypatch: pyt
 
     monkeypatch.setattr(srn, "get_family_nipt_record", _must_not_load)
     context = _context([{"sample_id": PLASMA, "role": "mother", "sample_metadata": {"assays": ["nipt_cfdna"]}}])
-    assert await srn.nipt_results(_Session(), context, reported_ids=["7-100-A-G"]) == {"unavailable": srn.TRIO_UNRESOLVED}
+    assert await srn.nipt_results(_Session(), context, reported_ids=["7-100-A-G"]) == {"unavailable": srn.NIPT_TRIO_UNRESOLVED}
 
 
 # --- What gates the sign-out ---------------------------------------------------------------

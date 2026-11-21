@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from backend.app.schemas import FamilyMemberOut, FamilyOut
 from backend.app.services.metadata_service import _family_member_out_from_row
 from backend.app.services.nipt import (
+    CNIPT_CFDNA_ASSAY,
     DEFAULT_NIPT_ASSAY_KEY,
     MONOGENIC_NIPT_ANALYSIS_TYPE,
     NIPT_CFDNA_ASSAY,
@@ -134,6 +135,57 @@ def test_resolve_nipt_trio_falls_back_to_mother_role_without_assay_tag() -> None
     assert trio is not None
     assert trio.cfdna_sample_id == "mother-1"
     assert trio.fetus_sample_id is None
+
+
+def _listing(family: FamilyOut, *members: str) -> FamilyOut:
+    """``family`` whose monogenic NIPT package lists ``members``."""
+    metadata = {**family.metadata, "package_imports": {"monogenic_nipt": {"members": list(members)}}}
+    return family.model_copy(update={"metadata": metadata})
+
+
+def test_of_a_mother_sampled_twice_the_plasma_is_the_one_the_package_lists() -> None:
+    family = _family([_member("father-1", "father"), _member("mother-1", "mother"), _member("mother-2", "mother")])
+    listed = resolve_nipt_trio(_listing(family, "father-1", "mother-1"))
+    assert listed is not None and listed.cfdna_sample_id == "mother-1"
+    assert resolve_nipt_trio(_listing(family, "father-1", "mother-2")).cfdna_sample_id == "mother-2"  # type: ignore[union-attr]
+    # Neither listed: the plasma is not guessed, and no trio is resolved.
+    assert resolve_nipt_trio(family) is None
+
+
+def test_a_conventional_nipts_plasma_alone_is_not_the_monogenic_nipts() -> None:
+    family = _family(
+        [
+            _member("father-1", "father"),
+            _member("mother-1", "mother"),
+            _member("cnipt-plasma", "mother", assay=CNIPT_CFDNA_ASSAY),
+        ]
+    )
+    trio = resolve_nipt_trio(family)
+    assert trio is not None and trio.cfdna_sample_id == "mother-1"
+
+
+def test_of_two_tagged_plasmas_the_one_the_package_lists_is_the_cfdna_sample() -> None:
+    family = _family(
+        [
+            _member("father-1", "father"),
+            _member("cfdna-1", "mother", assay=NIPT_CFDNA_ASSAY),
+            _member("cfdna-2", "mother", assay=NIPT_CFDNA_ASSAY),
+        ]
+    )
+    assert resolve_nipt_trio(_listing(family, "father-1", "cfdna-2")).cfdna_sample_id == "cfdna-2"  # type: ignore[union-attr]
+    assert resolve_nipt_trio(family) is None
+
+
+def test_of_a_father_sampled_twice_the_father_is_the_one_the_package_lists() -> None:
+    family = _family(
+        [
+            _member("father-1", "father"),
+            _member("father-2", "father"),
+            _member("cfdna-1", "mother", assay=NIPT_CFDNA_ASSAY),
+        ]
+    )
+    assert resolve_nipt_trio(_listing(family, "father-2", "cfdna-1")).father_sample_id == "father-2"  # type: ignore[union-attr]
+    assert resolve_nipt_trio(family) is None
 
 
 def test_resolve_nipt_trio_returns_none_when_family_not_tagged() -> None:

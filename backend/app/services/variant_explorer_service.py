@@ -1110,12 +1110,13 @@ def _total_samples_having(filters: GlobalVariantFilters, params: dict[str, Any])
 
 
 # The counts of a variant over the summary rows a page keeps (``GROUP BY e.xpos, e.key``).
-# An aggregate row (no family) adds its counts; a carrier row names one family and sample (a
-# family whose rows of the variant fall in several classes, or a sample two families show),
-# and a sample counts once over the classes and families kept, by its ID as the explorer
-# counts samples. A contribution taken out is the same rows negated, so the sums net out
-# whether or not the parts have merged: a (family, sample) counts when its rows sum above
-# zero. The carrier rows are few, so they are gathered per variant and netted there.
+# An aggregate row (no family) adds its counts; a carrier row names one family and person (a
+# family whose rows of the variant fall in several classes, or a person two families show),
+# and a person counts once over the classes and families kept: a person sampled twice is named
+# by the first of their linked sample IDs (``variant_carrier_summary``). A contribution taken
+# out is the same rows negated, so the sums net out whether or not the parts have merged: a
+# (family, person) counts when its rows sum above zero. The carrier rows are few, so they are
+# gathered per variant and netted there.
 _CARRIER_ROW = "e.family_guid != ''"
 
 
@@ -1129,7 +1130,7 @@ def _netted(field: int) -> str:
 
 
 def _distinct_part(part: int, netted: str) -> str:
-    """How many distinct families (``part`` 1) or samples (2) the tokens of ``netted`` that
+    """How many distinct families (``part`` 1) or persons (2) the tokens of ``netted`` that
     sum above zero name."""
     return (
         f"length(arrayDistinct(arrayMap(token -> splitByChar('\\t', token)[{part}], "

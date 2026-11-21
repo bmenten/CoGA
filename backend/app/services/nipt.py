@@ -15,10 +15,11 @@ the full design.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from typing import Any, Collection, Iterable, Mapping, Sequence
 
 from ..schemas import FamilyOut
 from .family_analysis_types import family_analysis_types, sample_assay_panel, sample_assays
+from .family_package_records import analysis_members
 
 # A family whose analysis types (``family_analysis_types``) hold this is a monogenic NIPT family:
 # the UI shows its NIPT pages.
@@ -43,6 +44,15 @@ CNIPT_CFDNA_ASSAY = "cnipt_cfdna"
 # family_analysis_types.SAMPLE_ASSAY_PANELS_KEY) scopes the recurrent-artifact list. None named ->
 # the default scope. A conventional NIPT of the same plasma names its own, which the list never reads.
 DEFAULT_NIPT_ASSAY_KEY = NIPT_CFDNA_ASSAY
+
+
+# Why a monogenic NIPT family has no trio (``resolve_nipt_trio`` returned None), as the NIPT page
+# answers it and the signed record freezes it.
+NIPT_TRIO_UNRESOLVED = (
+    "The NIPT trio could not be resolved: the family has no active father or no maternal plasma "
+    "sample, or has two samples that could be one of them (a parent sampled twice) and the "
+    "monogenic NIPT's package lists neither."
+)
 
 
 @dataclass(slots=True)
@@ -79,46 +89,76 @@ def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:
     active ``mother`` member when no sample carries the tag. The father is the active ``father``
     member; the fetus is the active ``embryo`` member, or the ``proband`` child
     when no ``embryo`` is present (manual family creation labels the child
-    ``proband``), if present at all.
+    ``proband``), if present at all. Of several members that could be the plasma or the father (a
+    mother or a father sampled twice, linked as the same individual), the one the monogenic
+    NIPT's package lists is (``resolve_nipt_trio_from_members``).
     """
     if not is_monogenic_nipt_family(family):
         return None
     return resolve_nipt_trio_from_members(
-        (member.sample_id, member.role, member.sample_metadata)
-        for member in family.members
-        if member.active
+        (
+            (member.sample_id, member.role, member.sample_metadata)
+            for member in family.members
+            if member.active
+        ),
+        listed=analysis_members(family.metadata, MONOGENIC_NIPT_ANALYSIS_TYPE),
     )
 
 
+_Member = tuple[str, str | None, Mapping[str, Any] | None]
+
+
+def _holder(candidates: Sequence[_Member], listed: Collection[str], *, plasma: bool) -> str | None:
+    """Of the members that could hold the monogenic NIPT's sample of one role, the one that holds
+    its data: the only one; else the only one its package lists (``listed``); else, for the
+    plasma, the only one of those that is no conventional NIPT's plasma alone (``cnipt_cfdna``).
+    None when none or several are left: the trio is not guessed."""
+    if len(candidates) == 1:
+        return candidates[0][0]
+    pool = [member for member in candidates if member[0] in listed] or list(candidates)
+    if len(pool) == 1:
+        return pool[0][0]
+    if plasma:
+        pool = [member for member in pool if CNIPT_CFDNA_ASSAY not in sample_assays(member[2])]
+        if len(pool) == 1:
+            return pool[0][0]
+    return None
+
+
 def resolve_nipt_trio_from_members(
-    members: Iterable[tuple[str, str | None, Mapping[str, Any] | None]],
+    members: Iterable[_Member],
+    *,
+    listed: Collection[str],
 ) -> NiptTrio | None:
     """The trio of a monogenic NIPT family from its active members, each as
     ``(sample_id, role, sample_metadata)``, by the rules of ``resolve_nipt_trio``; None
-    when the father and the cfDNA sample cannot both be identified. The signed record
-    resolves the trio from the family's metadata context with it (``signed_record_nipt``).
+    when the father and the cfDNA sample cannot both be identified. ``listed`` holds the members
+    the monogenic NIPT's package lists (``analysis_members``): of a mother or a father sampled
+    twice, the sample its package read holds its data, and of several samples none of them
+    singles out the trio is not resolved. The signed record resolves the trio from the family's
+    metadata context with it (``signed_record_nipt``).
     """
-    father_sample_id: str | None = None
-    cfdna_sample_id: str | None = None
-    mother_sample_id: str | None = None
+    tagged: list[_Member] = []
+    fathers: list[_Member] = []
+    mothers: list[_Member] = []
     fetus_sample_id: str | None = None
 
-    for sample_id, role, sample_metadata in members:
+    for member in members:
+        sample_id, role, sample_metadata = member
         if is_cfdna_sample_metadata(sample_metadata):
-            cfdna_sample_id = sample_id
+            tagged.append(member)
             continue
         if role == "father":
-            father_sample_id = sample_id
+            fathers.append(member)
         elif role == "mother":
-            mother_sample_id = sample_id
+            mothers.append(member)
         elif role == "embryo":
             fetus_sample_id = sample_id
         elif role == "proband" and fetus_sample_id is None:
             fetus_sample_id = sample_id
 
-    if cfdna_sample_id is None:
-        cfdna_sample_id = mother_sample_id
-
+    father_sample_id = _holder(fathers, listed, plasma=False)
+    cfdna_sample_id = _holder(tagged or mothers, listed, plasma=True)
     if father_sample_id is None or cfdna_sample_id is None:
         return None
 

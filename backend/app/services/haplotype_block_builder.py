@@ -35,7 +35,7 @@ import bisect
 import json
 import re
 from array import array
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Collection, Iterable, Mapping, Sequence
 
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
@@ -414,12 +414,13 @@ def _role_first_parent_names(
     return father_name, mother_name
 
 
-def _couple_children(context: FamilyMetadataContext) -> set[str]:
+def _couple_children(context: FamilyMetadataContext, holding: Collection[str] | None = None) -> set[str]:
     """The children of the couple by the pedigree, who alone tell a parent's phase switch
-    from crossovers; empty when the pedigree does not name the couple."""
+    from crossovers; empty when the pedigree does not name the couple. ``holding``: the samples
+    whose phased genotypes are read (``identify_core``)."""
     if not context.relationship_rows:
         return set()
-    core = identify_core(build_pedigree(context.sample_rows, context.relationship_rows))
+    core = identify_core(build_pedigree(context.sample_rows, context.relationship_rows), holding)
     return set(core.children) if core.father and core.mother else set()
 
 
@@ -432,8 +433,8 @@ def haplotype_block_basis(context: FamilyMetadataContext, samples: Iterable[str]
     imported again (``pgt_analysis.blocks_outdated``). The affected statuses are not in it:
     the embryo calls read them when they are made, and they only orient the parents' labels."""
     names = sorted({str(name) for name in samples})
-    father, mother = _parent_sample_names(context)
-    children = _couple_children(context)
+    father, mother = _parent_sample_names(context, set(names))
+    children = _couple_children(context, set(names))
     sexes = {str(row.get("sample_id")): normalize_sex(row.get("sex")) for row in context.sample_rows}
     return {
         "father": father,
@@ -462,7 +463,9 @@ def blocks_outdated(context: FamilyMetadataContext, rows: Sequence[Mapping[str, 
     return False
 
 
-def _parent_sample_names(context: FamilyMetadataContext) -> tuple[str | None, str | None]:
+def _parent_sample_names(
+    context: FamilyMetadataContext, holding: Collection[str] | None = None
+) -> tuple[str | None, str | None]:
     """Resolve the *index couple* — the father/mother who co-parent the index
     children — so the marker overlay and the upload block builder agree with the
     pedigree-aware lineage path (``identify_core``).
@@ -474,10 +477,11 @@ def _parent_sample_names(context: FamilyMetadataContext) -> tuple[str | None, st
     embryos. This returns ``None`` for the donor side of a SINGLE-PARENT family — we
     must preserve that ``None`` (not back-fill it with a role-first match, which would
     grab a grandparent). We fall back to the role-first match only when no index
-    parent can be identified from the pedigree at all (missing relationships)."""
+    parent can be identified from the pedigree at all (missing relationships). ``holding``: the
+    samples whose phased genotypes are read, which of a parent sampled twice is the core's."""
     if context.relationship_rows:
         pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
-        core = identify_core(pedigree)
+        core = identify_core(pedigree, holding)
         if core.children and (core.father or core.mother):
             return core.father, core.mother
     return _role_first_parent_names(context)
@@ -613,23 +617,17 @@ class HaplotypeBlockBuilder:
         self.sample_contexts = sample_contexts
         self.chromosome_sizes = chromosome_sizes
         self.metadata_json = metadata_json
-        self.father_name, self.mother_name = _parent_sample_names(context)
-        # Segregation haplotypes need both parents in the callset; otherwise each sample's
-        # blocks follow its own phase sets.
-        self.use_segregation = (
-            self.father_name in sample_contexts and self.mother_name in sample_contexts
-        )
+        self.states: dict[str, dict[str, Any]] = {}
+        self._read_couple()
         self.affected_sample_names = set(context.affected_sample_names)
         self.affected_parent_counts = {
             "father": {"0": 0, "1": 0},
             "mother": {"0": 0, "1": 0},
         }
         self.rows: list[dict[str, Any]] = []
-        self.states: dict[str, dict[str, Any]] = {}
         self.side_states: dict[str, dict[str, dict[str, Any]]] = {}
         # Segregation haplotypes: the current chromosome's transmissions per child, and
         # the parents' phase switches found so far.
-        self.couple_children = _couple_children(context)
         self.transmission_chrom: str | None = None
         self.transmissions: dict[str, _ChildTransmissions] = {}
         self.phase_corrections: list[PhaseCorrection] = []
@@ -690,12 +688,26 @@ class HaplotypeBlockBuilder:
         (``haplotype_block_basis``), which the loader keeps beside them."""
         return haplotype_block_basis(self.context, self.states)
 
+    def _read_couple(self) -> None:
+        """The index couple and their children, of the samples added (``identify_core``'s
+        ``holding``): of a parent sampled twice, the sample the callset holds. The samples are
+        added from the file's header before any record is read, and the blocks' basis
+        (:meth:`basis`) reads the same samples."""
+        self.father_name, self.mother_name = _parent_sample_names(self.context, set(self.states))
+        # Segregation haplotypes need both parents in the callset; otherwise each sample's
+        # blocks follow its own phase sets.
+        self.use_segregation = (
+            self.father_name in self.sample_contexts and self.mother_name in self.sample_contexts
+        )
+        self.couple_children = _couple_children(self.context, set(self.states))
+
     def add_sample(self, name: str) -> None:
         self.states[name] = _empty_haplotype_state()
         self.side_states[name] = {
             "father": _empty_segregation_side_state(),
             "mother": _empty_segregation_side_state(),
         }
+        self._read_couple()
 
     def observe(
         self,

@@ -1259,7 +1259,7 @@ erDiagram
         UInt64 xpos PK "0 in a marker row"
         UInt64 key PK
         String family_guid PK "empty in an aggregate row"
-        String sample_id PK "set in a carrier row"
+        String sample_id PK "the person, set in a carrier row"
         Array projects PK "the family's projects"
         UInt64 annotationSetHash PK "the row's class, with the next three"
         String rsid PK
@@ -1274,7 +1274,9 @@ erDiagram
         UInt64 generation PK
         Array projects
         Array shown_samples
-        Array shared_samples "shown by another family too"
+        Array shared_samples "the persons another family shows too"
+        Array person_samples "a sample linked as the same individual as another"
+        Array person_keys "the person it is: the first of its linked sample IDs"
         String source_project "whose copy was read"
         String data_version
     }
@@ -1545,7 +1547,7 @@ its callset is imputed, the columns the explorer's filters read on a row.
 | Row | Sort key | Holds |
 | --- | --- | --- |
 | aggregate | `xpos, key, '', '', projects, class…, 0` | the families (1), carriers, heterozygous and homozygous carriers that families of the same projects add to a variant of one class, summed over those families. A family adds one when all its rows of the variant share one class and no carrier is a sample another family shows too; its carriers are deduplicated over its callsets and project copies |
-| carrier | `xpos, key, family, sample, projects, class…, 0` | one sample's call, in one class: a family whose rows of the variant fall in several classes (two callsets annotated apart, a called and an imputed callset), or a sample two families show. The explorer counts a sample once over the rows its filters keep, by its ID |
+| carrier | `xpos, key, family, sample, projects, class…, 0` | one person's call, in one class: a family whose rows of the variant fall in several classes (two callsets annotated apart, a called and an imputed callset), or a person two families show. The explorer counts a person once over the rows its filters keep. `sample_id` names the person: two samples linked as the same individual (a person sampled twice) by the first of their sample IDs, over the links of every family of the assembly |
 | marker | `0, 0, family, '', [], …, generation` | `applied` = 1 for the generation of the family's contribution the table holds |
 
 `SummingMergeTree((families, samples, het, hom, applied))` sums the rows of one sort key. A
@@ -1561,7 +1563,7 @@ A contribution is taken out by writing the same rows negated, its marker at -1: 
 whether or not the parts have merged, and merges drop the rows that sum to zero (a row of a
 table with a nested column would stay; the summary has none). The explorer reads the table
 without `FINAL`, grouped by `xpos, key` in the table's order (`optimize_aggregation_in_order`),
-so it holds one variant's sums at a time; a carrier row counts while its sample's rows sum above
+so it holds one variant's sums at a time; a carrier row counts while its person's rows sum above
 zero. A filter read by a subquery holds the variants it keeps in a set; a search whose set would
 pass two million variants (`max_rows_in_set`) reads the table one genomic window at a time
 instead (`ExplorerWindow` in
@@ -1569,8 +1571,9 @@ instead (`ExplorerWindow` in
 gene, transcript and cohort-frequency views always do.
 
 `carrier_generations` (`ReplacingMergeTree`, by family and generation) holds, per generation,
-the family's projects, the samples it showed and those of them another family shows, the
-project whose copy was read and the family's data version. A row of an empty `family_guid` asks
+the family's projects, the samples it showed, the persons among them another family shows, the
+person each linked sample is (`person_samples`, `person_keys`), the project whose copy was read
+and the family's data version. A row of an empty `family_guid` asks
 for the summary to be emptied. The records of generations the table no longer holds are deleted
 synchronously once the next one is in.
 

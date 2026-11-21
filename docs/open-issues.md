@@ -57,9 +57,6 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | TRACE-21 | P3 | Decide whether a family that loses a project link gets a clinical audit event | owner | |
 | OPS-12 | P3 | Finish what Dependabot cannot update: the workflow pins, a Terraform lock file, the Cloud Build builder | owner | |
 | OPS-26 | P3 | At the first apply, check the ClickHouse VM's certificate refresh runs (`/etc` may be no-exec) | ops | |
-| CLIN-80 | P3 | Count a person sampled twice (two samples linked as the same individual) once in the Variant Explorer's carrier counts | developer | |
-| CLIN-81 | P3 | Pick the sample that holds an analysis's data when the mother is sampled twice: the monogenic NIPT trio (without the `nipt_cfdna` assay the last mother wins) and the PGT core (no mother) | developer | |
-| CLIN-82 | P3 | Read both samples of a partner sampled twice in one analysis's carrier screen: one is read, and a call only the other holds is missed | developer | |
 
 ## Waiting for a decision
 

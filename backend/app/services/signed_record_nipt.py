@@ -47,17 +47,19 @@ import dataclasses
 import json
 import math
 from datetime import datetime
-from typing import Any, Iterable, Mapping
+from typing import Any, Collection, Iterable, Mapping
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .family_analysis_types import family_analysis_types
 from .family_metadata_context import FamilyMetadataContext
+from .family_package_records import analysis_members
 from .hash_chain import canonical_hash
 from .nipt import (
     DEFAULT_NIPT_ASSAY_KEY,
     MONOGENIC_NIPT_ANALYSIS_TYPE,
+    NIPT_TRIO_UNRESOLVED,
     NiptTrio,
     assay_key_for_sample_metadata,
     resolve_nipt_trio_from_members,
@@ -84,13 +86,6 @@ from .nipt_service import (
 )
 from .nipt_target_coverage import TARGET_COVERAGE_TRACK_TYPE, TargetCoverageSummary
 from .nipt_triage import RecessiveAllele, RecessiveGeneRisk
-
-# Frozen in the section's place when the trio cannot be resolved: no father, or no maternal
-# plasma sample, among the family's active members (the NIPT page cannot run either).
-TRIO_UNRESOLVED = (
-    "The NIPT trio could not be resolved: the family has no active father or no maternal "
-    "plasma sample."
-)
 
 # The notes of the coverage check over the coverage tracks, in the section.
 COVERAGE_NOTES_KEY = "coverage_notes"
@@ -140,30 +135,47 @@ def _iso(value: Any) -> str | None:
     return str(value) if value is not None else None
 
 
-async def is_nipt_family(session: AsyncSession, context: FamilyMetadataContext) -> bool:
-    """Whether the family holds a monogenic NIPT analysis (its ``analysis_types``), as the
-    NIPT page and the Sample QC read it."""
+async def _family_metadata(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, Any] | None:
+    """The family's ``families.metadata``."""
     row = (
         await session.execute(_FAMILY_METADATA_SQL, {"family_uuid": context.family_uuid})
     ).mappings().first()
     metadata = row.get("metadata") if row is not None else None
     if isinstance(metadata, str):
         metadata = json.loads(metadata)
-    return MONOGENIC_NIPT_ANALYSIS_TYPE in family_analysis_types(metadata if isinstance(metadata, dict) else None)
+    return metadata if isinstance(metadata, dict) else None
 
 
-def nipt_trio_of(context: FamilyMetadataContext) -> tuple[NiptTrio, str] | None:
+async def is_nipt_family(session: AsyncSession, context: FamilyMetadataContext) -> bool:
+    """Whether the family holds a monogenic NIPT analysis (its ``analysis_types``), as the
+    NIPT page and the Sample QC read it."""
+    return MONOGENIC_NIPT_ANALYSIS_TYPE in family_analysis_types(await _family_metadata(session, context))
+
+
+async def family_nipt_trio(
+    session: AsyncSession, context: FamilyMetadataContext
+) -> tuple[NiptTrio, str] | None:
+    """:func:`nipt_trio_of`, of the members the monogenic NIPT's package lists."""
+    metadata = await _family_metadata(session, context)
+    return nipt_trio_of(context, listed=analysis_members(metadata, MONOGENIC_NIPT_ANALYSIS_TYPE))
+
+
+def nipt_trio_of(context: FamilyMetadataContext, *, listed: Collection[str]) -> tuple[NiptTrio, str] | None:
     """The family's NIPT trio and the artifact-list scope of its cfDNA assay, from its active
-    members (``nipt.resolve_nipt_trio``'s rules); None when the trio cannot be resolved."""
+    members and those the monogenic NIPT's package lists (``listed``, ``nipt.resolve_nipt_trio``'s
+    rules); None when the trio cannot be resolved."""
     rows = list(context.sample_rows)
     trio = resolve_nipt_trio_from_members(
         (
-            str(row.get("sample_id")),
-            row.get("role"),
-            row.get("sample_metadata") if isinstance(row.get("sample_metadata"), Mapping) else None,
-        )
-        for row in rows
-        if row.get("sample_id")
+            (
+                str(row.get("sample_id")),
+                row.get("role"),
+                row.get("sample_metadata") if isinstance(row.get("sample_metadata"), Mapping) else None,
+            )
+            for row in rows
+            if row.get("sample_id")
+        ),
+        listed=listed,
     )
     if trio is None:
         return None
@@ -524,9 +536,10 @@ async def nipt_results(
     """The NIPT section of a monogenic NIPT family's record: its analysis as the NIPT page
     computes it now, the reported variants (``reported_ids``) among it. With ``shared_nipt``,
     the analysis the sign-out's Sample QC read, so the two report the same values."""
-    resolved = nipt_trio_of(context)
+    resolved = await family_nipt_trio(session, context)
     if resolved is None:
-        return {"unavailable": TRIO_UNRESOLVED}
+        # Frozen in the section's place: the NIPT page cannot run either.
+        return {"unavailable": NIPT_TRIO_UNRESOLVED}
     trio, assay_key = resolved
     qc = NiptQualityThresholds()
     analysis = await get_family_nipt_record(

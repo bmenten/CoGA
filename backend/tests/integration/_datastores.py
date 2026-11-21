@@ -141,8 +141,9 @@ def explorer_shows(monkeypatch: Any, members: dict[str, list[str]]) -> None:
             {"families": tuple(wanted)},
         )
         projects = {str(family): tuple(sorted(str(value) for value in linked)) for family, linked in rows}
+        # No sample is shown by two families or linked as the same individual as another.
         return {
-            family: (projects.get(family, ()), tuple(sorted(set(members[family]))), ())
+            family: (projects.get(family, ()), tuple(sorted(set(members[family]))), (), ())
             for family in wanted
         }
 
