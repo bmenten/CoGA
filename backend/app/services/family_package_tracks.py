@@ -622,7 +622,7 @@ async def _import_ccnv_track(
 ) -> dict[str, int]:
     """Store a ccnv bins file as the sample's ``coverage`` track or its segments file as its
     ``segments`` track, under ``source`` (the pregnancy's ``ccnv`` source,
-    ``family_package_records.pregnancy_source``), in place of the one stored from that file. Both hold
+    ``family_package_records.suffixed_source``), in place of the one stored from that file. Both hold
     log2 ratios of the maternal plasma, as ccnv wrote them.
 
     The file is read up to its first row before anything is deleted: one that is no ccnv

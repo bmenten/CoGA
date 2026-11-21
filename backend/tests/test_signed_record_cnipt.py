@@ -16,7 +16,7 @@ import pytest
 from backend.app.services import cnipt_service
 from backend.app.services import signed_record_cnipt as src
 from backend.app.services.hash_chain import canonical_hash
-from backend.app.services.family_package_records import pregnancy_source
+from backend.app.services.family_package_records import suffixed_source
 from backend.tests._ccnv_output import qc_payload
 
 _LOADED = datetime(2026, 11, 19, 9, 30, tzinfo=timezone.utc)
@@ -131,8 +131,8 @@ async def test_the_section_freezes_the_page_result_with_its_inputs(monkeypatch: 
         "segment_files": [{"file": "CFDNA1_segments.bed.gz", "rows": 2, "loaded_at": _LOADED.isoformat()}],
     }
     assert len(inputs["segments_digest"]) == 64
-    # The pregnancy's own ccnv source (family_package_records.pregnancy_source).
-    assert session.asked == [{"family_uuid": "family-uuid", "source": pregnancy_source("ccnv", "ZW1")}]
+    # The pregnancy's own ccnv source (family_package_records.suffixed_source).
+    assert session.asked == [{"family_uuid": "family-uuid", "source": suffixed_source("ccnv", "ZW1")}]
     assert (section["analysis"], section["fetuses"], section["multiple_pregnancy_note"]) == (CNIPT, ["FETUS1"], None)
     # Deterministic, and as JSONB keeps it.
     assert await src.cnipt_results(_Session(session.files), context) == {  # type: ignore[arg-type]

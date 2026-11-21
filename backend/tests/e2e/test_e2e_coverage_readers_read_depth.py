@@ -39,10 +39,10 @@ import pytest
 
 from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema, write_file
-from backend.app.services.family_package_records import pregnancy_source
+from backend.app.services.family_package_records import suffixed_source
 
-# The monogenic NIPT's coverage BED source: its pregnancy's own (family_package_records.pregnancy_source).
-NIPT_BED = pregnancy_source("web", "ZW1")
+# The monogenic NIPT's coverage BED source: its pregnancy's own (family_package_records.suffixed_source).
+NIPT_BED = suffixed_source("web", "ZW1")
 
 pytestmark = pytest.mark.integration
 

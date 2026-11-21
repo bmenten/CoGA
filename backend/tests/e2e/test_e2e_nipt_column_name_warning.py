@@ -36,7 +36,7 @@ from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
 from backend.tests.e2e._import_jobs import claim_import_job
-from backend.app.services.family_package_records import pregnancy_source
+from backend.app.services.family_package_records import suffixed_source
 
 pytestmark = pytest.mark.integration
 
@@ -180,8 +180,8 @@ async def _collect(base: Path) -> dict[str, Any]:
             f"FROM {_small_table_name(_harness.ASSEMBLY, 'entries')} "
             "WHERE family_guid = %(family_guid)s AND source = %(source)s AND sign = 1 "
             "ORDER BY variantId",
-            # The pregnancy's own NIPT callset (family_package_records.pregnancy_source).
-            {"family_guid": family_uuid, "source": pregnancy_source("nipt", "ZW1")},
+            # The pregnancy's own NIPT callset (family_package_records.suffixed_source).
+            {"family_guid": family_uuid, "source": suffixed_source("nipt", "ZW1")},
         )
         out["calls"] = [sorted(str(sample) for sample in samples) for _variant_id, samples in rows]
     return out

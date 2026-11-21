@@ -35,7 +35,7 @@ with the code. ccnv's own description of its methods: https://matthdsm.github.io
 - What is stored: the bins as the plasma's `coverage` track and the segments as its `segments` track
   (log2 ratios, ccnv's values in each row's `metadata_json`); the calls as structural variants
   (genotype `./1`); each under the pregnancy's own `ccnv` source (`ccnv_p…`,
-  `family_package_records.pregnancy_source`), which the readers read as `ccnv` (`source_base`), so
+  `family_package_records.suffixed_source`), which the readers read as `ccnv` (`source_base`), so
   an import of another pregnancy's conventional NIPT replaces none of it; the QC file under
   `samples.metadata.ccnv`.
 

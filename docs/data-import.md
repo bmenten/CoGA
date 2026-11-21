@@ -1865,7 +1865,7 @@ owner's decisions of 2026-11-20 and 2026-11-21):
   pregnancy's analysis again (with update or overwrite), and one that names another pregnancy is a
   new analysis beside the others.
 - **Each pregnancy keeps its data as its own.** The sources of a pregnancy's small variants,
-  coverage and ccnv output carry its pregnancy (`family_package_records.pregnancy_source`:
+  coverage and ccnv output carry its pregnancy (`family_package_records.suffixed_source`:
   `nipt_p1a2b3c4d`, `ccnv_p…`, `web_p…`), so the father's calls of one pregnancy are never
   another's and an import of one pregnancy replaces nothing of another; the readers read such a
   source as the one it is kept for (`source_base`). A maternal plasma and a fetus (role `fetus`) are

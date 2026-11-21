@@ -14,7 +14,7 @@ import pytest
 
 from backend.app.services import cnipt_service
 from backend.app.services.analysis_scope import AnalysisNotNamed
-from backend.app.services.family_package_records import pregnancy_source
+from backend.app.services.family_package_records import suffixed_source
 from backend.tests._ccnv_output import qc_payload
 
 
@@ -89,8 +89,8 @@ async def test_each_plasma_is_judged_from_its_stored_qc_and_segments(monkeypatch
             "family_uuid": "family-uuid",
             "track_type": "segments",
             "chromosomes": [],
-            # The pregnancy's own ccnv source (family_package_records.pregnancy_source).
-            "source": pregnancy_source("ccnv", "ZW1"),
+            # The pregnancy's own ccnv source (family_package_records.suffixed_source).
+            "source": suffixed_source("ccnv", "ZW1"),
             "include_metadata": True,
         }
     ]
@@ -147,7 +147,7 @@ async def test_each_pregnancy_reads_its_own_plasma_and_a_twin_pregnancy_says_so(
     result = await cnipt_service.get_family_cnipt_result(None, family_id="CNIPT1", user=None, analysis=later)  # type: ignore[arg-type]
     assert [sample.sample_id for sample in result.samples] == ["CFDNA2"]
     assert [entry["sample_uuid"] for entry in asked] == ["uuid-3"]
-    assert {entry["source"] for entry in asked} == {pregnancy_source("ccnv", "ZW2")}
+    assert {entry["source"] for entry in asked} == {suffixed_source("ccnv", "ZW2")}
     assert result.fetuses == ["TWIN1", "TWIN2"]
     assert result.multiple_pregnancy_note is not None and "one fetus or in more than one" in result.multiple_pregnancy_note
 

@@ -25,7 +25,7 @@ IMPUTED_CALLSETS: tuple[str, ...] = ("glimpse2", "shapeit")
 # The mtDNA calls, kept apart from the nuclear callset of the same family.
 MITO_CALLSET = "mito"
 # A monogenic NIPT's calls stored one file per sample (the plasma's and the father's), each
-# pregnancy's under its own source (``family_package_records.pregnancy_source``: ``nipt_p1a2b3c4d``).
+# pregnancy's under its own source (``family_package_records.suffixed_source``: ``nipt_p1a2b3c4d``).
 NIPT_CALLSET = "nipt"
 
 # The callers CoGA names in words, in the order a reader that reads one direct callset of a

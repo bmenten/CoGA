@@ -80,7 +80,7 @@ from .nipt_target_coverage import (
     parse_target_coverage_table,
     target_row_metadata,
 )
-from .family_package_records import PACKAGE_KEY, pregnancy_source
+from .family_package_records import PACKAGE_KEY, suffixed_source
 from .family_package_qc import (
     extract_pipeline_versions,
     parse_ado_adi_text,
@@ -161,9 +161,9 @@ class DatasetImportJob:
     def own_source(self, source: str) -> str:
         """The source a dataset a pregnancy keeps as its own (``family_package_records.
         PREGNANCY_DATASETS``) stores under that another analysis stores under ``source``: the
-        pregnancy's (``pregnancy_source``), so an import of one of a family's pregnancies never
+        pregnancy's (``suffixed_source``), so an import of one of a family's pregnancies never
         replaces another's data; ``source`` itself for an analysis of no pregnancy."""
-        return pregnancy_source(source, self.bundle.manifest.pregnancy)
+        return suffixed_source(source, self.bundle.manifest.pregnancy)
 
 
 DatasetImporter = Callable[[DatasetImportJob], Awaitable[FamilyImportDatasetSummary]]
@@ -336,7 +336,7 @@ def snv_dataset_callset(bundle: FamilyPackageBundle) -> str:
     the loader reads it. ``auto`` (``UNRESOLVED_SNV_SOURCE``) when it cannot be
     told: no family VCF, one that cannot be read, or one whose caller neither the package nor
     the header names (which validation refuses). A pregnancy's package stores it as the
-    pregnancy's own (``family_package_records.pregnancy_source``: ``nipt_p1a2b3c4d``)."""
+    pregnancy's own (``family_package_records.suffixed_source``: ``nipt_p1a2b3c4d``)."""
     dataset = bundle.manifest.datasets.get("snv")
     if dataset is None:
         return UNRESOLVED_SNV_SOURCE
@@ -344,17 +344,17 @@ def snv_dataset_callset(bundle: FamilyPackageBundle) -> str:
     source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
     if dataset.per_sample and not dataset.family_vcf:
         if (bundle.manifest.analysis_type or "").strip() == MONOGENIC_NIPT_ANALYSIS_TYPE:
-            return pregnancy_source(NIPT_SMALL_VARIANT_SOURCE, pregnancy)
+            return suffixed_source(NIPT_SMALL_VARIANT_SOURCE, pregnancy)
         # The caller its package declares, which validation requires.
-        return pregnancy_source(source_format, pregnancy)
+        return suffixed_source(source_format, pregnancy)
     if source_format != "auto":
-        return pregnancy_source(source_format, pregnancy)
+        return suffixed_source(source_format, pregnancy)
     try:
         vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
         if vcf_path is None:
             return UNRESOLVED_SNV_SOURCE
         with vcf_path.open("rb") as handle:
-            return pregnancy_source(_small_variant_callset(UploadFile(file=handle, filename=vcf_path.name)), pregnancy)
+            return suffixed_source(_small_variant_callset(UploadFile(file=handle, filename=vcf_path.name)), pregnancy)
     except Exception:  # noqa: BLE001 - the loader reads the file again, and says why it cannot
         return UNRESOLVED_SNV_SOURCE
 
@@ -958,7 +958,7 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
     conflict_mode = job.conflict_mode
-    # The pregnancy's own source (family_package_records.pregnancy_source): an import of another
+    # The pregnancy's own source (family_package_records.suffixed_source): an import of another
     # pregnancy's conventional NIPT never replaces this one's tracks and calls.
     source = job.own_source(CCNV_SOURCE)
     if not family_context.assembly_name:

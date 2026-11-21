@@ -68,7 +68,7 @@ from .genotypes import classify_genotype
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
 from .family_analysis_types import pregnancy_of
-from .family_package_records import pregnancy_source
+from .family_package_records import suffixed_source
 from .nipt import (
     MONOGENIC_NIPT_ANALYSIS_TYPE,
     NIPT_TRIO_UNRESOLVED,
@@ -665,9 +665,9 @@ async def _load_listed_artifacts(
 
 def nipt_coverage_source(trio: NiptTrio) -> str:
     """The source the per-target coverage tables of the trio's pregnancy are stored under: the
-    pregnancy's own (``family_package_records.pregnancy_source``), so a father sampled for each
+    pregnancy's own (``family_package_records.suffixed_source``), so a father sampled for each
     pregnancy is read with the table its pregnancy's package gave."""
-    return pregnancy_source(TARGET_COVERAGE_SOURCE, pregnancy_of(trio.analysis))
+    return suffixed_source(TARGET_COVERAGE_SOURCE, pregnancy_of(trio.analysis))
 
 
 async def _load_target_rows(

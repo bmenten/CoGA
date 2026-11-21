@@ -28,7 +28,7 @@ from .cnipt_result import (
 )
 from .family_analysis_types import pregnancy_of
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
-from .family_package_records import analysis_members, pregnancy_source
+from .family_package_records import analysis_members, suffixed_source
 from .nipt import CONVENTIONAL_NIPT_ANALYSIS_TYPE, multiple_pregnancy_note, nipt_analysis_of, pregnancy_fetuses
 from .qc_threshold_service import QC_METRICS_BY_KEY, resolve_profile_thresholds
 
@@ -71,7 +71,7 @@ class CniptPregnancy:
     """What a conventional NIPT of one pregnancy reads: its analysis (by its key,
     ``conventional_nipt:ZW1``), the maternal plasmas its package lists that hold a ccnv output,
     the source its ccnv output is stored under (the pregnancy's own,
-    ``family_package_records.pregnancy_source``) and the pregnancy's fetuses."""
+    ``family_package_records.suffixed_source``) and the pregnancy's fetuses."""
 
     analysis: str
     plasmas: tuple[Mapping[str, Any], ...]
@@ -86,7 +86,7 @@ def cnipt_pregnancy(context: FamilyMetadataContext, analysis: str) -> CniptPregn
     return CniptPregnancy(
         analysis=analysis,
         plasmas=tuple(row for row in ccnv_plasma_rows(context) if str(row.get("sample_id")) in listed),
-        source=pregnancy_source(CCNV_SOURCE, pregnancy_of(analysis)),
+        source=suffixed_source(CCNV_SOURCE, pregnancy_of(analysis)),
         fetuses=pregnancy_fetuses(
             (
                 (str(row.get("sample_id")), row.get("role"), row.get("sample_metadata"))

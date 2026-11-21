@@ -31,7 +31,7 @@ from backend.app.services.family_package_records import (
     analysis_label,
     package_record_key,
     package_sources,
-    pregnancy_source,
+    suffixed_source,
     source_base,
     source_collisions,
 )
@@ -79,37 +79,37 @@ def test_a_pregnancy_id_follows_the_id_rule(value: str, words: str) -> None:
 
 def test_each_pregnancy_stores_its_nipt_data_under_sources_of_its_own() -> None:
     digest = hashlib.sha256(b"ZW1").hexdigest()[:8]
-    assert pregnancy_source("nipt", "ZW1") == f"nipt_p{digest}"
-    assert pregnancy_source("nipt", None) == "nipt"
-    assert pregnancy_source("nipt", "ZW1") != pregnancy_source("nipt", "ZW2")
-    assert source_base(pregnancy_source("coverage_table", "ZW2")) == "coverage_table"
+    assert suffixed_source("nipt", "ZW1") == f"nipt_p{digest}"
+    assert suffixed_source("nipt", None) == "nipt"
+    assert suffixed_source("nipt", "ZW1") != suffixed_source("nipt", "ZW2")
+    assert source_base(suffixed_source("coverage_table", "ZW2")) == "coverage_table"
     assert source_base("deepvariant") == "deepvariant"
     # The datasets a pregnancy keeps as its own: its calls (the father's among them), its coverage
     # and its ccnv output; another dataset keeps its source, which the collision check guards.
-    first = package_sources(["snv", "coverage", "ccnv", "mito"], pregnancy_source("nipt", "ZW1"), "ZW1")
-    second = package_sources(["snv", "coverage"], pregnancy_source("nipt", "ZW2"), "ZW2")
-    assert first["small_variants"] == sorted([pregnancy_source("nipt", "ZW1"), "mito"])
-    assert first["tracks"] == sorted(pregnancy_source(name, "ZW1") for name in ("web", "coverage_table", "ccnv"))
-    assert first["structural_variants"] == sorted([pregnancy_source("ccnv", "ZW1"), "mito_sv"])
+    first = package_sources(["snv", "coverage", "ccnv", "mito"], suffixed_source("nipt", "ZW1"), "ZW1")
+    second = package_sources(["snv", "coverage"], suffixed_source("nipt", "ZW2"), "ZW2")
+    assert first["small_variants"] == sorted([suffixed_source("nipt", "ZW1"), "mito"])
+    assert first["tracks"] == sorted(suffixed_source(name, "ZW1") for name in ("web", "coverage_table", "ccnv"))
+    assert first["structural_variants"] == sorted([suffixed_source("ccnv", "ZW1"), "mito_sv"])
     # Two pregnancies share no source: the second's import replaces none of the first's data.
-    records = {MNIPT1: {"sources": package_sources(["snv", "coverage"], pregnancy_source("nipt", "ZW1"), "ZW1")}}
+    records = {MNIPT1: {"sources": package_sources(["snv", "coverage"], suffixed_source("nipt", "ZW1"), "ZW1")}}
     assert source_collisions(records, MNIPT2, second) == []
     # The monogenic and the conventional NIPT of one pregnancy share none either.
     assert source_collisions(records, CNIPT1, package_sources(["ccnv"], None, "ZW1")) == []
 
 
 def test_a_pregnancys_callset_is_read_as_the_nipt_callset() -> None:
-    callset = pregnancy_source("nipt", "ZW2")
+    callset = suffixed_source("nipt", "ZW2")
     assert is_nipt_callset(callset) and is_nipt_callset("nipt")
     assert not is_direct_callset(callset)
     assert callset_preference(callset)[0] == 1
-    assert not is_nipt_callset(pregnancy_source("mutect2", "ZW2"))
+    assert not is_nipt_callset(suffixed_source("mutect2", "ZW2"))
 
 
 def test_a_pregnancys_coverage_bed_is_read_as_a_coverage_bed() -> None:
-    bed = pregnancy_source("web", "ZW1")
+    bed = suffixed_source("web", "ZW1")
     assert coverage_track_content(bed, contents=["read_depth"]) == "read_depth"
-    assert coverage_track_content(pregnancy_source("ccnv", "ZW1")) == "log2_ratio"
+    assert coverage_track_content(suffixed_source("ccnv", "ZW1")) == "log2_ratio"
     assert coverage_track_label(bed) == "coverage BED"
     assert read_depth_source([bed, "hificnv"], {"hificnv": ["depth_stored_as_read"]}, {bed: ["read_depth"]}) == bed
 
@@ -167,13 +167,13 @@ _PREGNANCIES = {
     "analyses": [CNIPT1, MNIPT1, MNIPT2],
     "package_imports": {
         MNIPT1: _record(
-            package_sources(["snv", "coverage"], pregnancy_source("nipt", "ZW1"), "ZW1"),
+            package_sources(["snv", "coverage"], suffixed_source("nipt", "ZW1"), "ZW1"),
             ["CFDNA1", "FATHER1", "FETUS1"],
             "2026-11-01T10:00:00",
         ),
         CNIPT1: _record(package_sources(["ccnv"], None, "ZW1"), ["CFDNA1", "FETUS1"], "2026-11-02T10:00:00"),
         MNIPT2: _record(
-            package_sources(["snv", "coverage"], pregnancy_source("nipt", "ZW2"), "ZW2"),
+            package_sources(["snv", "coverage"], suffixed_source("nipt", "ZW2"), "ZW2"),
             ["CFDNA2", "FATHER2", "FETUS2"],
             "2026-11-03T10:00:00",
         ),
@@ -183,10 +183,10 @@ _PREGNANCIES = {
 
 def test_each_pregnancy_is_read_on_its_own() -> None:
     first = analysis_scope(_PREGNANCIES, MNIPT1)
-    assert first.left_out_sources("small_variants") == {pregnancy_source("nipt", "ZW2")}
+    assert first.left_out_sources("small_variants") == {suffixed_source("nipt", "ZW2")}
     assert first.left_out_members == {"CFDNA2", "FATHER2", "FETUS2"}
     second = analysis_scope(_PREGNANCIES, MNIPT2)
-    assert second.left_out_sources("small_variants") == {pregnancy_source("nipt", "ZW1")}
+    assert second.left_out_sources("small_variants") == {suffixed_source("nipt", "ZW1")}
     # The first pregnancy's plasma and fetus are its conventional NIPT's too: still left out.
     assert second.left_out_members == {"CFDNA1", "FATHER1", "FETUS1"}
     # Two pregnancies with small variants: a reading names one.
@@ -197,9 +197,9 @@ def test_each_pregnancys_sign_out_holds_its_own_section_and_data() -> None:
     first = signout_scope(_PREGNANCIES, MNIPT1)
     assert first.holds_application(NIPT_SECTION_ANALYSES)
     assert not signout_scope(_PREGNANCIES, CNIPT1).holds_application(NIPT_SECTION_ANALYSES)
-    assert first.holds("small_variants", [pregnancy_source("nipt", "ZW1")])
-    assert not first.holds("small_variants", [pregnancy_source("nipt", "ZW2")])
-    assert not first.holds("tracks", [pregnancy_source("coverage_table", "ZW2")])
+    assert first.holds("small_variants", [suffixed_source("nipt", "ZW1")])
+    assert not first.holds("small_variants", [suffixed_source("nipt", "ZW2")])
+    assert not first.holds("tracks", [suffixed_source("coverage_table", "ZW2")])
     assert first.holds_record(MNIPT1) and not first.holds_record(MNIPT2)
 
 

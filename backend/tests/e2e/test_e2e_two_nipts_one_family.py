@@ -55,7 +55,7 @@ from uuid import uuid4
 import pytest
 import yaml
 
-from backend.app.services.family_package_records import pregnancy_source
+from backend.app.services.family_package_records import suffixed_source
 from backend.tests._ccnv_output import write_ccnv_output
 from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema
@@ -67,7 +67,7 @@ pytestmark = pytest.mark.integration
 VARIANT = "7-1000-A-G"
 # The two analyses of the pregnancy ZW1, by their keys, and the sources they store under.
 MNIPT, CNIPT = "monogenic_nipt:ZW1", "conventional_nipt:ZW1"
-BED, CCNV = pregnancy_source("web", "ZW1"), pregnancy_source("ccnv", "ZW1")
+BED, CCNV = suffixed_source("web", "ZW1"), suffixed_source("ccnv", "ZW1")
 CNIPT_SIGN_OUT = {
     "analysis_type": CNIPT,
     "acknowledge_qc": True,
@@ -361,7 +361,7 @@ def test_a_package_that_says_otherwise_of_the_plasma_is_refused_before_anything_
 
 
 def test_each_analysiss_data_is_kept(run) -> None:
-    # Each under its pregnancy's own source (family_package_records.pregnancy_source).
+    # Each under its pregnancy's own source (family_package_records.suffixed_source).
     assert ("coverage", BED) in run["track_sources"], run["track_sources"]
     assert ("coverage", CCNV) in run["track_sources"] and ("segments", CCNV) in run["track_sources"]
 

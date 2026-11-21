@@ -43,10 +43,10 @@ import yaml
 from backend.tests._ccnv_output import qc_payload, write_ccnv_output
 from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema
-from backend.app.services.family_package_records import pregnancy_source
+from backend.app.services.family_package_records import suffixed_source
 
-# The conventional NIPT's ccnv source, its pregnancy's own (family_package_records.pregnancy_source).
-CCNV = pregnancy_source("ccnv", "ZW1")
+# The conventional NIPT's ccnv source, its pregnancy's own (family_package_records.suffixed_source).
+CCNV = suffixed_source("ccnv", "ZW1")
 
 pytestmark = pytest.mark.integration
 

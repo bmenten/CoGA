@@ -27,7 +27,7 @@ NIPT an analysis of its own (the owner's decision of 2026-11-21).
   the NIPT summary, statistics, variants and coverage, the Sample QC and the sign-out read one
   pregnancy's (`nipt_analysis_of`, 422 without one). The pages offer the pregnancy beside the
   family's name, the last imported first. Each pregnancy's calls, coverage tables and ccnv output
-  are stored under sources of its own (`family_package_records.pregnancy_source`: `nipt_p…`,
+  are stored under sources of its own (`family_package_records.suffixed_source`: `nipt_p…`,
   `coverage_table_p…`), the father's among them: an import of one pregnancy never replaces another's.
 - The cfDNA sample's assays (`sample.metadata.assays`) hold `"nipt_cfdna"`, and it has the `mother`
   role. Without the tag, the active `mother` member's sample is used.

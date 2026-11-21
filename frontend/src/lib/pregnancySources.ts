@@ -1,6 +1,6 @@
 /**
  * The storage sources a pregnancy's NIPT keeps as its own (backend
- * `family_package_records.pregnancy_source`): the source's name, then `_p` and eight hex digits of
+ * `family_package_records.suffixed_source`): the source's name, then `_p` and eight hex digits of
  * the pregnancy (`nipt_p1a2b3c4d`, `ccnv_p1a2b3c4d`, `web_p1a2b3c4d`). A family holds several
  * pregnancies, and each reads the data its own package delivered.
  */

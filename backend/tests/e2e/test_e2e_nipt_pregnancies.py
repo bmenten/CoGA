@@ -46,7 +46,7 @@ from uuid import uuid4
 import pytest
 import yaml
 
-from backend.app.services.family_package_records import pregnancy_source
+from backend.app.services.family_package_records import suffixed_source
 from backend.tests._ccnv_output import write_ccnv_output
 from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema
@@ -55,7 +55,7 @@ pytestmark = pytest.mark.integration
 
 MNIPT1, MNIPT2, CNIPT1 = "monogenic_nipt:ZW1", "monogenic_nipt:ZW2", "conventional_nipt:ZW1"
 # Each pregnancy's callset: its own source of the caller its package names.
-CALLS1, CALLS2 = pregnancy_source("mutect2", "ZW1"), pregnancy_source("mutect2", "ZW2")
+CALLS1, CALLS2 = suffixed_source("mutect2", "ZW1"), suffixed_source("mutect2", "ZW2")
 FIRST, SECOND = "7-1000-A-G", "7-2000-C-T"
 MNIPT2_SIGN_OUT = {
     "analysis_type": MNIPT2,
@@ -362,7 +362,7 @@ def test_the_family_holds_each_pregnancys_analyses_with_a_record_each(run) -> No
     # Each pregnancy's sources are its own.
     assert records[MNIPT1]["sources"]["small_variants"] == [CALLS1]
     assert records[MNIPT2]["sources"]["small_variants"] == [CALLS2]
-    assert pregnancy_source("web", "ZW2") in records[MNIPT2]["sources"]["tracks"]
+    assert suffixed_source("web", "ZW2") in records[MNIPT2]["sources"]["tracks"]
     # The two plasmas are one woman, linked as the same individual.
     assert run["links"] == [tuple(sorted((samples["plasma1"], samples["plasma2"])))]
 
