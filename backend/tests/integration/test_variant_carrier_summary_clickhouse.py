@@ -4,7 +4,8 @@ the families' ``entries`` rows, on real ClickHouse and Postgres (``variant_carri
 The reference is the aggregation the explorer ran over ``entries`` (:func:`_reference`): every
 call of a member its family shows with an ALT allele, in the rows of the scope's projects that
 the filters keep, each filter the family search's own clause; per variant, the distinct
-families and samples, heterozygous and homozygous samples. The summary is brought up to date by
+families and samples, and the samples homozygous in any of their calls and those heterozygous in
+all of them. The summary is brought up to date by
 the reconciler (``reconcile_variant_carriers``), as the variant-carrier worker does, and the
 explorer's search and export must list the same variants with the same counts, under every
 filter and scope below, and again after each kind of change.
@@ -21,7 +22,8 @@ The cohort, in two fresh projects P1 and P2:
 * E (P2): the proband of B shown in a family of its own too (a member of two families).
 
 The last test adds, in a project P3 of its own, a mother sampled twice (two samples linked as the
-same individual) and a family showing one of her samples: one carrier, once the samples are linked.
+same individual) and a family showing one of her samples: one carrier, once the samples are linked,
+and a homozygous one when either sample's call is (or either callset's, for one sample).
 
 Synthetic data only, on chromosome 13 at 62.3 Mb, where no other test writes. Skipped unless
 ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -251,7 +253,9 @@ def _scope(cohort: dict[str, Any], *projects: str) -> Any:
 
 async def _reference(session: Any, scope: Any, filters: Any) -> dict[str, tuple[int, int, int, int]]:
     """Per variant ID, (families, samples, heterozygous, homozygous): the aggregation over
-    ``entries`` the explorer's counts must equal (see the module docstring)."""
+    ``entries`` the explorer's counts must equal (see the module docstring). A sample is
+    homozygous when any of its calls of the variant is (another callset's), heterozygous
+    otherwise."""
     from backend.app.core.clickhouse import execute_clickhouse
     from backend.app.services import variant_explorer_service as explorer
     from backend.app.services.clickhouse_variant_queries import (
@@ -274,7 +278,7 @@ async def _reference(session: Any, scope: Any, filters: Any) -> dict[str, tuple[
     rows = await execute_clickhouse(
         f"""
         SELECT any(variantId), uniqExact(family_guid), uniqExact(sample_id),
-               uniqExactIf(sample_id, NOT is_hom), uniqExactIf(sample_id, is_hom)
+               uniqExact(sample_id) - uniqExactIf(sample_id, is_hom), uniqExactIf(sample_id, is_hom)
         FROM (
             SELECT e.key AS key, e.variantId AS variantId, e.family_guid AS family_guid, sample_id, ({hom}) AS is_hom
             FROM {explorer._small_table_name(_ASSEMBLY, 'entries')} AS e
@@ -671,6 +675,11 @@ def test_a_broad_filter_read_window_by_window_lists_what_one_query_lists(
 # F (P3): a mother sampled twice, MOTHER-F and MOTHER2-F, both carrying it; G (P3): MOTHER2-F
 # shown in a family of its own. Linked as the same individual, the two samples are one carrier.
 _PERSON = "13-62300701-C-G"
+# MOTHER-F heterozygous, MOTHER2-F homozygous (in F and in G): once linked, one homozygous carrier.
+_DISCORDANT = "13-62300801-C-T"
+# PROBAND-F heterozygous in one callset and homozygous in another, annotated alike: one homozygous
+# carrier in F's aggregate row (no other family shows her).
+_TWO_CALLS = "13-62300901-G-A"
 
 
 def test_a_person_sampled_twice_is_one_carrier_once_the_samples_are_linked(cohort: dict[str, Any]) -> None:
@@ -683,7 +692,7 @@ def test_a_person_sampled_twice_is_one_carrier_once_the_samples_are_linked(cohor
 
     tag = cohort["tag"]
 
-    async def _run() -> tuple[tuple[int, ...], int, list[str], tuple[int, ...]]:
+    async def _run() -> tuple[dict[str, tuple[int, ...]], int, list[str], dict[str, tuple[int, ...]]]:
         async with get_postgres_sessionmaker()() as session:
             project = (
                 await session.execute(
@@ -731,15 +740,25 @@ def test_a_person_sampled_twice_is_one_carrier_once_the_samples_are_linked(cohor
             _ASSEMBLY,
             families["F"],
             [project],
-            [_record(_PERSON, {n["PROBAND-F"]: "0/0", n["MOTHER-F"]: "0/1", n["MOTHER2-F"]: "0/1"})],
+            [
+                _record(_PERSON, {n["PROBAND-F"]: "0/0", n["MOTHER-F"]: "0/1", n["MOTHER2-F"]: "0/1"}),
+                _record(_DISCORDANT, {n["PROBAND-F"]: "0/0", n["MOTHER-F"]: "0/1", n["MOTHER2-F"]: "1/1"}),
+                _record(_TWO_CALLS, {n["PROBAND-F"]: "0/1"}, source="clair3"),
+                _record(_TWO_CALLS, {n["PROBAND-F"]: "1/1"}, source="deepvariant"),
+            ],
         )
-        await insert_small_variant_records(_ASSEMBLY, families["G"], [project], [_record(_PERSON, {n["MOTHER2-F"]: "0/1"})])
+        await insert_small_variant_records(
+            _ASSEMBLY,
+            families["G"],
+            [project],
+            [_record(_PERSON, {n["MOTHER2-F"]: "0/1"}), _record(_DISCORDANT, {n["MOTHER2-F"]: "1/1"})],
+        )
         scope = ExplorerScope(assembly_id=cohort["assembly_id"], assembly_name=_ASSEMBLY, project_ids=[project])
         both = list(families.values())
 
         await reconcile_variant_carriers(cohort["assembly_id"], _ASSEMBLY, family_uuids=both)
         async with get_postgres_sessionmaker()() as session:
-            unlinked = (await _explorer(session, scope, GlobalVariantFilters()))["rows"][_PERSON]
+            unlinked = (await _explorer(session, scope, GlobalVariantFilters()))["rows"]
             await session.execute(
                 text(
                     "INSERT INTO family_relationships (family_id, relationship_type, sample_id_a, sample_id_b) "
@@ -754,10 +773,17 @@ def test_a_person_sampled_twice_is_one_carrier_once_the_samples_are_linked(cohor
         async with get_postgres_sessionmaker()() as session:
             linked = await _explorer(session, scope, GlobalVariantFilters())
         by_family = {value: key for key, value in families.items()}
-        return unlinked, pending, sorted(by_family[family] for family in status.refreshed), linked["rows"][_PERSON]
+        return unlinked, pending, sorted(by_family[family] for family in status.refreshed), linked["rows"]
 
     unlinked, pending, refreshed, linked = run_closing_stores(_run)
     # (families, carriers, heterozygous, homozygous)
-    assert unlinked == (2, 2, 2, 0)
+    assert unlinked[_PERSON] == (2, 2, 2, 0)
     assert pending == 2 and refreshed == ["F", "G"]
-    assert linked == (2, 1, 1, 0)
+    assert linked[_PERSON] == (2, 1, 1, 0)
+    # A person counts once as heterozygous or homozygous: homozygous when any of their calls is,
+    # over their samples (carrier rows) and over a family's callsets (an aggregate row) alike.
+    assert unlinked[_DISCORDANT] == (2, 2, 1, 1)
+    assert linked[_DISCORDANT] == (2, 1, 0, 1)
+    assert unlinked[_TWO_CALLS] == linked[_TWO_CALLS] == (1, 1, 0, 1)
+    for counts in (*unlinked.values(), *linked.values()):
+        assert counts[2] + counts[3] == counts[1]

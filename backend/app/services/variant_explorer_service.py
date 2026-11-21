@@ -1129,14 +1129,28 @@ def _netted(field: int) -> str:
     )
 
 
+def _named_parts(part: int, netted: str) -> str:
+    """The families (``part`` 1) or persons (2) the tokens of ``netted`` that sum above zero
+    name, as an array."""
+    return (
+        f"arrayMap(token -> splitByChar('\\t', token)[{part}], "
+        f"arrayFilter((token, n) -> n > 0, ({netted}).1, ({netted}).2))"
+    )
+
+
 def _distinct_part(part: int, netted: str) -> str:
     """How many distinct families (``part`` 1) or persons (2) the tokens of ``netted`` that
     sum above zero name."""
-    return (
-        f"length(arrayDistinct(arrayMap(token -> splitByChar('\\t', token)[{part}], "
-        f"arrayFilter((token, n) -> n > 0, ({netted}).1, ({netted}).2))))"
-    )
+    return f"length(arrayDistinct({_named_parts(part, netted)}))"
 
+
+# A person counts once in the heterozygous or the homozygous carriers: homozygous when a kept
+# carrier row of theirs is (another class, another family that shows them), heterozygous only
+# otherwise, so the two add up to the carriers.
+_HET_ONLY_PERSONS = (
+    f"length(arrayDistinct(arrayFilter(person -> NOT has({_named_parts(2, _netted(5))}, person), "
+    f"{_named_parts(2, _netted(4))})))"
+)
 
 _VARIANT_COUNTS = (
     "groupArrayIf((e.family_guid, e.sample_id, e.samples, e.het, e.hom), "
@@ -1144,7 +1158,7 @@ _VARIANT_COUNTS = (
     f"{_netted(3)} AS carrier_rows, "
     f"sumIf(e.families, NOT {_CARRIER_ROW}) + {_distinct_part(1, 'carrier_rows')} AS families, "
     f"sumIf(e.hom, NOT {_CARRIER_ROW}) + {_distinct_part(2, _netted(5))} AS hom_samples, "
-    f"sumIf(e.het, NOT {_CARRIER_ROW}) + {_distinct_part(2, _netted(4))} AS het_samples, "
+    f"sumIf(e.het, NOT {_CARRIER_ROW}) + {_HET_ONLY_PERSONS} AS het_samples, "
     f"sumIf(e.samples, NOT {_CARRIER_ROW}) + {_distinct_part(2, 'carrier_rows')} AS total_samples"
 )
 # The summary is sorted by ``xpos, key``: grouped in that order, a query holds one variant's
