@@ -485,6 +485,98 @@ describe('FamilyNiptPage', () => {
     }
   });
 
+  // The genotypes read the plasma and the father as the analysis read them: the fetus has no
+  // sample, the plasma's GT is no genotype, and the father's call can sit on another record.
+  it("shows the plasma's and the father's reads as the analysis read them, without the fetus", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            members: [
+              { sample_id: 'EMB1', role: 'proband', sex: 'male', active: true },
+              { sample_id: 'FATHER1', role: 'father', sex: 'male', active: true },
+              { sample_id: 'MOTHER', role: 'mother', sex: 'female', active: true },
+            ],
+            metadata: { analysis_types: ['monogenic_nipt'] },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            // The plasma is held by the mother's sample.
+            trio: { cfdna_sample_id: 'MOTHER', father_sample_id: 'FATHER1', fetus_sample_id: 'EMB1' },
+            total: 1,
+            fetal_fraction: FETAL_FRACTION,
+            variants: [
+              {
+                _id: '1-100-TG-CA',
+                chr: '1',
+                start: 100,
+                end: 101,
+                type: 'MNV',
+                ref: 'TG',
+                alt: 'CA',
+                gene: 'GENEA',
+                // The variant's own record: the plasma's call (under the mother's sample), none of
+                // the father's, whose VCF writes the allele as its two SNVs.
+                genotypes: [{ sample: 'MOTHER', gt: '0/1', dp: 2086, ad: [957, 1129], af: [0.54] }],
+                nipt: {
+                  category: 4,
+                  category_label: 'maternal het, inherited (hom fetus)',
+                  maternal_state: 'het',
+                  fetal_inheritance: 'maternal_inherited_hom',
+                  expected_vaf: 0.561,
+                  observed_vaf: 0.541,
+                  confidence: 0.6,
+                  flags: ['father_call_other_representation'],
+                  cf_alt_reads: 1129,
+                  cf_depth: 2086,
+                  father_state: 'het',
+                  father_vaf: 0.488,
+                  father_depth: 299,
+                  father_alt_reads: 146,
+                  father_call_variant_id: '1-101-G-A',
+                  recurrence: NO_RECURRENCE,
+                },
+              },
+            ],
+          },
+        });
+      }
+      if (url === '/panels') {
+        return Promise.resolve({ data: [{ _id: 'panel-mendeliome', name: 'Mendeliome', source: 'mendeliome' }] });
+      }
+      if (url.endsWith('/small-variant-tags') || url.endsWith('-presets')) {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPage('NIPT001');
+
+    const grid = (await screen.findByText('Genotypes')).closest('section') as HTMLElement;
+    expect(within(grid).getByText('Call')).toBeInTheDocument();
+    expect(within(grid).queryByText('GT')).not.toBeInTheDocument();
+    // No row for the fetus, which has no sample.
+    expect(within(grid).queryByText('EMB1')).not.toBeInTheDocument();
+    const plasma = within(grid).getByText('MOTHER').closest('.variant-card-gtline') as HTMLElement;
+    expect(plasma).toHaveTextContent('plasma (cfDNA)');
+    expect(plasma).toHaveTextContent('mixture');
+    expect(plasma).not.toHaveTextContent('0/1');
+    expect(plasma).toHaveTextContent('957,1129');
+    // The father's call, read off another record, with the record named under his row.
+    const father = within(grid).getByText('FATHER1').closest('.variant-card-gtline') as HTMLElement;
+    expect(father).toHaveTextContent('het');
+    expect(father).toHaveTextContent('153,146');
+    expect(father).toHaveTextContent('0.49');
+    expect(
+      within(grid).getByText('Read from his call on 1-101-G-A: his VCF writes this allele another way.'),
+    ).toBeInTheDocument();
+  });
+
   it('shows a loader until the analysis has loaded', async () => {
     let resolveSummary: (value: unknown) => void = () => undefined;
     apiMock.get.mockImplementation((url: string) => {

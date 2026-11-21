@@ -2697,6 +2697,9 @@ export interface NiptClassificationOut {
   father_state: string | null;
   father_vaf: number | null;
   father_depth: number | null;
+  father_alt_reads: number | null;
+  cf_call_variant_id: string | null;
+  father_call_variant_id: string | null;
   de_novo: NiptDeNovoTriageOut | null;
   recurrence: NiptRecurrenceOut;
 }
@@ -2989,6 +2992,17 @@ export interface NiptTargetOut {
 }
 
 /**
+ * The samples a monogenic NIPT analysis reads: the maternal plasma (cfDNA, a mixture of
+ * the mother's and the fetus's DNA, so no genotype), the father, and the fetus's placeholder
+ * member, which holds no data (None when the family has none).
+ */
+export interface NiptTrioOut {
+  cfdna_sample_id: string;
+  father_sample_id: string;
+  fetus_sample_id: string | null;
+}
+
+/**
  * A classified cfDNA variant: the full small-variant payload plus the NIPT
  * classification block. Defined here so it can extend ``VariantOut`` (declared
  * earlier in this module); ``NiptVariantPage`` forward-references it.
@@ -3077,6 +3091,7 @@ export interface NiptVariantOut {
 /** A page of classified cfDNA variants plus the family's fetal fraction. */
 export interface NiptVariantPage {
   family_id: string;
+  trio: NiptTrioOut;
   total: number;
   total_is_estimated: boolean;
   count_limit: number | null;

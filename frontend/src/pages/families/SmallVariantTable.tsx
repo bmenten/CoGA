@@ -27,6 +27,7 @@ import ReviewTagChip from './ReviewTagChip';
 import VariantScoreCell from './VariantScoreCell';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import { niptEvidenceSummary, pct, recurrenceShortText, recurrenceText } from './niptClassification';
+import { niptCompactGenotypes, type NiptTrio } from './niptGenotypes';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 interface SmallVariantTableProps {
@@ -42,6 +43,9 @@ interface SmallVariantTableProps {
   onToggleReviewTag: (variant: SmallVariant, tagKey: string) => Promise<void>;
   // The score the page is ranked by, which the Score column shows.
   rankedBy?: RankedBy;
+  // The NIPT list's samples: a NIPT variant's genotypes give the plasma's allele fraction and
+  // the father's genotype class, without the fetus (niptCompactGenotypes).
+  niptTrio?: NiptTrio | null;
 }
 
 const MAX_ALLELE_DISPLAY_LENGTH = 48;
@@ -77,6 +81,7 @@ export default function SmallVariantTable({
   onAcmgClassify,
   onToggleReviewTag,
   rankedBy = null,
+  niptTrio = null,
 }: SmallVariantTableProps) {
   // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
@@ -165,7 +170,10 @@ export default function SmallVariantTable({
               projectId,
             });
             const geneInfoHref = buildSmallVariantGeneInfoHref(variant, familyId, projectId);
-            const compactGenotypes = buildCompactGenotypeSummary(variant, members);
+            const compactGenotypes =
+              niptTrio && variant.nipt
+                ? niptCompactGenotypes({ ...variant, nipt: variant.nipt }, members, niptTrio)
+                : buildCompactGenotypeSummary(variant, members);
             const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
             const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
             const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);

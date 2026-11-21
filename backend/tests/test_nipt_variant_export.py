@@ -30,6 +30,7 @@ from backend.app.routers.families_small_variants import _FAMILY_EXPORT_COLUMNS
 from backend.app.schemas import GenotypeOut, SmallVariantReviewOut, VariantOut
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
+from backend.app.services.nipt import NiptTrio
 from backend.app.services.nipt_analysis import FetalFractionEstimate, NiptClassification, NiptSiteObservation
 from backend.app.services.nipt_service import (
     NIPT_VARIANT_FETCH_LIMIT,
@@ -160,6 +161,10 @@ def _classified(variant_id: str, *, gene: str = "GENEA", de_novo: bool = False) 
             father_state="het",
             father_dp=299,
             father_vaf=0.488,
+            father_alt_reads=146,
+            # The father's VCF writes this allele another way: his call is read off that record.
+            representation="father_call_other_representation",
+            represented_by="9-101-G-A",
         ),
         de_novo=DeNovoTriage(window="strict", score=7, label="high", reasons=["rare", "LoF"]) if de_novo else None,
         recurrence=NiptRecurrence(
@@ -191,6 +196,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, list[d
         fetal_fraction=_fetal_fraction(),
         total=2,
         variants=[_classified("1-100-A-G", de_novo=True), _classified("2-200-C-T", gene="=HYPERLINK(1)")],
+        trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_id="EMB1"),
     )
     monkeypatch.setattr(nipt_router, "get_family_nipt_variants", fake_variants)
     app.dependency_overrides[get_postgres_session] = session
@@ -288,9 +294,12 @@ def test_the_file_holds_the_small_variant_columns_then_the_nipt_classification(c
         "Plasma alt reads": "1129",
         "Plasma depth": "2086",
         "Plasma depth estimated": "no",
+        "Plasma call read from": "",
         "Father state": "het",
         "Father VAF": "0.488",
         "Father depth": "299",
+        "Father alt reads": "146",
+        "Father call read from": "9-101-G-A",
         "P(paternal allele inherited)": "",
         "P(maternal allele inherited)": "0.801",
         "P(fetus homozygous)": "0.603",
@@ -336,6 +345,7 @@ def test_a_list_cut_at_the_classification_limit_says_so_in_the_file_name_and_hea
         fetal_fraction=_fetal_fraction(),
         total=1,
         variants=[_classified("1-100-A-G")],
+        trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_id="EMB1"),
         total_is_estimated=True,
         count_limit=NIPT_VARIANT_FETCH_LIMIT,
     )

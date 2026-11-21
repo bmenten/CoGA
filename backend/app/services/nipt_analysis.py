@@ -147,6 +147,10 @@ class NiptSiteObservation:
     # Where one sample's call was read off the other representation of the allele
     # (REPRESENTATION_FLAGS); None when both calls are the record's own.
     representation: str | None = None
+    # The record whose call was read, where ``representation`` reads a sample's whole call off
+    # another record (FATHER_CALL_OTHER_REPRESENTATION, PLASMA_CALL_OTHER_REPRESENTATION): the
+    # one carrying the allele's weakest base. None otherwise.
+    represented_by: str | None = None
 
     @property
     def variant_class(self) -> str:

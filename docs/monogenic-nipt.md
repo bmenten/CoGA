@@ -92,6 +92,10 @@ allele:
   A father-only site that reads the plasma's calls is no FF, paternity or fetal-sex evidence
   (`has_own_plasma_call`), because those calls are sites of their own. Indels are not matched.
 
+  The variant list names the record a whole call was read off (`represented_by` on the site;
+  `father_call_variant_id`, `cf_call_variant_id` on the classification), so the genotypes can show it
+  where the variant's own record holds none (`frontend/src/pages/families/niptGenotypes.ts`).
+
 ## Defaults
 
 `NiptQualityThresholds` and the constants of `backend/app/services/nipt_analysis.py`:
@@ -246,7 +250,8 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
 Endpoints (`routers/families_nipt.py`, under `/api`):
 
 - `GET /families/{id}/nipt/summary`;
-- `/nipt/variants`;
+- `/nipt/variants` (with `trio`: the samples read as the plasma and the father, and the fetus's
+  placeholder, by which the list's genotypes show each sample's reads);
 - `/nipt/variants/export` (the list as CSV: the same search, read through one dependency,
   `_nipt_variant_search`; the small-variant export's columns but the genotypes, then the NIPT
   classification; a list cut at the 5,000 limit is named `TRUNCATED-partial-search`, reason

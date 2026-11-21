@@ -288,6 +288,13 @@ class NiptClassificationOut(BaseModel):
     father_state: Optional[str] = None
     father_vaf: Optional[float] = None
     father_depth: Optional[int] = None
+    father_alt_reads: Optional[int] = None
+    # Where the plasma's or the father's VCF writes this allele another way (an MNV for its
+    # SNVs, or the reverse), the record whose call the analysis read for that sample
+    # (``plasma_call_other_representation``, ``father_call_other_representation``): the
+    # variant's own record holds no call of that sample.
+    cf_call_variant_id: Optional[str] = None
+    father_call_variant_id: Optional[str] = None
     de_novo: Optional["NiptDeNovoTriageOut"] = None
     recurrence: "NiptRecurrenceOut"
 
@@ -354,10 +361,21 @@ class NiptNotClassifiedOut(BaseModel):
     reason: Literal["not_in_data", "artifact_list", "no_plasma_call"]
 
 
+class NiptTrioOut(BaseModel):
+    """The samples a monogenic NIPT analysis reads: the maternal plasma (cfDNA, a mixture of
+    the mother's and the fetus's DNA, so no genotype), the father, and the fetus's placeholder
+    member, which holds no data (None when the family has none)."""
+
+    cfdna_sample_id: str
+    father_sample_id: str
+    fetus_sample_id: Optional[str] = None
+
+
 class NiptVariantPage(BaseModel):
     """A page of classified cfDNA variants plus the family's fetal fraction."""
 
     family_id: str
+    trio: NiptTrioOut
     total: int
     # True when more variants matched the scope than the list classifies at once
     # (``count_limit``, the first ones in genomic order): ``total`` is then a lower bound,

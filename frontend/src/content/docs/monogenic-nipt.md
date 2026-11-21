@@ -408,14 +408,28 @@ The variant list classifies the first 5,000 variants of its search, in genomic o
 match, the page says so: the list stops part-way through the genome and its count is a lower bound.
 Narrow the search with a gene panel, a gene or a region.
 
+A variant's **Genotypes** show each sample as the analysis read it, not as its caller wrote it:
+
+- The plasma's row is named *plasma (cfDNA)*, often under the mother's sample. The plasma is a mixture
+  of the mother's and the fetus's DNA, so it has no genotype: the row shows *mixture* and the reads the
+  classification used (the caller writes 0/1 for every call).
+- The father's row shows his genotype class from his allele depths, as in the classification above.
+- Where a sample's call was read off another representation of the allele (see *One allele, two
+  representations*), its row shows those reads and names the record they come from: the variant's
+  own record holds no call of that sample.
+- The fetus has no sample, so it has no row. What the analysis infers of the fetus is in the
+  classification above the genotypes.
+
+The table view gives the plasma's allele fraction and the father's genotype class.
+
 **Download CSV** exports the variant list as the page shows it, with the same search and in the same
 order. The file has the small-variant export's columns except the genotypes: the plasma's genotype
 call is not a genotype (it mixes the mother's and the fetus's DNA), and there is no fetal sample.
 After them come the NIPT columns: the fetal fraction the list was classified against (on every
-row), the category and its confidence, the plasma's and the father's reads, the fetal-inheritance
-probabilities, the de novo triage and the recurrence in the other cfDNA samples. When the list
-stops at the 5,000 limit, the file is named *…-TRUNCATED-partial-search.csv* and the page says the
-file is incomplete.
+row), the category and its confidence, the plasma's and the father's reads (with the record a call
+was read off), the fetal-inheritance probabilities, the de novo triage and the recurrence in the
+other cfDNA samples. When the list stops at the 5,000 limit, the file is named
+*…-TRUNCATED-partial-search.csv* and the page says the file is incomplete.
 
 ---
 

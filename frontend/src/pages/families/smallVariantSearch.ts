@@ -128,9 +128,10 @@ export type RankedBy = VariantPage['ranked_by'];
 // monogenic NIPT list's (NiptVariantPage), which has no pairs, no ranking and no candidate
 // window. The family list only: `members_without_calls`, the members without calls in the
 // callsets it reads (membersWithoutCalls.ts). NIPT only: `recessive_genes`, the genes of the
-// recessive view where both parents carry an allele, and `not_classified`, the variants the
+// recessive view where both parents carry an allele, `not_classified`, the variants the
 // review-tag filter selects that the analysis does not classify, so that no list shows them,
-// with why.
+// with why, and `trio`, the samples the analysis read as the plasma and the father, and the
+// fetus's placeholder, by which the genotypes show each sample's reads (niptGenotypes.ts).
 export type SmallVariantPage = Pick<VariantPage, 'total' | 'total_is_estimated' | 'count_limit'> &
   Partial<
     Pick<
@@ -147,7 +148,7 @@ export type SmallVariantPage = Pick<VariantPage, 'total' | 'total_is_estimated' 
       | 'members_without_calls'
     >
   > &
-  Partial<Pick<NiptVariantPage, 'recessive_genes' | 'not_classified'>> & {
+  Partial<Pick<NiptVariantPage, 'recessive_genes' | 'not_classified' | 'trio'>> & {
     variants: SmallVariant[];
     variant_groups?: SmallVariantGroup[];
   };

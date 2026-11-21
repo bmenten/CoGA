@@ -11,6 +11,7 @@ from backend.app.routers import families_nipt as families_nipt_router
 from backend.app.routers import lookups as lookups_router
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.nipt_analysis import FetalFractionEstimate
+from backend.app.services.nipt import NiptTrio
 from backend.app.services.nipt_service import NiptGeneTargets, NiptVariantsResult
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
 
@@ -279,6 +280,7 @@ def test_the_nipt_variant_page_says_when_its_list_is_capped(
             ),
             total=1234,
             variants=[],
+            trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_id="FETUS1"),
             total_is_estimated=capped,
             count_limit=5000 if capped else None,
         )
@@ -291,6 +293,9 @@ def test_the_nipt_variant_page_says_when_its_list_is_capped(
     body = response.json()
     assert body["total"] == 1234
     assert (body["total_is_estimated"], body["count_limit"]) == expected
+    # Which samples the list read as the plasma and the father, and the fetus's placeholder:
+    # the page shows each sample's reads by its part in the analysis.
+    assert body["trio"] == {"cfdna_sample_id": "MOTHER", "father_sample_id": "FATHER1", "fetus_sample_id": "FETUS1"}
 
 
 def test_the_nipt_variant_page_takes_the_review_tag_filter(family_metadata_client) -> None:
@@ -309,6 +314,7 @@ def test_the_nipt_variant_page_takes_the_review_tag_filter(family_metadata_clien
             ),
             total=0,
             variants=[],
+            trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER"),
             not_classified={"9-999-A-G": "not_in_data", "1-5-A-G": "artifact_list"} if kwargs["review_tags"] else {},
         )
 

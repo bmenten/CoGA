@@ -40,13 +40,14 @@ import {
   visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import FilterTranscriptNote from './FilterTranscriptNote';
-import FamilyGenotypeGrid, { type GenotypeColumn, type GenotypeTone } from './FamilyGenotypeGrid';
+import FamilyGenotypeGrid, { type GenotypeColumn, type GenotypeRow, type GenotypeTone } from './FamilyGenotypeGrid';
 import { FindingLinks } from './FindingCard';
 import ReviewTagChip from './ReviewTagChip';
 import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import NiptClassificationBlock from './NiptClassificationBlock';
+import { niptGenotypeEntries, type NiptTrio } from './niptGenotypes';
 import { geneDiseaseKey, useGeneDiseaseLinks } from './geneDiseaseLinks';
 import { GeneCurationLine, GeneDiseaseSummaryLine, VariantGeneDiseases } from './VariantGeneDiseases';
 import {
@@ -78,6 +79,44 @@ const ZYGOSITY_TONE: Record<ReturnType<typeof genotypeZygosity>, GenotypeTone> =
   na: 'na',
 };
 
+/** A member's own call on the variant's record: GT, DP, AD and AF as its callset wrote them. */
+const ownGenotypeRow = (variant: SmallVariant, member: FamilyMember): GenotypeRow => {
+  const genotype = variant.genotypes.find((entry) => entry.sample === member.sample_id);
+  const gt = genotype?.gt || '—';
+  const depth = genotype?.dp;
+  const alleleDepths = genotype?.ad;
+  const alleleFrequencies = genotype?.af;
+  const refDepth = alleleDepths && alleleDepths.length > 0 ? alleleDepths[0] : undefined;
+  const altDepths = alleleDepths && alleleDepths.length > 1 ? alleleDepths.slice(1) : undefined;
+  const computedAfs =
+    alleleFrequencies && alleleFrequencies.length
+      ? alleleFrequencies
+      : typeof depth === 'number' && depth > 0 && altDepths?.length
+        ? altDepths
+            .map((value) => (typeof value === 'number' ? value / depth : undefined))
+            .filter((value): value is number => typeof value === 'number')
+        : undefined;
+  const adText =
+    typeof refDepth === 'number' || altDepths?.length
+      ? `${typeof refDepth === 'number' ? refDepth : '-'},${altDepths ? altDepths.join(',') : '-'}`
+      : '—';
+  const afText = computedAfs?.length
+    ? computedAfs.map((value) => (Number.isFinite(value) ? value.toFixed(2) : '-')).join(',')
+    : '—';
+  return {
+    member,
+    // Haploid and multi-allelic calls are classified too: '1' reads as hom, '0' as ref,
+    // '1/2' as het.
+    tone: ZYGOSITY_TONE[genotypeZygosity(gt === '—' ? '' : gt)],
+    call: gt,
+    values: {
+      dp: typeof depth === 'number' ? depth : '—',
+      ad: adText,
+      af: afText,
+    },
+  };
+};
+
 interface SmallVariantCardsProps {
   variants: SmallVariant[];
   members: FamilyMember[];
@@ -94,6 +133,9 @@ interface SmallVariantCardsProps {
   onToggleReviewTag: (variant: SmallVariant, tagKey: string) => Promise<void>;
   // The score the page is ranked by, which each card's priority leads with.
   rankedBy?: RankedBy;
+  // The NIPT list's samples: a NIPT variant's genotypes show the plasma's and the father's
+  // reads as the analysis read them, without the fetus (niptGenotypeEntries).
+  niptTrio?: NiptTrio | null;
 }
 
 const transcriptSourceFor = (transcriptId?: string | null) => {
@@ -624,6 +666,7 @@ export default function SmallVariantCards({
   onAcmgClassify,
   onToggleReviewTag,
   rankedBy = null,
+  niptTrio = null,
 }: SmallVariantCardsProps) {
   // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
@@ -1006,53 +1049,18 @@ export default function SmallVariantCards({
                   {members.length ? (
                     <section className="variant-card-col">
                       <p className="variant-card-col-title">Genotypes</p>
+                      {/* A NIPT variant (the NIPT list): the plasma's and the father's reads as
+                          the analysis read them, and no row for the fetus, which has no sample. */}
                       <FamilyGenotypeGrid
-                        callLabel="GT"
+                        callLabel={niptTrio && variant.nipt ? 'Call' : 'GT'}
                         columns={GENOTYPE_COLUMNS}
-                        entries={members.map((member) => {
-                          const genotype = variant.genotypes.find(
-                            (entry) => entry.sample === member.sample_id,
-                          );
-                          const gt = genotype?.gt || '—';
-                          const depth = genotype?.dp;
-                          const alleleDepths = genotype?.ad;
-                          const alleleFrequencies = genotype?.af;
-                          const refDepth =
-                            alleleDepths && alleleDepths.length > 0 ? alleleDepths[0] : undefined;
-                          const altDepths =
-                            alleleDepths && alleleDepths.length > 1 ? alleleDepths.slice(1) : undefined;
-                          const computedAfs =
-                            alleleFrequencies && alleleFrequencies.length
-                              ? alleleFrequencies
-                              : typeof depth === 'number' && depth > 0 && altDepths?.length
-                                ? altDepths
-                                    .map((value) => (typeof value === 'number' ? value / depth : undefined))
-                                    .filter((value): value is number => typeof value === 'number')
-                                : undefined;
-                          const adText =
-                            typeof refDepth === 'number' || altDepths?.length
-                              ? `${typeof refDepth === 'number' ? refDepth : '-'},${
-                                  altDepths ? altDepths.join(',') : '-'
-                                }`
-                              : '—';
-                          const afText = computedAfs?.length
-                            ? computedAfs
-                                .map((value) => (Number.isFinite(value) ? value.toFixed(2) : '-'))
-                                .join(',')
-                            : '—';
-                          return {
-                            member,
-                            // Haploid and multi-allelic calls are classified too:
-                            // '1' reads as hom, '0' as ref, '1/2' as het.
-                            tone: ZYGOSITY_TONE[genotypeZygosity(gt === '—' ? '' : gt)],
-                            call: gt,
-                            values: {
-                              dp: typeof depth === 'number' ? depth : '—',
-                              ad: adText,
-                              af: afText,
-                            },
-                          };
-                        })}
+                        entries={
+                          niptTrio && variant.nipt
+                            ? niptGenotypeEntries(variant.nipt, members, niptTrio, (member) =>
+                                ownGenotypeRow(variant, member),
+                              )
+                            : members.map((member) => ownGenotypeRow(variant, member))
+                        }
                       />
                     </section>
                   ) : null}

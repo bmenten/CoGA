@@ -286,6 +286,7 @@ export default function SmallVariantResults({
                     }}
                     onToggleReviewTag={onToggleReviewTag}
                     rankedBy={data?.ranked_by}
+                    niptTrio={data?.trio}
                   />
                 ) : (
                   <SmallVariantTable
@@ -306,6 +307,7 @@ export default function SmallVariantResults({
                     }}
                     onToggleReviewTag={onToggleReviewTag}
                     rankedBy={data?.ranked_by}
+                    niptTrio={data?.trio}
                   />
                 )}
               </div>
