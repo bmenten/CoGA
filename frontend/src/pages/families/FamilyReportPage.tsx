@@ -696,6 +696,11 @@ const LiveFamilyReport: React.FC = () => {
               Print report
             </button>
             {pageAnalyses.length > 1 ? (
+              <span className="report-header-label" aria-hidden="true">
+                Analysis to sign out
+              </span>
+            ) : null}
+            {pageAnalyses.length > 1 ? (
               <select
                 aria-label="Analysis to sign out"
                 value={signOutAnalysis ?? ''}

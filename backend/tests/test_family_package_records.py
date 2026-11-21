@@ -765,3 +765,16 @@ def test_a_package_of_another_analysis_keeps_the_family_s_region_of_interest(mon
     assert conflict("GENEB") is None
     state["roi"], state["others"] = held_roi, registration.OtherAnalyses()
     assert conflict("GENEB") is None
+
+    # A region that does not resolve: the delivery's check says what the import does with it, the
+    # family's region kept when it holds another analysis, else no region.
+    def warning(roi: str) -> str:
+        issue = asyncio.run(
+            registration.manifest_roi_issue(None, roi_query=roi, project_id="p1", family_id="F1", bundle=package(roi))  # type: ignore[arg-type]
+        )
+        assert issue is not None
+        return issue.message
+
+    assert "leaves the family without a region of interest" in warning("NOT_A_GENE")
+    state["others"] = registration.OtherAnalyses(analyses=("monogenic_nipt",))
+    assert "keeps its region of interest" in warning("NOT_A_GENE")

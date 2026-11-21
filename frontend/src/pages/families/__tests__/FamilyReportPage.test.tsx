@@ -3861,7 +3861,19 @@ describe('FamilyReportPage', () => {
         ),
       ).toBeInTheDocument();
       expect(screen.queryByText(/This page still matches signed version 2\./)).not.toBeInTheDocument();
+      // The reported variants and their evidence drift are those of the analysis signed out: a
+      // family with several analyses is never read across them.
+      const asked = apiMock.get.mock.calls.map(([url]) => String(url));
+      expect(asked.filter((url) => url.startsWith('/families/F1/small-variants?'))).not.toHaveLength(0);
+      const reportReads = asked.filter(
+        (path) => /^\/families\/F1\/(small|structural)-variants\?.*review_tag=/.test(path) || path.startsWith('/families/F1/classification-drift'),
+      );
+      expect(reportReads).toHaveLength(3);
+      for (const url of reportReads) {
+        expect(url).toContain('analysis=conventional_nipt');
+      }
       const list = screen.getByRole('region', { name: 'Sign-out of each analysis' });
+      expect(within(list).getByRole('heading', { name: 'Sign-out of each analysis' })).toBeInTheDocument();
       expect(list).toHaveTextContent('This family holds 2 analyses, each signed out on its own');
       const [conventional, monogenic] = within(list).getAllByRole('listitem');
       await waitFor(() => expect(monogenic).toHaveTextContent('⚠ Changed since sign-out: reported small variants.'));
@@ -3869,7 +3881,11 @@ describe('FamilyReportPage', () => {
         'Monogenic NIPT: signed version 3 (report code 7KQM2X-3-4PHT), signed out by lab-signer on 2026-11-19 03:00 UTC.',
       );
       expect(monogenic).toHaveTextContent('It is signed out on the NIPT report.');
-      expect(within(monogenic).getByRole('link', { name: 'NIPT report' })).toHaveAttribute('href', '/families/F1/nipt/report?view=live');
+      // The NIPT report of that analysis (of a pregnancy's, that pregnancy's).
+      expect(within(monogenic).getByRole('link', { name: 'NIPT report' })).toHaveAttribute(
+        'href',
+        '/families/F1/nipt/report?view=live&analysis=monogenic_nipt',
+      );
       expect(conventional).toHaveTextContent('Conventional NIPT: signed version 2');
       expect(conventional).toHaveTextContent('The family’s data still match it.');
       // Each check names its analysis.

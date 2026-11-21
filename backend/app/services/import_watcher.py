@@ -622,7 +622,11 @@ async def assess_content(
                 issues.append(_issue(SHARED_WITH_ANOTHER_ANALYSIS, shared))
         if project_id is not None:
             roi = await manifest_roi_issue(
-                session, roi_query=validation.metadata.get("roi"), project_id=project_id, family_id=validation.family_id
+                session,
+                roi_query=validation.metadata.get("roi"),
+                project_id=project_id,
+                family_id=validation.family_id,
+                bundle=bundle,
             )
             if roi is not None:
                 warnings.append(_as_issue(roi))

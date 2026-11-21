@@ -719,11 +719,10 @@ async def _register_package_provenance(
     now = datetime.now(timezone.utc).isoformat()
     await lock_family_pedigree(session, family_identifier)
     pedigree_before = await read_structure_snapshot(session, family_uuid)
-    # The keys this writes, merged into the family's metadata as it is stored rather than
-    # written back whole from a copy read here first: that copy would put back what
-    # another writer changed in between, such as the import-state keys an import of the
-    # family records (`import_unfinished`, `import_incomplete`).
-    family_metadata: dict[str, Any] = {}
+    # The keys this writes are merged into the family's metadata as it is stored rather than
+    # written back whole from a copy read here first: that copy would put back what another
+    # writer changed in between, such as the import-state keys an import of the family records
+    # (`import_unfinished`, `import_incomplete`).
     pgt_metadata = _manifest_pgt_metadata(bundle.manifest)
     # The record of the package's analysis (``family_package_records``), keyed by the analysis's
     # key: an import replaces its own analysis's record and keeps the others' (the NIPTs of each
@@ -819,7 +818,6 @@ async def _register_package_provenance(
             """
             UPDATE families
             SET metadata = COALESCE(metadata, '{}'::jsonb)
-                    || CAST(:metadata AS jsonb)
                     -- The analysis's record replaced by this import's, the records of the family's
                     -- other analyses kept. The new record keeps, for an import undone to put back,
                     -- the record it replaces (without its own previous record) and the family's
@@ -881,7 +879,6 @@ async def _register_package_provenance(
         ),
         {
             "family_uuid": family_uuid,
-            "metadata": json.dumps(family_metadata),
             "pgt": json.dumps(pgt_metadata) if pgt_metadata else None,
             "record_key": record_key,
             "record": json.dumps(record),
@@ -1201,11 +1198,13 @@ async def manifest_roi_issue(
     roi_query: str | None,
     project_id: str | None,
     family_id: str | None,
+    bundle: FamilyPackageBundle | None = None,
 ) -> FamilyImportValidationIssue | None:
     """The warning of a validation or dry run whose manifest names a region of interest the
     import will not resolve, looked up as the import looks it up (``_package_roi_assembly``):
-    the import leaves the family without one. None when the manifest names none,
-    or it resolves."""
+    the import leaves the family without one, or, of a family that holds another analysis and a
+    region (``_keeps_family_roi`` of ``bundle``), keeps the family's. None when the manifest
+    names none, or it resolves."""
     roi_query = (roi_query or "").strip()
     if not roi_query:
         return None
@@ -1219,6 +1218,12 @@ async def manifest_roi_issue(
         )
     if await resolve_roi(session, assembly_id=assembly_id, query=roi_query) is not None:
         return None
+    if bundle is not None and family_id and await _keeps_family_roi(session, family_id=family_id, bundle=bundle):
+        return _issue(
+            MANIFEST_ROI_UNRESOLVED,
+            f"{_roi_not_found(roi_query)} The family holds another analysis and keeps its region of "
+            "interest: correct the manifest's roi.",
+        )
     return _issue(
         MANIFEST_ROI_UNRESOLVED,
         f"{_roi_not_found(roi_query)} The import leaves the family without a region of interest, "
@@ -1267,7 +1272,8 @@ async def roi_conflict_message(
     family holding another analysis keeps the region it has, and a package only gives one to a
     family without one; a package that states another is refused before anything is written.
     None when the family holds no other analysis, has no region, or the package names none, the
-    same one, or one that does not resolve (the import keeps the family's and warns)."""
+    same one, or one that does not resolve (the import keeps the family's; a delivery's check and
+    a dry run say so, ``manifest_roi_issue``)."""
     roi_query = _manifest_roi_value(bundle.manifest)
     if not roi_query or not family_id or identifier_problem(family_id) is not None:
         return None
@@ -4081,11 +4087,6 @@ class OtherAnalyses:
         return bool(self.analyses)
 
 
-def _listed_members(record: Mapping[str, Any]) -> set[str]:
-    members = record.get("members")
-    return {str(member) for member in members if isinstance(member, str)} if isinstance(members, list) else set()
-
-
 async def other_analyses_of(session: AsyncSession, *, family_id: str, analysis: str) -> OtherAnalyses:
     """The family's analyses other than ``analysis`` (an analysis's key; its package records of
     other keys, ``family_package_records``): a monogenic NIPT, for an import of the conventional
@@ -4119,8 +4120,8 @@ async def other_analyses_of(session: AsyncSession, *, family_id: str, analysis: 
     analyses = tuple(sorted(other for other in records if other != key))
     if not analyses:
         return OtherAnalyses()
-    listed_by_others = set().union(*(_listed_members(records[analysis]) for analysis in analyses))
-    own_only = _listed_members(records.get(key) or {}) - listed_by_others
+    listed_by_others = set().union(*(record_members(records[analysis]) for analysis in analyses))
+    own_only = set(record_members(records.get(key))) - listed_by_others
     active = {str(sample_id) for sample_id in row.get("active_members") or ()}
     return OtherAnalyses(analyses=analyses, kept=frozenset(active - own_only))
 

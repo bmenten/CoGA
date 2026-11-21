@@ -519,12 +519,14 @@ async def execute_family_package_import(
                 )
     if dry_run and session is not None and hasattr(session, "execute") and bundle is not None:
         # The import looks the manifest's region of interest up when it registers the family,
-        # and leaves the family without one if it is not found: the dry run says so.
+        # and leaves the family without one if it is not found (a family that holds another
+        # analysis keeps its own): the dry run says so.
         roi_issue = await manifest_roi_issue(
             session,
             roi_query=_manifest_roi_value(bundle.manifest),
             project_id=project_id,
             family_id=_package_family_id(validation, bundle),
+            bundle=bundle,
         )
         if roi_issue is not None:
             validation = validation.model_copy(update={"warnings": [*validation.warnings, roi_issue]})

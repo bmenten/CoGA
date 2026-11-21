@@ -13,13 +13,13 @@ from typing import Any
 
 import pytest
 
+from backend.app.services.analysis_scope import analysis_holding
 from backend.app.services.family_package_records import PackageRecordShapeError, package_sources
 from backend.app.services.signout_scope import (
     CNIPT_SECTION_ANALYSES,
     NIPT_SECTION_ANALYSES,
     PGT_SECTION_ANALYSES,
     WHOLE_FAMILY,
-    analysis_listing_source,
     signout_scope,
 )
 
@@ -106,25 +106,24 @@ def test_the_repeat_and_paraphase_calls_are_the_analysis_s_by_their_sources() ->
     assert short_read.holds("small_variants", ["gatk"]) and not short_read.holds("small_variants", ["clair3"])
 
 
-def test_the_analysis_listing_a_source_is_the_one_whose_record_lists_it() -> None:
+def test_the_analysis_holding_a_source_is_the_one_whose_record_lists_it() -> None:
     metadata = _short_and_long_read()
-    assert analysis_listing_source(metadata, "small_variants", "gatk") == "short_read_wgs"
-    assert analysis_listing_source(metadata, "small_variants", "clair3") == "long_read_wgs"
-    assert analysis_listing_source(metadata, "repeats", "trgt") == "long_read_wgs"
+    assert analysis_holding(metadata, "small_variants", "gatk") == "short_read_wgs"
+    assert analysis_holding(metadata, "small_variants", "clair3") == "long_read_wgs"
+    assert analysis_holding(metadata, "repeats", "trgt") == "long_read_wgs"
     # A source no record lists (an upload's), or none: no analysis.
-    assert analysis_listing_source(metadata, "structural_variants", "web") is None
-    assert analysis_listing_source(metadata, "small_variants", None) is None
-    assert analysis_listing_source(metadata, "small_variants", "") is None
+    assert analysis_holding(metadata, "structural_variants", "web") is None
+    assert analysis_holding(metadata, "small_variants", "") is None
     # A source two analyses list cannot be told apart.
     both = _short_and_long_read()
     both["package_imports"]["short_read_wgs"] = _record(["snv"], "clair3")
-    assert analysis_listing_source(both, "small_variants", "clair3") is None
+    assert analysis_holding(both, "small_variants", "clair3") is None
     # A record of no analysis the family holds (a package that named none) is no analysis's own.
     unnamed = {**metadata, "package_imports": {**metadata["package_imports"], "unspecified": _record(["sv_needlr"])}}
-    assert analysis_listing_source(unnamed, "structural_variants", "needlr") is None
+    assert analysis_holding(unnamed, "structural_variants", "needlr") is None
     # A family of one analysis: its record's sources are its own.
     single = {"analyses": ["short_read_wgs"], "package_imports": {"short_read_wgs": _record(["snv"], "gatk")}}
-    assert analysis_listing_source(single, "small_variants", "gatk") == "short_read_wgs"
+    assert analysis_holding(single, "small_variants", "gatk") == "short_read_wgs"
 
 
 def test_an_analysis_with_no_package_record_holds_what_no_other_claims() -> None:
