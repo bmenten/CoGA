@@ -335,6 +335,55 @@ describe('FamilyVariantSummaryPage', () => {
     );
   });
 
+  // Short-read and then long-read WGS of the same DNA, each with a callset of its own: the
+  // small-variant tab counts one analysis, offered beside the family's name, the one imported last
+  // first; never the last one silently.
+  it('offers the analyses with small variants and counts the one chosen', async () => {
+    const record = (smallVariants: string[], registeredAt: string) => ({
+      sources: { small_variants: smallVariants, structural_variants: [], tracks: [], repeats: [], paraphase: [] },
+      registered_at: registeredAt,
+    });
+    serve('F1', {
+      family: {
+        ...FAMILY,
+        metadata: {
+          analyses: ['long_read_wgs', 'short_read_wgs'],
+          package_imports: {
+            short_read_wgs: record(['haplotypecaller'], '2026-11-01T10:00:00'),
+            long_read_wgs: record(['deepvariant'], '2026-11-02T10:00:00'),
+          },
+        },
+      },
+      has: { small: true, structural: false },
+    });
+    renderPage();
+
+    const select = await screen.findByRole('combobox', { name: 'Analysis whose data are shown' });
+    expect(select).toHaveValue('long_read_wgs');
+    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'short-read WGS',
+      'long-read WGS',
+    ]);
+    await waitFor(() =>
+      expect(mockedGet).toHaveBeenCalledWith('/families/F1/small-variant-statistics', {
+        params: { analysis: 'long_read_wgs' },
+      })
+    );
+    fireEvent.change(select, { target: { value: 'short_read_wgs' } });
+    await waitFor(() =>
+      expect(mockedGet).toHaveBeenCalledWith('/families/F1/small-variant-statistics', {
+        params: { analysis: 'short_read_wgs' },
+      })
+    );
+    // The statistics are never asked for without naming the analysis.
+    const unnamed = mockedGet.mock.calls.filter(
+      ([url, options]) =>
+        url === '/families/F1/small-variant-statistics' &&
+        !(options as { params?: { analysis?: string } } | undefined)?.params?.analysis
+    );
+    expect(unnamed).toEqual([]);
+  });
+
   it('shows the SV section loading until its three requests are in', async () => {
     serve('F1', {
       lengths: [sv('1', 'DEL')],

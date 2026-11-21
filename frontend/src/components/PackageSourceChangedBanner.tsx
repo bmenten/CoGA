@@ -1,13 +1,16 @@
 import React from 'react';
 
 import type { PackageSourceArchivedOut, PackageSourceChangeOut } from '../lib/apiSchema.generated';
-import { analysisLabel } from '../lib/familyAnalyses';
+import { analysisDataWords } from '../lib/familyAnalyses';
 import { joinWithAnd } from '../lib/format';
 
-/** Whose package folder it is, in the banner's sentence: "this family's monogenic NIPT data was". */
+/**
+ * Whose package folder it is, in the banner's sentence: "this family's short-read WGS data was",
+ * "the data of this family's monogenic NIPT of pregnancy ZW1 was".
+ */
 const importedWords = (change: PackageSourceChange): string => {
-  const label = analysisLabel(change.analysis_type);
-  return label ? `this family\u2019s ${label} data was` : 'this family was';
+  const words = analysisDataWords(change.analysis_type);
+  return words ? `${words} was` : 'this family was';
 };
 
 /** A change of a package folder after its import, as the API serves it. */

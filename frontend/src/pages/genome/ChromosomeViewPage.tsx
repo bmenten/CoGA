@@ -1,4 +1,4 @@
-import { variantAnalysisOf } from '../../lib/familyAnalyses';
+import { structuralVariantAnalysisOf, variantAnalysisOf } from '../../lib/familyAnalyses';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -554,6 +554,7 @@ const ChromosomeViewPage: React.FC = () => {
         trackAreaRef={trackAreaRef}
         familyId={familyId || data.family_id}
         variantAnalysis={variantAnalysisOf(data.metadata, location.search)}
+        structuralAnalysis={structuralVariantAnalysisOf(data.metadata, location.search)}
         familyDisplayId={data.family_id}
         chrom={chrom}
         speciesName={speciesName}

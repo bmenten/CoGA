@@ -24,7 +24,7 @@ worker and the frontend; a reverse proxy on the VM terminates TLS. This is the s
 | Disks | a system disk of 50 GB, and a separate SSD data disk (500 GB to 1 TB) for the Docker volumes and the family packages; snapshots of the data disk, if the provider offers them |
 | Host name | a DNS name, such as `coga-test.example.org` |
 | Inbound traffic | 443 (and 80 for an ACME certificate) from the institution's network or VPN only; 22 from the administrators' addresses only. Nothing else: Postgres, ClickHouse and the backend listen on loopback |
-| Outbound traffic | HTTPS to the internet: Docker pulls the images from Docker Hub, the image builds fetch packages from PyPI and npm, and the first start downloads the reference data (GENCODE, UCSC, HGNC, NCBI, ClinGen, GenCC, HPO, Monarch, DGV) |
+| Outbound traffic | HTTPS to the internet: Docker pulls the images from Docker Hub, the image builds fetch packages from PyPI and npm, and the first start downloads the reference data (GENCODE, UCSC, HGNC, NCBI, ClinGen, GenCC, HPO, Monarch, Orphanet, DGV; the hosts are in the check of [step 2](#2-prepare-the-vm)) |
 | TLS certificate | from the institution's certificate service when the VM is reachable only from inside, since an ACME HTTP challenge cannot reach it; Let's Encrypt when port 80 is open to the internet |
 | Mail relay (optional) | an SMTP relay CoGA may send through (port 25 without sign-in, or 587 with STARTTLS and an account), for the mail to the administrators about an account that waits for approval, the mail to a user whose account an administrator activates, and the mail to the user a family is assigned to |
 
@@ -96,6 +96,8 @@ such as Ghent University's it is mandatory.
    for u in https://github.com https://download.docker.com https://registry-1.docker.io/v2/ \
        https://pypi.org https://registry.npmjs.org https://ftp.ebi.ac.uk \
        https://hgdownload.soe.ucsc.edu https://ftp.ncbi.nlm.nih.gov https://storage.googleapis.com \
+       https://search.clinicalgenome.org https://ftp.clinicalgenome.org https://search.thegencc.org \
+       https://api.github.com https://purl.obolibrary.org https://www.orphadata.com \
        https://data.monarchinitiative.org https://dgv.tcag.ca; do
      printf '%-40s ' "$u"; curl -sS -o /dev/null -m 10 -w '%{http_code}\n' "$u" 2>&1
    done
@@ -317,8 +319,11 @@ docker compose logs -f backend
   pass `-f docker-compose.yml -f docker-compose.vm.yml` to every command. Check that
   `docker compose ps` shows `127.0.0.1:3000->3000/tcp` for the frontend: without the override,
   port 3000 is open on every interface.
-- The first start downloads and loads the reference data, which takes several minutes. The
-  backend turns healthy when it is done; the frontend and the import worker start after it.
+- The first start downloads and loads the GRCh38 reference (its cytobands and genes), HPO's
+  newest release and Monarch's, which takes several minutes. The backend turns healthy when they
+  are loaded; the frontend and the import worker start after it. The gene reference sync, the
+  clinical CNV knowledgebase and the DGV load are queued and run in the background after that
+  ([step 7](#7-check-it)).
   The import worker (`import-worker`) runs the package imports, the import watcher and the
   Variant Explorer's carrier summary; the backend runs none
   ([application-scheme.md](application-scheme.md#import-worker-processes)).

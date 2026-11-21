@@ -1335,7 +1335,7 @@ describe('FamilyReportPage', () => {
           sca: { call: 'XX', is_aneuploid: false, confidence: 0.998 },
           limits_of_detection: { statement: 'Segmental CNVs are assessed from 3 Mb.' },
           read_metrics: {},
-          warnings: [],
+          warnings: ['ccnv warns of a low fetal fraction'],
           targets: [
             { target: '1', verdict: 'low_risk', reasons: [], claimed: false },
             { target: '8', verdict: 'inconclusive', reasons: ['its origin is MATERNAL_MOSAIC'], claimed: false },
@@ -1368,8 +1368,14 @@ describe('FamilyReportPage', () => {
     renderPage();
 
     const block = await screen.findByRole('region', { name: 'Conventional NIPT result' });
+    // ccnv's warnings, as the cNIPT page and the signed view show them.
+    expect(within(await within(block).findByRole('list', { name: 'Warnings of CFDNA1' })).getByRole('listitem')).toHaveTextContent(
+      'ccnv warns of a low fetal fraction',
+    );
     expect(
-      (await within(block).findAllByRole('listitem')).map((item) => item.textContent),
+      within(within(block).getByRole('list', { name: 'Result of CFDNA1' }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
     ).toEqual([
       'Chromosome 21 (T21): High risk — |z| 9.0 at or above 3',
       'Chromosome 18 (T18): Low risk',
@@ -3855,7 +3861,19 @@ describe('FamilyReportPage', () => {
         ),
       ).toBeInTheDocument();
       expect(screen.queryByText(/This page still matches signed version 2\./)).not.toBeInTheDocument();
+      // The reported variants and their evidence drift are those of the analysis signed out: a
+      // family with several analyses is never read across them.
+      const asked = apiMock.get.mock.calls.map(([url]) => String(url));
+      expect(asked.filter((url) => url.startsWith('/families/F1/small-variants?'))).not.toHaveLength(0);
+      const reportReads = asked.filter(
+        (path) => /^\/families\/F1\/(small|structural)-variants\?.*review_tag=/.test(path) || path.startsWith('/families/F1/classification-drift'),
+      );
+      expect(reportReads).toHaveLength(3);
+      for (const url of reportReads) {
+        expect(url).toContain('analysis=conventional_nipt');
+      }
       const list = screen.getByRole('region', { name: 'Sign-out of each analysis' });
+      expect(within(list).getByRole('heading', { name: 'Sign-out of each analysis' })).toBeInTheDocument();
       expect(list).toHaveTextContent('This family holds 2 analyses, each signed out on its own');
       const [conventional, monogenic] = within(list).getAllByRole('listitem');
       await waitFor(() => expect(monogenic).toHaveTextContent('⚠ Changed since sign-out: reported small variants.'));
@@ -3863,7 +3881,11 @@ describe('FamilyReportPage', () => {
         'Monogenic NIPT: signed version 3 (report code 7KQM2X-3-4PHT), signed out by lab-signer on 2026-11-19 03:00 UTC.',
       );
       expect(monogenic).toHaveTextContent('It is signed out on the NIPT report.');
-      expect(within(monogenic).getByRole('link', { name: 'NIPT report' })).toHaveAttribute('href', '/families/F1/nipt/report?view=live');
+      // The NIPT report of that analysis (of a pregnancy's, that pregnancy's).
+      expect(within(monogenic).getByRole('link', { name: 'NIPT report' })).toHaveAttribute(
+        'href',
+        '/families/F1/nipt/report?view=live&analysis=monogenic_nipt',
+      );
       expect(conventional).toHaveTextContent('Conventional NIPT: signed version 2');
       expect(conventional).toHaveTextContent('The family’s data still match it.');
       // Each check names its analysis.

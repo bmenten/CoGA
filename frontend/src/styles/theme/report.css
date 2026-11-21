@@ -26,6 +26,10 @@
   gap: 0.3125rem;
   align-items: center;
 }
+.report-header-label {
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
 
 .report-intro,
 .report-variant,

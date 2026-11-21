@@ -680,6 +680,97 @@ describe('FamilyNiptPage', () => {
     );
   });
 
+  // A card folded in one pregnancy's list is that list's view: the same site read in the other
+  // pregnancy's NIPT opens unfolded.
+  it('opens every card again when another pregnancy is read', async () => {
+    const record = (at: string) => ({
+      sources: { small_variants: [`nipt_p${at.slice(8, 10)}a1b2c3`], structural_variants: [], tracks: [], repeats: [], paraphase: [] },
+      registered_at: at,
+    });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            members: [],
+            metadata: {
+              analyses: ['monogenic_nipt:ZW1', 'monogenic_nipt:ZW2'],
+              package_imports: {
+                'monogenic_nipt:ZW1': record('2026-11-01T10:00:00'),
+                'monogenic_nipt:ZW2': record('2026-11-20T10:00:00'),
+              },
+            },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/summary') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            fetal_fraction: FETAL_FRACTION,
+            category_counts: {},
+            filter_counts: { total_in: 1, failed_quality: 0, failed_artifact: 0, passed: 1 },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            total: 1,
+            fetal_fraction: FETAL_FRACTION,
+            variants: [
+              {
+                _id: '1-100-A-G',
+                chr: '1',
+                start: 100,
+                end: 100,
+                type: 'SNV',
+                ref: 'A',
+                alt: 'G',
+                gene: 'BRCA1',
+                impact: 'HIGH',
+                effect: 'missense_variant',
+                genotypes: [],
+                nipt: {
+                  category: 7,
+                  category_label: 'paternal, transmitted to fetus',
+                  maternal_state: 'hom_ref',
+                  fetal_inheritance: 'paternal_transmitted',
+                  expected_vaf: 0.05,
+                  observed_vaf: 0.05,
+                  confidence: 0.97,
+                  flags: [],
+                  recurrence: NO_RECURRENCE,
+                },
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderPage('NIPT001');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Collapse the card of BRCA1' }));
+    expect(screen.getByRole('button', { name: 'Expand the card of BRCA1' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Analysis whose data are shown' }), {
+      target: { value: 'monogenic_nipt:ZW1' },
+    });
+    await waitFor(() =>
+      expect(
+        apiMock.get.mock.calls.some(
+          ([url, config]) => url === '/families/NIPT001/nipt/variants' && config?.params?.analysis === 'monogenic_nipt:ZW1',
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByRole('button', { name: 'Collapse the card of BRCA1' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
   // A NIPT family can be partly imported like any other, and on an assembly outside the
   // validated scope: the header warns of both, as on every family page.
   it('warns in its header that the import is incomplete and the assembly is not validated', async () => {

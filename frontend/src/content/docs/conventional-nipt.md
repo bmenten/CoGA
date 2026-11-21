@@ -24,7 +24,7 @@ A family may hold several pregnancies of one woman. Each pregnancy's conventiona
 of its own (`conventional_nipt:ZW1`), and a monogenic NIPT may stand beside it: a cNIPT and an mNIPT
 are one pregnancy only when their packages name the same pregnancy. A plasma belongs to one
 pregnancy: a package of another pregnancy that lists it is refused. The cNIPT page shows one
-pregnancy at a time: choose it in **Analysis whose data are shown**, beside the family name
+pregnancy at a time: choose it in the analysis list beside the family name
 (*conventional NIPT of pregnancy ZW1*). The page opens on the pregnancy imported last.
 
 When the family also holds the monogenic NIPT of the pregnancy under another sample ID for the plasma,
@@ -32,8 +32,9 @@ or another pregnancy's plasma, the plasmas are one person: link them as the same
 package (`same_individual_as`) or with **Edit members** → **Same individual** on the family page. The
 pedigree then draws the mother once, labelled with every ID. One person is never one pregnancy: each
 pregnancy's results stay its own, and the Sample QC never compares a plasma for identity.
-For it, CoGA reads ccnv's four files: the bins, the segments, the gain and loss calls, and the QC
-file. They must be one run's result: the calls state the QC file's fetal sex, fetal fraction and
+
+For each plasma, CoGA reads ccnv's four files: the bins, the segments, the gain and loss calls, and
+the QC file. They must be one run's result: the calls state the QC file's fetal sex, fetal fraction and
 sex-chromosome call, and name the same sample, or the import refuses them.
 
 | CoGA shows | From ccnv |
@@ -78,9 +79,9 @@ the segmental CNVs.
 **Findings.** CoGA looks at every segment ccnv called and every segment whose |z-score| reaches the
 grey zone.
 
-- A segment spanning at least half of its chromosome is read as an **aneuploidy** of that chromosome
-  (whole, or of an arm).
-- A shorter segment is a **segmental CNV**. Segmental CNVs are assessed from 3 Mb, or from 35 Mb
+- Findings of one direction (gains, or losses) that together span at least half of their
+  chromosome are an **aneuploidy** of that chromosome, however many segments ccnv cut it into.
+- Any other finding is a **segmental CNV**. Segmental CNVs are assessed from 3 Mb, or from 35 Mb
   where the fetal fraction is below ccnv's limit of detection of 3 Mb events. None is assessed where
   the fetal fraction is below ccnv's limit for arm-level events.
 - A finding is **high risk** when its |z-score| reaches the call bound (3) and it is concordant with
@@ -92,9 +93,10 @@ grey zone.
   or the mother's own mosaic event), super-fetal (the mother's own CNV), maternal or mosaic by its
   fragment sizes. It is inconclusive too when its |z-score| lies in the grey zone (2.5 to 3).
 
-**The sex chromosomes** follow ccnv's sex-chromosome call. An aneuploidy (XO, XXX, XXY, XYY) at a
-confidence of 99 % or more is high risk; a euploid call (XX, XY) at that confidence is low risk;
-anything else is inconclusive.
+**The sex chromosomes** follow ccnv's sex-chromosome call. At a confidence of 99 % or more, a
+euploid call (XX, XY) is low risk, and any other call (XO, XXX, XXY, XYY…), or one ccnv marks
+aneuploid, is high risk. A call below that confidence, or of mixed signals, is inconclusive. An
+aneuploidy finding on X or Y raises the verdict.
 
 **Twins.** In a twin pregnancy an aneuploidy of one fetus lies at about half the fetal fraction, at
 the edge of the concordant band. The page says when ccnv reads a twin pregnancy.

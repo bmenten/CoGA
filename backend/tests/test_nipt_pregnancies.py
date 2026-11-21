@@ -229,3 +229,28 @@ def test_a_plasma_or_a_fetus_is_one_pregnancys() -> None:
     assert refused is not None
     assert "maternal plasma CFDNA1, which the monogenic NIPT of pregnancy ZW1 lists" in refused
     assert "fetus FETUS1" in refused and "one pregnancy's" in refused
+
+
+def test_a_plasma_without_an_assay_tag_is_read_as_the_import_reads_it() -> None:
+    # The assay tag is optional: the monogenic NIPT's plasma is then the PED's mother, and a
+    # conventional NIPT's each sample of its ccnv dataset. Either, of another pregnancy, is refused.
+    family = {"package_imports": {MNIPT1: {"members": ["CFDNA1", "FATHER1", "FETUS1"]}}}
+    ped = "FAM1\tCFDNA1\t0\t0\t2\t-9\trole=mother\nFAM1\tFATHER2\t0\t0\t1\t-9\trole=father\nFAM1\tFETUS2\tFATHER2\tCFDNA1\t0\t-9\trole=fetus\n"
+    untagged = SimpleNamespace(
+        manifest=PackageManifest(family_id="FAM1", analysis_type="monogenic_nipt", pregnancy_id="ZW2"),
+        ped=registration._parse_ped_text_strict(ped)[0],
+    )
+    refused = registration._shared_pregnancy_sample_message(family, untagged)
+    assert refused is not None and "maternal plasma CFDNA1" in refused
+
+    ccnv = SimpleNamespace(
+        manifest=PackageManifest(
+            family_id="FAM1",
+            analysis_type="conventional_nipt",
+            pregnancy_id="ZW2",
+            datasets={"ccnv": {"enabled": True, "per_sample": {"CFDNA1": {"qc": "CFDNA1_qc.json"}}}},
+        ),
+        ped=registration._parse_ped_text_strict("FAM1\tCFDNA1\t0\t0\t2\t-9\trole=mother\n")[0],
+    )
+    refused = registration._shared_pregnancy_sample_message(family, ccnv)
+    assert refused is not None and "maternal plasma CFDNA1" in refused

@@ -1,9 +1,9 @@
-"""Signal tracks and QC reports are served only from their own family's folders (E2E).
+"""Signal tracks and QC reports are served only from their analysis's package folder (E2E).
 
 The CNV caller's signal files are served from the path the import recorded on the sample
-(``samples.metadata.signal_tracks``), relative to the family's package folder
-``<data>/families/<family>``; the sequencing-QC report from the path the import of an analysis
-recorded (``samples.metadata.sequencing_qc[<analysis>].report``), relative to the package folder
+(``samples.metadata.signal_tracks``, naming the analysis whose import recorded them), and the
+sequencing-QC report from the path the import of an analysis recorded
+(``samples.metadata.sequencing_qc[<analysis>].report``), each relative to the package folder
 that analysis's import read (``families.metadata.package_imports[<analysis>].folder_path``), and
 nowhere else. A check only that the path stays inside the data directory would let an edited row
 holding ``..`` or an absolute path serve another family's track, listed in the manifest; a lookup
@@ -63,7 +63,6 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
     from backend.app.core.config import settings
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
-    from backend.app.routers import signal_tracks
     from backend.tests.e2e import _harness
 
     f1, f2, f3 = f"RECPATH_{run}_F1", f"RECPATH_{run}_F2", f"RECPATH_{run}_F3"
@@ -76,16 +75,21 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
     (data / "families" / f1 / "linked").symlink_to(data / "families" / f2 / "cnv")
     (data / "families" / f3).symlink_to(data / "families" / f2)
 
-    # What the samples' rows record, as an edited row could hold it for S3, S4, S5 and S6.
+    # What the samples' rows record, as an edited row could hold it for S3, S4, S5 and S6. Each
+    # signal track names the analysis whose import recorded it: a package that names none
+    # (unspecified).
+    def track(path: str) -> dict[str, Any]:
+        return {"hificnv": {KIND: path, "package": "unspecified"}}
+
     recorded: dict[str, dict[str, Any]] = {
-        s2: {"signal_tracks": {"hificnv": {KIND: f"cnv/{s2}.depth.bw"}}, "sequencing_qc": {"unspecified": {"report": f"qc/{s2}.html"}}},
-        s1: {"signal_tracks": {"hificnv": {KIND: f"cnv/{s1}.depth.bw"}}, "sequencing_qc": {"unspecified": {"report": f"qc/{s1}.html"}}},
+        s2: {"signal_tracks": track(f"cnv/{s2}.depth.bw"), "sequencing_qc": {"unspecified": {"report": f"qc/{s2}.html"}}},
+        s1: {"signal_tracks": track(f"cnv/{s1}.depth.bw"), "sequencing_qc": {"unspecified": {"report": f"qc/{s1}.html"}}},
         s3: {
-            "signal_tracks": {"hificnv": {KIND: f"../{f2}/cnv/{s2}.depth.bw"}},
+            "signal_tracks": track(f"../{f2}/cnv/{s2}.depth.bw"),
             "sequencing_qc": {"unspecified": {"report": f"../{f2}/qc/{s2}.html"}},
         },
-        s4: {"signal_tracks": {"hificnv": {KIND: str(data / "families" / f2 / "cnv" / f"{s2}.depth.bw")}}},
-        s5: {"signal_tracks": {"hificnv": {KIND: f"linked/{s2}.depth.bw"}}},
+        s4: {"signal_tracks": track(str(data / "families" / f2 / "cnv" / f"{s2}.depth.bw"))},
+        s5: {"signal_tracks": track(f"linked/{s2}.depth.bw")},
         s6: {"sequencing_qc": {"unspecified": {"report": f"qc/{s2}.html"}}},
     }
 
@@ -95,8 +99,7 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
 
     out: dict[str, Any] = {}
-    saved = signal_tracks.DATA_DIR, settings.family_import_roots
-    signal_tracks.DATA_DIR = data
+    saved = settings.family_import_roots
     settings.family_import_roots = [str(data / "families")]
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
@@ -167,7 +170,7 @@ async def _exercise(run: str, data: Path) -> dict[str, Any]:
 
             out["reports"] = {sample_id: await report(family_id, sample_id) for family_id, sample_id in ((f1, s1), (f1, s3), (f3, s6), (f2, s2))}
     finally:
-        signal_tracks.DATA_DIR, settings.family_import_roots = saved
+        settings.family_import_roots = saved
         async with sessionmaker() as session:
             await session.execute(
                 text("DELETE FROM families WHERE family_id IN (:f1, :f2, :f3)"), {"f1": f1, "f2": f2, "f3": f3}

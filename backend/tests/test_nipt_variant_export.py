@@ -30,7 +30,7 @@ from backend.app.routers.families_small_variants import _FAMILY_EXPORT_COLUMNS
 from backend.app.schemas import GenotypeOut, SmallVariantReviewOut, VariantOut
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
-from backend.app.services.nipt import NiptTrio
+from backend.app.services.nipt import NiptTrio, multiple_pregnancy_note
 from backend.app.services.nipt_analysis import FetalFractionEstimate, NiptClassification, NiptSiteObservation
 from backend.app.services.nipt_service import (
     NIPT_VARIANT_FETCH_LIMIT,
@@ -284,6 +284,7 @@ def test_the_file_holds_the_small_variant_columns_then_the_nipt_classification(c
     assert {key: first[key] for key in header[len(small) - 2 :]} == {
         "Fetal fraction": "0.112",
         "Fetal fraction low confidence": "no",
+        "Multiple pregnancy note": "",
         "NIPT category": "4",
         "NIPT category label": "maternal het, inherited (hom fetus)",
         "Maternal state": "het",
@@ -325,6 +326,23 @@ def test_the_file_holds_the_small_variant_columns_then_the_nipt_classification(c
     assert [second[key] for key in ("De novo priority", "De novo score", "De novo window", "De novo reasons")] == [""] * 4
     assert second["Fetal fraction"] == "0.112"
     assert second["Gene"] == "'=HYPERLINK(1)"
+
+
+def test_the_list_of_a_twin_pregnancy_carries_its_note_on_every_row(client) -> None:
+    # A result of a multiple pregnancy may be in one fetus or more: the file says so, as the
+    # page, the report and the signed record do.
+    test_client, _calls = client
+    test_client.result["next"] = NiptVariantsResult(  # type: ignore[attr-defined]
+        fetal_fraction=_fetal_fraction(),
+        total=2,
+        variants=[_classified("1-100-A-G"), _classified("2-200-C-T")],
+        trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_ids=("EMB1", "EMB2")),
+    )
+
+    rows = _rows(test_client.get(_EXPORT))
+
+    assert {row["Multiple pregnancy note"] for row in rows} == {multiple_pregnancy_note(2)}
+    assert len(rows) == 2
 
 
 def test_a_complete_list_is_saved_under_its_own_name(client) -> None:

@@ -165,7 +165,11 @@ def test_the_drift_of_an_analysis_checks_the_classifications_it_reads(monkeypatc
     """A review is one analysis's (analysis_reviews): the drift of the long-read analysis checks
     its own classification of a variant, and the shared one of a variant it has none of, never the
     short-read analysis's classification; the structural drift reads the same scope."""
-    scope = AnalysisScope(analysis="long_read_wgs", held=frozenset({"long_read_wgs", "short_read_wgs"}))
+    scope = AnalysisScope(
+        analysis="long_read_wgs",
+        held=frozenset({"long_read_wgs", "short_read_wgs"}),
+        left_out={"small_variants": frozenset({"haplotypecaller"})},
+    )
     seen: dict = {}
 
     async def _context(session, *, family_identifier, user, project_id=None, analysis=None):
@@ -209,7 +213,9 @@ def test_the_drift_of_an_analysis_checks_the_classifications_it_reads(monkeypatc
             self.params.append(params)
             return _Result()
 
-    async def _current(*, assembly_name, family_guid, variant_id):
+    async def _current(*, assembly_name, family_guid, variant_id, left_out_sources=()):
+        # The evidence now is read from the analysis's own callsets: the other analysis's left out.
+        seen.setdefault("left_out_sources", set()).add(frozenset(left_out_sources))
         return _record("NOW")
 
     async def _structural(session, context):
@@ -224,6 +230,7 @@ def test_the_drift_of_an_analysis_checks_the_classifications_it_reads(monkeypatc
         cds.evaluate_classification_drift(session, family_id="FAM1", user=None, analysis="long_read_wgs")
     )
     assert seen["analysis"] == "long_read_wgs" and seen["structural_scope"] is scope
+    assert seen["left_out_sources"] == {frozenset({"haplotypecaller"})}
     assert out["checked"] == 2
     assert sorted((entry["variant_id"], entry["classified_by"]) for entry in out["drifted"]) == [
         ("1-100-A-G", "long"),

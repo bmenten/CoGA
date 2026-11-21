@@ -32,6 +32,8 @@ const mockApiState = vi.hoisted(() => ({
   assignableUsers: [] as unknown[],
   // How many repeat loci the family has calls at (the presence check).
   repeatLociCount: 0,
+  // The family's analyses and their package records, when it holds several.
+  analysesMetadata: null as Record<string, unknown> | null,
 }));
 
 const ANN = { id: 'u1', username: 'ann', email: 'ann@example.com', first_name: 'Ann', last_name: 'Lee' };
@@ -53,6 +55,7 @@ vi.mock('../../../lib/api', () => ({
             metadata: {
               pipeline: { long_read_wgs: { genome: 'GRCh38', snv_caller: 'deepvariant' } },
               ...(mockApiState.analysisType ? { analyses: [mockApiState.analysisType] } : {}),
+              ...(mockApiState.analysesMetadata ?? {}),
             },
             status: { key: 'analysis_in_progress', label: 'Analysis in progress', color: '#2f6fb0' },
             assigned_to: {
@@ -116,7 +119,7 @@ vi.mock('../../../lib/api', () => ({
       if (url.startsWith('/families/F1/small-variants')) {
         return Promise.resolve({ data: { total: mockApiState.smallVariantTotal, variants: [] } });
       }
-      if (url === '/families/F1/small-variant-review-summary') {
+      if (url.split('?')[0] === '/families/F1/small-variant-review-summary') {
         return Promise.resolve({
           data: {
             reviewed_variant_count: 3,
@@ -171,7 +174,7 @@ vi.mock('../../../lib/api', () => ({
           ],
         });
       }
-      if (url === '/families/F1/structural-variant-review-summary') {
+      if (url.split('?')[0] === '/families/F1/structural-variant-review-summary') {
         return Promise.resolve({
           data: {
             reviewed_variant_count: 2,
@@ -258,6 +261,7 @@ describe('FamilyDetailPage', () => {
     mockApiState.readOnly = false;
     mockApiState.assignableUsers = [ANN, BOB];
     mockApiState.repeatLociCount = 0;
+    mockApiState.analysesMetadata = null;
     vi.mocked(api.put).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.delete).mockReset();
@@ -560,6 +564,59 @@ describe('FamilyDetailPage', () => {
     expect(within(line).getByText('Review')).toBeInTheDocument();
     // No Paraphase results: no line for them.
     expect(screen.queryByRole('group', { name: 'Paraphase curation' })).not.toBeInTheDocument();
+  });
+
+  // The monogenic and the conventional NIPT of each of two pregnancies: the small variants are the
+  // monogenic NIPTs', the SVs the conventional NIPTs'. Each curation line counts one analysis's
+  // reviews, the one the URL names or else the one imported last, and says which.
+  it("names the analysis each curation line counts, and keeps the URL's analysis on the analyses' links", async () => {
+    const record = (smallVariants: string[], structuralVariants: string[], registeredAt: string) => ({
+      sources: {
+        small_variants: smallVariants,
+        structural_variants: structuralVariants,
+        tracks: [],
+        repeats: [],
+        paraphase: [],
+      },
+      registered_at: registeredAt,
+    });
+    mockApiState.analysesMetadata = {
+      analyses: ['conventional_nipt:ZW1', 'conventional_nipt:ZW2', 'monogenic_nipt:ZW1', 'monogenic_nipt:ZW2'],
+      package_imports: {
+        'monogenic_nipt:ZW1': record(['nipt_p1'], [], '2026-11-01T10:00:00'),
+        'conventional_nipt:ZW1': record([], ['ccnv_p1'], '2026-11-02T10:00:00'),
+        'monogenic_nipt:ZW2': record(['nipt_p2'], [], '2026-11-03T10:00:00'),
+        'conventional_nipt:ZW2': record([], ['ccnv_p2'], '2026-11-04T10:00:00'),
+      },
+    };
+    localStorage.setItem('role', 'viewer');
+    renderPage(`/families/F1?analysis=${encodeURIComponent('monogenic_nipt:ZW1')}`);
+
+    const small = await screen.findByRole('group', { name: 'Small variant curation' });
+    expect(small).toHaveTextContent('Small variants (monogenic NIPT of pregnancy ZW1)');
+    await waitFor(() => expect(small).toHaveTextContent('Reviewed 3'));
+    const structural = screen.getByRole('group', { name: 'Structural variant curation' });
+    // The URL names no analysis with SVs: the conventional NIPT imported last is counted.
+    expect(structural).toHaveTextContent('Structural variants (conventional NIPT of pregnancy ZW2)');
+    await waitFor(() => expect(structural).toHaveTextContent('Reviewed 2'));
+    const asked = vi.mocked(api.get).mock.calls.map(([url]) => String(url));
+    expect(asked).toContain('/families/F1/small-variant-review-summary?analysis=monogenic_nipt%3AZW1');
+    expect(asked).toContain('/families/F1/structural-variant-review-summary?analysis=conventional_nipt%3AZW2');
+    // The presence checks name the analyses too: neither reads across them.
+    expect(asked).toContainEqual(expect.stringMatching(/structural-variants\?count_only=true.*analysis=conventional_nipt%3AZW2/));
+    expect(asked).toContainEqual(expect.stringMatching(/small-variants\?count_only=true.*analysis=monogenic_nipt%3AZW1/));
+
+    // The analyses' links keep the analysis read, where the page they open reads one.
+    await waitForVariantWorkspaceReady();
+    const analyses = screen.getByRole('navigation', { name: 'Variant analyses' });
+    expect(within(analyses).getByRole('link', { name: 'Small variants' })).toHaveAttribute(
+      'href',
+      '/families/F1/small-variants?project_id=p1&analysis=monogenic_nipt%3AZW1',
+    );
+    expect(within(analyses).getByRole('link', { name: 'Variant summary' })).toHaveAttribute(
+      'href',
+      '/families/F1/variant-summary?project_id=p1&analysis=monogenic_nipt%3AZW1',
+    );
   });
 
   it('offers the report but not Sample QC without small variants', async () => {

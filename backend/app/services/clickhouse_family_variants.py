@@ -36,7 +36,7 @@ from ..schemas import (
 from .cytoband_labels import fetch_cytoband_labels
 from .data_scope import normalize_chromosome
 from .ensembl_gene_ids import ensembl_gene_id
-from .analysis_scope import AnalysisScope
+from .analysis_scope import AnalysisScope, left_out_source_clauses
 from .family_metadata_context import FamilyMetadataContext
 from .family_package_records import source_base
 from .family_variant_filters import (
@@ -1293,7 +1293,8 @@ async def _family_has_small_variants(context: FamilyMetadataContext) -> bool:
     ``family_variant_summary`` is keyed by. The paginated query instead filters
     by ``hasAny(calls.sampleId, …)`` membership, which can't use that index and
     scans the table; for a yes/no presence check that scan is wasted. This answers
-    "does this family have small-variant data?" in a few ms.
+    "does this family have small-variant data?" in a few ms: of the analysis the family is read
+    for, the other analyses' callsets left out (``context.scope``).
     """
     if not context.assembly_name:
         return False
@@ -1303,6 +1304,9 @@ async def _family_has_small_variants(context: FamilyMetadataContext) -> bool:
     if context.project_ids:
         where_clauses.append("project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
+    where_clauses.extend(
+        left_out_source_clauses(context.scope.left_out_sources("small_variants"), params, column="source")
+    )
     rows = await _execute_clickhouse(
         f"SELECT 1 FROM {entries_table} WHERE {' AND '.join(where_clauses)} LIMIT 1",
         params,
@@ -1311,7 +1315,8 @@ async def _family_has_small_variants(context: FamilyMetadataContext) -> bool:
 
 
 async def _family_has_structural_variants(context: FamilyMetadataContext) -> bool:
-    """Cheap structural-variant presence probe (see :func:`_family_has_small_variants`)."""
+    """Cheap structural-variant presence probe (see :func:`_family_has_small_variants`), of the
+    analysis the family's SV list reads."""
     if not context.assembly_name:
         return False
     entries_table = _structural_table_name(context.assembly_name, "entries")
@@ -1320,6 +1325,9 @@ async def _family_has_structural_variants(context: FamilyMetadataContext) -> boo
     if context.project_ids:
         where_clauses.append("project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
+    where_clauses.extend(
+        left_out_source_clauses(context.scope.left_out_sources("structural_variants"), params, column="source")
+    )
     rows = await _execute_clickhouse(
         f"SELECT 1 FROM {entries_table} WHERE {' AND '.join(where_clauses)} LIMIT 1",
         params,
@@ -1862,7 +1870,14 @@ async def fetch_genotype_site_sample(
     reads the sample as genotypes (the owner's decision of 2026-10-27). A call with a GQ
     below ``MIN_GENOTYPE_QUALITY`` is returned as a no-call (``./.``): the checks read only
     the genotypes the caller is sure of. A call without a GQ is returned as called.
-    Each row is ``(chrom, pos, ref, alt, sample_ids, gts)``."""
+    Each row is ``(chrom, pos, ref, alt, sample_ids, gts)``.
+
+    The QC of a family read for none of its several analyses (``AnalysisScope.unnamed_among``:
+    the whole family's QC) reads the one callset ``source`` names, whatever analysis lists it:
+    the genotypes of one callset, which hold no review. Any other reading of such a family
+    names its analysis (``_small_analysis_scope_clauses``)."""
+    if source and context.scope.unnamed_among:
+        context = replace(context, scope=replace(context.scope, unnamed_among=()))
     if not context.assembly_name:
         return []
     filters = SmallVariantQueryFilters(page=1, page_size=1, source=source)
@@ -2051,10 +2066,7 @@ async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[s
     if context.project_ids:
         where_clauses.append("e.project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
-    left_out = context.scope.left_out_sources("small_variants")
-    if left_out:
-        where_clauses.append("e.source NOT IN %(left_out_sources)s")
-        params["left_out_sources"] = tuple(sorted(left_out))
+    where_clauses.extend(left_out_source_clauses(context.scope.left_out_sources("small_variants"), params))
     entries_table = _small_table_name(context.assembly_name, "entries")
     query = f"""
         SELECT DISTINCT e.source AS source

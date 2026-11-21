@@ -51,7 +51,7 @@ values (`details`).
 ## The result
 
 `cnipt_result.evaluate_cnipt` (pure) gives each target a result: each autosome (an aneuploidy,
-whole or of an arm), the sex chromosomes, and the segmental CNVs. It reads the plasma's ccnv QC
+whole, or of at least half the chromosome), the sex chromosomes, and the segmental CNVs. It reads the plasma's ccnv QC
 (`stored_ccnv_qc`) and segments, and the rule's bounds. The rule is the owner's choice of
 2026-11-19, *z-score and fetal-fraction concordance*.
 
@@ -65,12 +65,15 @@ result either.
 **Findings.** Each segment ccnv called, and each segment whose |z-score| reaches the grey zone, is
 a finding:
 
-- *Kind*: a segment spanning at least half of its chromosome's segmented length
-  (`WHOLE_CHROMOSOME_SHARE`) is read as an aneuploidy of that chromosome (whole, or of an arm);
-  a shorter one as a segmental CNV.
-- *Segmental CNVs* are assessed from a size: the `cnipt.min_cnv_size` bound, raised to 35 Mb where the
-  fetal fraction is below ccnv's limit of detection of 3 Mb events (`lod_ff_3mb`). None is assessed
-  where it is below ccnv's limit of arm-level events (`lod_ff_35mb`). A shorter one is `not_assessed`.
+- *Kind*: the findings of one direction (gain or loss) on a chromosome that span together at least
+  half of its segmented length (`WHOLE_CHROMOSOME_SHARE`) are an aneuploidy of that chromosome
+  (whole, or of most of it), however many segments ccnv cut it into (`_aneuploid_signals`); the
+  others are segmental CNVs. An event of one arm shorter than half the chromosome (18p, say) is a
+  segmental CNV.
+- *Segmental CNVs* are assessed from a size: the `cnipt.min_cnv_size` bound, and no smaller than the
+  3 Mb ccnv's focal limit of detection is given for when ccnv gives one (`lod_ff_3mb`); raised to
+  35 Mb where the fetal fraction is below that limit. None is assessed where it is below ccnv's
+  limit of arm-level events (`lod_ff_35mb`). A shorter one is `not_assessed`.
 - *Verdict*:
   - **high risk**: |z| ≥ the `cnipt.call_zscore` error bound, and concordant with the fetal fraction.
     Concordant means the implied fetal fraction is within the band set by
@@ -86,13 +89,13 @@ a finding:
 
 - An autosome takes the worst verdict of its aneuploidy findings: low risk without one.
 - The sex chromosomes take ccnv's sex-chromosome call:
-  - **high risk**: an aneuploidy (XO, XXX, XXY, XYY) at a confidence of at least the
-    `cnipt.sca_confidence` bound;
+  - **high risk**: at a confidence of at least the `cnipt.sca_confidence` bound, any call but XX and
+    XY (XO, XXX, XXY, XYY…), or one ccnv marks aneuploid (`is_aneuploid`);
   - **inconclusive**: a call below that confidence, or mixed signals (`DISCORDANT_MIXED`);
   - **low risk**: a euploid call (XX, XY) at that confidence;
   - an aneuploidy finding on X or Y raises it.
-- The segmental target takes the worst assessed segmental finding. Without one it is low risk, and
-  its reasons give the size assessed from and each finding left unassessed.
+- The segmental target takes the worst assessed segmental finding. A low risk gives in its reasons
+  the size assessed from, each low-risk finding and each finding left unassessed.
 - **Warnings**: a fetal fraction below the warning bound, ccnv's low-FF warning, ccnv's prenatal and
   fragmentomics warnings, and a twin pregnancy ccnv reads. In a twin pregnancy an aneuploidy of one
   fetus lies at about half the fetal fraction. The owner put twins in scope with one fetal fraction
@@ -160,8 +163,9 @@ the segments read, the segments files). The signed view renders it (`CniptResult
 `SignedFamilyReport.tsx`, parsed in `signedReportRecord.ts`).
 
 Under the Sample QC's acknowledgement (`cnipt_concerns` in the gate's 409 and in the audit event),
-the sign-out is held back by a plasma without a result and by a result that rests on provisional
-bounds. The Sample QC runs no check for a conventional NIPT (application `cnipt` in
+the sign-out is held back by a plasma without a result, by a result that rests on provisional
+bounds, and by a record of a conventional NIPT that froze no result: a section that could not be
+read, none, or one without a plasma of the analysis. The Sample QC runs no check for a conventional NIPT (application `cnipt` in
 `sample_integrity_qc.py`, verdict `skip`, owner decision of 2026-11-19): ccnv's output holds no
 genotypes, and as for a PGT embryo the fetal sex is known only from the analysis, ccnv's call in
 the result. The full description is in

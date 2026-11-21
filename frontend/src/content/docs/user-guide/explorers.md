@@ -62,6 +62,8 @@ show a more severe class, from another family's review.
   Refresh in a moment.
 - A person sampled twice (two samples linked as the same individual) is one carrier, also when two
   families each show one of the samples. The carriers list still names each sample.
+- Each carrier counts once as heterozygous or homozygous: homozygous when any of the person's calls of
+  the variant is, so the two counts add up to the carriers.
 
 The same filtered variants can also be viewed three other ways, from the tabs above the results:
 

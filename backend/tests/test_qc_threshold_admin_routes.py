@@ -14,6 +14,8 @@ statements instead of running them, and the caller is set by overriding
 
 from __future__ import annotations
 
+import json
+
 from datetime import datetime, timezone
 from typing import Any
 
@@ -141,6 +143,23 @@ def test_a_limit_on_a_metric_outside_the_catalogue_is_refused_at_the_route(signe
 
     assert response.status_code == 400, response.text
     assert response.json() == {"detail": "Unknown QC metric: depth.median_depth"}
+    assert session.statements == []
+    assert session.commits == 0
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+@pytest.mark.parametrize("bound", ["warn_value", "error_value"])
+def test_a_limit_that_is_not_a_finite_number_is_refused_at_the_route(signed_in, bound: str, value: str) -> None:
+    # NaN or infinity would switch the check off: no value is below NaN, every one below infinity.
+    client, session, _sign_in = signed_in
+    body = json.dumps({**_BODY, bound: 0.0}).replace('"%s": 0.0' % bound, f'"{bound}": {value}')
+
+    response = client.put(
+        "/api/admin/qc-thresholds/default", content=body, headers={"Content-Type": "application/json"}
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json() == {"detail": "A QC cut-off must be a finite number."}
     assert session.statements == []
     assert session.commits == 0
 

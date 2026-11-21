@@ -225,8 +225,6 @@ VEP's `assembly`), per input where they differ (`GRCh38_no_alt.fa (package), hg3
   or an admin's replacement, can state it.
 - Of several files of one dataset (a per-sample dataset's VCFs), the first file's version of a
   tool is kept (`merge_module_maps`); within one header, every version is.
-- An SV whose caller the package records of two analyses both list (DeepVariant in both) cannot
-  be told to one of them: its CNV classification freezes the versions of no analysis.
 
 ## Tests
 

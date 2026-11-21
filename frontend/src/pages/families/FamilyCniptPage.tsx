@@ -198,7 +198,7 @@ const CniptSampleResult: React.FC<{
           <h2 className="section-title">Findings ({sample.findings.length})</h2>
           <InfoIcon
             name="About the findings"
-            text="Every segment ccnv called, and every segment whose |z-score| reaches the grey zone. A segment spanning half its chromosome is read as an aneuploidy of it; a shorter one as a segmental CNV."
+            text="Every segment ccnv called, and every segment whose |z-score| reaches the grey zone. Findings of one direction that together span half their chromosome are an aneuploidy of it; the others are segmental CNVs."
           />
         </div>
         {sample.findings.length ? (
@@ -294,8 +294,9 @@ const CniptSampleResult: React.FC<{
           </table>
         </div>
         <p className="table-subtle">
-          A segment spanning at least {percent(sample.rule.whole_chromosome_share, 0)} of its chromosome is read as an
-          aneuploidy of it. Inconclusive origins: {sample.rule.maternal_or_mosaic_origins.join(', ')}.
+          Findings of one direction spanning together at least {percent(sample.rule.whole_chromosome_share, 0)} of their
+          chromosome are read as an aneuploidy of it. Inconclusive origins:{' '}
+          {sample.rule.maternal_or_mosaic_origins.join(', ')}.
         </p>
       </section>
     </div>

@@ -18,12 +18,14 @@ monogenic NIPT of each of a woman's pregnancies, say), a reading or a review of 
 names the analysis (``analysis``, its key: ``monogenic_nipt:ZW1``); without one it is refused
 (``AnalysisNotNamed``), never read across them. A family with at most one such analysis is read
 as that analysis (a monogenic and a conventional NIPT of one pregnancy: only the monogenic NIPT
-holds small variants), or whole when it holds none.
+holds small variants), or whole when it holds none. The structural-variant list and its reviews
+are read the same way among the analyses whose records list a structural-variant caller (the
+conventional NIPT of each pregnancy, with its ccnv calls).
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -61,9 +63,11 @@ class AnalysisScope:
     # The analyses among which a reading must name one: set only when none was named and the
     # family holds several analyses with variants of the kind read of their own.
     unnamed_among: tuple[str, ...] = ()
-    # Whether the reading named ``analysis`` itself: only then is the family's structural-variant
-    # list read for it (a page of a family read one analysis at a time names it).
+    # Whether the reading named ``analysis`` itself.
     asked: bool = False
+    # The kind of variants (``SOURCE_KINDS``) by which ``analysis`` was chosen when the reading
+    # named none: the family's one analysis with variants of that kind.
+    kind: str = "small_variants"
     # The analyses the family holds: a review stored under none of them is each one's that has
     # no review of its own (analysis_reviews.py).
     held: frozenset[str] = frozenset()
@@ -75,7 +79,13 @@ class AnalysisScope:
         return self.analysis or NO_ANALYSIS
 
     def left_out_sources(self, kind: str) -> frozenset[str]:
-        """The sources of ``kind`` a reading of the analysis leaves out."""
+        """The sources of ``kind`` a reading of the analysis leaves out: the family's other
+        analyses' sources, when the reading named the analysis or it was chosen by its variants
+        of ``kind``. An analysis chosen by its small variants is not the scope of a reading of
+        another kind: the genome view's track availability of a family with a monogenic and a
+        conventional NIPT still finds the conventional NIPT's ccnv calls."""
+        if not (self.asked or kind == self.kind):
+            return frozenset()
         return self.left_out.get(kind, frozenset())
 
     def require_named(self) -> AnalysisScope:
@@ -109,12 +119,6 @@ def analyses_with(metadata: Mapping[str, Any] | None, kind: str) -> list[str]:
         for key, record in sorted(records.items(), key=lambda item: (_record_order(item[1]), item[0]))
         if key in held and record_sources(record)[kind]
     ]
-
-
-def analyses_with_small_variants(metadata: Mapping[str, Any] | None) -> list[str]:
-    """The family's analyses whose package record lists a small-variant callset, in the order
-    they were imported (the earliest first)."""
-    return analyses_with(metadata, "small_variants")
 
 
 def analysis_holding(metadata: Mapping[str, Any] | None, kind: str, source: str) -> str | None:
@@ -156,13 +160,13 @@ def analysis_scope(
         if holder is not None:
             with_kind = [holder]
         if len(with_kind) > 1:
-            return AnalysisScope(unnamed_among=tuple(with_kind), held=held)
+            return AnalysisScope(unnamed_among=tuple(with_kind), kind=kind, held=held)
         if with_kind:
             analysis = with_kind[0]
         elif len(held) == 1:
             (analysis,) = held
         else:
-            return AnalysisScope(held=held)
+            return AnalysisScope(kind=kind, held=held)
     left_out: dict[str, set[str]] = {source_kind: set() for source_kind in SOURCE_KINDS}
     own_members: set[str] = set()
     other_members: set[str] = set()
@@ -178,8 +182,21 @@ def analysis_scope(
         left_out={source_kind: frozenset(names) for source_kind, names in left_out.items()},
         left_out_members=frozenset(other_members - own_members),
         asked=asked,
+        kind=kind,
         held=held,
     )
+
+
+def left_out_source_clauses(
+    left_out: Collection[str], params: dict[str, Any], *, column: str = "e.source"
+) -> list[str]:
+    """The clause of a ClickHouse read that leaves out the sources ``left_out`` (a scope's
+    ``left_out_sources``) on the rows' source ``column``, its value bound in ``params``; none
+    when nothing is left out."""
+    if not left_out:
+        return []
+    params["scope_left_out_sources"] = tuple(sorted(left_out))
+    return [f"{column} NOT IN %(scope_left_out_sources)s"]
 
 
 def review_belongs(scope_analysis: str | None, held: frozenset[str], review_analysis: object) -> bool:

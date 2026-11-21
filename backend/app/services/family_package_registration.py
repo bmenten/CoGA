@@ -62,6 +62,7 @@ from .family_package_records import (
     PackageRecordShapeError,
     analysis_label,
     family_package_records,
+    merged_sources,
     package_sources,
     record_members,
     source_collision_message,
@@ -76,7 +77,9 @@ from .family_metadata_context import (
 from .family_project_variants import refuse_project_on_other_assembly
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .hpo_service import PHENOTYPES_ROLLED_BACK, PhenotypeImport, record_phenotypes_deleted_with_family
-from .nipt import CNIPT_CFDNA_ASSAY, NIPT_CFDNA_ASSAY
+from .family_package_ccnv import CCNV_DATASET
+from .family_package_nipt import nipt_package_cfdna_sample
+from .nipt import CNIPT_CFDNA_ASSAY, MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import (
@@ -86,7 +89,7 @@ from .raw_import_files_pg import (
     unlink_managed_files,
 )
 from .roi_gene_lookup import resolve_roi
-from .same_individual import person_of
+from .same_individual import PERSON_STATUS_FIELDS, person_of, person_value_conflict, same_individual_groups, same_individual_pairs
 from .vcf_header_provenance import reference_name
 
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, MANIFEST_KEPT_IN_COGA, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ImportRefused, ParsedPed, ManifestDataset, _display_path, _issue, _resolve_package_path, manifest_text_sha256
@@ -156,6 +159,19 @@ def _shared_source_message(family_metadata: Any, bundle: FamilyPackageBundle) ->
     when it shares none. Checked before the family is marked or written."""
     key = bundle.manifest.analysis_key
     records = family_package_records(family_metadata if isinstance(family_metadata, Mapping) else None)
+    snv = bundle.manifest.datasets.get("snv")
+    if (
+        snv is not None
+        and snv.enabled
+        and any(other != key for other in records)
+        and dataset_scopes(bundle, ["snv"])["snv"]["source"] == UNRESOLVED_SNV_SOURCE
+    ):
+        # The callset it would be stored as cannot be told now: never imported unchecked beside
+        # another analysis, whose callset it might be.
+        return (
+            "CoGA could not read which caller made the package's small-variant callset, so it cannot "
+            "check that callset against the family's other analyses. Check the package's VCF and import it again."
+        )
     try:
         collisions = source_collisions(records, key, _package_record_sources(bundle))
     except PackageRecordShapeError:
@@ -168,18 +184,45 @@ def _shared_source_message(family_metadata: Any, bundle: FamilyPackageBundle) ->
 
 def _pregnancy_samples(bundle: FamilyPackageBundle) -> dict[str, str]:
     """The samples of a pregnancy's package that are its pregnancy's own, by sample ID, each named
-    by what it is: a maternal plasma (its manifest entry's ``assay``, ``nipt_cfdna`` or
-    ``cnipt_cfdna``) or a fetus (a ``fetus`` member)."""
+    by what it is: a maternal plasma or a fetus (a ``fetus`` member). A plasma is read as the
+    import reads it, the ``assay`` tag being optional: a sample its manifest entry tags
+    ``nipt_cfdna`` or ``cnipt_cfdna``, the monogenic NIPT's plasma (``nipt_package_cfdna_sample``:
+    else the PED's mother) and each sample of the ``ccnv`` dataset (a conventional NIPT's)."""
     entries = _normalize_manifest_samples(bundle.manifest.samples)
+    plasmas = {
+        sample_id
+        for sample_id, entry in entries.items()
+        if (entry or {}).get("assay") in (NIPT_CFDNA_ASSAY, CNIPT_CFDNA_ASSAY)
+    }
+    if bundle.manifest.analysis_type == MONOGENIC_NIPT_ANALYSIS_TYPE:
+        plasma = nipt_package_cfdna_sample(bundle)
+        if plasma is not None:
+            plasmas.add(plasma)
+    ccnv = bundle.manifest.datasets.get(CCNV_DATASET)
+    if ccnv is not None and ccnv.enabled:
+        plasmas.update(ccnv.per_sample)
     own: dict[str, str] = {}
     for member in _package_members(bundle):
         sample_id = str(member["sample_id"])
-        assay = (entries.get(sample_id) or {}).get("assay")
-        if assay in (NIPT_CFDNA_ASSAY, CNIPT_CFDNA_ASSAY):
+        if sample_id in plasmas:
             own[sample_id] = "maternal plasma"
         elif member.get("role") == FETUS_ROLE:
             own[sample_id] = "fetus"
     return own
+
+
+# The issue of a delivery whose import would share a storage source, or a pregnancy's plasma or
+# fetus, with another of the family's analyses (``shared_with_another_analysis``).
+SHARED_WITH_ANOTHER_ANALYSIS = "package_shared_with_another_analysis"
+
+
+def shared_with_another_analysis(family_metadata: Any, bundle: FamilyPackageBundle) -> str | None:
+    """Why the package cannot be imported into the family whose metadata is ``family_metadata``:
+    a storage source another analysis's record lists (``_shared_source_message``), or a maternal
+    plasma or a fetus of another pregnancy (``_shared_pregnancy_sample_message``). None when it
+    shares neither. The import refuses it before the family is marked; a delivery's check names
+    it (``import_watcher``)."""
+    return _shared_source_message(family_metadata, bundle) or _shared_pregnancy_sample_message(family_metadata, bundle)
 
 
 def _shared_pregnancy_sample_message(family_metadata: Any, bundle: FamilyPackageBundle) -> str | None:
@@ -676,11 +719,10 @@ async def _register_package_provenance(
     now = datetime.now(timezone.utc).isoformat()
     await lock_family_pedigree(session, family_identifier)
     pedigree_before = await read_structure_snapshot(session, family_uuid)
-    # The keys this writes, merged into the family's metadata as it is stored rather than
-    # written back whole from a copy read here first: that copy would put back what
-    # another writer changed in between, such as the import-state keys an import of the
-    # family records (`import_unfinished`, `import_incomplete`).
-    family_metadata: dict[str, Any] = {}
+    # The keys this writes are merged into the family's metadata as it is stored rather than
+    # written back whole from a copy read here first: that copy would put back what another
+    # writer changed in between, such as the import-state keys an import of the family records
+    # (`import_unfinished`, `import_incomplete`).
     pgt_metadata = _manifest_pgt_metadata(bundle.manifest)
     # The record of the package's analysis (``family_package_records``), keyed by the analysis's
     # key: an import replaces its own analysis's record and keeps the others' (the NIPTs of each
@@ -705,7 +747,8 @@ async def _register_package_provenance(
         # (family_structure_service.take_package_pedigree).
         "members": sorted({member.iid for member in bundle.ped.members}),
         # The storage sources its import writes, per kind of data: a sign-out of the analysis is
-        # scoped by them (report_signout_service).
+        # scoped by them (report_signout_service). An import of an analysis the family holds keeps
+        # too the sources its record listed: the data of a dataset the package leaves out stay.
         SOURCES_KEY: _package_record_sources(bundle),
         "registered_at": now,
     }
@@ -737,6 +780,22 @@ async def _register_package_provenance(
         record[REFERENCE_KEY] = reference_delivery(
             import_mode=import_mode, delivery=bundle.delivery, previous_reference=previous_reference
         )
+    # The sources the analysis's record listed, read under the pedigree lock: an import replaces
+    # the datasets it imports and leaves the others' rows, which stay the analysis's
+    # (``merged_sources``), so another analysis's import can never take them over.
+    previous_sources = (
+        await session.execute(
+            text(
+                "SELECT metadata -> 'package_imports' -> CAST(:key AS text) -> 'sources' "
+                "FROM families WHERE id = CAST(:family_uuid AS uuid)"
+            ),
+            {"family_uuid": family_uuid, "key": record_key},
+        )
+    ).scalar_one_or_none()
+    if isinstance(previous_sources, str):
+        previous_sources = json.loads(previous_sources)
+    if previous_sources is not None:
+        record[SOURCES_KEY] = merged_sources(record[SOURCES_KEY], previous_sources)
     # The family's other analyses, read under the pedigree lock: with one, the members the family
     # holds keep the values it knows.
     others = await other_analyses_of(session, family_id=family_identifier, analysis=record_key)
@@ -759,7 +818,6 @@ async def _register_package_provenance(
             """
             UPDATE families
             SET metadata = COALESCE(metadata, '{}'::jsonb)
-                    || CAST(:metadata AS jsonb)
                     -- The analysis's record replaced by this import's, the records of the family's
                     -- other analyses kept. The new record keeps, for an import undone to put back,
                     -- the record it replaces (without its own previous record) and the family's
@@ -821,7 +879,6 @@ async def _register_package_provenance(
         ),
         {
             "family_uuid": family_uuid,
-            "metadata": json.dumps(family_metadata),
             "pgt": json.dumps(pgt_metadata) if pgt_metadata else None,
             "record_key": record_key,
             "record": json.dumps(record),
@@ -877,6 +934,14 @@ async def _register_package_samples(
     package filling only an unknown one (``merge_member_values``); a known status it states
     otherwise refuses the import before anything is written (``ImportRefused``).
 
+    The samples of one person agree on their statuses, as a structure edit has them agree. Each
+    member's statuses are read as the import leaves them (the package's, or those the member
+    keeps), with the family's same-individual links, read here after the family's pedigree took
+    the package's links (``_take_package_pedigree``): a known clinical or carrier status of one
+    sample that differs from another's of the same person refuses the import before anything is
+    written (``same_individual_statuses_message``). A link a later structure edit makes is checked
+    by that edit against the statuses written here.
+
     Returns, per sample whose metadata it changed, the registered keys' values before (None for
     a key the sample lacked)."""
     entries = _normalize_manifest_samples(bundle.manifest.samples)
@@ -905,16 +970,21 @@ async def _register_package_samples(
     sample_writes: list[tuple[str, dict[str, Any]]] = []
     previous: dict[str, dict[str, Any]] = {}
     conflicts: list[tuple[str, str]] = []
+    # Each member's statuses once written: those the package gives it, or those it keeps.
+    statuses: dict[str, dict[str, Any]] = {}
     for row in rows:
         sample_id = str(row["sample_id"])
+        if row.get("is_member"):
+            statuses[sample_id] = _held_member_statuses(dict(row))
         if sample_id in given and row.get("is_member"):
-            held = _held_member_statuses(dict(row))
+            held = statuses[sample_id]
             wanted = {field: given[sample_id].get(field) for field in MEMBER_STATUS_FIELDS}
             if others:
                 values = merge_member_values(sample_id, given=wanted, held=held, fields=MEMBER_STATUS_FIELDS)
                 conflicts.extend(values.conflicts)
                 wanted = values.merged
             wanted = _coherent_statuses(wanted)
+            statuses[sample_id] = wanted
             if wanted != held:
                 status_writes.append((str(row["sample_uuid"]), wanted))
         metadata = _json_object(row.get("metadata"))
@@ -931,6 +1001,10 @@ async def _register_package_samples(
             sample_writes.append((str(row["sample_uuid"]), changed))
     if conflicts:
         raise ImportRefused(member_values_conflict_message(family_identifier, others, conflicts))
+    held_links = (await family_samples_held(session, family_id=family_identifier)).links
+    disagreeing = same_individual_statuses_message(family_identifier, statuses, held_links)
+    if disagreeing is not None:
+        raise ImportRefused(disagreeing)
     for sample_uuid, wanted in status_writes:
         await session.execute(
             text(
@@ -1141,11 +1215,13 @@ async def manifest_roi_issue(
     roi_query: str | None,
     project_id: str | None,
     family_id: str | None,
+    bundle: FamilyPackageBundle | None = None,
 ) -> FamilyImportValidationIssue | None:
     """The warning of a validation or dry run whose manifest names a region of interest the
     import will not resolve, looked up as the import looks it up (``_package_roi_assembly``):
-    the import leaves the family without one. None when the manifest names none,
-    or it resolves."""
+    the import leaves the family without one, or, of a family that holds another analysis and a
+    region (``_keeps_family_roi`` of ``bundle``), keeps the family's. None when the manifest
+    names none, or it resolves."""
     roi_query = (roi_query or "").strip()
     if not roi_query:
         return None
@@ -1159,6 +1235,12 @@ async def manifest_roi_issue(
         )
     if await resolve_roi(session, assembly_id=assembly_id, query=roi_query) is not None:
         return None
+    if bundle is not None and family_id and await _keeps_family_roi(session, family_id=family_id, bundle=bundle):
+        return _issue(
+            MANIFEST_ROI_UNRESOLVED,
+            f"{_roi_not_found(roi_query)} The family holds another analysis and keeps its region of "
+            "interest: correct the manifest's roi.",
+        )
     return _issue(
         MANIFEST_ROI_UNRESOLVED,
         f"{_roi_not_found(roi_query)} The import leaves the family without a region of interest, "
@@ -1207,7 +1289,8 @@ async def roi_conflict_message(
     family holding another analysis keeps the region it has, and a package only gives one to a
     family without one; a package that states another is refused before anything is written.
     None when the family holds no other analysis, has no region, or the package names none, the
-    same one, or one that does not resolve (the import keeps the family's and warns)."""
+    same one, or one that does not resolve (the import keeps the family's; a delivery's check and
+    a dry run say so, ``manifest_roi_issue``)."""
     roi_query = _manifest_roi_value(bundle.manifest)
     if not roi_query or not family_id or identifier_problem(family_id) is not None:
         return None
@@ -1824,14 +1907,19 @@ def analysis_import_flag(stored: Any, holds: Callable[[str | None], bool]) -> Ma
     failures of the stored flag whose analysis ``holds`` takes
     (``signout_scope.SignoutScope.holds_mark``), and with them alone the flag's time, job and
     imported datasets, those of its latest failure. Built from those failures alone, so that
-    another analysis's failure, or the striking of one, leaves it as it is. None when no
-    failure is left, or there is no flag. Raises ``ImportMarkShapeError`` for a stored flag in
-    another shape."""
+    another analysis's failure, or the striking of one, leaves it as it is. A flag that names
+    no failure (an import that failed after marking the family and before its first dataset)
+    did not record what it left out, or whose: it is every sign-out's, as stored. None when no
+    failure of the scope is left, or there is no flag. Raises ``ImportMarkShapeError`` for a
+    stored flag in another shape."""
     flag = read_import_flag(stored)
     if flag is None:
         return None
+    failures = _flag_failures(flag)
+    if not failures:
+        return flag
     kept: dict[str, list[dict[str, Any]]] = {}
-    for name, items in _flag_failures(flag).items():
+    for name, items in failures.items():
         held = [item for item in items if holds(item[MARK_ANALYSIS_KEY])]
         if held:
             kept[name] = held
@@ -2649,9 +2737,7 @@ async def _ensure_family_from_ped(
         )
         if outside is not None:
             raise ImportRefused(outside)
-        shared = _shared_source_message(existing.get("metadata"), bundle) or _shared_pregnancy_sample_message(
-            existing.get("metadata"), bundle
-        )
+        shared = shared_with_another_analysis(existing.get("metadata"), bundle)
         if shared is not None:
             raise ImportRefused(shared)
         roi_conflict = await roi_conflict_message(
@@ -4018,11 +4104,6 @@ class OtherAnalyses:
         return bool(self.analyses)
 
 
-def _listed_members(record: Mapping[str, Any]) -> set[str]:
-    members = record.get("members")
-    return {str(member) for member in members if isinstance(member, str)} if isinstance(members, list) else set()
-
-
 async def other_analyses_of(session: AsyncSession, *, family_id: str, analysis: str) -> OtherAnalyses:
     """The family's analyses other than ``analysis`` (an analysis's key; its package records of
     other keys, ``family_package_records``): a monogenic NIPT, for an import of the conventional
@@ -4056,8 +4137,8 @@ async def other_analyses_of(session: AsyncSession, *, family_id: str, analysis: 
     analyses = tuple(sorted(other for other in records if other != key))
     if not analyses:
         return OtherAnalyses()
-    listed_by_others = set().union(*(_listed_members(records[analysis]) for analysis in analyses))
-    own_only = _listed_members(records.get(key) or {}) - listed_by_others
+    listed_by_others = set().union(*(record_members(records[analysis]) for analysis in analyses))
+    own_only = set(record_members(records.get(key))) - listed_by_others
     active = {str(sample_id) for sample_id in row.get("active_members") or ()}
     return OtherAnalyses(analyses=analyses, kept=frozenset(active - own_only))
 
@@ -4107,11 +4188,7 @@ SAME_INDIVIDUAL_NOT_MADE = "package_same_individual_not_made"
 def package_same_individual_links(bundle: FamilyPackageBundle) -> list[tuple[str, str]]:
     """The package's same-individual links (``family.relationships.same_individual``), as pairs of
     sample IDs as the package writes them."""
-    return [
-        (str(link["sample_id_a"]).strip(), str(link["sample_id_b"]).strip())
-        for link in _manifest_relationships(bundle.manifest)
-        if link["relationship_type"] == "same_individual"
-    ]
+    return same_individual_pairs(_manifest_relationships(bundle.manifest))
 
 
 @dataclass(frozen=True)
@@ -4380,6 +4457,26 @@ def members_added_message(family_id: str, differences: MemberDifferences) -> str
 
 def _analyses_named(analyses: Iterable[str]) -> str:
     return ", ".join(analyses) or "another analysis"
+
+
+def same_individual_statuses_message(
+    family_id: str, statuses: Mapping[str, Mapping[str, Any]], links: Iterable[tuple[str, str]]
+) -> str | None:
+    """The sentence that refuses an import after which two samples of one person (the family's
+    same-individual ``links``, joined directly or through another sample) would differ on a known
+    clinical or carrier status (``same_individual.PERSON_STATUS_FIELDS``; a status not known agrees
+    with any), each member's ``statuses`` as the import leaves them. None when they agree."""
+    for group in same_individual_groups(links):
+        conflict = person_value_conflict((statuses.get(sample_id, {}) for sample_id in group), PERSON_STATUS_FIELDS)
+        if conflict is not None:
+            label, known = conflict
+            named = ", ".join(map(visible, group[:-1])) + f" and {visible(group[-1])}"
+            return (
+                f"The package's statuses cannot be those of family '{visible(family_id)}': {named} are linked as "
+                f"the same individual but their {label} differs ({', '.join(known)}). The samples of one person "
+                "agree on their statuses: correct the package, or the members in the family's members editor first."
+            )
+    return None
 
 
 def member_values_conflict_message(

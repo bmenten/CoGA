@@ -614,7 +614,9 @@ package first (the delivery is then checked again), or leave the link out and li
 afterwards in the family's **Family members** table (**Edit members**, column **Same individual**).
 *Update* adds the package's links of the members it adds; a link between two samples the family already
 holds is not made, and the delivery and the import warn of it. *Overwrite* makes the package's links the
-family's, and keeps such a link to another analysis's member.
+family's, and keeps such a link to another analysis's member. Whatever the mode, an import after which
+two samples of one person would hold different known clinical or carrier statuses is refused before it
+writes them.
 
 **An existing family imported into another project.** The family is linked to that **Project**
 too, and before its datasets the import gives the project the family's small and structural

@@ -31,7 +31,7 @@
 ## B. Intended purpose specifics → TF-01
 | # | Question | Answer |
 | --- | --- | --- |
-| B1 | Monogenic NIPT: gestational-age window & indication criteria | ✅ Gestational age **> 12 weeks**; **singleton pregnancies** only. |
+| B1 | Monogenic NIPT: gestational-age window & indication criteria | ✅ Gestational age **> 12 weeks**; the validated scope is **singleton pregnancies**. A twin pregnancy can be analysed, outside the validated scope, with the note on every result that a fetal result may be present in one fetus or in more than one (owner, 2026-11-21; [TF-01 §3.1](TF-01-intended-purpose.md), REQ-NIPT-018). |
 | B2 | Carrier screening (BeGECS): reproductive vs general indication; gene-list/panel scope & its version source | ✅ **Reproductive** indication. Gene list is a controlled document in the **CMGG kwaliteitshandboek (KHB)**; cite its document ID + version in TF-01/TF-10 when the study is run. |
 | B3 | PGT: which sub-scopes are claimed — PGT-M / PGT-A / PGT-SR? | ✅ **Comprehensive PGT: PGT-M + PGT-SR + PGT-AS (aneuploidy screening) + PGT-mitoDNA**, the last as a sub-scope of PGT. |
 | B4 | PGT: the exact claims for aneuploidy resolution and structural-variant size (≥10 Mb) | ✅ Aneuploidy: **mosaicism > 35%**. SV detection: **> 10 Mb** (retained). Both are limits of the review the analyst performs on CoGA's segment, copy-number and APCAD tracks: CoGA has no automatic aneuploidy detector (owner, 2026-10-14; REQ-PGT-008, [TF-01 §3.3](TF-01-intended-purpose.md)). |

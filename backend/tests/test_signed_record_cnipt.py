@@ -168,7 +168,7 @@ async def test_a_result_on_provisional_bounds_is_a_concern_of_the_sign_out(monke
     _install(monkeypatch, configured={"cnipt.call_zscore": {"warn_value": 2.5, "error_value": 3.0}})
     section = await src.cnipt_results(_Session(), _context(_stored()))  # type: ignore[arg-type]
 
-    assert src.cnipt_signout_concerns(section) == [
+    assert src.cnipt_signout_concerns(section, of_cnipt=True) == [
         (
             "Sample CFDNA1 (cNIPT maternal plasma)",
             "The result rests on provisional bounds, which QA has not set: fetal fraction; "
@@ -184,7 +184,7 @@ async def test_a_plasma_without_a_result_is_a_concern_of_the_sign_out(monkeypatc
     section = await src.cnipt_results(_Session(), _context(_stored(effective_ff=0.031)))  # type: ignore[arg-type]
 
     assert section["samples"][0]["status"] == "no_result"
-    assert src.cnipt_signout_concerns(section) == [
+    assert src.cnipt_signout_concerns(section, of_cnipt=True) == [
         ("Sample CFDNA1 (cNIPT maternal plasma)", "No result — the fetal fraction (3.1%) is below 4.0%.")
     ]
 
@@ -193,14 +193,27 @@ async def test_a_plasma_without_a_result_is_a_concern_of_the_sign_out(monkeypatc
 async def test_a_result_on_bounds_qa_set_raises_no_concern(monkeypatch: pytest.MonkeyPatch) -> None:
     _install(monkeypatch, configured=_EVERY_BOUND_SET)
     section = await src.cnipt_results(_Session(), _context(_stored()))  # type: ignore[arg-type]
-    assert src.cnipt_signout_concerns(section) == []
+    assert src.cnipt_signout_concerns(section, of_cnipt=True) == []
 
 
-def test_a_section_without_plasmas_raises_no_concern() -> None:
-    # One that could not be read is named among the record's gaps instead.
-    assert src.cnipt_signout_concerns({"unavailable": "The conventional NIPT results could not be read."}) == []
-    assert src.cnipt_signout_concerns(None) == []
-    assert src.cnipt_signout_concerns({"samples": ["not an object"]}) == []
-    assert src.cnipt_signout_concerns({"samples": [{"sample_id": "CFDNA1", "status": "no_result"}]}) == [
+def test_another_analysis_without_the_section_raises_no_concern() -> None:
+    # The record of another analysis holds no cNIPT result to gate on.
+    assert src.cnipt_signout_concerns(None, of_cnipt=False) == []
+    assert src.cnipt_signout_concerns({"unavailable": "The conventional NIPT results could not be read."}, of_cnipt=False) == []
+    assert src.cnipt_signout_concerns({"samples": [{"sample_id": "CFDNA1", "status": "no_result"}]}, of_cnipt=False) == [
         ("Sample CFDNA1 (cNIPT maternal plasma)", "No result — no reason recorded.")
     ]
+
+
+def test_a_conventional_nipt_record_without_a_result_is_a_concern() -> None:
+    # A sign-out of a conventional NIPT closes its result: a record that froze none is gated.
+    assert src.cnipt_signout_concerns({"unavailable": "The conventional NIPT results could not be read."}, of_cnipt=True) == [
+        ("Conventional NIPT", "The results could not be read: the record holds no result of a maternal plasma.")
+    ]
+    assert src.cnipt_signout_concerns(None, of_cnipt=True) == [
+        ("Conventional NIPT", "The results were not read: the record holds no result of a maternal plasma.")
+    ]
+    for section in ({"samples": []}, {"samples": ["not an object"]}):
+        assert src.cnipt_signout_concerns(section, of_cnipt=True) == [
+            ("Conventional NIPT", "No maternal plasma of the analysis holds a ccnv result.")
+        ]

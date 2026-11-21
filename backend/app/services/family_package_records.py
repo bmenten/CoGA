@@ -188,6 +188,16 @@ _KIND_WORDS: dict[str, str] = {
 }
 
 
+def merged_sources(sources: Mapping[str, Iterable[str]], previous: Any) -> dict[str, list[str]]:
+    """The sources an import of an analysis the family holds lists in its record: those it writes
+    (``sources``, per kind) and those its record listed (``previous``, as ``record_sources`` reads
+    a record's), each list sorted, every kind present. An import replaces the datasets it imports
+    and leaves the rows of the others, which stay the analysis's. Raises
+    ``PackageRecordShapeError`` for a ``previous`` in another shape."""
+    held = record_sources({SOURCES_KEY: previous})
+    return {kind: sorted(set(sources.get(kind, ())) | held[kind]) for kind in SOURCE_KINDS}
+
+
 def source_collisions(
     records: Mapping[str, Mapping[str, Any]], key: str, sources: Mapping[str, Iterable[str]]
 ) -> list[tuple[str, str, str]]:

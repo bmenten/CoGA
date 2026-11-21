@@ -30,6 +30,8 @@ import {
   reportPageAnalyses,
   separatelySignedAnalyses,
   soleAnalysis,
+  variantAnalysisOf,
+  withAnalysisParam,
 } from '../../lib/familyAnalyses';
 import type { ApiReportSignoutList } from '../../lib/apiTypes';
 import { signOutRefusal, useReportSignOut } from './reportSignOut';
@@ -259,6 +261,26 @@ const LiveFamilyReport: React.FC = () => {
     'Reference not linked',
   );
 
+  // A family holding several analyses signs each out on its own (the owner's decision of
+  // 2026-11-19): this page signs out every one but the monogenic NIPT, which the NIPT report
+  // signs out, the analyst choosing which when there are several; a family of one analysis or
+  // none is signed out whole (null).
+  const heldAnalyses = useMemo(() => separatelySignedAnalyses(family?.metadata), [family]);
+  const pageAnalyses = useMemo(() => reportPageAnalyses(family?.metadata), [family]);
+  const [chosenAnalysis, setChosenAnalysis] = useState<string | null>(null);
+  const signOutAnalysis = pageAnalyses.length
+    ? chosenAnalysis !== null && pageAnalyses.includes(chosenAnalysis)
+      ? chosenAnalysis
+      : pageAnalyses[0]
+    : null;
+  const signOutAnalysisLabel = analysisLabel(signOutAnalysis);
+  // The analysis whose reported variants and evidence drift the page reads: the one it signs
+  // out; of a family whose analyses are all signed out elsewhere (the monogenic NIPTs of several
+  // pregnancies), the one its variant pages read (the URL's, else the one imported last). A family
+  // with several analyses with variants of their own is never read across them; one of a single
+  // analysis, or none, is read whole (null).
+  const contentAnalysis = signOutAnalysis ?? variantAnalysisOf(family?.metadata, location.search);
+
   const variantQueryReady = Boolean(
     familyId && family && (!family.projects?.length || projectId),
   );
@@ -270,8 +292,9 @@ const LiveFamilyReport: React.FC = () => {
     // (reportedListNotice) instead of ending without a trace at the page size.
     params.set('page_size', String(REPORT_LIST_PAGE_SIZE));
     if (projectId) params.set('project_id', projectId);
+    withAnalysisParam(params, contentAnalysis);
     return params.toString();
-  }, [projectId]);
+  }, [projectId, contentAnalysis]);
 
   const {
     data: reportPage,
@@ -429,19 +452,6 @@ const LiveFamilyReport: React.FC = () => {
     refetch: refetchSignouts,
   } = useReportSignouts(familyId);
 
-  // A family holding several analyses signs each out on its own (the owner's decision of
-  // 2026-11-19): this page signs out every one but the monogenic NIPT, which the NIPT report
-  // signs out, the analyst choosing which when there are several; a family of one analysis or
-  // none is signed out whole (null).
-  const heldAnalyses = useMemo(() => separatelySignedAnalyses(family?.metadata), [family]);
-  const pageAnalyses = useMemo(() => reportPageAnalyses(family?.metadata), [family]);
-  const [chosenAnalysis, setChosenAnalysis] = useState<string | null>(null);
-  const signOutAnalysis = pageAnalyses.length
-    ? chosenAnalysis !== null && pageAnalyses.includes(chosenAnalysis)
-      ? chosenAnalysis
-      : pageAnalyses[0]
-    : null;
-  const signOutAnalysisLabel = analysisLabel(signOutAnalysis);
   // The analysis whose records the page reads: the one it signs out, else the family's only one
   // (or none), as the check resolves it, so a family of one analysis never reads another
   // analysis's record as its latest.
@@ -457,13 +467,13 @@ const LiveFamilyReport: React.FC = () => {
 
   // Evidence drift: classifications whose backing annotation changed since they
   // were made — a sign-out guardrail against stale interpretations. Of a family with several
-  // analyses, each variant's evidence now is read from the callset of the analysis signed out.
+  // analyses, each variant's evidence now is read from the callsets of the analysis read.
   const { data: drift, isError: driftFailed, refetch: refetchDrift } = useQuery<ApiClassificationDrift>({
-    queryKey: ['family', familyId, 'classification-drift', signOutAnalysis],
+    queryKey: ['family', familyId, 'classification-drift', contentAnalysis],
     enabled: Boolean(familyId) && Boolean(family),
     queryFn: async () =>
       (
-        await api.get(apiPath`/families/${familyId}/classification-drift${raw(analysisQuery(signOutAnalysis))}`)
+        await api.get(apiPath`/families/${familyId}/classification-drift${raw(analysisQuery(contentAnalysis))}`)
       ).data as ApiClassificationDrift,
   });
   // The small variants' drift and the structural variants' / CNVs' drift, in one banner.
@@ -686,6 +696,11 @@ const LiveFamilyReport: React.FC = () => {
               Print report
             </button>
             {pageAnalyses.length > 1 ? (
+              <span className="report-header-label" aria-hidden="true">
+                Analysis to sign out
+              </span>
+            ) : null}
+            {pageAnalyses.length > 1 ? (
               <select
                 aria-label="Analysis to sign out"
                 value={signOutAnalysis ?? ''}
@@ -830,11 +845,16 @@ const LiveFamilyReport: React.FC = () => {
           analyses={heldAnalyses}
           signouts={signouts}
           versionLink={(version) => ({ search: reportViewSearch(location.search, { version }) })}
-          signedOutOn={(analysisType) =>
-            analysisType === 'monogenic_nipt' ? (
+          signedOutOn={(analysis) =>
+            analysisTypeOf(analysis) === 'monogenic_nipt' ? (
               <>
                 It is signed out on the{' '}
-                <Link to={{ pathname: routePath`/families/${familyId}/nipt/report`, search: location.search }}>
+                <Link
+                  to={{
+                    pathname: routePath`/families/${familyId}/nipt/report`,
+                    search: withAnalysisParam(new URLSearchParams(location.search), analysis).toString(),
+                  }}
+                >
                   NIPT report
                 </Link>
                 .

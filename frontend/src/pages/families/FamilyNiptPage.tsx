@@ -748,6 +748,8 @@ const FamilyNiptPage: React.FC = () => {
           <QueryFailure what="the NIPT variants" error={variantsError} onRetry={() => void refetchVariants()} />
         ) : (
         <SmallVariantResults
+          // One list per pregnancy: the cards folded in one are not folded in another's.
+          key={niptAnalysis ?? ''}
           assemblyName={assemblyName}
           assemblyVersion={assemblyVersion}
           data={variantPage}

@@ -1,5 +1,5 @@
-import { useVariantAnalysis } from './useVariantAnalysis';
-import { analysisQuery } from '../../lib/familyAnalyses';
+import { useStructuralVariantAnalysis, useVariantAnalysis } from './useVariantAnalysis';
+import { analysisLabel, analysisQuery } from '../../lib/familyAnalyses';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useLocation } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -117,8 +117,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     { assemblyName, isError: referenceFailed },
     'Not linked',
   );
-  // Of a family with several analyses with small variants, the reviews of the one read.
+  // Of a family with several analyses with small (or structural) variants of their own, the
+  // reviews of the one read: the one the URL names, else the one imported last, named on its line.
   const variantAnalysis = useVariantAnalysis(familyId);
+  const structuralAnalysis = useStructuralVariantAnalysis(familyId);
   const { data: reviewSummary, isError: reviewSummaryFailed } = useQuery<ApiSmallVariantReviewSummary>({
     queryKey: ['family', familyId, 'small-variant-review-summary', variantAnalysis],
     enabled: Boolean(familyId && hasSmallVariants),
@@ -136,10 +138,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   });
   const { data: structuralReviewSummary, isError: structuralReviewSummaryFailed } =
     useQuery<ApiSmallVariantReviewSummary>({
-    queryKey: ['family', familyId, 'structural-variant-review-summary'],
+    queryKey: ['family', familyId, 'structural-variant-review-summary', structuralAnalysis],
     enabled: Boolean(familyId && hasVariants),
     queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/structural-variant-review-summary`);
+      const res = await api.get(
+        apiPath`/families/${familyId}/structural-variant-review-summary${raw(analysisQuery(structuralAnalysis))}`,
+      );
       return res.data as ApiSmallVariantReviewSummary;
     },
   });
@@ -351,7 +355,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             <div className="family-curation-summary">
               {hasSmallVariants && (
                 <div className="family-curation-line" role="group" aria-label="Small variant curation">
-                  <span className="family-curation-type">Small variants</span>
+                  <span className="family-curation-type">
+                    Small variants{variantAnalysis ? ` (${analysisLabel(variantAnalysis) ?? variantAnalysis})` : ''}
+                  </span>
                   <span className="family-curation-count">
                     Reviewed <strong>{reviewSummaryFailed ? '—' : (reviewSummary?.reviewed_variant_count ?? 0)}</strong>
                   </span>
@@ -372,7 +378,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               )}
               {hasVariants && (
                 <div className="family-curation-line" role="group" aria-label="Structural variant curation">
-                  <span className="family-curation-type">Structural variants</span>
+                  <span className="family-curation-type">
+                    Structural variants
+                    {structuralAnalysis ? ` (${analysisLabel(structuralAnalysis) ?? structuralAnalysis})` : ''}
+                  </span>
                   <span className="family-curation-count">
                     Reviewed <strong>{structuralReviewSummaryFailed ? '—' : (structuralReviewSummary?.reviewed_variant_count ?? 0)}</strong>
                   </span>

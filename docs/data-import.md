@@ -504,7 +504,7 @@ The API behind the page:
 | --- | --- |
 | `GET /family-imports/packages` | lists the folders under `FAMILY_IMPORT_ROOTS` that can be added by hand, each with the families imported from it (`imported_families`: `family_id`, `registered_at`, `import_incomplete`) and whether its latest import was undone because the package changed (`changed_during_import`) |
 | `GET /family-imports/deliveries` | lists the packages pipelines delivered into the watched import folders, with their state ([below](#watched-import-folders)) |
-| `POST /family-imports/deliveries` | adds a package folder to the deliveries by hand: CoGA makes its package from the folder (`folder_path`, `project_id`, `analysis_type`, `family_id`; [below](#adding-a-folder-by-hand)) |
+| `POST /family-imports/deliveries` | adds a package folder to the deliveries by hand: CoGA makes its package from the folder (`folder_path`, `project_id`, `analysis_type`, `pregnancy_id`, `family_id`; [below](#adding-a-folder-by-hand)) |
 | `GET /family-imports/deliveries/{id}/package` | a delivery's package as its import would read it now, the pipeline's file, what CoGA proposed, and every correction ([below](#correcting-a-delivery)) |
 | `POST /family-imports/deliveries/{id}/revisions` | corrects a delivery's package before it is approved (`revision`, `reason`, `changes`) |
 | `POST /family-imports/deliveries/{id}/approve` | queues the import, or a dry run, of a delivery that is ready or whose family exists (`revision`, `dry_run`, `conflict_mode`, `acknowledge_warnings`) |
@@ -680,10 +680,18 @@ family changes, so the import of the package that lists the sample clears it.
   that joins a member of another analysis's package to one this package lists, also when the
   package does not name it: the link is no more this package's than the other's. The package's
   link and the family's of one pair are one link, whatever made each. A link to a member the
-  overwrite makes inactive (one neither this package nor another analysis's lists, added by
-  hand) is refused before anything is written (`package_same_individual_outside`).
+  overwrite makes inactive is refused before anything is written
+  (`package_same_individual_outside`): with another analysis held, a member the package lacks
+  that only its own analysis's record listed (a member added by hand, whom no record lists,
+  stays and may be linked); without one, any member the package lacks.
 - With another analysis held, `update` and `overwrite` keep each link of the family between the
   members that stay.
+- Whatever the mode, the samples of one person keep agreeing on their statuses. Once the
+  family's pedigree has taken the package's links, the registration reads the family's
+  same-individual links and refuses the import before it writes when the statuses it gives or
+  keeps would leave two samples of one person with different known clinical or carrier statuses:
+  *The package's statuses cannot be those of family 'F': MOTHER and MOTHER2 are linked as the
+  same individual but their clinical status differs (affected, unaffected). …*
 
 **Projects.** An import into an existing family also links it to the job's `project_id`. Every
 project the family is linked to gets the small and structural variant callsets it holds none of,
@@ -1078,10 +1086,10 @@ after, and its kind), the reason, who made it and when, and the whole package af
 SHA-256. The import reads the latest.
 
 - **On the page.** **Correct…** on a delivery that is ready or needs attention opens the package
-  as a form, with a reason: the project, the analysis, the region of interest, the PGT details,
-  each member's sex, parents, the member it is related to (`related_to`), role, clinical status,
-  carrier fields and HPO terms, the members added or removed, and which datasets are in the
-  import. The corrections so far are listed with it, and the package as `coga-package.json`
+  as a form, with a reason: the project, the analysis, the pregnancy of a NIPT, the region of
+  interest, the PGT details, each member's sex, parents, the member it is related to
+  (`related_to`), role, clinical status, carrier fields and HPO terms, the members added or
+  removed, and which datasets are in the import. The corrections so far are listed with it, and the package as `coga-package.json`
   (**Download coga-package.json** saves it). The other fields (assays, couples,
   `same_individual_as` and a dataset's options) change through the API, and for a folder added by
   hand also with **Edit as JSON**.
@@ -1096,15 +1104,16 @@ SHA-256. The import reads the latest.
   person saw), `reason` (plain text, at most 2,000 characters) and either `changes`, each a `path`
   and a `value` (null removes a field; a list is emptied), or `package`, the whole package as
   edited, whose changes CoGA works out field by field under the same rules. A path is
-  `["project"]`, `["analysis_type"]`, `["family", "roi"]`, `["family", "pgt"]` or one of its
-  fields, `["members", <sample ID>]` (a member added, its fields as the value, or removed with
-  null), `["members", <sample ID>, <field>]`, `["couples"]` or `["datasets", <dataset>]`.
+  `["project"]`, `["analysis_type"]`, `["pregnancy_id"]`, `["family", "roi"]`, `["family", "pgt"]`
+  or one of its fields, `["members", <sample ID>]` (a member added, its fields as the value, or
+  removed with null), `["members", <sample ID>, <field>]`, `["couples"]` or
+  `["datasets", <dataset>]`.
 
 **Which fields change:**
 
 | Fields | Rule |
 | --- | --- |
-| The laboratory's: the project, the analysis type, a member's role, clinical status, carrier fields, HPO terms, `related_to`, `same_individual_as`, assay and panel, the family's region of interest and PGT details, each dataset's entry (in or out of the import, its options, another file the package lists) | changed freely |
+| The laboratory's: the project, the analysis type, the pregnancy (`pregnancy_id`), a member's role, clinical status, carrier fields, HPO terms, `related_to`, `same_individual_as`, assay and panel, the family's region of interest and PGT details, each dataset's entry (in or out of the import, its options, another file the package lists) | changed freely |
 | Those the pipeline used: a member's sex and parents, and the couples | changed, but while a dataset the pipeline computed with them (`pipeline_used_pedigree`) is in the import, the delivery needs attention (`package_pedigree_changed`) and is not approved: leave those datasets out, or put the value back |
 | Every other field: the format, status and run, the assembly, the family ID, every sample ID, the files, the QC, the request, the reference, the notes and `extra` | the pipeline's: refused (400) |
 
@@ -1153,8 +1162,10 @@ superuser) takes:
 - a folder under the import roots;
 - the project it belongs to;
 - its analysis, the package's `analysis_type` ([coga-package.md](coga-package.md)): LR-WGS,
-  LR-AS (long-read adaptive sampling), SR-WGS (short-read WGS), PGT, Expanded Carrier Screening
-  or mNIPT;
+  LR-AS (long-read adaptive sampling), SR-WGS (short-read WGS), PGT, Expanded Carrier Screening,
+  mNIPT or cNIPT (conventional NIPT);
+- for an mNIPT or a cNIPT, the pregnancy it is of (**Pregnancy ID**, the package's
+  `pregnancy_id`), by the rule of a family ID;
 - its family ID, where it is not the folder's name. Left empty, the family ID is the folder's
   name; it is fixed once the folder is added, as a pipeline's is.
 
@@ -1268,8 +1279,8 @@ analysis's folder is followed against its own reference, never another's.
   otherwise is a change again.
 - **What it shows.** Every page of the family shows one *Package folder changed after import* (or
   *Package folder gone*, or *Source files archived*) banner per analysis whose folder changed,
-  naming the analysis (*The package folder this family's monogenic NIPT data was imported
-  from …*), with what changed (`GET /families/{family_id}`, `package_source_changes`: a list, one
+  naming the analysis (*The package folder the data of this family's monogenic NIPT of pregnancy
+  ZW1 was imported from …*), with what changed (`GET /families/{family_id}`, `package_source_changes`: a list, one
   entry per such analysis, each with its `analysis_type`; it answers 404 for a family outside the
   caller's projects as the family does). The Deliveries list shows the reference delivery as
   *Changed after import*, with what changed and what ends it, among the deliveries that wait, and
@@ -1740,7 +1751,8 @@ or none:
 - A manifest without `roi` leaves the family's region as it is.
 - A family that holds another analysis keeps the region it has, as it keeps a member's known
   values: a package of one of its analyses gives a region only to a family without one, and one
-  that does not resolve clears nothing. A package whose `roi` resolves to another locus than the
+  that does not resolve clears nothing (the dry run's and the delivery's warning
+  `manifest_roi_unresolved` then says the family keeps its region). A package whose `roi` resolves to another locus than the
   family's is refused before anything is written (`package_roi_conflict`), in the delivery's
   check too, and no choice approves it: correct the package's `roi`, or change the region on the
   family page first.
@@ -1887,8 +1899,10 @@ owner's decisions of 2026-11-20 and 2026-11-21):
   another's and an import of one pregnancy replaces nothing of another; the readers read such a
   source as the one it is kept for (`source_base`). A maternal plasma and a fetus (role `fetus`) are
   one pregnancy's: an import of another pregnancy whose package lists one of them is refused before
-  anything is written. Two plasmas of one woman, linked as the same individual, are one person,
-  never one pregnancy.
+  anything is written. A plasma is read as the import reads it, whether or not its `assay` is
+  given: a sample tagged `nipt_cfdna` or `cnipt_cfdna`, a monogenic NIPT's PED mother, and each
+  sample of a `ccnv` dataset. Two plasmas of one woman, linked as the same individual, are one
+  person, never one pregnancy.
 
 - **No two analyses share a storage source.** An import is refused before anything is written when
   its package would store data under a source another analysis's package record lists
@@ -1896,18 +1910,29 @@ owner's decisions of 2026-11-20 and 2026-11-21):
   DeepVariant), or a dataset of a fixed source (`mito`, `trgt`, `paraphase`, the coverage BEDs'
   `web`, `hificnv`, `needlr`…). The message names the source and the analysis that holds it: leave
   that dataset out of the package, or, for small variants, name its caller differently
-  (`source_format`). So one analysis's import never replaces, skips or claims another's data.
+  (`source_format`). So one analysis's import never replaces, skips or claims another's data. A
+  record keeps the sources it listed when its analysis is imported again: a dataset the new package
+  leaves out keeps its rows, which stay that analysis's. A small-variant callset whose caller CoGA
+  cannot read from its VCF at the time is refused beside another analysis rather than stored
+  unchecked. The delivery's check names a shared source, or another pregnancy's plasma or fetus,
+  before it is approved (`package_shared_with_another_analysis`).
 - **Each analysis is read on its own** ([analysis_scope.py](../backend/app/services/analysis_scope.py)).
   A family with two or more analyses whose records list a small-variant callset of their own is
   read one analysis at a time: its small-variant list, filters, counts, ranking, export,
   statistics and the evidence and drift of its reviews read that analysis's callsets, and the
   members only another analysis's package lists are neither required nor read by an inheritance
-  filter. The request names the analysis (`analysis=`); one that names none is refused (422). The
+  filter. The request names the analysis (`analysis=`), whether or not it names a callset
+  (`source`, read among the analysis's own: another analysis's callset reads nothing); one that
+  names none is refused (422). The whole family's Sample QC, which reads the genotypes of one
+  callset it chose and no review, is the one reading of such a family that names no analysis. The
   pages offer the analysis to read beside the family's name, the one imported last first. A
   family whose one analysis holds small variants (a monogenic NIPT beside a conventional one) is
-  read as that analysis without naming it. The structural-variant list of a page that names the
-  analysis reads that analysis's SV sources alone (a family read without naming one keeps every
-  SV: the conventional NIPT's ccnv calls beside a monogenic NIPT). The mtDNA page reads the
+  read as that analysis without naming it. The structural-variant list, its count, export,
+  reviews and their summary are read the same way among the analyses whose records list an SV
+  caller of their own (the conventional NIPT of each pregnancy): named when the family holds
+  several, else that one analysis's; the SV page, the presence check, the genome view's SV track
+  and the Circos plot name it. Another reading of the SVs (the genome view's per-sample
+  availability, the variant summary's SV counts) reads every analysis's. The mtDNA page reads the
   analysis whose package holds the mtDNA calls; the monogenic NIPT page its own.
 - **The list names the members without calls.** A member an analysis's package lists but whose
   sample its callset does not hold (long-read WGS of the proband alone, its PED listing the
@@ -2062,7 +2087,8 @@ allele fraction and an uploaded APCAD. A dataset replaces the track of each samp
 a value for, and leaves the track of a sample it holds none for (a family VCF without that
 sample's column). An embryo's VCF in which its reader finds no record is read as a BED, into the
 dataset's own track. A package's coverage BED and a BED upload share the source `web`, and each
-replaces the other ([below](#6-single-file-uploads)).
+replaces the other ([below](#6-single-file-uploads)); a NIPT package's coverage BED is stored as
+its pregnancy's own (`web_p…`, [above](#several-analyses-in-one-family)) and shares none.
 
 **A file without a record.** A dataset that replaces stored data reads its file before it deletes
 anything, and fails, with the stored data as it was, when the file holds no record its loader can
@@ -2242,7 +2268,8 @@ datasets:
       FATHER1: {file: FATHER1_consensus.minreads2.mapped.filtered.cram, index: FATHER1_consensus.minreads2.mapped.filtered.cram.crai}
 ```
 
-The VCFs under `snv.per_sample` become one small-variant callset, source `nipt`
+The VCFs under `snv.per_sample` become one small-variant callset, the source `nipt` as the
+pregnancy's own (`nipt_p…`, [above](#several-analyses-in-one-family))
 ([family_package_nipt.py](../backend/app/services/family_package_nipt.py)):
 
 - **Order and merge.** The plasma's file goes first, whatever the manifest's order: the sample
@@ -2262,9 +2289,10 @@ The VCFs under `snv.per_sample` become one small-variant callset, source `nipt`
   They are kept with the call ([database.md](database.md), `calls.filters` and `calls.metrics`)
   for the NIPT quality filter and the de novo triage.
 - **Settings that do not apply.** `source_format`, `exclude_filters` and `annotation_tsv`: the
-  callset is always `nipt`, and each file's annotation is read from its own records. Nor does
-  `vcf_sample` choose a column: each file's one column is bound to its entry's sample (below).
-  With `update`, the dataset is skipped when the family already holds `nipt` calls.
+  callset is always the pregnancy's `nipt_p…`, and each file's annotation is read from its own
+  records. Nor does `vcf_sample` choose a column: each file's one column is bound to its entry's
+  sample (below). With `update`, the dataset is skipped when the family already holds calls of
+  that pregnancy's callset; another pregnancy's calls do not count.
 - **The column is the entry's sample.** Each file's one column is read as its entry's sample
   whatever it is named, on purpose: the laboratory maps its genetically verified tubes to the
   files they are in, and a file and its column can be named after another tube. A column named
@@ -2356,8 +2384,10 @@ verified, which silences the warning.
 
 **Replacing.** Every sample's files are read and checked first, so a later sample's refused file
 fails the dataset with every sample's data as it was. An overwrite replaces each sample's ccnv
-tracks and the family's ccnv calls. An update leaves the dataset as it is when the family holds ccnv
-bins of one of its samples or ccnv calls, since the calls of every sample are replaced together.
+tracks and the family's ccnv calls, both stored under the pregnancy's own source (`ccnv_p…`,
+[above](#several-analyses-in-one-family)). An update leaves the dataset as it is when the family
+holds that pregnancy's ccnv bins of one of its samples or its ccnv calls, since the calls of every
+sample are replaced together; another pregnancy's ccnv output does not count.
 
 ### Per-sample callsets of a long-read couple
 
@@ -3137,7 +3167,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `pregnancy_missing` | A `monogenic_nipt` or `conventional_nipt` package names no pregnancy (`pregnancy_id`). Give the laboratory's pregnancy ID in the package, or in **Deliveries** with **Correct…**. |
 | `pregnancy_not_nipt`, `pregnancy_without_analysis` | A package that is no monogenic or conventional NIPT, or names no analysis type, names a pregnancy. Leave `pregnancy_id` out, or correct the analysis type. |
 | `pregnancy_id_invalid` | The pregnancy ID breaks the rule of a family ID (printable, no whitespace, no `/` or `\`, not `.` or `..`) or is longer than 64 characters. |
-| A package of another pregnancy that lists a maternal plasma or a fetus of the family's (refused at import) | A maternal plasma and a fetus are one pregnancy's. Give this pregnancy's samples IDs of their own, or correct the package's `pregnancy_id` if it is that pregnancy. |
+| `package_shared_with_another_analysis` | The family holds another analysis, and the package would store data under a source that analysis's record lists (the message names the source and the analysis), or it is another pregnancy's package and lists a maternal plasma or a fetus of the family's. No choice approves it: the import refuses it before anything is written. Leave the dataset out of the package or name its caller differently (`source_format`); for a plasma or a fetus, give this pregnancy's samples IDs of their own, or correct the package's `pregnancy_id` if it is that pregnancy ([Correcting a delivery](#correcting-a-delivery)). |
 | `package_not_in_project_folder` | The package folder lies directly in the watched folder. Move it into the folder of its project (`<watched folder>/<project>/`), or refuse the delivery. |
 | `package_project_folder_differs` | The package lies in the folder of another project than its package file names. Correct the project in **Deliveries**, or move the package into the folder of its project. |
 | `package_members_differ_from_family` | The family exists, and the package changes or lacks one of its members (another sex, other parents). In a family that holds another analysis, only a member that only this analysis's package listed can be lacking. An update changes no member the family holds: correct the package (**Correct…**) to the family's members, or have an administrator approve it with overwrite, which makes the package's members the pedigree of its analysis and keeps the other analyses' members. |

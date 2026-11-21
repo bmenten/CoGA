@@ -5,9 +5,10 @@ chromosomes, segmental CNVs).
 * A segment at |z| ≥ the call bound, concordant with the fetal fraction (implied fetal fraction
   within the band, ccnv not flagging it discordant, origin not maternal or mosaic) is high risk;
   one that is not concordant, or in the grey zone, inconclusive.
-* A segment spanning half its chromosome is read as an aneuploidy of it; a shorter one as a
-  segmental CNV, assessed from the smallest size (and not at all, or from 35 Mb, where ccnv's
-  limits of detection say the fetal fraction cannot show it).
+* The findings of one direction spanning together half their chromosome (one segment or several,
+  as ccnv cut it) are read as an aneuploidy of it; shorter ones as segmental CNVs, assessed from the
+  smallest size (and not at all, or from 35 Mb, where ccnv's limits of detection say the fetal
+  fraction cannot show them).
 * The sex chromosomes follow ccnv's sex-chromosome call and its confidence.
 * Below the fetal-fraction bound, or with a bound set without its error value, there is no result.
 * Each bound is QA's where set, else the provisional value, and the result says which.
@@ -135,6 +136,47 @@ def test_a_short_segment_is_a_segmental_cnv_assessed_from_the_smallest_size() ->
     assert targets["segmental"] == ("high_risk", ["chr4:10000000-20000000: |z| 6.0 ≥ 3, concordant with the fetal fraction"])
     tiny_finding = next(finding for finding in result["findings"] if finding["chrom"] == "6")
     assert (tiny_finding["verdict"], tiny_finding["reasons"]) == ("not_assessed", ["smaller than the 3 Mb segmental CNVs are assessed from"])
+
+
+def test_a_trisomy_ccnv_cut_into_several_segments_is_one_aneuploidy_of_its_chromosome() -> None:
+    # Three gains of a third of chromosome 21 each: together the whole chromosome, so chromosome
+    # 21's own (claimed) target is high risk, never low risk beside three segmental CNVs.
+    pieces = [_segment("21", start, start + CHROM_MB / 3, **TRISOMY) for start in (0, CHROM_MB / 3, 2 * CHROM_MB / 3)]
+    result = evaluate_cnipt(_qc(), _genome(*pieces), resolve_cnipt_bounds({}))
+
+    targets = _targets(result)
+    assert targets["21"][0] == "high_risk"
+    assert targets["segmental"] == ("low_risk", ["Segmental CNVs are assessed from 3 Mb."])
+    assert {finding["kind"] for finding in result["findings"]} == {"chromosome"}
+    # Below ccnv's limit of detection of arm-level events the segmental CNVs are not assessed,
+    # but the aneuploidy still is.
+    low_depth = evaluate_cnipt(_qc(lod_ff_35mb=0.12), _genome(*pieces), resolve_cnipt_bounds({}))
+    assert _targets(low_depth)["21"][0] == "high_risk"
+
+
+def test_findings_of_opposite_directions_or_under_half_the_chromosome_stay_segmental() -> None:
+    gain = _segment("4", 0, 15, ratio=0.07, zscore=6.0, call="gain", implied_ff=0.1)
+    loss = _segment("4", 20, 35, ratio=-0.07, zscore=-6.0, call="loss", implied_ff=0.1)
+    result = evaluate_cnipt(_qc(), _genome(gain, loss), resolve_cnipt_bounds({}))
+
+    # 30 Mb of findings on a 50 Mb chromosome, but 15 Mb of each direction: two segmental CNVs.
+    assert _targets(result)["4"] == ("low_risk", [])
+    assert {finding["kind"] for finding in result["findings"]} == {"segmental"}
+
+
+def test_a_low_risk_of_the_segmental_cnvs_names_those_it_did_not_assess() -> None:
+    called_low = _segment("4", 10, 20, ratio=-0.02, zscore=-2.2, call="loss", implied_ff=0.1)
+    tiny = _segment("6", 30, 30.2, ratio=-0.6, zscore=-5.0, call="loss", implied_ff=0.6)
+    result = evaluate_cnipt(_qc(), _genome(called_low, tiny), resolve_cnipt_bounds({}))
+
+    assert _targets(result)["segmental"] == (
+        "low_risk",
+        [
+            "Segmental CNVs are assessed from 3 Mb.",
+            "chr4:10000000-20000000: ccnv called it, but |z| 2.2 is below 2.5",
+            "chr6:30000000-30200000: smaller than the 3 Mb segmental CNVs are assessed from",
+        ],
+    )
 
 
 @pytest.mark.parametrize(

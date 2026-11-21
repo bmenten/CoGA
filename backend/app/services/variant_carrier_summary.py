@@ -26,6 +26,10 @@ class whole.
 **A carrier is a person.** Two samples linked as the same individual (a person sampled twice,
 ``same_individual``) are one carrier, named by the first of their sample IDs over the links of
 every family of the assembly: within a family, and across the families that show either sample.
+A person is a homozygous carrier when any of their calls of the variant is homozygous, and a
+heterozygous one otherwise: each person counts once in the heterozygous or the homozygous
+carriers, which add up to the carriers, also when two samples of the person or two callsets were
+called apart (``0/1`` and ``1/1``).
 
 **One table.** ``<assembly>/SNV_INDEL/carriers`` (a SummingMergeTree, sorted by ``xpos, key``)
 holds both kinds, and a *marker* row per family (``xpos = key = 0``) whose ``applied`` column
@@ -480,7 +484,9 @@ def _contribution_insert(
     (``shown_samples``) with an ALT allele a carrier, a ``1/1`` or haploid ``1`` homozygous
     and every other carrier heterozygous, by the one genotype classification
     (``genotypes``). A carrier is counted by the person it is (``persons``): two samples of one
-    person carrying a variant are one carrier. A variant's rows are grouped in the order
+    person carrying a variant are one carrier, homozygous when either call is and heterozygous
+    otherwise, so a person counts once in the heterozygous or the homozygous carriers, in an
+    aggregate row and in a carrier row alike. A variant's rows are grouped in the order
     ``entries`` holds them, so the query keeps one variant at a time."""
     from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
 
@@ -510,10 +516,15 @@ def _contribution_insert(
     # One output tuple per row written: (family, sample, annotation set, rsID, gene symbols,
     # imputed, families, carriers, het, hom). An aggregate row for a variant of one class that
     # no sample another family shows carries; a carrier row per class and carrier otherwise.
+    # A person is homozygous when any of their calls of the variant over the rows counted is,
+    # and heterozygous otherwise: one person, one of the two (a person sampled twice with a 0/1
+    # and a 1/1 call is a homozygous carrier), so the heterozygous and homozygous carriers add up
+    # to the carriers.
     aggregate = (
         "[tuple('', '', classes[1].1, classes[1].2, classes[1].3, classes[1].4, %(sign)s, "
         "%(sign)s * length(arrayDistinct(arrayFlatten(row_carriers))), "
-        "%(sign)s * length(arrayDistinct(arrayFlatten(row_hets))), "
+        "%(sign)s * length(arrayDistinct(arrayFilter(p -> NOT has(arrayFlatten(row_homs), p), "
+        "arrayFlatten(row_hets)))), "
         "%(sign)s * length(arrayDistinct(arrayFlatten(row_homs))))]"
     )
 
@@ -522,7 +533,8 @@ def _contribution_insert(
 
     per_carrier = (
         "arrayFlatten(arrayMap(cl -> arrayMap(s -> tuple(%(family)s, s, cl.1, cl.2, cl.3, cl.4, "
-        f"0, %(sign)s, %(sign)s * has({of_class('row_hets')}, s), %(sign)s * has({of_class('row_homs')}, s)), "
+        f"0, %(sign)s, %(sign)s * (has({of_class('row_hets')}, s) AND NOT has({of_class('row_homs')}, s)), "
+        f"%(sign)s * has({of_class('row_homs')}, s)), "
         f"arraySort(arrayDistinct({of_class('row_carriers')}))), classes))"
     )
     query = f"""

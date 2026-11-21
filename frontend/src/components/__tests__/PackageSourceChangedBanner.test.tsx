@@ -38,16 +38,21 @@ describe('PackageSourceChangedBanner', () => {
         packageSourceChanges={[
           { ...CHANGED, analysis_type: 'conventional_nipt', folder: 'CNIPT_RUN', kind: 'gone', listed: false },
           { ...CHANGED, analysis_type: 'monogenic_nipt', folder: 'MNIPT_RUN' },
+          { ...CHANGED, analysis_type: 'monogenic_nipt:ZW2', folder: 'MNIPT_RUN2' },
         ]}
       />,
     );
     const banners = screen.getAllByRole('alert');
-    expect(banners).toHaveLength(2);
+    expect(banners).toHaveLength(3);
     expect(banners[0]).toHaveTextContent(
       'Package folder gone. The package folder this family’s conventional NIPT data was imported from (CNIPT_RUN) is gone',
     );
     expect(banners[1]).toHaveTextContent(
       'The package folder this family’s monogenic NIPT data was imported from (MNIPT_RUN) has changed',
+    );
+    // A pregnancy's analysis, as the backend names its data.
+    expect(banners[2]).toHaveTextContent(
+      'The package folder the data of this family’s monogenic NIPT of pregnancy ZW2 was imported from (MNIPT_RUN2) has changed',
     );
   });
 

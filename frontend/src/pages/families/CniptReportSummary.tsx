@@ -32,6 +32,15 @@ const PlasmaSummary: React.FC<{ sample: CniptSampleResultOut }> = ({ sample }) =
       {sample.status === 'no_result' ? (
         <p className="report-paragraph">No result: {sample.no_result_reasons.join('; ')}.</p>
       ) : null}
+      {sample.warnings.length ? (
+        <ul className="cnipt-warnings" aria-label={`Warnings of ${sample.sample_id}`}>
+          {sample.warnings.map((warning) => (
+            <li key={warning} className="status-note status-note--warning">
+              {warning}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <ul className="report-signed-list" aria-label={`Result of ${sample.sample_id}`}>
         {[...headline, ...flagged].map((target) => (
           <li key={target.target}>

@@ -1,8 +1,8 @@
 """Serving CNV caller signal files to the genome browser.
 
 These endpoints hand out file paths that were written into the database by an
-import and are joined with a `family_id` taken from the URL, so the containment
-check is what keeps a crafted id from reaching outside the data directory. The
+import, read in the package folder of the analysis whose import recorded them, so the
+containment check is what keeps a crafted path from reaching outside that folder. The
 manifest also has to be honest about what exists: an entry for a missing file
 gives the browser a broken track instead of no track.
 """
@@ -13,29 +13,34 @@ from pathlib import Path
 
 import pytest
 
+from app.core.config import settings
 from app.routers import signal_tracks
 
 
 @pytest.fixture
 def data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setattr(signal_tracks, "DATA_DIR", tmp_path)
+    """A packages folder ``families`` in ``tmp_path``, the import root, with the package
+    ``pacbio`` holding a depth bigWig."""
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path / "families")])
     package = tmp_path / "families" / "pacbio" / "cnv" / "HG002"
     package.mkdir(parents=True)
     (package / "HG002.Sample0.depth.bw").write_bytes(b"bigwig")
     return tmp_path
 
 
+def _package(data_root: Path) -> str:
+    return str(data_root / "families" / "pacbio")
+
+
 def test_a_recorded_path_resolves_inside_the_package(data_root: Path) -> None:
-    resolved = signal_tracks._resolve_track_path(
-        "pacbio", "cnv/HG002/HG002.Sample0.depth.bw"
-    )
+    resolved = signal_tracks._resolve_track_path("cnv/HG002/HG002.Sample0.depth.bw", _package(data_root))
     assert resolved == data_root / "families/pacbio/cnv/HG002/HG002.Sample0.depth.bw"
 
 
 def test_a_missing_file_resolves_to_nothing(data_root: Path) -> None:
     # The path was recorded at import; the file can be moved or deleted afterwards.
-    assert signal_tracks._resolve_track_path("pacbio", "cnv/HG002/gone.bw") is None
-    assert signal_tracks._resolve_track_path("pacbio", "") is None
+    assert signal_tracks._resolve_track_path("cnv/HG002/gone.bw", _package(data_root)) is None
+    assert signal_tracks._resolve_track_path("", _package(data_root)) is None
 
 
 def test_a_track_its_analysis_recorded_is_read_in_that_analysis_s_folder_alone(
@@ -50,11 +55,12 @@ def test_a_track_its_analysis_recorded_is_read_in_that_analysis_s_folder_alone(
     (long_read / "cnv" / "HG002" / "HG002.Sample0.depth.bw").write_bytes(b"long-read bigwig")
     monkeypatch.setattr(signal_tracks, "local_family_package_folder", lambda folder: str(folder) if folder else None)
     relative = "cnv/HG002/HG002.Sample0.depth.bw"
-    assert signal_tracks._resolve_track_path("pacbio", relative, str(long_read)) == long_read / relative
+    assert signal_tracks._resolve_track_path(relative, str(long_read)) == long_read / relative
     (long_read / relative).unlink()
-    assert signal_tracks._resolve_track_path("pacbio", relative, str(long_read)) is None
-    # A record that names no folder is read in the family's own folder.
-    assert signal_tracks._resolve_track_path("pacbio", relative) == data_root / "families/pacbio" / relative
+    assert signal_tracks._resolve_track_path(relative, str(long_read)) is None
+    # A record that names no package folder finds no file, though the family's folder holds one.
+    assert (data_root / "families/pacbio" / relative).is_file()
+    assert signal_tracks._resolve_track_path(relative, None) is None
 
 
 @pytest.mark.parametrize(
@@ -65,17 +71,20 @@ def test_a_track_its_analysis_recorded_is_read_in_that_analysis_s_folder_alone(
         "/etc/passwd",
     ],
 )
-def test_a_path_escaping_the_data_directory_is_refused(
+def test_a_path_escaping_the_package_is_refused(
     data_root: Path, relative_path: str
 ) -> None:
-    assert signal_tracks._resolve_track_path("pacbio", relative_path) is None
+    assert signal_tracks._resolve_track_path(relative_path, _package(data_root)) is None
 
 
-def test_a_family_id_escaping_the_data_directory_is_refused(data_root: Path) -> None:
-    # family_id comes from the URL and is joined into the path.
-    assert (
-        signal_tracks._resolve_track_path("../../etc", "passwd") is None
-    )
+def test_a_package_folder_outside_the_import_roots_is_refused(data_root: Path) -> None:
+    # The folder comes back from the family's package record as data.
+    outside = data_root / "outside" / "cnv" / "HG002"
+    outside.mkdir(parents=True)
+    (outside / "HG002.Sample0.depth.bw").write_bytes(b"bigwig")
+    relative = "cnv/HG002/HG002.Sample0.depth.bw"
+    assert signal_tracks._resolve_track_path(relative, str(data_root / "outside")) is None
+    assert signal_tracks._resolve_track_path(relative, "families/pacbio") is None
 
 
 def test_every_track_kind_declares_how_to_draw_it() -> None:
@@ -154,18 +163,18 @@ DEPTH = "cnv/HG002/HG002.Sample0.depth.bw"
 
 
 class _RowsSession:
-    """Answers the query for each sample's ``signal_tracks`` and its family's package folder,
-    ``families.metadata.package_import.folder_path`` (none, unless given)."""
+    """Answers the query for each sample's ``signal_tracks`` and its family's package records,
+    ``families.metadata.package_imports`` (none, unless given)."""
 
-    def __init__(self, rows: dict[str, Any], package_folder: Any = None) -> None:
+    def __init__(self, rows: dict[str, Any], package_records: Any = None) -> None:
         self.rows = rows
-        self.package_folder = package_folder
+        self.package_records = package_records
         self.sql: list[str] = []
 
     async def execute(self, statement: Any, params: Any = None) -> Any:
         self.sql.append(" ".join(str(statement).split()))
         wanted = set(params["sample_ids"])
-        rows = [(sample_id, value, self.package_folder) for sample_id, value in self.rows.items() if sample_id in wanted]
+        rows = [(sample_id, value, self.package_records) for sample_id, value in self.rows.items() if sample_id in wanted]
         return SimpleNamespace(all=lambda: rows)
 
 
@@ -196,7 +205,11 @@ async def test_the_endpoints_serve_the_recorded_file_with_its_size(
     data_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _members(monkeypatch, "HG002")
-    session: Any = _RowsSession({"HG002": {"hificnv": {"depth_bigwig": DEPTH}}})
+    # The track names the analysis whose import recorded it, the family's record of it the folder.
+    session: Any = _RowsSession(
+        {"HG002": {"hificnv": {"depth_bigwig": DEPTH, "package": "long_read_wgs"}}},
+        {"long_read_wgs": {"folder_path": _package(data_root)}},
+    )
 
     entries = await signal_tracks.get_signal_track_manifest("pacbio", sample_ids=["HG002"], session=session, user=object())
     response = await signal_tracks.get_signal_track("pacbio", "HG002", "hificnv", "depth_bigwig", session=session, user=object())
@@ -208,5 +221,8 @@ async def test_the_endpoints_serve_the_recorded_file_with_its_size(
     assert head.status_code == 200
     assert head.headers["content-length"] == str(len(b"bigwig"))
     assert head.headers["accept-ranges"] == "bytes"
-    # The family's package folder is read with each sample's row, from the sample's family.
+    # The family's package records are read with each sample's row, from the sample's family.
     assert "JOIN families f ON f.id = s.family_id" in session.sql[0]
+    # Without the family's record of that analysis there is no folder to read: nothing is listed.
+    unrecorded: Any = _RowsSession({"HG002": {"hificnv": {"depth_bigwig": DEPTH, "package": "long_read_wgs"}}}, {})
+    assert await signal_tracks.get_signal_track_manifest("pacbio", sample_ids=["HG002"], session=unrecorded, user=object()) == []

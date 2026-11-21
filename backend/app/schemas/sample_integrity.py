@@ -89,7 +89,9 @@ class SampleIntegrityQcOut(BaseModel):
     checks run depend on the application (``application``): full WGS pedigrees run
     sex + relatedness + Mendelian; PGT highlights embryo sex + parentage; NIPT runs
     paternity (cat 7/8) instead of genotype relatedness; couples run sex (+ an
-    expected-unrelated confirmation); single samples run sex only.
+    expected-unrelated confirmation); a single person runs sex. Two samples of one person
+    (a same-individual link), neither a maternal plasma, are compared whatever the
+    application.
     """
 
     family_id: str

@@ -46,8 +46,8 @@ def local_family_package_folder(package_folder: object) -> str | None:
     as its real path, when it lies below a FAMILY_IMPORT_ROOTS entry; ``None`` otherwise.
 
     A file the import recorded on a sample, relative to the package, is looked up in this
-    folder: its aligned reads and its QC report there alone (``routers/cram.py``,
-    ``routers/family_qc_reports.py``), its signal files there first (``routers/signal_tracks.py``).
+    folder alone: its aligned reads, its QC report and its signal files (``routers/cram.py``,
+    ``routers/family_qc_reports.py``, ``routers/signal_tracks.py``).
     A package is read where it lies, so one on a mounted share or bucket keeps its files there.
 
     The folder comes back from the database as data, so it is checked as the import checks a

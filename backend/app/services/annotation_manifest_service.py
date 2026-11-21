@@ -34,13 +34,13 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .analysis_scope import analysis_holding
 from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_analysis_types import family_analyses
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_package_records import UNSPECIFIED_ANALYSIS, analysis_label
 from .hpo_service import get_loaded_hpo_release
 from .access_control import CurrentUser, is_admin_user
-from .signout_scope import analysis_listing_source
 from .stored_values import json_object as _as_dict
 
 logger = logging.getLogger(__name__)
@@ -467,7 +467,7 @@ async def call_annotation_manifest(
     platform_modules = await _platform_modules(session, context.assembly_id)
     return analysis_manifest(
         rows,
-        analysis=analysis_listing_source(metadata, kind, stored_under),
+        analysis=analysis_holding(metadata, kind, str(stored_under or "")),
         platform_modules=platform_modules,
     )
 

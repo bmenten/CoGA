@@ -137,7 +137,9 @@ page is an administrator's alone.
   from the default profile: a warning set alone in the analysis's profile keeps the default's error
   cut-off. The mtDNA QC is judged by the profile of the analysis whose import holds the mtDNA calls.
   A metric without a cut-off reads as *not assessed*, and a sample with no cut-off for any of its
-  metrics shows *Not run* on the chip.
+  metrics shows *Not run* on the chip. The *Conventional NIPT* profile holds the bounds of the cNIPT
+  result rule: until QA sets a bound there, with its reason, the rule applies its provisional value,
+  which the cNIPT page, the report and the signed version mark **provisional**.
 - **Package import** — check, correct and approve the deliveries, and follow their imports (see
   [Case setup and data import](#case-setup)). A superuser imports too; only an administrator
   overwrites an existing family.
@@ -150,6 +152,13 @@ page is an administrator's alone.
   listed for reference.
 - **Preset filters** — the catalogue of the small-variant presets the team uses. Presets are saved on the
   small-variant page.
+- **NIPT artefact list** — the alleles that recur as an artefact in the cfDNA of one assay, one list per
+  assembly and assay scope. Every monogenic NIPT analysis of the assay removes them, except an allele
+  its annotation marks as more than 5% frequent or that ClinVar may call pathogenic, which stays in,
+  flagged. **Add an entry** or remove one; **Preview** the auto-seed, the alleles that are an
+  unexplained low-VAF call in at least the number of cfDNA samples you give (the preview writes
+  nothing), then **Seed the list**; or **Import** the NIPT-M pipeline's table of recurrent artefacts.
+  Every change is a clinical audit event on the list's own trail.
 
 ### Database & operations
 

@@ -6,6 +6,7 @@ import { screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import FamilyCniptPage from '../FamilyCniptPage';
+import { boundValue } from '../cniptResult';
 import { renderFamilyRoute } from '../../../test/familyRoute';
 import type { CniptSampleResultOut } from '../../../lib/apiSchema.generated';
 
@@ -181,5 +182,17 @@ describe('FamilyCniptPage', () => {
     expect(within(status).getByText('No result')).toBeInTheDocument();
     expect(within(status).getByText('the fetal fraction (3.0%) is below 4.0%')).toBeInTheDocument();
     expect(screen.getByText('No segment reaches the grey zone, and ccnv called none.')).toBeInTheDocument();
+  });
+});
+
+describe('boundValue', () => {
+  it('shows a fraction bound with the decimals its value holds', () => {
+    expect(boundValue(0.04, 'fraction')).toBe('4.0%');
+    expect(boundValue(0.99, 'fraction')).toBe('99%');
+    // A QA bound of 99.5 % is never rounded up to 100 %.
+    expect(boundValue(0.995, 'fraction')).toBe('99.5%');
+    expect(boundValue(0.9975, 'fraction')).toBe('99.75%');
+    expect(boundValue(3, 'Mb')).toBe('3 Mb');
+    expect(boundValue(null, 'fraction')).toBe('—');
   });
 });

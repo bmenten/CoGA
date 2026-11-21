@@ -1,5 +1,5 @@
 from dataclasses import replace
-from typing import Annotated, List
+from typing import List
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
@@ -17,7 +17,6 @@ from ..schemas import (
     VariantOut,
     VariantPage,
 )
-from ..services.family_analysis_types import ANALYSIS_KEY_MAX_LENGTH
 from ..services.clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
     export_family_structural_variants,
@@ -36,22 +35,14 @@ from ..services.structural_variant_review_pg import (
 )
 from ..services.variant_prioritization import RANK_BY_COMBINED_SCORE, RankBy
 from .families_small_variants import PRIORITY_EXPORT_COLUMNS, _family_export_cell
-from .query_params import FiniteThreshold
+from .query_params import AnalysisParam, FiniteThreshold
 
 
 router = APIRouter()
 
-# The analysis of the family whose structural variants a request reads or reviews
-# (analysis_scope.py): named when the family holds several analyses with structural variants of
-# their own. A review is that analysis's (analysis_reviews.py).
-AnalysisParam = Annotated[
-    str | None,
-    Query(
-        max_length=ANALYSIS_KEY_MAX_LENGTH,
-        description="The family's analysis to read or review (its key: monogenic_nipt:ZW1).",
-    ),
-]
-# The kind of variants the family's analysis is told by when none is named.
+# The kind of variants the family's analysis is told by when none is named: the list, its export,
+# its review summary and a review save read one of several analyses with structural variants of
+# their own (the conventional NIPT of each pregnancy), named, never across them.
 _SV_KIND = "structural_variants"
 
 
@@ -174,6 +165,9 @@ async def get_family_structural_variants(
         analysis=analysis,
         variant_kind=_SV_KIND,
     )
+    # One analysis's SVs, as its review summary and its reviews are: refused before anything
+    # is audited or read when the family holds several and none is named.
+    context.scope.require_named()
     # A panel the search applies goes on the family's clinical audit trail first (REQ-CARR-003).
     await record_family_panel_use(
         session, context=context, panel_id=filters.panel_id, user=user, search="structural_variants"
@@ -275,6 +269,7 @@ async def export_family_structural_variants_csv(
         analysis=analysis,
         variant_kind=_SV_KIND,
     )
+    context.scope.require_named()
     await record_family_panel_use(
         session,
         context=context,

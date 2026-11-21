@@ -43,7 +43,7 @@ const AnalysisSignouts: React.FC<{
   analyses: string[];
   signouts: ApiReportSignoutList | undefined;
   versionLink: (version: number) => To;
-  signedOutOn: (analysisType: string) => React.ReactNode;
+  signedOutOn: (analysis: string) => React.ReactNode;
 }> = ({ familyId, analyses, signouts, versionLink, signedOutOn }) => {
   const latest = analyses.map((analysisType) => latestSignoutOf(signouts, analysisType));
   const checks = useQueries({
@@ -53,6 +53,7 @@ const AnalysisSignouts: React.FC<{
   });
   return (
     <section className="surface-card report-analysis-signouts" aria-label="Sign-out of each analysis">
+      <h2 className="report-audit-heading">Sign-out of each analysis</h2>
       <p className="report-paragraph">
         This family holds {analyses.length} analyses, each signed out on its own: the sign-out of one
         freezes and checks its own data only.

@@ -634,15 +634,17 @@ async def record_family_pipeline_metadata(
 
 async def clear_analysis_import_records(session: AsyncSession, *, family_uuid: str, analysis: str) -> None:
     """Take away what an earlier import of ``analysis`` recorded under that analysis's key: its
-    run parameters (``families.metadata["pipeline"][analysis]``) and each of the family's
-    samples' sequencing QC and alignment (``samples.metadata["sequencing_qc"][analysis]``,
-    ``samples.metadata["alignments"][analysis]``). The other analyses' entries are kept.
+    run parameters (``families.metadata["pipeline"][analysis]``), each of the family's samples'
+    sequencing QC and alignment (``samples.metadata["sequencing_qc"][analysis]``,
+    ``samples.metadata["alignments"][analysis]``) and the signal tracks that name it
+    (``samples.metadata["signal_tracks"]``, each caller's naming its analysis by
+    ``PACKAGE_KEY``). The other analyses' entries are kept.
 
     An import of the analysis runs it before its first dataset, after the snapshot a restore
     puts the family back from (family_package_import), so what these hold afterwards is its
-    own package's: run parameters, a sample's QC or alignment that the new package does not
-    carry are gone rather than shown as current, or read in the folder the new package record
-    names, which is not the one they were recorded in."""
+    own package's: run parameters, a sample's QC, alignment or signal files that the new package
+    does not carry are gone rather than shown as current, or read in the folder the new package
+    record names, which is not the one they were recorded in."""
     params = {"family_uuid": family_uuid, "analysis": analysis}
     await session.execute(
         text(
@@ -663,6 +665,28 @@ async def clear_analysis_import_records(session: AsyncSession, *, family_uuid: s
                 #- ARRAY['sequencing_qc', CAST(:analysis AS text)]
                 #- ARRAY['alignments', CAST(:analysis AS text)]
             WHERE family_id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        params,
+    )
+    await session.execute(
+        text(
+            """
+            UPDATE samples
+            SET metadata = jsonb_set(
+                metadata,
+                ARRAY['signal_tracks'],
+                COALESCE(
+                    (
+                        SELECT jsonb_object_agg(caller.key, caller.value)
+                        FROM jsonb_each(metadata -> 'signal_tracks') AS caller
+                        WHERE caller.value ->> 'package' IS DISTINCT FROM CAST(:analysis AS text)
+                    ),
+                    '{}'::jsonb
+                )
+            )
+            WHERE family_id = CAST(:family_uuid AS uuid)
+              AND metadata ? 'signal_tracks'
             """
         ),
         params,
