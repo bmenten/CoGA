@@ -6,7 +6,12 @@ import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyCaseHeader from './FamilyCaseHeader';
 import AnalysisSelect, { useAnalysisNavigation } from './AnalysisSelect';
-import { pregnancyAnalyses, pregnancyAnalysisOf } from '../../lib/familyAnalyses';
+import {
+  pregnancyAnalyses,
+  pregnancyAnalysisOf,
+  smallVariantAnalyses,
+  variantAnalysisOf,
+} from '../../lib/familyAnalyses';
 import { apiPath } from '../../lib/apiPath';
 import type { FamilyOut } from '../../lib/apiSchema.generated';
 import {
@@ -104,6 +109,16 @@ const FamilyVariantSummaryPage: React.FC = () => {
   // imported): a family holds one per pregnancy, each read on its own.
   const niptAnalyses = pregnancyAnalyses(family?.metadata, 'monogenic_nipt');
   const niptAnalysis = pregnancyAnalysisOf(family?.metadata, 'monogenic_nipt', location.search);
+  // The analysis whose small variants the small-variant tab counts, of a family with several
+  // analyses with small variants of their own (short-read and long-read WGS, or the monogenic NIPT
+  // of each pregnancy): the URL names it, else the one imported last.
+  const smallAnalyses = smallVariantAnalyses(family?.metadata);
+  const smallAnalysis = variantAnalysisOf(family?.metadata, location.search);
+  // The list beside the family's name offers the analyses the summary reads one at a time: those
+  // with small variants of their own, which hold every pregnancy's monogenic NIPT, else the
+  // pregnancies' monogenic NIPTs.
+  const summaryAnalyses = smallAnalyses.length > 1 ? smallAnalyses : niptAnalyses;
+  const summaryAnalysis = smallAnalyses.length > 1 ? smallAnalysis : niptAnalysis;
   const selectAnalysis = useAnalysisNavigation();
   const has: Record<SectionKey, boolean> = {
     'nipt-m': isMonogenicNipt,
@@ -209,6 +224,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
           <VariantSummarySmallVariants
             familyId={familyId}
             projectId={projectId}
+            analysis={smallAnalysis}
           />
         );
       case 'structural-variants':
@@ -242,7 +258,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
         family={family}
         projectId={projectId}
         current="variant-summary"
-        actions={<AnalysisSelect analyses={niptAnalyses} analysis={niptAnalysis} onChange={selectAnalysis} />}
+        actions={<AnalysisSelect analyses={summaryAnalyses} analysis={summaryAnalysis} onChange={selectAnalysis} />}
       />
 
       {/* The header's links read the same checks: both start in this render, so a check that

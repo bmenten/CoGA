@@ -1,6 +1,7 @@
 import React from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import QueryFailure from '../../components/QueryFailure';
+import { ANALYSIS_PARAM } from '../../lib/familyAnalyses';
 import { raw, routePath } from '../../lib/routePath';
 import type { FamilyDataPresence } from './familyDataPresence';
 
@@ -37,62 +38,80 @@ const FamilyModuleNav: React.FC<{
    *  calls (mtDNA analysis last), before the NIPT and the variant summary. */
   views?: React.ReactNode;
 }> = ({ familyId, projectId, presence, isMonogenicNipt, isConventionalNipt = false, current, views }) => {
-  const projectSuffix = projectId
-    ? `?project_id=${encodeURIComponent(projectId)}`
-    : '';
+  // The analysis the page reads, of a family with several (the URL's `analysis`): kept on the
+  // links to the pages that read one, so moving between them stays in that analysis. A page for
+  // which it names none of its analyses reads its own default.
+  const { search } = useLocation();
+  const analysis = new URLSearchParams(search).get(ANALYSIS_PARAM);
+  const linkSearch = (module: { withProject: boolean; withAnalysis: boolean }) => {
+    const params = new URLSearchParams();
+    if (module.withProject && projectId) params.set('project_id', projectId);
+    if (module.withAnalysis && analysis) params.set(ANALYSIS_PARAM, analysis);
+    const query = params.toString();
+    return query ? `?${query}` : '';
+  };
   const modules: {
     key: FamilyModuleKey;
     label: string;
     available: boolean;
     withProject: boolean;
+    withAnalysis: boolean;
   }[] = [
     {
       key: 'small-variants',
       label: 'Small variants',
       available: presence.hasSmallVariants,
       withProject: true,
+      withAnalysis: true,
     },
     {
       key: 'structural-variants',
       label: 'Structural variants',
       available: presence.hasStructuralVariants,
       withProject: true,
+      withAnalysis: true,
     },
     {
       key: 'repeat-expansions',
       label: 'Repeat expansions',
       available: presence.hasRepeatExpansions,
       withProject: false,
+      withAnalysis: false,
     },
     {
       key: 'paraphase',
       label: 'Paraphase',
       available: presence.hasParaphase,
       withProject: false,
+      withAnalysis: false,
     },
     {
       key: 'mitochondrial-dna',
       label: 'mtDNA analysis',
       available: presence.hasMitoDna,
       withProject: true,
+      withAnalysis: false,
     },
     {
       key: 'nipt',
       label: 'Monogenic NIPT',
       available: isMonogenicNipt,
       withProject: false,
+      withAnalysis: true,
     },
     {
       key: 'cnipt',
       label: 'cNIPT',
       available: isConventionalNipt,
       withProject: true,
+      withAnalysis: true,
     },
     {
       key: 'variant-summary',
       label: 'Variant summary',
       available: presence.hasVariantSummary,
       withProject: true,
+      withAnalysis: true,
     },
   ];
   const shown = modules.filter(
@@ -118,7 +137,7 @@ const FamilyModuleNav: React.FC<{
             <React.Fragment key={module.key}>
               {index === viewsBefore ? viewsGroup : null}
               <Link
-                to={routePath`/families/${familyId}/${module.key}${raw(module.withProject ? projectSuffix : '')}`}
+                to={routePath`/families/${familyId}/${module.key}${raw(linkSearch(module))}`}
                 className={`family-module-link hover:no-underline${
                   module.key === 'variant-summary'
                     ? ' family-module-link--end'

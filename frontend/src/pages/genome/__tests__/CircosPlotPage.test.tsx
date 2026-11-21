@@ -191,6 +191,34 @@ describe('CircosPlotPage', () => {
     expect(requestedUrls()).toContain('/families/F1/structural-variants?project_id=p1&page_size=0');
   });
 
+  // The conventional NIPT of each of two pregnancies, each with its ccnv calls: the plot draws one
+  // pregnancy's SVs, the one the URL names or else the one imported last, never a small-variant
+  // analysis the link came with.
+  it("draws the SVs of one of the family's analyses with structural variants", async () => {
+    const record = (structuralVariants: string[], registeredAt: string) => ({
+      sources: { small_variants: [], structural_variants: structuralVariants, tracks: [], repeats: [], paraphase: [] },
+      registered_at: registeredAt,
+    });
+    const svUrl = '/families/F1/structural-variants?analysis=conventional_nipt%3AZW2&project_id=p1&page_size=0';
+    serve('GRCh38', {
+      '/families/F1': ok({
+        projects: ['p1'],
+        metadata: {
+          analyses: ['conventional_nipt:ZW1', 'conventional_nipt:ZW2', 'monogenic_nipt:ZW1'],
+          package_imports: {
+            'conventional_nipt:ZW1': record(['ccnv_p1'], '2026-11-02T10:00:00'),
+            'conventional_nipt:ZW2': record(['ccnv_p2'], '2026-11-04T10:00:00'),
+          },
+        },
+      }),
+      [svUrl]: ok({ variants: [] }),
+    });
+    renderPage(`/families/F1/circos?analysis=${encodeURIComponent('monogenic_nipt:ZW1')}`);
+
+    await waitFor(() => expect(requestedUrls()).toContain(svUrl));
+    expect(requestedUrls().filter((url) => url.includes('/structural-variants?') && url !== svUrl)).toEqual([]);
+  });
+
   it('keeps its loader up until the SVs are in, not only the chromosomes', async () => {
     let answer: (value: unknown) => void = () => {};
     const tra = { chr: '1', start: 70, end: 71, type: 'TRA', remote_chr: '2', remote_start: 30 };

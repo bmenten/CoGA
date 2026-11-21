@@ -539,6 +539,9 @@ const FamilySmallVariantsPage: React.FC = () => {
           aria-busy={isFetching}
         >
       <SmallVariantResults
+        // One list per analysis: the cards folded in one are not folded in another, whose
+        // variants and reviews are its own.
+        key={analysis ?? ''}
         assemblyName={assemblyName}
         assemblyVersion={assemblyVersion}
         data={data}

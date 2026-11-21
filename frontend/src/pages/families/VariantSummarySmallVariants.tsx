@@ -1,4 +1,3 @@
-import { useVariantAnalysis } from './useVariantAnalysis';
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
@@ -550,9 +549,10 @@ const describeTotals = (stats: FamilySmallVariantStatisticsOut): string =>
 const VariantSummarySmallVariants: React.FC<{
   familyId: string;
   projectId?: string | null;
-}> = ({ familyId, projectId }) => {
-  // Of a family with several analyses with small variants, the statistics of the one read.
-  const analysis = useVariantAnalysis(familyId);
+  /** Of a family with several analyses with small variants, the one counted (the page's list
+   *  beside the family's name); null for any other family. */
+  analysis: string | null;
+}> = ({ familyId, projectId, analysis }) => {
   const query = useQuery<FamilySmallVariantStatisticsOut>({
     queryKey: [
       'family',

@@ -28,6 +28,7 @@ import {
   useTrackWidth,
 } from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
+import { structuralVariantAnalysisOf, withAnalysisParam } from '../../lib/familyAnalyses';
 import { routePath } from '../../lib/routePath';
 
 // Inter-chromosome gap in px. Module-level so it is referentially stable and
@@ -94,6 +95,9 @@ const GenomeOverviewPage: React.FC = () => {
 
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const sampleFilters = useMemo(() => searchParams.getAll('sample'), [searchParams]);
+  // Of a family with several analyses with structural variants, the one whose SVs are drawn: the
+  // one the URL names (the SV page's), else the one imported last.
+  const structuralAnalysis = structuralVariantAnalysisOf(data?.metadata, location.search);
   const baseVariantParams = useMemo(() => {
     const source = new URLSearchParams(location.search);
     // The SV filters the SV route and the track availability take: not `qual`, `read_support`
@@ -265,7 +269,7 @@ const GenomeOverviewPage: React.FC = () => {
       ];
       haplotypes[member.sample_id] = haplotypeUrls;
 
-      const svParams = new URLSearchParams(baseVariantParams);
+      const svParams = withAnalysisParam(new URLSearchParams(baseVariantParams), structuralAnalysis);
       svParams.set('page_size', '0');
       svParams.set('track_mode', 'true');
       svParams.append('sample', member.sample_id);
@@ -304,6 +308,7 @@ const GenomeOverviewPage: React.FC = () => {
     orderedMembers,
     sampleFilterMap,
     segmentLimit,
+    structuralAnalysis,
   ]);
 
   useEffect(() => {
