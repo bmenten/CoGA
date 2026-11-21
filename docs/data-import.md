@@ -1885,12 +1885,18 @@ owner's decisions of 2026-11-20 and 2026-11-21):
   read one analysis at a time: its small-variant list, filters, counts, ranking, export,
   statistics and the evidence and drift of its reviews read that analysis's callsets, and the
   members only another analysis's package lists are neither required nor read by an inheritance
-  filter. The request names the analysis (`analysis=`); one that names none is refused (422). The
+  filter. The request names the analysis (`analysis=`), whether or not it names a callset
+  (`source`, read among the analysis's own: another analysis's callset reads nothing); one that
+  names none is refused (422). The whole family's Sample QC, which reads the genotypes of one
+  callset it chose and no review, is the one reading of such a family that names no analysis. The
   pages offer the analysis to read beside the family's name, the one imported last first. A
   family whose one analysis holds small variants (a monogenic NIPT beside a conventional one) is
-  read as that analysis without naming it. The structural-variant list of a page that names the
-  analysis reads that analysis's SV sources alone (a family read without naming one keeps every
-  SV: the conventional NIPT's ccnv calls beside a monogenic NIPT). The mtDNA page reads the
+  read as that analysis without naming it. The structural-variant list, its count, export,
+  reviews and their summary are read the same way among the analyses whose records list an SV
+  caller of their own (the conventional NIPT of each pregnancy): named when the family holds
+  several, else that one analysis's; the SV page, the presence check, the genome view's SV track
+  and the Circos plot name it. Another reading of the SVs (the genome view's per-sample
+  availability, the variant summary's SV counts) reads every analysis's. The mtDNA page reads the
   analysis whose package holds the mtDNA calls; the monogenic NIPT page its own.
 - **The list names the members without calls.** A member an analysis's package lists but whose
   sample its callset does not hold (long-read WGS of the proband alone, its PED listing the

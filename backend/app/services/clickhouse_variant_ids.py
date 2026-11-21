@@ -203,6 +203,9 @@ _MAX_XPOS_RANK = (2**64 - 1 - (2**32 - 1)) // 1_000_000_000
 
 
 def _xpos(chrom: str, pos: int) -> int:
+    """The variant's place in the genome as ``entries`` sorts it: its chromosome's rank times
+    10^9 plus its position (a negative position as 0). What a reader's bounds are computed
+    with, as the rows were written with it (the Explorer's windows rely on both agreeing)."""
     normalized = normalize_chromosome(chrom).upper()
     rank_map = {
         "X": 23,
@@ -219,4 +222,4 @@ def _xpos(chrom: str, pos: int) -> int:
         # contigs: its xpos would not fit the UInt64 column, and the insert of
         # every record of the batch would fail.
         rank = 99
-    return (rank * 1_000_000_000) + int(pos)
+    return (rank * 1_000_000_000) + max(int(pos), 0)

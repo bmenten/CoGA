@@ -18,9 +18,11 @@ from ..schemas import (
     VariantPage,
 )
 from .clickhouse_variant_rows import _annotation_payload_hash
+from .analysis_scope import left_out_source_clauses
 from .clickhouse_variant_ids import (
     _small_table_name,
     _structural_table_name,
+    _xpos,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .variant_annotation_parser import MANE_REFSEQ_KEY, _spliceai_delta
@@ -296,21 +298,6 @@ def _chromosome_match_key(chromosome: str) -> str:
 def _clickhouse_chromosome_match_expr(expr: str) -> str:
     stripped = f"upper(if(startsWith(lower({expr}), 'chr'), substring({expr}, 4), {expr}))"
     return f"if({stripped} IN ('M', 'MT'), 'MT', {stripped})"
-
-
-def _xpos(chrom: str, pos: int) -> int:
-    normalized = normalize_chromosome(chrom).upper()
-    rank_map = {
-        "X": 23,
-        "Y": 24,
-        "M": 25,
-        "MT": 25,
-    }
-    try:
-        rank = int(normalized)
-    except ValueError:
-        rank = rank_map.get(normalized, 99)
-    return (rank * 1_000_000_000) + max(int(pos), 0)
 
 
 def _string_list(values: Any) -> list[str]:
@@ -2243,7 +2230,7 @@ def _small_variant_where_clauses(
     if context.project_ids:
         where_clauses.append("e.project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
-    where_clauses.extend(_small_analysis_scope_clauses(context, filters, params=params))
+    where_clauses.extend(_small_analysis_scope_clauses(context, params=params))
     visible_sample_ids = _visible_clickhouse_sample_ids(context)
     if visible_sample_ids:
         where_clauses.append("hasAny(e.calls.sampleId, %(visible_sample_ids)s)")
@@ -2307,21 +2294,15 @@ def _small_variant_type_condition(variant_type: str | None, *, alias: str = "e")
     return None
 
 
-def _small_analysis_scope_clauses(
-    context: FamilyMetadataContext, filters: SmallVariantQueryFilters, *, params: dict[str, Any]
-) -> list[str]:
+def _small_analysis_scope_clauses(context: FamilyMetadataContext, *, params: dict[str, Any]) -> list[str]:
     """The rows of the analysis the family is read for (``context.scope``): the callsets of the
     family's other analyses are left out, so a variant both an analysis's and another's callset
-    hold is read from its own (analysis_scope.py). A reading that names one callset reads that
-    callset alone (``_small_callset_clauses``); any other reading of a family that holds several
-    analyses with small variants of their own names the analysis, or is refused."""
-    if (filters.source or "").strip():
-        return []
-    left_out = context.scope.require_named().left_out_sources("small_variants")
-    if not left_out:
-        return []
-    params["scope_left_out_sources"] = tuple(sorted(left_out))
-    return ["e.source NOT IN %(scope_left_out_sources)s"]
+    hold is read from its own (analysis_scope.py). A reading of a family that holds several
+    analyses with small variants of their own names the analysis, or is refused, whether or not
+    it names a callset. A reading that names one callset reads that callset alone
+    (``_small_callset_clauses``) among the analysis's own: a callset of another analysis reads
+    nothing, in the list, its count and its export alike."""
+    return left_out_source_clauses(context.scope.require_named().left_out_sources("small_variants"), params)
 
 
 def _small_callset_clauses(
@@ -3468,18 +3449,15 @@ def _structural_variant_scope_clauses(
 ) -> tuple[list[str], dict[str, Any]]:
     """The family's SV rows (alias ``e``) a search reads before its regions and panel: the
     family's live rows in its projects with a call of a visible member, within the
-    search's chromosome and locus, and of its review selection. A search that names one of the
-    family's analyses (``context.scope.asked``) leaves out the other analyses' SV sources
-    (analysis_scope.py)."""
+    search's chromosome and locus, and of its review selection. A search of one of the family's
+    analyses, named or chosen by its structural variants, leaves out the other analyses' SV
+    sources (``AnalysisScope.left_out_sources``, analysis_scope.py)."""
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
     if context.project_ids:
         where_clauses.append("e.project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
-    left_out = context.scope.left_out_sources("structural_variants") if context.scope.asked else frozenset()
-    if left_out:
-        where_clauses.append("e.source NOT IN %(scope_left_out_sv_sources)s")
-        params["scope_left_out_sv_sources"] = tuple(sorted(left_out))
+    where_clauses.extend(left_out_source_clauses(context.scope.left_out_sources("structural_variants"), params))
     visible_sample_ids = _visible_clickhouse_sample_ids(context)
     if visible_sample_ids:
         where_clauses.append("hasAny(e.calls.sampleId, %(visible_sample_ids)s)")
