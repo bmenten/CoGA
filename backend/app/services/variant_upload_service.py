@@ -17,7 +17,7 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import scrub_log
+from ..core.coga_logging import error_text, scrub_log
 from .annotation_table_parser import VepAnnotationLookup, _parse_vep_tsv_annotation_lines
 from .bed_service import get_track_presence_by_sample
 from .clickhouse_column_bounds import UINT32, column_float32, column_int
@@ -215,7 +215,7 @@ def _refuse_bgzf_without_its_end(file: UploadFile, *, kind: str) -> None:
     try:
         require_bgzf_file_end(file.file, label=f"{kind} file")
     except TruncatedBgzfError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=error_text(exc)) from exc
     except (AttributeError, OSError):
         return
 
@@ -1606,7 +1606,7 @@ async def _structural_variant_sample_column(
             remedy=_SV_UPLOAD_COLUMN_REMEDY,
         )
     except VcfSampleColumnError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=error_text(exc)) from exc
 
 
 async def upload_structural_variant_file(

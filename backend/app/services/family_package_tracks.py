@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Iterable, Iterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import error_text
 from .clickhouse_interval_tracks import (
     delete_interval_track_sources,
     delete_interval_tracks,
@@ -632,7 +633,7 @@ async def _import_ccnv_track(
         try:
             first, left_out = _first_stored_row(rows)
         except CcnvOutputError as exc:
-            raise ImportRefused(str(exc)) from exc
+            raise ImportRefused(error_text(exc)) from exc
         if first is None:
             raise EmptyTrackFileError(
                 f"The ccnv {label} file {path.name} holds no record of the {track_type} track; "

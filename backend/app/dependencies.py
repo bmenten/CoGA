@@ -8,6 +8,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .core.azure import AzureTokenError, verify_azure_token
+from .core.coga_logging import error_text
 from .core.config import LOCAL_TOKEN_ALGORITHM, settings
 from .core.postgres import get_postgres_session
 from .services.access_control import (
@@ -125,7 +126,7 @@ async def _microsoft_user(token: str, session: AsyncSession, request: Request | 
         if str(exc) != "expired":
             # Why, never the token: a refusal other than expiry usually means the app
             # registration and CoGA's settings disagree (docs/deployment-gcp.md).
-            logger.warning("microsoft sign-in: token refused: %s", exc)
+            logger.warning("microsoft sign-in: token refused: %s", error_text(exc))
         raise _refused() from exc
     user, created = await microsoft_account_user(session, identity)
     if created is not None and request is not None:

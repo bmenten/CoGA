@@ -30,6 +30,8 @@ from uuid import UUID
 import httpx
 import jwt
 
+from .coga_logging import error_text
+
 AZURE_LOGIN_HOST = "https://login.microsoftonline.com"
 # Signing keys are refreshed after a day, and on a token naming an unknown key at most this
 # often: a stream of tokens with made-up key IDs cannot turn every request into a fetch.
@@ -153,8 +155,7 @@ async def _signing_key(tenant_id: str, kid: str) -> dict[str, Any] | None:
             else:
                 cached.fetched_at = now - _SIGNING_KEYS_MAX_AGE_SECONDS + _SIGNING_KEYS_REFETCH_INTERVAL_SECONDS
             return cached.keys.get(kid)
-        reason = str(exc) if isinstance(exc, AzureTokenError) else type(exc).__name__
-        raise AzureTokenError(f"the directory's signing keys could not be read ({reason})") from exc
+        raise AzureTokenError(f"the directory's signing keys could not be read ({error_text(exc)})") from exc
     _signing_keys = _SigningKeys(
         tenant_id=tenant_id,
         keys=keys,

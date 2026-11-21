@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from urllib.parse import quote
 
+from ..core.coga_logging import error_text
 from .outgoing_mail import MailNotSent, app_url, mail_enabled, mail_field, new_message, plain_address, send_mail
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ def notify_family_assignment(assignment: FamilyAssignment) -> bool:
     try:
         send_mail(family_assignment_message(assignment, recipient))
     except MailNotSent as exc:
-        logger.error("the mail about the family assignment was not sent: %s", exc)
+        logger.error("the mail about the family assignment was not sent: %s", error_text(exc))
         return False
     logger.info("the mail about the family assignment went to its assignee")
     return True

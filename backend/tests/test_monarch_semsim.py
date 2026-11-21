@@ -176,6 +176,23 @@ async def test_a_failed_search_is_a_monarch_semsim_error_and_is_not_cached(
     assert len(requests) == 2
 
 
+@pytest.mark.asyncio
+async def test_a_failed_search_names_its_error_by_kind_in_the_error_and_the_log(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def refused(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("SENTINEL-TEXT of the failed request", request=request)
+
+    _monarch(monkeypatch, refused)
+
+    with caplog.at_level("WARNING", logger=monarch_semsim.logger.name), pytest.raises(MonarchSemsimError) as failed:
+        await semsim_search(["HP:0001250"])
+
+    assert str(failed.value) == "Monarch semsim search failed (ConnectError)"
+    assert caplog.messages == ["Monarch semsim search failed (ConnectError)"]
+    assert "SENTINEL" not in caplog.text
+
+
 def test_cache_round_trip_and_size_bound(monkeypatch: pytest.MonkeyPatch) -> None:
     clock = _clock(monkeypatch)
     key = ("Human Genes", ("HP:1",), 10)
@@ -377,7 +394,10 @@ def test_monarch_unavailable_answers_502_and_no_ranking(monkeypatch: pytest.Monk
     response = client.get("/api/families/FAM1/phenotype-match")
 
     assert response.status_code == 502
-    assert response.json()["detail"].startswith("Monarch phenotype matching is unavailable: ")
+    # The error by its kind: an HTTP error's text quotes the request's address.
+    assert response.json()["detail"] == (
+        "Monarch phenotype matching is unavailable: Monarch semsim search failed (HTTPStatusError)"
+    )
     assert session.asked == [] and calls["breakdown"] == []
 
 

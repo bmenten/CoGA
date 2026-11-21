@@ -1859,7 +1859,10 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
                 )
                 errors.extend(ped_parse_errors)
             except UnicodeDecodeError as exc:
-                errors.append(_issue("ped_decode_failed", f"PED file is not UTF-8 text: {exc}", path=ped_path))
+                # Where, never the bytes the error's text quotes.
+                errors.append(
+                    _issue("ped_decode_failed", f"PED file is not UTF-8 text (byte {exc.start + 1}).", path=ped_path)
+                )
 
     if parsed_ped is not None:
         sample_ids = parsed_ped.sample_ids

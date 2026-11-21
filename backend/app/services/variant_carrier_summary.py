@@ -65,7 +65,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import execute_clickhouse
-from ..core.coga_logging import describe_error
+from ..core.coga_logging import describe_error, error_text
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..core.sql import uuid_list_bindparam, uuid_values
@@ -936,7 +936,7 @@ async def reconcile_variant_carriers(
     try:
         applied = await _applied(assembly_name, family_uuids)
     except CarrierSummaryInconsistent as exc:
-        await _request_rebuild(assembly_name, str(exc))
+        await _request_rebuild(assembly_name, error_text(exc))
         return status
     candidates = sorted(
         family for family in set(desired) | set(applied) if _stale(desired.get(family), applied.get(family))
@@ -951,7 +951,7 @@ async def reconcile_variant_carriers(
             else:
                 status.pending.append(family)
         except CarrierSummaryInconsistent as exc:
-            await _request_rebuild(assembly_name, str(exc))
+            await _request_rebuild(assembly_name, error_text(exc))
             status.pending.extend(family_ for family_ in candidates if family_ not in status.refreshed)
             break
     return status

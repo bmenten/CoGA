@@ -47,6 +47,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import error_text
 from ..core.config import settings
 from .analysis_reviews import effective_reviews, scope_review_clause
 from .analysis_scope import AnalysisScope, analysis_scope
@@ -2281,7 +2282,7 @@ async def find_report_signout_by_code(
     except ReportCodeError as exc:
         raise HTTPException(
             status_code=422,
-            detail={"code": "report_code_invalid", "message": str(exc)},
+            detail={"code": "report_code_invalid", "message": error_text(exc)},
         ) from exc
     records = await _report_code_records(
         session, version=parsed.version, hash_symbols=parsed.hash_part, code=parsed.code

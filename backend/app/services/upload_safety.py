@@ -18,6 +18,7 @@ from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
 
+from ..core.coga_logging import error_text
 from ..core.config import settings
 from .bounded_download import GzipTooLargeError, InvalidGzipError, TruncatedBgzfError, gunzip_bounded
 
@@ -58,7 +59,7 @@ def _gunzip_bounded(data: bytes, max_bytes: int, *, kind: str) -> bytes:
     except TruncatedBgzfError as exc:
         # Says why: gzip tools read a BGZF file cut where one of its blocks ends without a
         # word.
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=error_text(exc)) from exc
     except InvalidGzipError as exc:
         raise HTTPException(
             status_code=400, detail=f"{kind} file is not valid gzip"

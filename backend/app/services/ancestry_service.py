@@ -37,7 +37,7 @@ from ..ancestry_schemas import (
     AncestrySampleChoiceIn,
     FamilyAncestryOut,
 )
-from ..core.coga_logging import describe_error
+from ..core.coga_logging import describe_error, error_text
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..core.sql import require_uuid
@@ -278,7 +278,7 @@ async def set_choice(session: AsyncSession, family_id: str, user: CurrentUser, p
         try:
             reference = await asyncio.to_thread(configured_reference)
         except AncestryInputError as exc:
-            raise HTTPException(409, str(exc)) from exc
+            raise HTTPException(409, error_text(exc)) from exc
         if bed is not None:
             name, data = bed
             intervals = choices_store.parse_bed(data)

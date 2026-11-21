@@ -14,7 +14,7 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy import RowMapping, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import scrub_log
+from ..core.coga_logging import error_text, scrub_log
 from ..core.config import STRCHIVE_PINNED_LOCI_SHA256, settings
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
@@ -1469,7 +1469,7 @@ async def read_trgt_sample_calls(
                         remedy="Upload this sample's own file.",
                     )
                 except VcfSampleColumnError as exc:
-                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                    raise HTTPException(status_code=400, detail=error_text(exc)) from exc
             continue
         if not line or line.startswith("#"):
             if in_header and line.startswith("##"):

@@ -45,6 +45,7 @@ from typing import Any, Awaitable, Callable, Iterator, Sequence
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import error_text
 from .bounded_download import TruncatedBgzfError, require_bgzf_file_end
 from .clickhouse_column_bounds import UINT32, column_int
 from .clickhouse_variant_ids import build_small_variant_id
@@ -579,7 +580,7 @@ async def upload_family_per_sample_small_variant_files(
     except (PerSampleMergeError, TruncatedBgzfError) as exc:
         if mutation_started:
             await _clean_up(assembly_name, context.family_uuid, source)
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=error_text(exc)) from exc
     except Exception:
         # Rows may have been flushed: the callset must not stay half written.
         if mutation_started:

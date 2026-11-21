@@ -301,12 +301,12 @@ describe('HpoTerminologyAdminPage', () => {
         latest_release: null,
         latest_release_date: null,
         newer_available: false,
-        error: "HPO's release list could not be read: timed out",
+        error: "HPO's release list could not be read (ReadTimeout).",
       });
       renderPage();
 
       expect(
-        await (await notes()).findByText("Could not check HPO for a newer release: HPO's release list could not be read: timed out"),
+        await (await notes()).findByText("Could not check HPO for a newer release: HPO's release list could not be read (ReadTimeout)."),
       ).toHaveClass('status-note--warning');
       expect(screen.getByLabelText('Ontology file path')).toBeInTheDocument();
     });

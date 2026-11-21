@@ -228,6 +228,20 @@ def test_discover_refuses_a_sample_id_in_the_ped_that_cannot_be_stored(tmp_path:
     assert issue.path == str(root / "family.ped")
 
 
+def test_discover_says_where_a_ped_is_not_utf8_without_quoting_it(tmp_path: Path) -> None:
+    root = _write_package(tmp_path / FAMILY)
+    (root / "family.ped").write_bytes(_trio_ped().encode("utf-8") + b"FAM001 SENTINEL\xff 0 0 1 1\n")
+
+    out = discover_family_package_manifest(FamilyPackageManifestBuildRequest(folder_path=str(root)))
+
+    # The decode error's text quotes the byte it could not read: the issue says where it is.
+    offset = len(_trio_ped().encode("utf-8")) + len(b"FAM001 SENTINEL") + 1
+    assert [(issue.code, issue.message) for issue in out.errors] == [
+        ("ped_decode_failed", f"PED file is not UTF-8 text (byte {offset}).")
+    ]
+    assert "0xff" not in out.model_dump_json()
+
+
 @pytest.mark.parametrize("control", [NUL, ESC, DEL])
 def test_discover_refuses_a_parent_id_the_ped_lacks_that_cannot_be_stored(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, control: str

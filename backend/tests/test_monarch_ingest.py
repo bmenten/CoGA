@@ -200,14 +200,19 @@ async def test_a_download_that_cannot_be_read_is_a_monarch_source_error(monkeypa
     monkeypatch.setattr(bounded_download, "download_bounded_bytes", download)
 
     # A ValueError from the gunzip or the decode, which the refresh router did not catch: a 500.
-    with pytest.raises(monarch.MonarchSourceError):
+    with pytest.raises(monarch.MonarchSourceError) as refused:
         await monarch._download_gzip_tsv(url)
+    # gzip's refusal is CoGA's sentence; a decode error is named by its kind, never by the bytes
+    # its text quotes.
+    assert "0xff" not in str(refused.value)
+    if url.endswith(".tsv"):
+        assert str(refused.value) == f"{url} could not be read (UnicodeDecodeError)"
 
 
 @pytest.mark.asyncio
 async def test_a_download_larger_than_the_cap_is_a_monarch_source_error(monkeypatch) -> None:
     async def download(_client, url, *, max_bytes=bounded_download.MAX_DOWNLOAD_BYTES, **_kwargs) -> bytes:
-        raise ValueError(f"{url} download exceeds {max_bytes} bytes")  # as download_bounded_bytes says it
+        raise bounded_download.DownloadTooLargeError(f"{url} download exceeds {max_bytes} bytes")
 
     monkeypatch.setattr(bounded_download, "download_bounded_bytes", download)
 

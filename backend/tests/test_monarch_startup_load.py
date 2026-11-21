@@ -113,16 +113,20 @@ async def test_either_switch_off_loads_nothing_and_reads_nothing(monkeypatch: py
 
 
 @pytest.mark.parametrize(
-    "failure",
+    ("failure", "reason"),
     [
-        httpx.ConnectError("no route to host"),
-        monarch_ingest.MonarchSourceError("Refusing to load Monarch data with an unknown release version"),
+        # Named by its kind: an HTTP error's text quotes the address.
+        (httpx.ConnectError("SENTINEL-TEXT no route to host"), "(ConnectError)"),
+        (
+            monarch_ingest.MonarchSourceError("Refusing to load Monarch data with an unknown release version"),
+            "(Refusing to load Monarch data with an unknown release version)",
+        ),
     ],
     ids=["unreachable", "refused"],
 )
 @pytest.mark.asyncio
 async def test_a_failed_load_is_rolled_back_and_the_start_goes_on(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, failure: Exception
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, failure: Exception, reason: str
 ) -> None:
     session = _Session(loaded=False)
     _refresh(monkeypatch, failure)
@@ -134,7 +138,8 @@ async def test_a_failed_load_is_rolled_back_and_the_start_goes_on(
     # An expected failure: one warning that says what failed and where to load it instead.
     [warning] = [record for record in caplog.records if record.levelno >= logging.WARNING]
     assert warning.levelno == logging.WARNING
-    assert str(failure) in warning.getMessage() and "Monarch data" in warning.getMessage()
+    assert reason in warning.getMessage() and "Monarch data" in warning.getMessage()
+    assert "SENTINEL" not in caplog.text
 
 
 @pytest.mark.asyncio
