@@ -1022,7 +1022,10 @@ def test_the_proposal_keeps_no_warning_validation_checks_again(monkeypatch: pyte
     )
     bundle = SimpleNamespace(ped=None, manifest=None)
     monkeypatch.setattr(watcher, "discover_family_package_manifest", lambda _request: draft)
-    monkeypatch.setattr(watcher, "load_validated_family_package", lambda *_a, **_k: (SimpleNamespace(errors=[]), bundle))
+    async def validated(*_a: Any, **_k: Any) -> Any:
+        return SimpleNamespace(errors=[]), bundle
+
+    monkeypatch.setattr(watcher, "validated_package", validated)
     monkeypatch.setattr(watcher, "_ped_members_for_import", lambda *_a, **_k: [])
     monkeypatch.setattr(watcher, "_manifest_carrier_types", lambda _manifest: {})
     monkeypatch.setattr(watcher, "_manifest_member_overrides", lambda _manifest: {})

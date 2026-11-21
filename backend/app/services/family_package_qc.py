@@ -23,7 +23,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .family_metadata_context import SampleMetadataContext
-from .family_package_common import _coerce_finite_float, _coerce_int, _jsonb_safe, _metadata_dict
+from .family_package_common import _coerce_finite_float, _jsonb_safe, _metadata_dict
+from .vcf_fields import field_int
 
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ def parse_nanostats_text(text_value: str) -> dict[str, Any]:
         cutoff = _NANOSTATS_QUALITY_CUTOFF.match(stripped)
         if cutoff:
             quality_cutoffs[f"q{cutoff.group(1)}"] = {
-                "reads": _coerce_int(cutoff.group(2)),
+                "reads": field_int(cutoff.group(2)),
                 "percent": _coerce_finite_float(cutoff.group(3)),
             }
             continue
@@ -106,7 +107,7 @@ def parse_mosdepth_summary_text(text_value: str) -> dict[str, Any]:
             continue
         if chrom == "total":
             result["mean_depth"] = mean_depth
-            result["total_bases"] = _coerce_int(parts[2])
+            result["total_bases"] = field_int(parts[2])
             continue
         per_chromosome[chrom] = mean_depth
     if per_chromosome:
@@ -212,7 +213,7 @@ def parse_king_kin0_text(text_value: str) -> list[dict[str, Any]]:
             "kinship": kinship,
         }
         if "n_snp" in columns:
-            pair["n_snp"] = _coerce_int(cells[columns["n_snp"]])
+            pair["n_snp"] = field_int(cells[columns["n_snp"]])
         if "hethet" in columns:
             pair["het_het"] = _coerce_finite_float(cells[columns["hethet"]])
         if "ibs0" in columns:
@@ -242,7 +243,7 @@ def parse_ngsbits_sample_gender_text(text_value: str) -> dict[str, Any]:
         "inferred_sex": inferred if inferred in {"male", "female"} else "indeterminate",
     }
     for key in ("reads_chry", "reads_chrx"):
-        value = _coerce_int(row.get(key))
+        value = field_int(row.get(key))
         if value is not None:
             result[key] = value
     ratio = _coerce_finite_float(row.get("ratio_chry_chrx"))
@@ -282,7 +283,7 @@ def parse_qualimap_genome_results_text(text_value: str) -> dict[str, Any]:
         value_text = raw_value.strip()
         if key in _QUALIMAP_COUNT_LABELS:
             number = _QUALIMAP_NUMBER.search(value_text)
-            count = _coerce_int(number.group(0).replace(",", "")) if number else None
+            count = field_int(number.group(0).replace(",", "")) if number else None
             if count is not None:
                 metrics[_QUALIMAP_COUNT_LABELS[key]] = count
             percent = _QUALIMAP_PERCENT.search(value_text)
@@ -321,7 +322,7 @@ def parse_haplotype_origin_text(text_value: str) -> list[dict[str, Any]]:
             if name == "haplotype":
                 entry["haplotype"] = cell
                 continue
-            value = _coerce_int(cell)
+            value = field_int(cell)
             entry[name] = value if value is not None else cell
         if entry.get("haplotype"):
             result.append(entry)

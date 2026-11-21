@@ -58,7 +58,7 @@ from .haplotype_block_builder import (
     is_one_copy_x_site,
 )
 from .pgt_embryo_calls import normalize_sex
-from .sample_integrity_qc import shares_allele
+from .sample_integrity_qc import mendelian_consistent, shares_allele
 from .sex_chromosomes import pseudoautosomal_regions, sex_chromosome
 
 # Fetch ceiling — covers a whole (largest) chromosome of family-scoped imputed
@@ -66,24 +66,6 @@ from .sex_chromosomes import pseudoautosomal_regions, sex_chromosome
 # an unusually large family's full-chromosome view. This bounds the ClickHouse
 # query only; the markers it returns are emitted raw, one point per site.
 PHASED_FETCH_LIMIT = 500_000
-
-
-def _is_mendelian_consistent(
-    father_alleles: tuple[str, str],
-    mother_alleles: tuple[str, str],
-    child_alleles: tuple[str, str],
-) -> bool:
-    """True if the child's genotype can be formed from one paternal + one maternal
-    allele. A False here is a genuine Mendelian inconsistency (impossible transmission
-    -> likely sample swap / wrong pedigree), distinct from parent-of-origin ambiguity
-    (e.g. both parents het + child het), which is perfectly consistent yet leaves both
-    `_transmitted_parent_haplotype` calls None. We must NOT flag that benign case."""
-    child_state = tuple(sorted(child_alleles))
-    for paternal_allele in father_alleles:
-        for maternal_allele in mother_alleles:
-            if tuple(sorted((paternal_allele, maternal_allele))) == child_state:
-                return True
-    return False
 
 
 def hemizygous_x_ranges(assembly_name: str | None, chrom: str | None, start: int, end: int) -> list[list[int]]:
@@ -271,7 +253,7 @@ def compute_phased_markers(
             father_alleles = parent_alleles[cast(str, father)]
             mother_alleles = parent_alleles[cast(str, mother)]
             child_qc["informative_sites"] += 1
-            if not _is_mendelian_consistent(father_alleles, mother_alleles, child_alleles):
+            if not mendelian_consistent(father_alleles, mother_alleles, child_alleles):
                 child_qc["mendel_errors"] += 1
             paternal_raw = _transmitted_parent_haplotype(father_alleles, mother_alleles, child_alleles)
             maternal_raw = _transmitted_parent_haplotype(mother_alleles, father_alleles, child_alleles)

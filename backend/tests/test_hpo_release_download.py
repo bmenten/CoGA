@@ -122,14 +122,16 @@ def test_the_newest_release_is_read_once_per_cache_period() -> None:
 
 def test_hpo_unreachable_is_said_so() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("no route to host")
+        raise httpx.ConnectError("SENTINEL-TEXT no route to host")
 
     async def run() -> None:
         async with _client(handler) as client:
             await release_download.fetch_latest_hpo_release(client)
 
-    with pytest.raises(release_download.HpoReleaseUnavailable, match="could not be read"):
+    with pytest.raises(release_download.HpoReleaseUnavailable) as unavailable:
         asyncio.run(run())
+    # CoGA's sentence names the error by its kind: an HTTP error's text quotes the address.
+    assert str(unavailable.value) == "HPO's release list could not be read (ConnectError)."
 
 
 # --- downloading a release -------------------------------------------------------------------------
@@ -233,10 +235,10 @@ def test_with_no_ontology_loaded_the_newest_release_is_newer(monkeypatch: pytest
 
 
 def test_hpo_unreachable_leaves_what_is_known_here(monkeypatch: pytest.MonkeyPatch, loaded: dict) -> None:
-    _latest(monkeypatch, release_download.HpoReleaseUnavailable("HPO's release list could not be read: timeout"))
+    _latest(monkeypatch, release_download.HpoReleaseUnavailable("HPO's release list could not be read (ReadTimeout)."))
     check = asyncio.run(hpo_service.hpo_release_check(object()))
 
-    assert check["error"] == "HPO's release list could not be read: timeout"
+    assert check["error"] == "HPO's release list could not be read (ReadTimeout)."
     assert check["latest_release"] is None and check["newer_available"] is False
     assert check["loaded_release"] == "hp/releases/2026-02-16"
 
@@ -353,10 +355,19 @@ def test_the_route_downloads_the_release_asked_for_and_expects_it(monkeypatch: p
 
 
 @pytest.mark.parametrize(
-    ("error", "status"),
-    [(release_download.HpoReleaseUnavailable("HPO unreachable"), 502), (ValueError("HPO has published no release"), 400)],
+    ("error", "status", "detail"),
+    [
+        (release_download.HpoReleaseUnavailable("HPO unreachable"), 502, "HPO unreachable"),
+        (release_download.HpoFileRefused("HPO has published no release"), 400, "HPO has published no release"),
+        # Any other error by its kind: its text can quote the file read or the path given.
+        (UnicodeDecodeError("utf-8", b"SENTINEL", 0, 1, "invalid"), 400, "The HPO ontology file could not be read (UnicodeDecodeError)."),
+        (FileNotFoundError(2, "No such file", "/SENTINEL/hp.obo"), 400, "The HPO ontology file could not be read (FileNotFoundError)."),
+    ],
+    ids=["unavailable", "refused", "not-utf8", "not-found"],
 )
-def test_the_route_answers_a_failed_download(monkeypatch: pytest.MonkeyPatch, error: Exception, status: int) -> None:
+def test_the_route_answers_a_failed_download(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, status: int, detail: str
+) -> None:
     from fastapi import HTTPException
 
     async def download(_release: date) -> bytes:
@@ -367,4 +378,4 @@ def test_the_route_answers_a_failed_download(monkeypatch: pytest.MonkeyPatch, er
         asyncio.run(
             admin_router.sync_hpo_terms(HpoOntologySyncRequest(download_release="2026-09-01"), session=object(), user=object())
         )
-    assert refused.value.status_code == status and refused.value.detail == str(error)
+    assert refused.value.status_code == status and refused.value.detail == detail

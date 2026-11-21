@@ -26,7 +26,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import describe_error, scrub_log
+from ..core.coga_logging import describe_error, error_text, own_error_message, scrub_log
 from ..core.config import settings
 from .bounded_download import download_text
 from .monarch_phenotype_score import reset_information_content_cache
@@ -110,7 +110,9 @@ async def _download_gzip_tsv(url: str) -> str:
     try:
         return await download_text(url, http_timeout=120.0)
     except ValueError as exc:  # too large, no complete gzip, or not UTF-8
-        raise MonarchSourceError(str(exc)) from exc
+        # The cap's and gzip's refusals are CoGA's sentences; any other error (not UTF-8) is
+        # named by its kind, as its text quotes the bytes it could not read.
+        raise MonarchSourceError(own_error_message(exc) or f"{url} could not be read ({describe_error(exc)})") from exc
 
 
 async def _fetch_release_version() -> str | None:
@@ -120,7 +122,7 @@ async def _fetch_release_version() -> str | None:
             response = await client.get(MONARCH_METADATA_URL)
             response.raise_for_status()
     except httpx.HTTPError as exc:  # pragma: no cover - network failure path
-        logger.warning("Could not fetch Monarch release metadata: %s", exc)
+        logger.warning("Could not fetch Monarch release metadata (%s)", describe_error(exc))
         return None
     for line in response.text.splitlines():
         stripped = line.strip()
@@ -526,11 +528,12 @@ async def ensure_monarch_on_startup(session: AsyncSession) -> dict[str, Any] | N
     try:
         summary = await refresh_monarch(session)
     except (httpx.HTTPError, MonarchSourceError) as exc:
-        # Monarch unreachable, or its release or files refused: our messages, and the URL.
+        # Monarch's release or files refused: our messages, and the URL. Monarch unreachable:
+        # the error by its kind, as its text quotes the address.
         logger.warning(
             "Monarch's newest release was not loaded at start (%s). Phenotype matching and the "
             "phenotype ranking have no Monarch data until it is loaded (Administration, Monarch data).",
-            scrub_log(exc),
+            error_text(exc),
         )
         await _rollback_quietly(session)
         return None

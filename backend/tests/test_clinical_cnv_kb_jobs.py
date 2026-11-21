@@ -523,14 +523,19 @@ def test_a_job_whose_build_script_is_gone_is_marked_failed(monkeypatch: pytest.M
 
 
 @pytest.mark.parametrize(
-    "error",
+    ("error", "kind"),
     [
-        IntegrityError("UPDATE clinical_cnv_kb_jobs", {}, Exception("duplicate key value violates unique constraint")),
-        ConnectionError("connection reset"),
+        (
+            IntegrityError("UPDATE clinical_cnv_kb_jobs", {"value": "SENTINEL-VALUE"}, Exception("SENTINEL-VALUE")),
+            "IntegrityError (Exception)",
+        ),
+        (ConnectionError("SENTINEL-VALUE"), "ConnectionError"),
     ],
     ids=["refused-by-the-index", "database-unreachable"],
 )
-def test_a_job_that_cannot_be_taken_is_marked_failed(script: Path, monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
+def test_a_job_that_cannot_be_taken_is_marked_failed(
+    script: Path, monkeypatch: pytest.MonkeyPatch, error: Exception, kind: str
+) -> None:
     # The switch to running is inside the job's error handling: a job whose switch fails is
     # marked failed, never left queued for good, which would refuse every later rebuild. Not
     # taken, the job has no owner: the write is guarded by its being still queued.
@@ -539,7 +544,11 @@ def test_a_job_that_cannot_be_taken_is_marked_failed(script: Path, monkeypatch: 
     assert run.commands == [] and run.applied == []
     [(assignments, params, worker)] = run.updates
     assert assignments == kb._FAILED and worker is None
-    assert params["error"] == str(error)[:2000]
+    # The error is named by its kind: its text can quote a failed statement's values.
+    assert params["error"] == (
+        f"The clinical CNV knowledgebase rebuild failed ({kind}); the server log shows where it failed."
+    )
+    assert "SENTINEL-VALUE" not in params["error"]
 
 
 def test_a_failure_that_cannot_be_recorded_is_logged_not_raised(

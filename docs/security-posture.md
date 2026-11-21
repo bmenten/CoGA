@@ -635,16 +635,25 @@ roster (owner's decision, 2026-10-28).
     path, so an edited row leaves its trace (`raw_import_files_pg.py`).
   - A unit test reads every logging call in `backend/app` and refuses one that reads a value
     held under a family's or a sample's ID name (`test_logs_name_no_family_or_sample.py`).
-- ✅ **A stored or shown error is CoGA's sentence or the error's kind.** The message
-  of a failed dataset and its line in the job's log, the import job's error, and the status of
-  a gene reference source that could not be read (which each gene's record keeps and the gene
-  and admin pages show) hold CoGA's own refusal as it is written, and any other error by its
-  kind (`describe_error`), its frames in the server log. Never the error's text: a failed
-  statement's SQL and the values it was given, a line of a package file, the address a source
-  was read from. CoGA's own refusal is an `HTTPException` or an error of a class CoGA defines
-  (`own_error_message` in `core/coga_logging.py`); the import's refusals raise
-  `ImportRefused`. A refusal that quotes a manifest's `vcf_sample` or a file's column names
-  shows each character a reader cannot see as its escape (`visible`).
+- ✅ **A stored, answered or logged error is CoGA's sentence or the error's kind.** The
+  message of a failed dataset and its line in the job's log, the import job's error, the status
+  of a gene reference source that could not be read (which each gene's record keeps and the gene
+  and admin pages show), the error of a DGV load and of a clinical CNV knowledgebase rebuild,
+  the HPO release check, an HTTP answer and a log line hold CoGA's own refusal as it is
+  written, and any other error by its kind (`describe_error`), its frames in the server log.
+  Never the error's text: a failed statement's SQL and the values it was given, a line of a
+  package file, the address a source was read from. CoGA's own refusal is an `HTTPException`
+  or an error of a class CoGA defines (`own_error_message` in `core/coga_logging.py`;
+  `error_text` gives the one or the other); the import's refusals raise `ImportRefused`.
+  - An error class of CoGA's that wraps another error (a Monarch, HPO or GTF download, the
+    schema migration) names that error by its kind, so its sentence quotes no other text.
+  - A manifest that does not parse is told by where it fails (a YAML error's line and column,
+    a model error's field), and a PED that is not UTF-8 by the byte, never by the text the
+    error quotes. A refusal that quotes a manifest's `vcf_sample` or a file's column names
+    shows each character a reader cannot see as its escape (`visible`).
+  - A unit test reads every `except … as` handler in `backend/app` and refuses an error read
+    as text, or whole into a log line, an answer or an error raised, other than through these
+    functions (`test_error_text_kept_out.py`).
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The browser reads no bucket: the backend serves every

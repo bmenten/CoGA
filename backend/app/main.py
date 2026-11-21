@@ -23,6 +23,7 @@ from .core.postgres import (
 )
 from .core.coga_logging import (
     configure_json_logging,
+    error_text,
     install_access_log_redaction,
     install_event_loop_exception_handler,
     install_server_error_redaction,
@@ -232,7 +233,7 @@ app.include_router(metrics_router)
 async def _refuse_unreadable_sample_filter(request: Request, exc: Exception) -> JSONResponse:
     # A sample filter value that cannot be read is the caller's error: answer 422 with the
     # value named, whichever search it reached.
-    return JSONResponse(status_code=422, content={"detail": str(exc)})
+    return JSONResponse(status_code=422, content={"detail": error_text(exc)})
 
 
 app.add_exception_handler(SampleFilterError, _refuse_unreadable_sample_filter)
@@ -241,7 +242,7 @@ app.add_exception_handler(SampleFilterError, _refuse_unreadable_sample_filter)
 async def _refuse_unnamed_analysis(request: Request, exc: Exception) -> JSONResponse:
     # A reading or a review of a family's variants that must name one of its analyses and does
     # not, or names one it does not hold (analysis_scope.py): the caller's error.
-    return JSONResponse(status_code=422, content={"detail": str(exc)})
+    return JSONResponse(status_code=422, content={"detail": error_text(exc)})
 
 
 app.add_exception_handler(AnalysisNotNamed, _refuse_unnamed_analysis)

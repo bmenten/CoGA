@@ -142,6 +142,7 @@ def test_multi_sample_family_does_not_present_one_sample_as_the_family_callset(
         root=tmp_path,
         family_id="F1",
         sample_ids=["S1", "S2"],
+        errors=[],
     )
 
     snv = next(item for item in availability if item.dataset_type == "snv")
@@ -1059,6 +1060,7 @@ def _trio_payload(root: Path) -> tuple[dict, list]:
         root=root,
         family_id=TRIO_FAMILY,
         sample_ids=list(TRIO),
+        errors=[],
     )
 
 

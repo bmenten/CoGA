@@ -18,9 +18,9 @@ from fastapi import HTTPException
 
 from backend.app.schemas import FamilyRegionOfInterestUpdate
 from backend.app.services import family_service
+from backend.app.services.roi_gene_lookup import roi_region
 from backend.app.services.family_service import (
     _build_family_roi_payload,
-    _parse_region_of_interest,
     _resolve_family_assembly,
 )
 
@@ -100,12 +100,12 @@ async def test_build_family_roi_payload_orders_gene_query_by_span_desc() -> None
     ],
 )
 def test_a_query_that_reads_as_a_region_is_that_region(query: str, region: tuple[str, int, int]) -> None:
-    assert _parse_region_of_interest(query) == region
+    assert roi_region(query) == region
 
 
 @pytest.mark.parametrize("query", ["CFTR", "chr7", "chr7:", "chr7:12-", "7:-5-10", "chr7:1.5-2"])
 def test_a_query_that_is_no_region_is_left_to_the_gene_lookup(query: str) -> None:
-    assert _parse_region_of_interest(query) is None
+    assert roi_region(query) is None
 
 
 @pytest.mark.asyncio

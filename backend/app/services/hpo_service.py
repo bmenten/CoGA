@@ -22,7 +22,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import scrub_log
+from ..core.coga_logging import describe_error, error_text, scrub_log
 from ..core.config import (
     HPO_PINNED_ONTOLOGY_SHA256,
     HPO_PINNED_ONTOLOGY_URL,
@@ -32,6 +32,7 @@ from ..core.config import (
 from ..core.sql import canonical_uuid, is_missing_postgres_schema_error, require_uuid, rows_matched
 from .access_control import CurrentUser
 from . import hpo_release_download
+from .bounded_download import DownloadTooLargeError
 from .clinical_audit_service import audit_actor, record_clinical_event
 from .family_identifiers import visible as visible_text
 
@@ -596,7 +597,7 @@ def ensure_authorized_hpo_ontology_path(path: str | Path) -> Path:
     normalized = os.path.normpath(os.path.expanduser(str(path)))
     if os.path.dirname(normalized) in authorized_roots:
         return Path(normalized)
-    raise ValueError("HPO ontology path is outside the authorized ontology directory")
+    raise hpo_release_download.HpoFileRefused("HPO ontology path is outside the authorized ontology directory")
 
 
 def _read_bounded(response: Any, max_bytes: int) -> bytes:
@@ -608,7 +609,7 @@ def _read_bounded(response: Any, max_bytes: int) -> bytes:
             return b"".join(chunks)
         total += len(chunk)
         if total > max_bytes:
-            raise ValueError(f"HPO ontology download exceeds {max_bytes} bytes")
+            raise DownloadTooLargeError(f"HPO ontology download exceeds {max_bytes} bytes")
         chunks.append(chunk)
 
 
@@ -679,7 +680,9 @@ def _download_hpo_ontology_file(
         with urlopen(request, timeout=60) as response:
             payload = _read_bounded(response, max_bytes)
     except Exception as exc:
-        raise RuntimeError(f"Failed to download HPO ontology from {url}: {exc}") from exc
+        raise RuntimeError(
+            f"Failed to download HPO ontology from {url} ({error_text(exc)})"
+        ) from exc
     if not payload.lstrip().startswith(b"format-version:"):
         raise RuntimeError(f"The download from {url} is not an OBO ontology file")
     digest = hashlib.sha256(payload).hexdigest()
@@ -704,7 +707,7 @@ def _download_hpo_ontology_file(
             os.replace(partial, target)
             return target
         except OSError as exc:
-            errors.append(f"{target}: {exc}")
+            errors.append(f"{target}: {describe_error(exc)}")
     detail = "; ".join(errors) if errors else "no candidate download target"
     raise RuntimeError(f"Failed to store the HPO ontology downloaded from {url}: {detail}")
 
@@ -755,11 +758,12 @@ async def ensure_hpo_ontology_on_startup(
         try:
             source, latest = await _download_latest_hpo_release()
         except (hpo_release_download.HpoReleaseUnavailable, ValueError) as exc:
-            # The expected failures, in messages written here: what failed, and the URL.
+            # The expected failures, in messages written here: what failed, and the URL. Any
+            # other error is named by its kind.
             logger.warning(
                 "HPO's newest release was not downloaded (%s). Importing the vendored release %s, "
                 "the backup.",
-                scrub_log(exc),
+                error_text(exc),
                 HPO_PINNED_RELEASE,
             )
         except Exception:
@@ -822,7 +826,7 @@ async def _import_backup_hpo_ontology(
         except Exception as exc:
             if isinstance(exc, HpoOntologyChecksumMismatch):
                 # Not the vendored file: an expected refusal, logged without a traceback.
-                logger.error("%s The HPO ontology was not imported.", exc)
+                logger.error("%s The HPO ontology was not imported.", error_text(exc))
             else:
                 logger.exception("Failed to download HPO ontology from %s", HPO_PINNED_ONTOLOGY_URL)
             try:
@@ -844,7 +848,7 @@ async def _import_backup_hpo_ontology(
         payload = await asyncio.to_thread(read_pinned_hpo_ontology, resolved_path)
     except HpoOntologyChecksumMismatch as exc:
         # An expected refusal, logged once without a traceback: its message is the fix.
-        logger.error("%s", exc)
+        logger.error("%s", error_text(exc))
         return None
     except OSError as exc:
         logger.error(
@@ -966,7 +970,7 @@ async def import_hpo_ontology(
     ``release_sha256``), so the loaded release names the exact file. ``source_format``
     is the text's format when there is no ``path`` to tell it (a downloaded release: OBO)."""
     if path is None and ontology_text is None:
-        raise ValueError("No HPO ontology to import")
+        raise hpo_release_download.HpoFileRefused("No HPO ontology to import")
     source_format = source_format or _hpo_source_format(path or "hp.obo")
     if ontology_text is None:
         assert path is not None
@@ -976,11 +980,13 @@ async def import_hpo_ontology(
         ontology = await asyncio.to_thread(parse_hpo_ontology_text, ontology_text, source_format=source_format)
         release_metadata = parse_hpo_ontology_release_metadata_text(ontology_text, source_format=source_format)
     if not ontology.terms:
-        raise ValueError("HPO ontology import found no terms")
+        raise hpo_release_download.HpoFileRefused("HPO ontology import found no terms")
     effective_release_version = (release_version or release_metadata.release_version or "").strip()
     if not effective_release_version:
         # Each term records its release, which every signed record names.
-        raise ValueError("The HPO ontology states no release (no data-version header): nothing was imported")
+        raise hpo_release_download.HpoFileRefused(
+            "The HPO ontology states no release (no data-version header): nothing was imported"
+        )
     effective_release_date = release_date or release_metadata.release_date
 
     term_rows = [
@@ -1641,7 +1647,7 @@ async def hpo_release_check(session: AsyncSession) -> dict[str, Any]:
     try:
         latest = await hpo_release_download.fetch_latest_hpo_release()
     except hpo_release_download.HpoReleaseUnavailable as exc:
-        result["error"] = str(exc)
+        result["error"] = error_text(exc)
         return result
     loaded_date = loaded.get("release_date")
     result.update(
@@ -1864,9 +1870,9 @@ async def preview_hpo_ontology_sync(
     elif path is not None:
         ontology = await asyncio.to_thread(parse_hpo_ontology_path, path)
     else:
-        raise ValueError("No HPO ontology to preview")
+        raise hpo_release_download.HpoFileRefused("No HPO ontology to preview")
     if not ontology.terms:
-        raise ValueError("HPO ontology import found no terms")
+        raise hpo_release_download.HpoFileRefused("HPO ontology import found no terms")
     existing: dict[str, dict[str, Any]] = {}
     try:
         if await _postgres_tables_available(session, ("hpo_term",)):
@@ -1953,22 +1959,24 @@ def checked_hpo_file_release(
 
     The sync records the release the file states, never one typed over it, and the file's
     checksum, so the terms and every signed record after it name the release the file is.
-    ValueError, answered 400, when the file states no release, or when ``expected_version``
-    or ``expected_date`` is not what it states: nothing is imported."""
+    HpoFileRefused (a ValueError), answered 400, when the file states no release, or when
+    ``expected_version`` or ``expected_date`` is not what it states: nothing is imported."""
     text_value = payload.decode("utf-8")
     metadata = parse_hpo_ontology_release_metadata_text(text_value, source_format=source_format)
     stated = (metadata.release_version or "").strip()
     if not stated:
-        raise ValueError(
+        raise hpo_release_download.HpoFileRefused(
             "The ontology file states no release (no data-version header): the HPO release is "
             "recorded only as the file states it. Nothing was imported."
         )
     expected = (expected_version or "").strip()
     if expected and not _states_release(stated, expected):
-        raise ValueError(f"The ontology file is release {stated}, not the expected {expected}. Nothing was imported.")
+        raise hpo_release_download.HpoFileRefused(
+            f"The ontology file is release {stated}, not the expected {expected}. Nothing was imported."
+        )
     if expected_date is not None and expected_date != metadata.release_date:
         stated_date = metadata.release_date.isoformat() if metadata.release_date else "no release date"
-        raise ValueError(
+        raise hpo_release_download.HpoFileRefused(
             f"The ontology file states {stated_date}, not the expected release date "
             f"{expected_date.isoformat()}. Nothing was imported."
         )
@@ -2003,7 +2011,7 @@ async def sync_hpo_ontology(
         payload = await asyncio.to_thread(Path(path).read_bytes)
         source_format = _hpo_source_format(path)
     else:
-        raise ValueError("Name an ontology file, or an HPO release to download.")
+        raise hpo_release_download.HpoFileRefused("Name an ontology file, or an HPO release to download.")
     checked = checked_hpo_file_release(
         payload,
         source_format=source_format,
@@ -2012,7 +2020,7 @@ async def sync_hpo_ontology(
     )
     expected = (expected_sha256 or "").strip().lower()
     if expected and checked.sha256 != expected:
-        raise ValueError(
+        raise hpo_release_download.HpoFileRefused(
             f"The ontology file is not the one previewed: its SHA-256 is {checked.sha256}, the "
             f"preview's {expected}. Nothing was imported; preview it again."
         )

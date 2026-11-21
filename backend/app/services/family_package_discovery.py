@@ -17,7 +17,7 @@ from ..schemas import (
 )
 
 from .family_identifiers import visible
-from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, family_id_issue, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, UNREADABLE_FILE_ERRORS, ParsedPed, UnreadableVcf, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, family_id_issue, package_path_within, package_text_handle, path_leaves_package, sample_id_issues, unreadable_vcf_issue
 from .ccnv_output import CCNV_ROLES
 from .family_package_ccnv import CCNV_FILE_PATTERNS, apply_ccnv_package, ccnv_family_block, ccnv_sample_ids
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
@@ -1075,8 +1075,10 @@ def _per_sample_callset_availability(
 _NON_VARIANT_FILTERS = ("RefCall", "NoCall")
 
 
-def _vcf_meta_lines(path: Path) -> list[str]:
-    """A VCF's ``##`` header lines, read from its header only; none when it cannot be read."""
+def _vcf_meta_lines(path: Path, *, label: str) -> list[str]:
+    """A VCF's ``##`` header lines, read from its header only. A file it cannot read (a gzip
+    file cut short in its header, damaged, or not gzip at all) raises ``UnreadableVcf``, named
+    with ``label``."""
     lines: list[str] = []
     try:
         with package_text_handle(path) as handle:
@@ -1084,28 +1086,29 @@ def _vcf_meta_lines(path: Path) -> list[str]:
                 if not line.startswith("##"):
                     break
                 lines.append(line.rstrip("\n\r"))
-    except (OSError, EOFError, UnicodeError):
-        return []
+    except UNREADABLE_FILE_ERRORS as exc:
+        raise UnreadableVcf(path, label=label) from exc
     return lines
 
 
-def _declared_filters(path: Path) -> set[str]:
+def _declared_filters(path: Path, *, label: str) -> set[str]:
     """The FILTER ids a VCF's header declares, read from its header only."""
-    return {match.group(1) for line in _vcf_meta_lines(path) if (match := _FILTER_ID.match(line))}
+    return {match.group(1) for line in _vcf_meta_lines(path, label=label) if (match := _FILTER_ID.match(line))}
 
 
 _FILTER_ID = re.compile(r"##FILTER=<ID=([^,>]+)")
 
 
-def _direct_caller(path: Path) -> str | None:
+def _direct_caller(path: Path, *, label: str) -> str | None:
     """The caller of a VCF of a caller's own calls, not imputed genotypes: the one its header
     names (``caller_from_vcf_header``: DeepVariant's, also once merged and phased by
     read-based phasing, as nf-LRSvar's trio callset is; GATK HaplotypeCaller's, a short-read
     WGS family's joint callset, whose header describes its physical phasing; Clair3's;
     Mutect2's), when its header declares no genotype posteriors (FORMAT ``GP``, which the
     loader reads as imputed) and names no imputation or statistical phasing tool. None for any
-    other file, whose callset the delivery is asked to name."""
-    lines = _vcf_meta_lines(path)
+    other file, whose callset the delivery is asked to name. A file it cannot read raises
+    ``UnreadableVcf``, named with ``label``."""
+    lines = _vcf_meta_lines(path, label=label)
     caller = caller_from_vcf_header(lines)
     if caller is None or header_shows_imputation(lines):
         return None
@@ -1118,6 +1121,7 @@ def _with_direct_callset_snv_settings(
     *,
     sample_ids: list[str],
     patterns: dict[str, list[str]],
+    errors: list[FamilyImportValidationIssue],
 ) -> dict[str, Any]:
     """The ``snv`` block with what a callset of direct calls needs: its caller as its
     ``source_format`` (``_direct_caller``: the callset is stored under its caller's name, and a
@@ -1127,31 +1131,63 @@ def _with_direct_callset_snv_settings(
     callset, a short-read WGS family's GATK callset), when every file's header names one
     caller. Any other callset's block, imputed genotypes and files whose caller is not named
     among them, is returned as it is, for the delivery to name; what the block already says
-    wins."""
+    wins.
+
+    A file whose header cannot be read (cut short, damaged, not gzip) is refused by name in
+    ``errors`` (``dataset_vcf_unreadable``, naming a per-sample file's sample), as Discover
+    refuses a NIPT parent's VCF, and the block is returned as it is."""
     per_sample = block.get("per_sample")
+    # The files read, each with the sample it is the file of (None for the family VCF).
+    named: list[tuple[str | None, Any]]
     if isinstance(per_sample, dict) and per_sample and not block.get("family_vcf"):
-        paths = [entry.get("vcf") for entry in per_sample.values() if isinstance(entry, dict)]
+        named = [(str(sample_id), entry.get("vcf")) for sample_id, entry in per_sample.items() if isinstance(entry, dict)]
     else:
+        named = [(None, block.get("family_vcf"))]
+    files: list[tuple[str | None, Path]] = []
+    for sample_id, value in named:
+        path = package_path_within(root, value) if isinstance(value, str) else None
+        if path is not None and path.is_file():
+            files.append((sample_id, path))
+    try:
+        return _direct_callset_settings(block, files=files, sample_ids=sample_ids, patterns=patterns)
+    except UnreadableVcf as refused:
+        sample_of = next((sample_id for sample_id, path in files if path == refused.path), None)
+        errors.append(unreadable_vcf_issue(root, refused, dataset="snv", sample_id=sample_of))
+        return block
+
+
+def _snv_file_label(sample_id: str | None) -> str:
+    """What a refusal calls an SNV file: a sample's file, or the family VCF."""
+    return f"The SNV file of {sample_id}" if sample_id is not None else "The SNV family VCF"
+
+
+def _direct_callset_settings(
+    block: dict[str, Any],
+    *,
+    files: list[tuple[str | None, Path]],
+    sample_ids: list[str],
+    patterns: dict[str, list[str]],
+) -> dict[str, Any]:
+    """``_with_direct_callset_snv_settings`` read from the block's ``files`` that lie in the
+    package, each ``(its sample, its path)``, the sample None for the family VCF. Raises
+    ``UnreadableVcf`` for a file whose header cannot be read."""
+    if files and files[0][0] is None:
+        # The family VCF: a callset of direct calls when its name is the long-read pipeline's
+        # one for a sample's calls, or its header names its caller.
         long_read_paths = {
             _format_pattern(pattern, family_id="", sample_id=sample_id)
             for pattern in patterns["sample_vcf"]
             for sample_id in sample_ids
         }
-        family_vcf = block.get("family_vcf")
-        family_path = package_path_within(root, family_vcf) if isinstance(family_vcf, str) else None
-        if family_vcf in long_read_paths or (
-            family_path is not None and family_path.is_file() and _direct_caller(family_path) is not None
-        ):
-            paths = [family_vcf]
-        else:
-            paths = []
-    resolved = [package_path_within(root, value) for value in paths if isinstance(value, str)]
-    files = [path for path in resolved if path is not None and path.is_file()]
-    callers = {_direct_caller(path) for path in files}
+        if block.get("family_vcf") not in long_read_paths and _direct_caller(files[0][1], label=_snv_file_label(None)) is None:
+            return block
+    callers = {_direct_caller(path, label=_snv_file_label(sample_id)) for sample_id, path in files}
     if not files or len(callers) != 1 or None in callers:
         return block
     settings: dict[str, Any] = {"enabled": block.get("enabled", True), "source_format": callers.pop()}
-    declared = set.intersection(*(_declared_filters(path) for path in files))
+    declared = set.intersection(
+        *(_declared_filters(path, label=_snv_file_label(sample_id)) for sample_id, path in files)
+    )
     excluded = [value for value in _NON_VARIANT_FILTERS if value in declared]
     if excluded:
         settings["exclude_filters"] = excluded
@@ -1509,11 +1545,13 @@ def _build_manifest_payload(
     root: Path,
     family_id: str,
     sample_ids: list[str],
+    errors: list[FamilyImportValidationIssue],
     newest_run_records: bool = False,
 ) -> tuple[dict[str, Any], list[FamilyManifestDatasetAvailability]]:
     """The manifest's datasets as Discover drafts them, and what it found for each.
     ``pipeline_info`` names the records of the last Nextflow run that completed
-    (``_completed_nextflow_run``), or with ``newest_run_records`` the newest of each."""
+    (``_completed_nextflow_run``), or with ``newest_run_records`` the newest of each. An SNV
+    file whose header cannot be read is refused in ``errors``."""
     scheme = NAMING_SCHEMES[NAMING_SCHEME]["datasets"]
     datasets: dict[str, Any] = {}
     availability: list[FamilyManifestDatasetAvailability] = []
@@ -1537,7 +1575,9 @@ def _build_manifest_payload(
                 fallback=(item, block),
             )
         if dataset_type == "snv" and item.complete:
-            block = _with_direct_callset_snv_settings(root, block, sample_ids=sample_ids, patterns=scheme["snv"])
+            block = _with_direct_callset_snv_settings(
+                root, block, sample_ids=sample_ids, patterns=scheme["snv"], errors=errors
+            )
         if not item.complete and dataset_type == "repeats_trgt":
             # No joint TRGT VCF: fall back to the pipeline's per-sample repeat calls.
             sample_item, sample_block = _optional_role_dataset_availability(
@@ -1859,7 +1899,10 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
                 )
                 errors.extend(ped_parse_errors)
             except UnicodeDecodeError as exc:
-                errors.append(_issue("ped_decode_failed", f"PED file is not UTF-8 text: {exc}", path=ped_path))
+                # Where, never the bytes the error's text quotes.
+                errors.append(
+                    _issue("ped_decode_failed", f"PED file is not UTF-8 text (byte {exc.start + 1}).", path=ped_path)
+                )
 
     if parsed_ped is not None:
         sample_ids = parsed_ped.sample_ids
@@ -1924,6 +1967,7 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
         root=root,
         family_id=family_id,
         sample_ids=sample_ids,
+        errors=errors,
         # The PGT pipeline's region and traced parent are read from its newest params
         # (pgt_run_context): its run records stay the newest too, so both name one run.
         newest_run_records=roi is not None or traced_parent is not None,

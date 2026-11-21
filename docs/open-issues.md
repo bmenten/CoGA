@@ -41,9 +41,7 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | OPS-22 | P3 | Keep PRs that pass alone from failing together: a merge queue needs an organisation-owned repository | owner | |
 | SEC-19 | P3 | Accept in TF-13: best-effort ClickHouse shutdown, bucket-wide grants, VM restart after a certificate reissue | QA | |
 | SEC-23 | P3 | Close the HSTS gaps | QA, owner, developer | |
-| SEC-40 | P3 | Keep an error's text out of the last stored job errors, HTTP answers and log lines | developer | |
 | UI-8 | P3 | Mark a held tag of a project the family left apart from a deleted one; show a detached tag's label in the Explorer | owner, developer | |
-| DATA-13 | P3 | Read every package VCF whole at validation: Discover answers 500 on a damaged SNV family VCF, and other VCFs pass unread | developer | |
 | CLIN-79 | P2 | Warn when an embryo's sex chromosomes look abnormal (X0, XXY, another anomaly): choose the source of X dosage and its cut-offs | owner, lab director | validation |
 | CLIN-14 | P3 | Settle the repeat catalogue's open points | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
@@ -57,8 +55,6 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | TRACE-21 | P3 | Decide whether a family that loses a project link gets a clinical audit event | owner | |
 | OPS-12 | P3 | Finish what Dependabot cannot update: the workflow pins, a Terraform lock file, the Cloud Build builder | owner | |
 | OPS-26 | P3 | At the first apply, check the ClickHouse VM's certificate refresh runs (`/etc` may be no-exec) | ops | |
-| ENG-24 | P3 | Make the end-to-end modules independent of their order: the review-audit module leaves a variant tagged for the report | developer | |
-| ENG-25 | P3 | Settle the copies that differ: two ROI region parsers, two Mendelian-consistency rules, two `_coerce_int`; drop the unused tag `family_id` column | developer | |
 
 ## Waiting for a decision
 
@@ -254,14 +250,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - The frontend's `/api` fallback reaches the backend only through VPC egress (owner).
 - Express's default 500 and Node's own 400 carry no headers.
 
-### SEC-40 · Error text still stored, answered or logged
-
-- An import's and a gene source's stored failure name an error by its kind unless CoGA defines its class (`own_error_message`). An error's text is still stored, answered or logged in:
-    - stored job errors: `dgv_load_jobs.py` (~678, ~681), `clinical_cnv_kb_jobs.py` (~677), `hpo_service.py` (~1646);
-    - CoGA error classes that wrap another error's text, which `own_error_message` would keep: `monarch_ingest.py` (~113), `monarch_semsim.py` (~113), `hpo_release_download.py` (~151, ~177), `hpo_service.py` (~682), `reference_source_service.py` (~696), `core/postgres_migrations.py` (~215, ~263);
-    - HTTP answers that quote an exception's text: `routers/admin.py` (~939, ~941, ~1010, ~1016), `routers/families.py` (~329), `routers/auth.py` (~640), and `family_package_validation.py` (~1746, a YAML error quoting the manifest);
-    - log lines with an exception's text: `dependencies.py` (~128), `routers/auth.py` (~371, ~639), `account_notifications.py` (~135), `account_activation_mail.py` (~94), `family_assignment_mail.py` (~92), `monarch_ingest.py` (~123), `monarch_semsim.py` (~112), `hpo_service.py` (~759, ~825, ~847), `reference_metadata_service.py` (~635).
-
 ### UI-8 · Held tags and detached tags
 
 - A family lists, inactive, the tags its own reviews hold. Every inactive tag reads "Label (deleted)" (`frontend/src/lib/reviewTags.ts`), which is exact for a deleted project's tag and not for a tag of a project the family only left, still active there. A marker of its own needs a flag in the tag list and the interface (owner).
@@ -283,12 +271,6 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - Commit `.terraform.lock.hcl`, generated with Terraform for linux_amd64 and darwin_arm64 (remove its `.gitignore` line).
 - `gcr.io/cloud-builders/docker` is frozen at Docker 20.10.24: move the Cloud Build configs to `docker:<version>-cli` by digest.
 
-### DATA-13 · Package files that pass validation unread
-
-- Discover on a package whose SNV family VCF is damaged answers 500: `family_package_discovery.py::_vcf_meta_lines` catches `OSError`, `EOFError` and `UnicodeError`, not `zlib.error`.
-- The validation still accepts without a word a SNV, NeedlR, TRGT or mito VCF (family or per sample) it cannot read (`family_package_validation.py::_warn_file_without_a_record`), and the per-sample SNV check does not check a BGZF file's end, so one cut in its records passes. `read_whole_vcf_sample_columns` reads them as the import does.
-- An APCAD per-sample `.csv.gz` or `.bed.gz` table is not read at validation (`_check_table_names_sample` reads only `.csv`, and passes a read error).
-
 ### CLIN-73 · Multi-allelic records
 
 - A multi-allelic record (ALT `G,T`) is stored as one variant. Each annotation entry names its ALT, but the filters read the record's entries together: one allele's value keeps the record. A `Number=A` INFO value differs per allele, so it reads as no value.
@@ -303,15 +285,3 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - A structure edit that takes a member out keeps their calls in the family's rows unless it clears them. The Variant Explorer counts only the members a family shows (the owner's decision of 2026-11-06), but the family page still lists a variant only taken-out members carry, with 0/0 for each member it shows.
 - The family search's sample filter, given a taken-out member's name through the API, reads that member's calls; the interface offers only members.
 - The owner decides whether the family search leaves such variants out, as the Explorer does: that changes what the search keeps (Major).
-
-### ENG-24 · End-to-end modules depend on their order
-
-- The end-to-end suite run on a database the integration suite has just used fails in `clickhouse_integrity`, the Explorer's counts and panel match, the family panel-region join, the ranking cache and ancestry; each passes on fresh containers, as CI runs it. Integration tests leave rows behind that these modules read.
-- Run on their own, `test_e2e_review_audit.py` then `test_e2e_signout_acknowledges_what_was_shown.py` fail the latter's `test_the_module_leaves_nothing_tagged_for_the_report`: the review-audit module leaves a variant of the shared family tagged for the report, and the sign-out module checks that the family's report list ends empty. The full suite, with other modules run in between, passes. Each module should leave the family as it found it, or check only its own tags.
-
-### ENG-25 · Copies that differ
-
-- The region of interest is parsed twice: `family_service._parse_region_of_interest` uses `GENOMIC_REGION_PATTERN` and answers 400 on negative coordinates; `family_package_registration._ROI_REGION_PATTERN` is a pattern of its own.
-- One Mendelian-consistency rule is written twice: `sample_integrity_qc._mendelian_consistent` and `phased_marker_service._is_mendelian_consistent`.
-- `clickhouse_variant_records._coerce_int` and `family_package_common._coerce_int` read `b"1.5"` differently (1 against none), and both differ from `vcf_fields.field_int` on a bool: decide one reading before folding them.
-- `small_variant_tag_definitions.family_id` is a column no code writes: drop it from `03_assay.sql`.

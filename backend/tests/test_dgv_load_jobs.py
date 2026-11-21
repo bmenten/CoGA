@@ -539,13 +539,15 @@ def test_a_refused_file_commits_nothing_and_says_why(monkeypatch: pytest.MonkeyP
 
 def test_a_failed_download_commits_nothing_and_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
     async def unreachable(*_args: Any, **_kwargs: Any) -> tuple[int, str]:
-        raise httpx.ConnectError("no route to host")
+        raise httpx.ConnectError("SENTINEL-HOST no route to host")
 
     run = _Run(monkeypatch, load=unreachable)
     run.run()
 
     assert not run.session.committed
-    assert run.final[1]["error"].startswith("The DGV file could not be downloaded: no route to host.")
+    # Named by its kind: the error's text can quote the address it was fetched from.
+    assert run.final[1]["error"] == f"The DGV file could not be downloaded (ConnectError). {dgv._UNCHANGED}"
+    assert "SENTINEL" not in run.final[1]["error"]
 
 
 def test_a_load_that_outlives_its_timeout_is_stopped(monkeypatch: pytest.MonkeyPatch) -> None:

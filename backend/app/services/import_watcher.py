@@ -118,7 +118,7 @@ from .family_package_registration import (
     members_differ_message,
 )
 from .family_package_source import _authorized_local_roots, _listed_package_folder
-from .family_package_validation import load_validated_family_package
+from .package_file_reads import validated_package
 from .sex_chromosomes import same_assembly
 from .worker_tasks import stop_worker
 
@@ -522,7 +522,7 @@ async def assess_content(
     if ped_differs is not None:
         warnings.append(ped_differs)
 
-    validation, bundle = await asyncio.to_thread(load_validated_family_package, folder, manifest_text=assessment.manifest_text)
+    validation, bundle = await validated_package(folder, manifest_text=assessment.manifest_text)
     assessment.validation = {
         "valid": validation.valid,
         "family_id": validation.family_id,
@@ -646,7 +646,7 @@ async def _proposal(
         return package, [], [*failed, *(_as_issue(issue) for issue in draft.errors)]
     loaded = yaml.safe_load(draft.manifest_yaml)
     draft_manifest = loaded if isinstance(loaded, dict) else {}
-    validation, bundle = await asyncio.to_thread(load_validated_family_package, folder, manifest_text=draft.manifest_yaml)
+    validation, bundle = await validated_package(folder, manifest_text=draft.manifest_yaml)
     if bundle is None and isinstance(draft_manifest.get("datasets"), dict):
         # A dataset the draft's members do not cover (a phased family VCF with a column no member
         # is) keeps the draft from validating. Its members are read without the datasets, so the
@@ -659,8 +659,8 @@ async def _proposal(
                 for name, entry in draft_manifest["datasets"].items()
             },
         }
-        _members_validation, bundle = await asyncio.to_thread(
-            load_validated_family_package, folder, manifest_text=json.dumps(members_only, default=str)
+        _members_validation, bundle = await validated_package(
+            folder, manifest_text=json.dumps(members_only, default=str)
         )
     if bundle is None:
         return package, [], [*failed, *(_as_issue(issue) for issue in validation.errors)]

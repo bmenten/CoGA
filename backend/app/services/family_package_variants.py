@@ -29,8 +29,8 @@ from .variant_annotation_parser import (
 )
 
 from .structural_variant_ingest import SkippedRecords, breakend_mate, extent_not_stated, record_end, record_sv_len, sv_event, sv_type_from_alt
-from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _split_gene_symbols, resolve_vcf_sample_id
-from .vcf_fields import parse_format, parse_info
+from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _split_gene_symbols, resolve_vcf_sample_id
+from .vcf_fields import field_int, parse_format, parse_info
 
 
 def _unpositionable(start: int, end: int) -> bool:
@@ -66,7 +66,7 @@ def _needlr_call(
     filt: str | None,
 ) -> StructuralVariantCall:
     gt = _first_info_value(info, gt_key) or "./."
-    read_support = _coerce_int(_first_info_value(info, alt_reads_key))
+    read_support = field_int(_first_info_value(info, alt_reads_key))
     return StructuralVariantCall(
         sample=sample_id,
         gt=gt,
@@ -234,7 +234,7 @@ def _needlr_records(
         if len(parts) < 8:
             continue
         chrom, pos_raw, record_id, ref, alt, qual_raw, filt_raw, info_raw = parts[:8]
-        start = _coerce_int(pos_raw)
+        start = field_int(pos_raw)
         if start is None:
             continue
         info = parse_info(info_raw, flags=True)
@@ -242,7 +242,7 @@ def _needlr_records(
         # A breakend's mate as every SV reader reads it (``breakend_mate``), so a NeedlR
         # translocation names its partner in the SV list.
         remote_chr, remote_start = breakend_mate(sv_type=sv_type, alt=alt, info=info, chrom=chrom)
-        sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
+        sv_len = field_int(_first_info_value(info, "SVLEN"))
         end_written = _first_info_value(info, "END", "End_Pos", "END_POS", "End")
         if extent_not_stated(alt=alt, sv_len=sv_len, end=end_written):
             if skipped is not None:
@@ -455,12 +455,12 @@ def _iter_cnv_structural_records(
         if len(parts) < 8:
             continue
         chrom, pos_raw, record_id, ref, alt, qual_raw, filt_raw, info_raw = parts[:8]
-        start = _coerce_int(pos_raw)
+        start = field_int(pos_raw)
         if start is None:
             continue
         info = parse_info(info_raw, flags=True)
         sv_type = _first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "CNV"
-        sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
+        sv_len = field_int(_first_info_value(info, "SVLEN"))
         end_written = _first_info_value(info, "END", "End_Pos")
         if extent_not_stated(alt=alt, sv_len=sv_len, end=end_written):
             if skipped is not None:
@@ -482,7 +482,7 @@ def _iter_cnv_structural_records(
         if len(parts) > 9 + sample_column:
             fmt_vals = parse_format(parts[8], parts[9 + sample_column])
             gt = fmt_vals.get("GT") or genotype_without_gt
-            copy_number = _coerce_int(fmt_vals.get("CN"))
+            copy_number = field_int(fmt_vals.get("CN"))
         annotations = extract_small_variant_annotations(info, annotation_state)
         gene_symbols: list[str] = []
         seen_genes: set[str] = set()
@@ -594,7 +594,7 @@ def _paraphase_copy_number(raw_result: dict[str, Any], field: str, *, gene_symbo
     ``integer`` holds what ClickHouse's ``Int32`` does); None when it is missing or no number.
     A whole number beyond the column raises ``ParaphaseValueError``: it would fail the insert
     with a database error, after the sample's results were deleted."""
-    value = _coerce_int(raw_result.get(field))
+    value = field_int(raw_result.get(field))
     if value is not None and column_int(value, INT32) is None:
         raise ParaphaseValueError(f"{field} of {visible(gene_symbol)}")
     return value
@@ -745,12 +745,12 @@ def _iter_mito_sv_records(
         chrom, pos_raw, _record_id, ref, alt, qual_raw, filt_raw, info_raw = parts[:8]
         if normalize_chromosome(chrom).upper() not in {"M", "MT"}:
             continue
-        start = _coerce_int(pos_raw)
+        start = field_int(pos_raw)
         if start is None:
             continue
         info = parse_info(info_raw, flags=True)
         sv_type = (_first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV").upper()
-        sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
+        sv_len = field_int(_first_info_value(info, "SVLEN"))
         if extent_not_stated(alt=alt, sv_len=sv_len, end=_first_info_value(info, "END")):
             if skipped is not None:
                 skipped.without_extent += 1
@@ -770,7 +770,7 @@ def _iter_mito_sv_records(
             # Sniffles writes 0/0 for a site it genotyped and found no support for.
             continue
         filt = None if filt_raw in {"", ".", "PASS"} else filt_raw
-        read_support = _coerce_int(fmt_vals.get("DV")) or _coerce_int(_first_info_value(info, "SUPPORT"))
+        read_support = field_int(fmt_vals.get("DV")) or field_int(_first_info_value(info, "SUPPORT"))
         heteroplasmy = _coerce_finite_float(_first_info_value(info, "VAF"))
         variant_id = build_structural_variant_id(
             chrom,

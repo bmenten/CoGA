@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 import yaml
 
+from ..core.coga_logging import describe_error, own_error_message
 from ..core.config import settings
 from ..schemas import FamilyImportValidationIssue
 
@@ -296,10 +298,44 @@ def _package_folder_link_message(root: Path, folder: Path, target: str) -> str:
     )
 
 
+class ManifestNotAMapping(ValueError):
+    """The manifest's text parses, but not to a mapping."""
+
+
 def parse_manifest_text(raw_text: str, *, json_format: bool = False) -> tuple[dict[str, Any], PackageManifest]:
     """A manifest's text parsed: its raw payload and its validated model. JSON with
-    ``json_format``, else YAML (which a manifest CoGA keeps for an import job is)."""
+    ``json_format``, else YAML (which a manifest CoGA keeps for an import job is). Raises what
+    ``manifest_parse_problem`` reads: a YAML or JSON error, ``ManifestNotAMapping``, or the
+    model's ``ValidationError``."""
     payload = json.loads(raw_text) if json_format else yaml.safe_load(raw_text)
     if not isinstance(payload, dict):
-        raise ValueError("Manifest must contain a mapping/object at the top level")
+        raise ManifestNotAMapping("Manifest must contain a mapping/object at the top level")
     return payload, PackageManifest.model_validate(payload)
+
+
+_MANIFEST_PROBLEMS_SHOWN = 10
+
+
+def manifest_parse_problem(exc: Exception) -> str:
+    """Why a manifest's text could not be parsed (``parse_manifest_text``), without quoting it.
+
+    A YAML or JSON error is told by where it is, its line and column: its text quotes the
+    manifest around the fault. A model error names each field and pydantic's message without
+    the value it refused. CoGA's own refusal is told as it is written; any other error by its
+    kind."""
+    if isinstance(exc, yaml.YAMLError):
+        mark = getattr(exc, "problem_mark", None)
+        if isinstance(mark, yaml.Mark):
+            return f"it is not valid YAML (line {mark.line + 1}, column {mark.column + 1})"
+        return "it is not valid YAML"
+    if isinstance(exc, json.JSONDecodeError):
+        return f"it is not valid JSON (line {exc.lineno}, column {exc.colno})"
+    if isinstance(exc, ValidationError):
+        problems = [
+            f"{'.'.join(str(part) for part in error['loc']) or 'the manifest'}: {error['msg']}"
+            for error in exc.errors(include_url=False, include_context=False, include_input=False)
+        ]
+        more = len(problems) - _MANIFEST_PROBLEMS_SHOWN
+        shown = "; ".join(problems[:_MANIFEST_PROBLEMS_SHOWN])
+        return shown + (f"; and {more} more" if more > 0 else "")
+    return own_error_message(exc) or f"it could not be read ({describe_error(exc)})"

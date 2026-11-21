@@ -240,6 +240,27 @@ CREATE INDEX IF NOT EXISTS idx_family_import_jobs_requested ON family_import_job
 CREATE INDEX IF NOT EXISTS idx_family_import_jobs_status ON family_import_jobs USING btree (status, requested_at);
 
 -- ---------------------------------------------------------------------------
+-- package_file_reads
+-- ---------------------------------------------------------------------------
+-- The package files a validation read whole (package_file_reads.py): per file and reader, the
+-- file's size and modification and change times, and what the read found (its sample columns,
+-- whether it holds a record). A validation of the file with those three unchanged takes what was
+-- found and reads nothing. Only a whole read that succeeded is kept. A cache: a row is replaced
+-- when its file is read again, and no record or report reads it.
+CREATE TABLE IF NOT EXISTS package_file_reads (
+    path text NOT NULL,
+    reader text NOT NULL,
+    size bigint NOT NULL,
+    mtime_ns bigint NOT NULL,
+    ctime_ns bigint NOT NULL,
+    columns text[] NOT NULL,
+    holds_a_line boolean NOT NULL,
+    read_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT package_file_reads_pkey PRIMARY KEY (path, reader),
+    CONSTRAINT package_file_reads_reader_check CHECK ((reader = ANY (ARRAY['loader'::text, 'text'::text, 'track'::text])))
+);
+
+-- ---------------------------------------------------------------------------
 -- import_deliveries
 -- ---------------------------------------------------------------------------
 -- A package a pipeline delivered into a watched import folder (FAMILY_IMPORT_WATCH_ROOTS): one row
@@ -557,7 +578,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_filter_presets_unique ON sma
 -- lists it as global, and its key stays taken.
 CREATE TABLE IF NOT EXISTS small_variant_tag_definitions (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    family_id uuid,
     key text NOT NULL,
     label text NOT NULL,
     description text,
@@ -575,7 +595,6 @@ CREATE TABLE IF NOT EXISTS small_variant_tag_definitions (
     CONSTRAINT small_variant_tag_definitions_group_check CHECK (("group" = ANY (ARRAY['collaboration'::text, 'classification'::text, 'custom'::text]))),
     CONSTRAINT small_variant_tag_definitions_scope_check CHECK ((scope = ANY (ARRAY['global'::text, 'project'::text]))),
     CONSTRAINT small_variant_tag_definitions_scope_project_check CHECK ((((scope = 'global'::text) AND (project_id IS NULL)) OR ((scope = 'project'::text) AND ((project_id IS NOT NULL) OR (NOT is_active))))),
-    CONSTRAINT small_variant_tag_definitions_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
     CONSTRAINT small_variant_tag_definitions_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
 );
 

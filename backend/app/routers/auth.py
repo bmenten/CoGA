@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core import cas
 from ..core.azure import authority as azure_authority
+from ..core.coga_logging import error_text
 from ..core.config import settings
 from ..core.postgres import get_postgres_session
 from ..core.sql import require_uuid
@@ -368,7 +369,7 @@ async def cas_session(
         identity = await cas.verify_service_ticket(ticket_in.ticket)
     except cas.CasError as exc:
         # Why, never the ticket or the CAS server's answer.
-        logger.warning("cas sign-in: ticket refused: %s", exc)
+        logger.warning("cas sign-in: ticket refused: %s", error_text(exc))
         await record_refused_cas_ticket(session, remote_ip=remote_ip)
         await session.commit()
         raise HTTPException(status_code=401, detail=CAS_TICKET_REFUSED_DETAIL) from exc
@@ -636,7 +637,7 @@ async def send_account_request_test_mail(
     try:
         await asyncio.to_thread(send_mail, mail_check_message(recipients))
     except MailNotSent as exc:
-        logger.warning("the test of the account-request mail was not sent: %s", exc)
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.warning("the test of the account-request mail was not sent: %s", error_text(exc))
+        raise HTTPException(status_code=502, detail=error_text(exc)) from exc
     logger.info("the test of the account-request mail went to %d administrator(s)", len(recipients))
     return AccountRequestMailTestOut(recipients=recipients)

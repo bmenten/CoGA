@@ -6,6 +6,7 @@ from typing import Any, Sequence
 
 
 from .variant_annotation_parser import _spliceai_delta
+from .vcf_fields import field_int
 
 
 _KNOWN_ANNOTATION_KEYS = {
@@ -281,19 +282,6 @@ def _status_filter_terms(values: Sequence[str]) -> tuple[str, ...]:
     )
 
 
-def _coerce_int(value: Any) -> int | None:
-    if value in (None, "", "."):
-        return None
-    # OverflowError: an infinite value ("inf", float("inf")) is no whole number either.
-    try:
-        return int(value)
-    except (TypeError, ValueError, OverflowError):
-        try:
-            return int(float(value))
-        except (TypeError, ValueError, OverflowError):
-            return None
-
-
 def _coerce_float(value: Any) -> float | None:
     if value in (None, "", "."):
         return None
@@ -361,7 +349,7 @@ def _annotation_float(annotation: dict[str, Any], *keys: str) -> float | None:
 
 
 def _annotation_int(annotation: dict[str, Any], *keys: str) -> int | None:
-    return _coerce_int(_annotation_value(annotation, *keys))
+    return field_int(_annotation_value(annotation, *keys))
 
 
 def _annotation_bool(annotation: dict[str, Any], *keys: str) -> bool:

@@ -21,7 +21,7 @@ from backend.app.services.structural_variant_ingest import (
 from backend.app.services.vcf_fields import field_int
 
 
-def test_coerce_int_and_qual_are_tolerant() -> None:
+def test_field_int_and_qual_are_tolerant() -> None:
     assert field_int("100") == 100
     assert field_int("100.0") == 100
     assert field_int("junk") is None

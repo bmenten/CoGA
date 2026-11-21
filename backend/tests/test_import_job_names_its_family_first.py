@@ -329,9 +329,9 @@ async def test_an_import_whose_job_cannot_name_its_family_writes_nothing(jobs) -
 
 @pytest.mark.asyncio
 async def test_an_import_whose_job_another_worker_claimed_writes_nothing(jobs, monkeypatch) -> None:
-    real_load = package_import.load_validated_family_package
+    real_load = package_import.validated_package
 
-    def load_while_another_worker_claims_the_job(*args: Any, **kwargs: Any):
+    async def load_while_another_worker_claims_the_job(*args: Any, **kwargs: Any):
         # Its heartbeat went stale while the package was read (from a slow share, say):
         # another worker claimed the job, as claim_next_family_import_job does.
         jobs.commit(
@@ -342,9 +342,9 @@ async def test_an_import_whose_job_another_worker_claimed_writes_nothing(jobs, m
                 "heartbeat_at": datetime.now(timezone.utc),
             }
         )
-        return real_load(*args, **kwargs)
+        return await real_load(*args, **kwargs)
 
-    monkeypatch.setattr(package_import, "load_validated_family_package", load_while_another_worker_claims_the_job)
+    monkeypatch.setattr(package_import, "validated_package", load_while_another_worker_claims_the_job)
 
     await _run(jobs)
 

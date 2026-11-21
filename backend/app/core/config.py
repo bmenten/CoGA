@@ -711,9 +711,9 @@ class Settings(BaseSettings):
         try:
             re.compile(value)
         except re.error as exc:
-            raise ValueError(
-                f"CORS_ORIGIN_REGEX is not a valid regular expression: {exc}"
-            ) from exc
+            # Where it fails, never re's text: it is not CoGA's sentence.
+            where = f" (at position {exc.pos})" if exc.pos is not None else ""
+            raise ValueError(f"CORS_ORIGIN_REGEX is not a valid regular expression{where}") from exc
         if not (value.startswith("^") and value.endswith("$")):
             raise ValueError(
                 "CORS_ORIGIN_REGEX must be fully anchored (start with '^' and end "

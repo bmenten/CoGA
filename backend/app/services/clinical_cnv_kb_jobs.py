@@ -59,6 +59,7 @@ from sqlalchemy import RowMapping, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import describe_error, own_error_message
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import ClinicalCnvKbJobOut, ClinicalCnvKbStatusOut
@@ -495,10 +496,25 @@ class _JobClosed(Exception):
     """The job was closed while it ran (its worker taken for gone): no longer this worker's."""
 
 
+class _BuildTimedOut(TimeoutError):
+    """The build outlived CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS and was stopped."""
+
+
+def _failure_text(exc: BaseException) -> str:
+    """The job's error for a rebuild that failed: CoGA's own sentence as it is written
+    (``own_error_message``), any other error by its kind. Such an error's text is not CoGA's
+    and can quote what was being read: a failed statement's parameters, a line of a file. The
+    server log has the error's frames."""
+    return own_error_message(exc) or (
+        f"The clinical CNV knowledgebase rebuild failed ({describe_error(exc)}); the server log "
+        "shows where it failed."
+    )
+
+
 async def _await_build(process: asyncio.subprocess.Process, *, job_id: str, worker_id: str) -> bytes:
     """Wait for the build, heartbeating while it runs, and return its stderr.
 
-    Stops the build when it outlives CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS (TimeoutError), or
+    Stops the build when it outlives CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS (_BuildTimedOut), or
     when a heartbeat finds the job closed (_JobClosed). As with the family-import queue's
     periodic progress, a heartbeat that fails is logged and the build goes on.
     """
@@ -510,7 +526,7 @@ async def _await_build(process: asyncio.subprocess.Process, *, job_id: str, work
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise TimeoutError(
+                raise _BuildTimedOut(
                     f"Knowledgebase build stopped after {timeout} seconds "
                     "(CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS)."
                 )
@@ -673,7 +689,7 @@ async def _run_job(job_id: str) -> None:
         )
     except Exception as exc:  # surfaced to the admin UI as the job's error
         logger.exception("Clinical CNV knowledgebase rebuild failed")
-        await _record_failure(job_id, owner, str(exc)[:2000])
+        await _record_failure(job_id, owner, _failure_text(exc)[:2000])
     finally:
         if tmp_dir is not None:
             shutil.rmtree(tmp_dir, ignore_errors=True)

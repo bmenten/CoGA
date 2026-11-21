@@ -44,9 +44,13 @@ def _no_family_write_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(variant_upload_service, "record_haplotype_phase_corrections", no_lock)
 
 
-def test_coerce_int_tolerates_floats_and_junk() -> None:
-    # One reader for the VEP table and the SV uploads (each kept a copy).
+def test_field_int_tolerates_floats_and_junk() -> None:
+    # The one whole-number reader of every file and stored value CoGA reads.
     assert field_int("42") == 42
+    assert field_int(42.7) == 42
+    assert field_int(b"1.5") == 1
+    assert field_int(b"\xff") is None
+    assert field_int(False) is None
     assert field_int(" 42.7 ") == 42
     assert field_int(".") is None
     assert field_int(" . ") is None
