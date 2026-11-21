@@ -228,7 +228,8 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
      `recessive_at_risk`, with `include_not_inherited` and `de_novo_priority`);
   6. the category filter;
   7. the recurrence filter (`max_unexplained_recurrence`, see *Recurrence in other cfDNA samples*);
-  8. paging, and each listed variant's recurrence.
+  8. paging, and each listed variant's recurrence. Without a page size (`page_size=None`) the
+     list holds every classified variant: the CSV export.
 
   The recessive view returns `recessive_genes`. The review tags (`review_tag`, `exclude_review_tag`)
   select as on the family small-variant list (`clickhouse_family_variants.resolve_review_selection`:
@@ -246,6 +247,10 @@ Endpoints (`routers/families_nipt.py`, under `/api`):
 
 - `GET /families/{id}/nipt/summary`;
 - `/nipt/variants`;
+- `/nipt/variants/export` (the list as CSV: the same search, read through one dependency,
+  `_nipt_variant_search`; the small-variant export's columns but the genotypes, then the NIPT
+  classification; a list cut at the 5,000 limit is named `TRUNCATED-partial-search`, reason
+  `candidate-limit`);
 - `/nipt/coverage` (with `targets` from the target table; `all_genes=true` also lists the genes
   whose targets all pass, for the coverage page);
 - `/nipt/coverage/targets?gene=` (one gene's targets, each with `weak`).

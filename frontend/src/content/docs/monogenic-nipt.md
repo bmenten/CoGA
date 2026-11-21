@@ -408,6 +408,15 @@ The variant list classifies the first 5,000 variants of its search, in genomic o
 match, the page says so: the list stops part-way through the genome and its count is a lower bound.
 Narrow the search with a gene panel, a gene or a region.
 
+**Download CSV** exports the variant list as the page shows it, with the same search and in the same
+order. The file has the small-variant export's columns except the genotypes: the plasma's genotype
+call is not a genotype (it mixes the mother's and the fetus's DNA), and there is no fetal sample.
+After them come the NIPT columns: the fetal fraction the list was classified against (on every
+row), the category and its confidence, the plasma's and the father's reads, the fetal-inheritance
+probabilities, the de novo triage and the recurrence in the other cfDNA samples. When the list
+stops at the 5,000 limit, the file is named *…-TRUNCATED-partial-search.csv* and the page says the
+file is incomplete.
+
 ---
 
 ## The report

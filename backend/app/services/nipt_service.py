@@ -128,7 +128,7 @@ from .variant_upload_service import NIPT_SMALL_VARIANT_SOURCE
 # Bounds the in-memory classification for the variant list: the first variants of the
 # scope, in genomic order. Clinical use narrows by gene/panel/region, so this is a safety
 # cap, not a normal limit; a list cut by it says so (total_is_estimated, count_limit).
-_NIPT_VARIANT_FETCH_LIMIT = 5000
+NIPT_VARIANT_FETCH_LIMIT = 5000
 
 # The inheritance views of the variant list (the "Inheritance" control of the NIPT page).
 DE_NOVO = "de_novo"
@@ -1256,11 +1256,12 @@ async def get_family_nipt_variants(
     include_not_inherited: bool = False,
     de_novo_priority: str = "low",
     page: int = 1,
-    page_size: int = 100,
+    page_size: int | None = 100,
     qc: NiptQualityThresholds | None = None,
     review_tags: list[str] | None = None,
     exclude_review_tags: list[str] | None = None,
     max_unexplained_recurrence: int | None = None,
+    panel_search: str = "nipt_variants",
 ) -> NiptVariantsResult:
     """The family's cfDNA variants in a search, classified, in an inheritance view:
 
@@ -1283,6 +1284,10 @@ async def get_family_nipt_variants(
     (``NiptRecurrence``). ``max_unexplained_recurrence`` leaves out, after the view and the
     categories, the variants that are an unexplained low-VAF call in more of them
     (``hidden_as_recurrent``), as recurrent artefacts.
+
+    ``page_size`` None gives every classified variant of the search, as the CSV export
+    writes them; ``panel_search`` names the search on the family's audit trail when it
+    applies a gene panel (``PANEL_SEARCHES``).
     """
     qc = qc or NiptQualityThresholds()
     if max_unexplained_recurrence is not None and max_unexplained_recurrence < 0:
@@ -1349,7 +1354,7 @@ async def get_family_nipt_variants(
     if filters.panel_id:
         # On the family's clinical audit trail before it is applied (REQ-CARR-003).
         await record_family_panel_use(
-            session, context=context, panel_id=filters.panel_id, user=user, search="nipt_variants"
+            session, context=context, panel_id=filters.panel_id, user=user, search=panel_search
         )
         panel_constraints = await _fetch_panel_constraints(
             session, filters.panel_id, assembly_id=context.assembly_id
@@ -1362,7 +1367,7 @@ async def get_family_nipt_variants(
     # One row past the limit tells a cut list from a complete one: a list stopped at the
     # limit with a total that looked exact would have the page and the report read as
     # complete while the rest of the genome was never classified.
-    fetch_limit = _NIPT_VARIANT_FETCH_LIMIT
+    fetch_limit = NIPT_VARIANT_FETCH_LIMIT
     records = await _fetch_small_variant_rows(
         context,
         filters,
@@ -1412,8 +1417,11 @@ async def get_family_nipt_variants(
         ]
 
     total = len(classified)
-    offset = max(0, (page - 1) * page_size)
-    page_items = classified[offset : offset + page_size]
+    if page_size is None:
+        page_items = classified
+    else:
+        offset = max(0, (page - 1) * page_size)
+        page_items = classified[offset : offset + page_size]
     await _attach_recurrence(page_items, recurrence_scope)
 
     # Serialize the page slice as full small-variant payloads (and hydrate their
