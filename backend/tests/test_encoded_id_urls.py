@@ -92,7 +92,7 @@ def test_the_alignment_manifest_names_the_family_and_sample_it_was_issued_for(
 def test_the_signal_track_manifest_names_the_family_sample_and_source_it_was_issued_for(
     monkeypatch: pytest.MonkeyPatch, family_id: str, sample_id: str, source: str
 ) -> None:
-    monkeypatch.setattr(signal_tracks, "_resolve_track_path", lambda family, relative, folder=None: Path("depth.bw"))
+    monkeypatch.setattr(signal_tracks, "_resolve_track_path", lambda relative, folder: Path("depth.bw"))
 
     url = signal_tracks._track_url(family_id, sample_id, source, "depth_bigwig", "cnv/depth.bw", None)
 
@@ -139,6 +139,8 @@ class _Families:
         self.root = root
         self.members: dict[str, list[str]] = {}
         self.signal_tracks: dict[str, dict[str, dict[str, str]]] = {}
+        # Each sample's package folder: the family's, as its analysis's import recorded it.
+        self.package_folders: dict[str, str] = {}
         self.reports: dict[tuple[str, str], str] = {}
 
     def add(self, family_id: str, sample_id: str, *, source: str = "hificnv") -> None:
@@ -152,7 +154,8 @@ class _Families:
         number = len(self.members[family_id])
         (package / "cnv").mkdir(parents=True, exist_ok=True)
         (package / "cnv" / f"depth{number}.bw").write_bytes(content)
-        self.signal_tracks[sample_id] = {source: {"depth_bigwig": f"cnv/depth{number}.bw"}}
+        self.signal_tracks[sample_id] = {source: {"depth_bigwig": f"cnv/depth{number}.bw", "package": "long_read_wgs"}}
+        self.package_folders[sample_id] = str(package)
         (package / "qc").mkdir(parents=True, exist_ok=True)
         (package / "qc" / f"report{number}.html").write_bytes(content)
         self.reports[(family_id, sample_id)] = f"qc/report{number}.html"
@@ -169,11 +172,15 @@ def families(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Families:
     store = _Families(tmp_path)
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
     monkeypatch.setattr(settings, "secret_key", "x" * 40)
-    for module in (cram, signal_tracks):
-        monkeypatch.setattr(module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(cram, "DATA_DIR", tmp_path)
 
-    async def signal_track_rows(session: Any, sample_ids: list[str]) -> list[tuple[str, dict[str, Any]]]:
-        return [(sample_id, store.signal_tracks[sample_id], None) for sample_id in sample_ids if sample_id in store.signal_tracks]
+    async def signal_track_rows(session: Any, sample_ids: list[str]) -> list[tuple[str, dict[str, Any], Any]]:
+        # Each track names the analysis whose import recorded it, the family's record of it the folder.
+        return [
+            (sample_id, store.signal_tracks[sample_id], {"long_read_wgs": {"folder_path": store.package_folders[sample_id]}})
+            for sample_id in sample_ids
+            if sample_id in store.signal_tracks
+        ]
 
     async def recorded_report(session: Any, *, family_id: str, sample_id: str, analysis: str) -> Any:
         if (family_id, sample_id) not in store.reports:

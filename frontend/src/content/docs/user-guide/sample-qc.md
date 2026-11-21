@@ -19,7 +19,8 @@ The page first works out what kind of case it is and runs only the checks that f
 - **Single sample** — sex only.
 
 Two samples linked as the same individual count as one person here: one person sampled twice is a
-single sample, a couple with a partner sampled twice a carrier couple.
+single sample, a couple with a partner sampled twice a carrier couple. The two samples of one person
+are compared in every kind of case, a single sample's included (see *Relatedness vs pedigree*).
 
 The checks read the family's genotypes (*Read from* in the header names the call set and the number
 of sites). A genotype with a quality (GQ) below 20 counts as a no-call.
@@ -45,7 +46,8 @@ of sites). A genotype with a quality (GQ) below 20 counts as a no-call.
   parent–child when its IBS0 is below an eighth of the IBS0 of the family's unrelated parents, or
   below a fixed 0.8% without them; otherwise as siblings. The pair's message gives the cut. Two samples
   recorded as the same individual pass when their genotypes look a duplicate (*Duplicate / same
-  individual / MZ twin* in the legend), and fail otherwise: a possible sample swap. A maternal plasma is
+  individual / MZ twin* in the legend), and fail otherwise: a possible sample swap. Too few shared
+  sites to compare them is a warning that stops sign-out until someone records a reason. A maternal plasma is
   never compared: it is a mixture of the mother's DNA and a fetus's, so two plasmas of one woman are one
   person but are never expected identical. What the pedigree
   records of a person (its parents, children, siblings, co-parent) is expected of each of its samples,

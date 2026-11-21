@@ -686,6 +686,12 @@ family changes, so the import of the package that lists the sample clears it.
   stays and may be linked); without one, any member the package lacks.
 - With another analysis held, `update` and `overwrite` keep each link of the family between the
   members that stay.
+- Whatever the mode, the samples of one person keep agreeing on their statuses. Once the
+  family's pedigree has taken the package's links, the registration reads the family's
+  same-individual links and refuses the import before it writes when the statuses it gives or
+  keeps would leave two samples of one person with different known clinical or carrier statuses:
+  *The package's statuses cannot be those of family 'F': MOTHER and MOTHER2 are linked as the
+  same individual but their clinical status differs (affected, unaffected). …*
 
 **Projects.** An import into an existing family also links it to the job's `project_id`. Every
 project the family is linked to gets the small and structural variant callsets it holds none of,

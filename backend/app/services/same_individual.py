@@ -12,10 +12,21 @@ sample (A with B and B with C: A, B and C are one person). What reads the pedigr
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Collection, Iterable, Mapping
+from typing import Any, Collection, Iterable, Mapping, TypeVar
+
+T = TypeVar("T")
 
 # The relationship type of a same-individual link.
 SAME_INDIVIDUAL_LINK = "same_individual"
+
+# What one person has once, whichever of its samples holds the value: a clinical status and a
+# carrier status, and a sex, each as (what a message calls it, the member's field, the value that
+# is not known). A value that is not known agrees with any (``person_value_conflict``).
+PERSON_STATUS_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("clinical status", "clinical_status", "unknown"),
+    ("carrier status", "carrier_status", "unknown"),
+)
+PERSON_FIELDS: tuple[tuple[str, str, str], ...] = (("sex", "sex", "und"), *PERSON_STATUS_FIELDS)
 
 
 def same_individual_groups(pairs: Iterable[tuple[str, str]]) -> list[list[str]]:
@@ -53,6 +64,37 @@ def person_of(pairs: Iterable[tuple[str, str]]) -> dict[str, str]:
     """Each sample the links ``pairs`` name, by the person it is: the first sample (in sorted
     order) of its group. A sample no link names is its own person (``person_of(...).get(s, s)``)."""
     return {sample: group[0] for group in same_individual_groups(pairs) for sample in group}
+
+
+def person_value_conflict(
+    members: Iterable[Mapping[str, Any]], fields: Iterable[tuple[str, str, str]] = PERSON_FIELDS
+) -> tuple[str, list[str]] | None:
+    """The first of ``fields`` (``PERSON_FIELDS``) on which the samples of one person (``members``,
+    each a member's values) differ: what a message calls it, and the known values, sorted. None
+    when they agree."""
+    rows = list(members)
+    for label, field, unknown in fields:
+        known = sorted({str(row.get(field) or unknown) for row in rows} - {unknown})
+        if len(known) > 1:
+            return label, known
+    return None
+
+
+def links_per_person(
+    links: Iterable[tuple[str, str, T]], pairs: Iterable[tuple[str, str]]
+) -> list[tuple[str, str, T]]:
+    """``links`` (two samples and what links them: a child, its parent and the parent's role, say)
+    read per person, with the same-individual links ``pairs``: a link between a sample of one person
+    and a sample of another holds for every sample of each. In the order of ``links``, each once."""
+    samples_of = {sample: group for group in same_individual_groups(pairs) for sample in group}
+    return list(
+        dict.fromkeys(
+            (first_sample, second_sample, value)
+            for first, second, value in links
+            for first_sample in samples_of.get(first, [first])
+            for second_sample in samples_of.get(second, [second])
+        )
+    )
 
 
 def persons(samples: Collection[str], pairs: Iterable[tuple[str, str]]) -> list[list[str]]:

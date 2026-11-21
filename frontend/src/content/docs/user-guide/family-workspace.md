@@ -82,7 +82,9 @@ two pregnancies of one woman. The pedigree draws the person as one symbol labell
 the samples' genotypes identical, except a maternal plasma's, which it never compares. Two plasmas of
 one woman are one person, never one pregnancy: each pregnancy's results stay its own. The table keeps
 a row per sample. The samples of one person must agree on sex, affected and carrier status and parents,
-and are never also each other's relatives: a link or an edit that makes them differ is refused.
+and are never also each other's relatives: a link, an edit or a package import that makes them differ
+is refused, and so is a father or mother role that the sex recorded on another of the person's samples
+contradicts.
 
 Only an administrator edits the members, here and in **Admin → Family & sample data**, which shows
 this same table:

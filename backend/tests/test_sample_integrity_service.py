@@ -485,6 +485,37 @@ def test_service_nipt_parent_sex_that_could_not_be_read_warns_and_gates_sign_out
     ]
 
 
+def test_service_a_nipt_father_sampled_twice_has_his_two_samples_compared(monkeypatch) -> None:
+    # The monogenic NIPT profile reads no genotype relatedness, but two samples of one person are
+    # compared whatever the application: the genotypes are loaded for them, and only that pair is
+    # assessed.
+    _patch_passing_nipt(monkeypatch)
+    context = _context()
+    context.sample_rows.append({"sample_id": "FATHER2", "role": "relative", "sex": "male"})
+    context.sample_name_to_uuid["FATHER2"] = "uuid-FATHER2"
+    context.sample_uuid_to_name["uuid-FATHER2"] = "FATHER2"
+    context.relationship_rows.append(
+        {"relationship_type": "same_individual", "sample_id_a": "FATHER2", "sample_id_b": "FATHER"}
+    )
+
+    def _sample(scope, limit, source):
+        rows = _x_rows(600) if scope == "chrX" else _autosomal_rows(2_400, seed=11, swap_child=False)
+        # FATHER2 is called as FATHER is: the same person.
+        return [(chrom, pos, ref, alt, [*samples, "FATHER2"], [*gts, gts[0]]) for chrom, pos, ref, alt, samples, gts in rows]
+
+    _stub_reads(monkeypatch, context=context, sources=["clair3"], sample=_sample, metadata={"analyses": ["monogenic_nipt"]})
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="FAM1", user=None)
+    )
+
+    assert report.application == "nipt"
+    assert [
+        (c.sample_a, c.sample_b, c.expected_relationship, c.informative_sites, c.status) for c in report.relatedness_checks
+    ] == [("FATHER", "FATHER2", "same-individual", 2_400, "pass")]
+    assert report.mendelian_checks == [] and report.overall_status == "pass"
+
+
 def test_service_nipt_parent_sex_without_a_callset_adds_nothing(monkeypatch) -> None:
     # Without a genotype callset there is no chrX to read: no check and no note. The cfDNA
     # checks lack data then too, and gate sign-out themselves.

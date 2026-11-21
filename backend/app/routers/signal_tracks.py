@@ -12,12 +12,14 @@ Two things differ from the alignment endpoints next door:
 * **Paths come from the import, not from a naming convention.** A CRAM is always
   ``<sample>.cram``; a HiFiCNV bigWig is named after the caller's own run
   (``HG002.Sample0.depth.bw``, ``HG002.HG002.maf.bw``). What the import found is
-  recorded on the sample, and that is what is served. The recorded path is looked up in
-  the package folder the family's import read, below an import root (a package read where
-  it lies, on a mounted share or bucket too, keeps its files there), then in
-  ``<data>/families/<family>``, and only inside that folder, as the alignments are: one
-  that leads out (an edited row holding ``..`` or an absolute path, a symlink into another
-  family's folder) names no file (``core/family_folders.py``).
+  recorded on the sample, with the analysis whose import recorded it, and that is what is
+  served. The recorded path is looked up in the package folder that analysis's import read,
+  below an import root (a package read where it lies, on a mounted share or bucket too,
+  keeps its files there), and only inside that folder, as a recorded alignment or QC report
+  is: one that leads out (an edited row holding ``..`` or an absolute path, a symlink into
+  another folder) names no file (``core/family_folders.py``). A record whose analysis the
+  family holds no package folder of names no file either: nowhere else is looked, where
+  another analysis's file of the same name could be.
 * **Range requests matter.** A depth bigWig is ~19 MB and a MAF bigWig ~143 MB;
   IGV fetches slices by byte range. Starlette's ``FileResponse`` honours ``Range``,
   which is also how the CRAM endpoints work.
@@ -35,7 +37,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.family_folders import PACKAGES_FOLDER, family_folders, path_in_family_folder
+from ..core.family_folders import path_in_family_folder
 from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
@@ -46,8 +48,6 @@ from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
 
 router = APIRouter(prefix="/signal-tracks", tags=["signal_tracks"])
-
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 
 
 class _TrackKind(TypedDict):
@@ -158,43 +158,33 @@ def _track_paths(rows: list[tuple[str, dict[str, Any], Any]]) -> dict[str, dict[
     return recorded
 
 
-def _resolve_track_path(family_id: str, relative_path: str, package_folder: object = None) -> Path | None:
-    """The file a recorded path names in the package folder the family's import read,
-    ``package_folder`` (the folder of the analysis whose import recorded it), and only there; for a
-    record that names no folder, in the family's package folder ``<data>/families/<family>``;
-    ``None`` when it is gone or lies outside them.
+def _resolve_track_path(relative_path: str, package_folder: str | None) -> Path | None:
+    """The file a recorded path names in the package folder of the analysis whose import
+    recorded it, ``package_folder``, and only there; ``None`` when the record names no such
+    folder, or the file is gone or lies outside it.
+
+    Nowhere else is looked: a track gone from its analysis's package, or one whose analysis the
+    family holds no package folder of, is missing, never looked for in the family's folders,
+    which could hold another analysis's file of the same name.
 
     The import records the path relative to the package, but it comes back from
     ``samples.metadata`` as data: an edited row can hold ``..`` or an absolute path. It is
     joined to the package folder and normalised as a string, and one that leaves that folder
     (``../F2/cnv/S2.depth.bw``, an absolute path elsewhere) is dropped before anything is
     looked up by it. One that stays is kept only when its real path lies inside that folder
-    (the imported one) or one of the family's own folders, so a symlink cannot lead into
-    another family's folder or out of the data directory; a family ID that is no single
-    folder name has no folder (``core/family_folders.py``). The imported folder is used only
-    when it lies below an import root (``local_family_package_folder``): a package on a
-    mounted share or bucket is read where it lies.
+    too, so a symlink leads neither into another package nor anywhere else
+    (``core/family_folders.py``). The folder is used only when it lies below an import root
+    (``local_family_package_folder``): a package on a mounted share or bucket is read where
+    it lies.
     """
 
     if not relative_path:
         return None
-    if package_folder is not None:
-        # Read in the folder of the analysis whose import recorded it alone: a file gone from
-        # there is missing, never taken from another folder, which may hold another analysis's
-        # file of the same name.
-        imported = local_family_package_folder(package_folder)
-        if imported is None:
-            return None
-        path = path_in_family_folder(imported, [imported], relative_path)
-        return Path(path) if path is not None and os.path.isfile(path) else None
-    folders = family_folders(DATA_DIR, family_id)
-    package = folders.get(PACKAGES_FOLDER)
-    if package is None:
+    imported = local_family_package_folder(package_folder)
+    if imported is None:
         return None
-    path = path_in_family_folder(package, folders.values(), relative_path)
-    if path is None or not os.path.isfile(path):
-        return None
-    return Path(path)
+    path = path_in_family_folder(imported, [imported], relative_path)
+    return Path(path) if path is not None and os.path.isfile(path) else None
 
 
 def _track_url(
@@ -203,12 +193,12 @@ def _track_url(
     source: str,
     kind: str,
     relative_path: str | None,
-    package_folder: object = None,
+    package_folder: str | None,
 ) -> str | None:
     """Where the browser fetches a track, or ``None`` when there is nothing to serve: the
     backend route to the file in the package folder, each value percent-encoded as one
     segment (an ID may hold `?`, `#`, `%` or `..`). Blocking (file checks)."""
-    if not relative_path or _resolve_track_path(family_id, relative_path, package_folder) is None:
+    if not relative_path or _resolve_track_path(relative_path, package_folder) is None:
         return None
     return url_path("signal-tracks", family_id, sample_id, source, kind)
 
@@ -307,7 +297,7 @@ async def _resolve_requested_track(
     relative_path, spec, package_folder = await _requested_track(
         session, family_id, sample_id, source, kind, user
     )
-    path = await asyncio.to_thread(_resolve_track_path, family_id, relative_path, package_folder)
+    path = await asyncio.to_thread(_resolve_track_path, relative_path, package_folder)
     if path is None:
         raise HTTPException(status_code=404, detail="Signal track file is missing")
     return path, spec

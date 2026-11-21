@@ -4,6 +4,7 @@ import { countOf } from '../../lib/countOf';
 import type { PedRow } from '../../lib/pedigree';
 import { isAffectedMember, isCarrierStatus } from '../../lib/familyMembers';
 import { isFiniteNumber } from '../../lib/number';
+import { personOfSamples } from '../../lib/acmg/pedigree';
 
 interface PedigreeMember {
   sample_id: string;
@@ -332,20 +333,10 @@ const mergeSameIndividuals = (
 ): MergedPedigreeInput => {
   const links = relationships.filter((relationship) => relationship.relationship_type === 'same_individual');
   if (!links.length) return { rows, members, relationships, samplesOf: new Map() };
-  const parent = new Map<string, string>();
-  const root = (id: string): string => {
-    let current = id;
-    while (parent.has(current) && parent.get(current) !== current) current = parent.get(current)!;
-    return current;
-  };
-  links.forEach((link) => {
-    const a = trimId(link.sample_id_a);
-    const b = trimId(link.sample_id_b);
-    if (!a || !b || a === b) return;
-    if (!parent.has(a)) parent.set(a, a);
-    if (!parent.has(b)) parent.set(b, b);
-    parent.set(root(a), root(b));
-  });
+  // The person each linked sample is, by its trimmed ID.
+  const personOf = personOfSamples(
+    links.map((link) => ({ ...link, sample_id_a: trimId(link.sample_id_a), sample_id_b: trimId(link.sample_id_b) })),
+  );
   const weight = new Map<string, number>();
   const bump = (id?: string | null) => {
     const cleaned = trimId(id);
@@ -366,10 +357,7 @@ const mergeSameIndividuals = (
   });
   const memberOrder = new Map(members.map((member, index) => [trimId(member.sample_id), index]));
   const groups = new Map<string, string[]>();
-  parent.forEach((_value, id) => {
-    const key = root(id);
-    groups.set(key, [...(groups.get(key) ?? []), id]);
-  });
+  Object.entries(personOf).forEach(([id, person]) => groups.set(person, [...(groups.get(person) ?? []), id]));
   const shownAs = new Map<string, string>();
   const samplesOf = new Map<string, string[]>();
   groups.forEach((ids) => {

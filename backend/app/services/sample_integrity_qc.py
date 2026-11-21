@@ -23,19 +23,19 @@ aligned by index (same site at the same position in every sample's list).
 from __future__ import annotations
 
 import statistics
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Literal, TypeVar
 
 from .nipt_analysis import MIN_FETAL_SEX_SITES
-from .same_individual import person_of
+from .same_individual import links_per_person, person_of, same_individual_groups
 
 Genotype = tuple[int, int]
 Status = Literal["pass", "warn", "fail", "skip"]
 
 # The relationship expected of two samples of one person (a same-individual link): their
 # genotypes look a duplicate.
-SAME_INDIVIDUAL = "same-individual"
+SAME_INDIVIDUAL_RELATION = "same-individual"
 # The status of a check that always reaches a verdict: never "skip".
 Verdict = Literal["pass", "warn", "fail"]
 
@@ -653,7 +653,7 @@ def _relationship_status(
         if inferred in _FIRST_DEGREE:
             return "pass", f"Consistent with full siblings ({metrics})."
         return "fail", f"Recorded siblings but genotypes look {inferred} ({metrics})."
-    if expected == SAME_INDIVIDUAL:
+    if expected == SAME_INDIVIDUAL_RELATION:
         if inferred == "duplicate":
             return "pass", f"Confirmed the same individual ({metrics})."
         return "fail", (
@@ -725,12 +725,12 @@ def _sample_pairs(samples: Iterable[str]) -> Iterator[tuple[str, str]]:
             yield a, b
 
 
-# Of two relationships recorded between the samples of two people, the one kept: the closer.
+# The rank of a relationship carried from one person's sample to the other's: the lower, the closer.
 _CARRIED_RANK = {"parent-child": 0, "sibling": 1}
 
 
 def _with_same_individuals(
-    expected: dict[tuple[str, str], str], links: Iterable[tuple[str, str]]
+    expected: dict[tuple[str, str], str], links: Collection[tuple[str, str]]
 ) -> dict[tuple[str, str], str]:
     """The expected relationships read per person, with the family's same-individual ``links``
     (the owner's decision of 2026-11-20): two samples of one person are expected identical, and
@@ -740,41 +740,31 @@ def _with_same_individuals(
     pair with a maternal plasma is never assessed (``PedigreeSpec.mixtures``): two plasmas of one
     woman are one person, each with its own pregnancy's fetus, never a duplicate."""
     person = person_of(links)
-
-    def of(sample: str) -> str:
-        return person.get(sample, sample)
-
-    between: dict[tuple[str, str], str] = {}
+    # Of two relationships recorded between the samples of two people, the closer is kept.
+    between: dict[tuple[str, str], tuple[str, str, str]] = {}
     for (a, b), relation in expected.items():
-        people = _pair_key(of(a), of(b))
+        people = _pair_key(person.get(a, a), person.get(b, b))
         held = between.get(people)
         if people[0] != people[1] and (
-            held is None or _CARRIED_RANK.get(relation, 9) < _CARRIED_RANK.get(held, 9)
+            held is None or _CARRIED_RANK.get(relation, 9) < _CARRIED_RANK.get(held[2], 9)
         ):
-            between[people] = relation
-    out: dict[tuple[str, str], str] = {}
-    for a, b in _sample_pairs([*person, *(sample for pair in expected for sample in pair)]):
-        carried = SAME_INDIVIDUAL if of(a) == of(b) else between.get(_pair_key(of(a), of(b)))
-        if carried is not None:
-            out[(a, b)] = carried
+            between[people] = (a, b, relation)
+    out = {_pair_key(a, b): relation for a, b, relation in links_per_person(between.values(), links)}
+    for group in same_individual_groups(links):
+        out.update(dict.fromkeys(_sample_pairs(group), SAME_INDIVIDUAL_RELATION))
     return out
 
 
 def _with_same_individual_pairs(
-    pairs: set[tuple[str, str]], links: Iterable[tuple[str, str]]
+    pairs: set[tuple[str, str]], links: Collection[tuple[str, str]]
 ) -> set[tuple[str, str]]:
     """``pairs`` (co-parents) read per person: every pair of a sample of one co-parent and a
     sample of the other."""
     person = person_of(links)
-
-    def of(sample: str) -> str:
-        return person.get(sample, sample)
-
-    people = {_pair_key(of(a), of(b)) for a, b in pairs if of(a) != of(b)}
     return {
-        (a, b)
-        for a, b in _sample_pairs([*person, *(sample for pair in pairs for sample in pair)])
-        if _pair_key(of(a), of(b)) in people
+        _pair_key(a, b)
+        for a, b, _ in links_per_person([(a, b, None) for a, b in pairs], links)
+        if person.get(a, a) != person.get(b, b)
     }
 
 
@@ -787,6 +777,25 @@ def _sibling_pairs(parents_of: dict[str, dict[str, str]]) -> set[tuple[str, str]
             if shared:
                 pairs.add((c1, c2))
     return pairs
+
+
+def identity_pairs(spec: PedigreeSpec, samples: Iterable[str]) -> list[tuple[str, str]]:
+    """The pairs of ``samples`` that are two samples of one person (``spec.same_individual``),
+    neither a maternal plasma (``spec.mixtures``), each in sorted order. Their genotypes are
+    expected identical, and compared, whatever the application: a profile that reads no
+    relatedness (one person sampled twice is a single) still assesses them, so a swapped second
+    sample fails, and one that cannot be compared gates the sign-out
+    (``report_signout_service._unverifiable_swap_checks``)."""
+    person = person_of(spec.same_individual)
+    linked = [sample for sample in samples if sample in person and sample not in spec.mixtures]
+    return [(a, b) for a, b in _sample_pairs(linked) if person[a] == person[b]]
+
+
+def reads_relatedness(profile: QcProfile, spec: PedigreeSpec, samples: Iterable[str]) -> bool:
+    """Whether the QC of ``samples`` reads relatedness from the genotypes: the profile's
+    relatedness or Mendelian checks, or two samples of one person to compare
+    (``identity_pairs``)."""
+    return profile.run_relatedness or profile.run_mendelian or bool(identity_pairs(spec, samples))
 
 
 # --- Application profiles ----------------------------------------------------
@@ -878,8 +887,8 @@ _PROFILES: dict[ApplicationKind, QcProfile] = {
     ),
     "single": QcProfile(
         "single", "Single sample (targeted)",
-        "Sex concordance only — a single sample has no relatedness or Mendelian "
-        "context.",
+        "Sex concordance. One person has no relatedness or Mendelian context; two samples "
+        "of that person, linked as the same individual, are compared and expected identical.",
         run_sex=True, run_relatedness=False, run_mendelian=False,
         run_paternity=False,
     ),
@@ -1143,31 +1152,29 @@ def evaluate_sample_integrity(
     }
 
     relatedness_checks: list[RelatednessCheck] = []
-    if profile.run_relatedness:
-        # A maternal plasma is a mixture of two genomes: no pair with one is assessed.
-        genomes = [sample for sample in samples if sample not in spec.mixtures]
-        pair_stats = {
-            (a, b): king_relatedness(autosomal[a], autosomal[b])
-            for i, a in enumerate(genomes)
-            for b in genomes[i + 1:]
-        }
-        cut = ibs0_parent_child_cut(pair_stats, coparent_pairs)
-        for pair, stats in pair_stats.items():
-            is_coparent = pair in coparent_pairs
-            exp = expected.get(pair, "unrelated")
-            check = _relationship_check(*pair, exp, stats, cut, coparents=is_coparent)
-            # For a couple, or co-parents (consanguinity check), the "unrelated"
-            # confirmation IS a wanted result, so keep it; elsewhere suppress the
-            # noise of expected-unrelated passes and keep only asserted pairs or
-            # surprising findings.
-            if (
-                exp == "unrelated"
-                and check.status == "pass"
-                and profile.application != "couple"
-                and not is_coparent
-            ):
-                continue
-            relatedness_checks.append(check)
+    # A maternal plasma is a mixture of two genomes: no pair with one is assessed. Two samples of
+    # one person are compared whatever the profile (``identity_pairs``): one person sampled twice
+    # is a single, whose profile reads no relatedness.
+    genomes = [sample for sample in samples if sample not in spec.mixtures]
+    assessed = list(_sample_pairs(genomes)) if profile.run_relatedness else identity_pairs(spec, genomes)
+    pair_stats = {(a, b): king_relatedness(autosomal[a], autosomal[b]) for a, b in assessed}
+    cut = ibs0_parent_child_cut(pair_stats, coparent_pairs)
+    for pair, stats in pair_stats.items():
+        is_coparent = pair in coparent_pairs
+        exp = expected.get(pair, "unrelated")
+        check = _relationship_check(*pair, exp, stats, cut, coparents=is_coparent)
+        # For a couple, or co-parents (consanguinity check), the "unrelated"
+        # confirmation IS a wanted result, so keep it; elsewhere suppress the
+        # noise of expected-unrelated passes and keep only asserted pairs or
+        # surprising findings.
+        if (
+            exp == "unrelated"
+            and check.status == "pass"
+            and profile.application != "couple"
+            and not is_coparent
+        ):
+            continue
+        relatedness_checks.append(check)
 
     mendelian_checks: list[MendelianCheck] = []
     if profile.run_mendelian:
@@ -1183,7 +1190,7 @@ def evaluate_sample_integrity(
                 mendelian_checks.append(mendelian)
 
     autosomal_sites = max((len(v) for v in autosomal.values()), default=0)
-    genotype_checks_run = profile.run_relatedness or profile.run_mendelian
+    genotype_checks_run = profile.run_relatedness or profile.run_mendelian or bool(pair_stats)
     if genotype_checks_run:
         if not autosomal:
             notes.append("No genotypes were available; QC could not run.")

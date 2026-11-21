@@ -65,7 +65,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
     from backend.app.core.config import settings
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
-    from backend.app.routers import cram, signal_tracks
+    from backend.app.routers import cram
     from backend.tests.e2e import _harness
 
     family, sample = f"SHAREPKG{run}", f"SHAREPKG{run}_PROBAND"
@@ -79,11 +79,10 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
 
     out: dict[str, Any] = {"files": files, "family": family, "sample": sample}
-    # The QC report is read in its analysis's package folder alone: no data directory of its own.
-    routers = (cram, signal_tracks)
-    saved = [router.DATA_DIR for router in routers], settings.family_import_roots
-    for router in routers:
-        router.DATA_DIR = data
+    # The signal tracks and the QC report are read in their analysis's package folder alone: no
+    # data directory of their own.
+    saved = cram.DATA_DIR, settings.family_import_roots
+    cram.DATA_DIR = data
     settings.family_import_roots = [str(data / "families"), str(data / "share")]
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
@@ -111,9 +110,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
             report = (await admin.get(f"/api{link.json()['url']}")).content if link.status_code == 200 else None
             out["report"] = (link.status_code, report)
     finally:
-        directories, settings.family_import_roots = saved
-        for router, directory in zip(routers, directories):
-            router.DATA_DIR = directory
+        cram.DATA_DIR, settings.family_import_roots = saved
     return out
 
 

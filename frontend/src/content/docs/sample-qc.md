@@ -27,7 +27,9 @@ application, then runs only the checks that fit it:
 
 Any other family shape gets sex, relatedness and Mendelian checks where the data allows. The shape
 counts people, not samples: two samples linked as the same individual are one person, so one person
-sampled twice is a single sample, and a couple with a partner sampled twice a carrier couple.
+sampled twice is a single sample, and a couple with a partner sampled twice a carrier couple. Two
+samples of one person, neither a maternal plasma, are compared with each other in every application,
+whatever its checks: a single sample's two samples too (see *Relatedness against the pedigree*).
 
 Each call set is named by the caller that made it. The genotypes come from the family's direct calls:
 Clair3's, DeepVariant's, GATK HaplotypeCaller's or GATK Mutect2's, in that order, then any other
@@ -142,8 +144,9 @@ each carries its own pregnancy's fetus.
 The pedigree is read per person: what it records between a sample of one person and a sample of
 another (parent and child, siblings, co-parents) is expected of every pair of their samples. A mother
 and her child each sampled twice give four parent–child pairs, and two children whose recorded
-mothers are two samples of one mother are siblings. A sample without genotypes (a conventional NIPT
-plasma) has no relatedness check, so its link adds none.
+mothers are two samples of one mother are siblings. A maternal plasma has no relatedness check,
+because it is a mixture of the mother's DNA and a fetus's, not because it may lack genotypes: its
+link adds none.
 
 A pair needs at least **1,000** shared sites; with fewer the result is a **warn**, not a false alarm.
 
