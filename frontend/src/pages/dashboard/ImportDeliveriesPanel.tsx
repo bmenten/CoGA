@@ -716,6 +716,9 @@ const ImportDeliveriesPanel: React.FC = () => {
                       {delivery.analysis_type
                         ? ` · ${analysisTypeLabel(delivery.analysis_type)}`
                         : ''}
+                      {delivery.pregnancy_id
+                        ? ` · pregnancy ${delivery.pregnancy_id}`
+                        : ''}
                       {delivery.request_id
                         ? ` · request ${delivery.request_id}`
                         : ''}

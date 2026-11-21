@@ -135,7 +135,7 @@ describe('PipelineRunsPanels', () => {
     render(
       <PipelineRunsPanels
         familyId="FAM1"
-        metadata={{ analysis_types: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
+        metadata={{ analyses: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
         variant="report"
       />,
     );
@@ -159,7 +159,7 @@ describe('PipelineRunsPanels', () => {
     // The short-read package carried no run record: the long-read one is not the family's whole.
     render(
       <PipelineRunsPanels
-        metadata={{ analysis_types: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
+        metadata={{ analyses: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
         variant="workspace"
       />,
     );
@@ -170,7 +170,7 @@ describe('PipelineRunsPanels', () => {
 
   it('shows on the report the run record of the analysis it signs out alone', async () => {
     const metadata = {
-      analysis_types: ['long_read_wgs', 'short_read_wgs'],
+      analyses: ['long_read_wgs', 'short_read_wgs'],
       pipeline: { short_read_wgs: { genome: 'GRCh38' }, long_read_wgs: PACBIO_SETTINGS },
     };
     const { unmount } = render(<PipelineRunsPanels metadata={metadata} variant="report" analysis="short_read_wgs" />);
@@ -184,7 +184,7 @@ describe('PipelineRunsPanels', () => {
     // run record.
     render(
       <PipelineRunsPanels
-        metadata={{ analysis_types: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
+        metadata={{ analyses: ['long_read_wgs', 'short_read_wgs'], pipeline: { long_read_wgs: PACBIO_SETTINGS } }}
         variant="report"
         analysis="short_read_wgs"
       />,

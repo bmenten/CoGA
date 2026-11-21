@@ -108,6 +108,7 @@ async def add_family_package_delivery(
         project_id=payload.project_id,
         family_id=payload.family_id,
         analysis_type=payload.analysis_type,
+        pregnancy_id=payload.pregnancy_id,
         user=user,
     )
 

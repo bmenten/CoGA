@@ -31,7 +31,7 @@ async def _family(session, label: str, analyses: list[str]) -> str:
     return (
         await session.execute(
             text("INSERT INTO families (family_id, metadata) VALUES (:f, CAST(:m AS jsonb)) RETURNING id::text"),
-            {"f": label, "m": json.dumps({"analysis_types": analyses})},
+            {"f": label, "m": json.dumps({"analyses": analyses})},
         )
     ).scalar_one()
 

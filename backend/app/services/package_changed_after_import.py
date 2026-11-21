@@ -1,7 +1,7 @@
 """A package folder that changes, or goes, after its import (the owner's decisions of 2026-11-11).
 
-A family keeps a package record per analysis it was imported for (``family_package_records``: a
-monogenic and a conventional NIPT of one pregnancy each have their own). Each record names the
+A family keeps a package record per analysis it was imported for (``family_package_records``: the
+monogenic and the conventional NIPT of each pregnancy each have their own). Each record names the
 delivery its analysis's data was last imported from (``delivery``), and CoGA serves that
 analysis's read files (IGV), signal tracks and QC report from that delivery's package folder,
 where it lies. An import with update skips the datasets the family holds already, so only an
@@ -333,7 +333,8 @@ async def end_changes_no_family_names(session_factory: async_sessionmaker[AsyncS
     the delivery's analysis names now (a delivery of the family, or of the folder, imported with
     overwrite: resolution ``overwritten``), or, when none does, ``not_named``. Only the record of
     the analysis the delivery's package names (its key, ``package_record_key``) is read: the
-    reference of another of the family's analyses replaced nothing of it. A delivery whose
+    reference of another of the family's analyses (another pregnancy's among them) replaced
+    nothing of it. A delivery whose
     family's new reference is still being imported (``queued``) is left to the round after its
     job's end: a failed import that puts the family back puts its record back too. Returns how
     many ended."""
@@ -343,7 +344,8 @@ async def end_changes_no_family_names(session_factory: async_sessionmaker[AsyncS
                 text(
                     f"""
                     SELECT d.id::text AS id, d.folder_path, d.folder_name, d.package_fingerprint, d.family_id,
-                           d.package ->> 'analysis_type' AS analysis_type
+                           d.package ->> 'analysis_type' AS analysis_type,
+                           d.package ->> 'pregnancy_id' AS pregnancy_id
                     FROM import_deliveries d
                     WHERE d.state = ANY(CAST(:raised AS text[]))
                       AND NOT EXISTS (SELECT 1 FROM {_FAMILY_RECORDS} WHERE {_REFERENCE_OF_A_FAMILY})
@@ -376,7 +378,7 @@ async def end_changes_no_family_names(session_factory: async_sessionmaker[AsyncS
                         "folder": row["folder_path"],
                         "family_id": row["family_id"],
                         "id": row["id"],
-                        "analysis": package_record_key(row.get("analysis_type")),
+                        "analysis": package_record_key(row.get("analysis_type"), row.get("pregnancy_id")),
                     },
                 )
             ).first()

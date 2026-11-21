@@ -27,6 +27,38 @@ CoGA models the case as a trio backed by two physical samples.
 A family is a NIPT family when it was created with the Monogenic NIPT option in the family builder, or
 imported with a package whose manifest says `analysis_type: monogenic_nipt`. CoGA takes the sample
 marked as maternal-plasma cfDNA as the mother's sample (the mother's own sample if none is marked).
+The fetus is a member with the role `fetus`: it has no data of its own, and it is neither a proband
+nor a PGT embryo. The family builder records the child of a monogenic NIPT family as the fetus.
+
+### Several pregnancies
+
+A family may hold several pregnancies of one woman. Each pregnancy's NIPT is an analysis of its own,
+named by its type and its pregnancy (`monogenic_nipt:ZW1`).
+
+- The package names the pregnancy (`pregnancy_id`, the laboratory's ID of it); the family builder
+  asks for it (**Pregnancy ID**). A monogenic and a conventional NIPT are one pregnancy only when
+  their packages name the same pregnancy.
+- A package that names a pregnancy the family holds imports that pregnancy again. One that names
+  another pregnancy adds an analysis beside the others and changes nothing of theirs.
+- Each pregnancy keeps its own data: its plasma, its fetus or fetuses, its calls and coverage tables,
+  and its own copy of the father's calls. A plasma or a fetus belongs to one pregnancy: a package of
+  another pregnancy that lists one of them is refused before anything is written.
+- The NIPT page, its coverage page and report, and the Sample QC show one pregnancy at a time. Choose
+  it in **Analysis whose data are shown**, beside the family name (*monogenic NIPT of pregnancy
+  ZW1*). The pages open on the pregnancy imported last.
+- Two plasmas of one woman, linked as the same individual, are one person in the pedigree but never
+  one pregnancy: their results never merge, and the Sample QC never compares a plasma for identity.
+
+### A multiple pregnancy
+
+When a pregnancy's package lists two or more fetuses, the NIPT page, the NIPT report and the signed
+version show a note:
+
+> Multiple pregnancy (N fetuses): a fetal result may be present in one fetus or in more than one, and
+> the analysis cannot tell which. This does not apply to a monozygotic twin, whose fetuses share one
+> genotype. The parents' carrier status is read as in a singleton pregnancy.
+
+CoGA is not told the zygosity, so the note appears for every multiple pregnancy.
 
 ### What the input must contain
 
@@ -467,14 +499,17 @@ out here or from the family report. The NIPT page itself offers no sign-out. Onc
 reads **Amend sign-out**, and the NIPT report names the latest signed version, its report code, and
 whether the family's data still matches it.
 
-A family that also holds the conventional NIPT of the pregnancy signs out each NIPT on its own. The
-NIPT report then signs out the monogenic NIPT, and names and checks that analysis's latest signed
-version; its record freezes the monogenic NIPT's data only. The family's **Report** page signs out the
-conventional NIPT (see *Report traceability & sign-out*, *One sign-out per analysis*).
+A family that also holds another analysis (the conventional NIPT of the pregnancy, or the NIPT of
+another pregnancy) signs out each analysis on its own. The NIPT report then signs out the monogenic
+NIPT of the pregnancy it shows, and names and checks that analysis's latest signed version; its record
+freezes that pregnancy's monogenic NIPT data only. The family's **Report** page signs out the
+conventional NIPT of each pregnancy (see *Report traceability & sign-out*, *One sign-out per
+analysis*).
 
 For a NIPT family the record also holds the **NIPT results**, as CoGA computes them at sign-out. The
 signed version shows them:
 
+- the pregnancy, its fetuses and, for a multiple pregnancy, the note above;
 - the fetal fraction and the quality checks with their verdicts;
 - the coverage of the capture targets (without a per-target table, the coverage check's notes on the
   coverage tracks it did not read as depth; see *Coverage*);
@@ -610,4 +645,4 @@ the signed record, with what the check ran for: it runs the check as the card do
 panel, over the family's region of interest, since it is not told the page's search.
 
 NIPT has its own sample-integrity checks on the Sample QC page as well (paternity, fetal sex, parent
-sex and the category distribution): see the [Sample-integrity QC reference](/docs/reference/sample-qc).
+sex and the category distribution), one pregnancy at a time: see the [Sample-integrity QC reference](/docs/reference/sample-qc).

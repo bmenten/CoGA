@@ -569,3 +569,30 @@ test('spaces the symbols so that long sample IDs never run into each other', asy
   });
 });
 
+
+test('marks each fetus of a pregnancy with a P, the twins of one pregnancy each', async () => {
+  // Two pregnancies of one woman (the owner's decision of 2026-11-21): a fetus is a member of its
+  // own role, drawn with the pedigree nomenclature's P for a pregnancy.
+  const rows = [
+    { fid: 'F1', iid: 'FATHER1', pid: '0', mid: '0', sex: '1', phen: '1' },
+    { fid: 'F1', iid: 'CFDNA1', pid: '0', mid: '0', sex: '2', phen: '1' },
+    { fid: 'F1', iid: 'FETUS1', pid: 'FATHER1', mid: 'CFDNA1', sex: '0', phen: '0' },
+    { fid: 'F1', iid: 'TWIN1', pid: 'FATHER1', mid: 'CFDNA1', sex: '0', phen: '0' },
+    { fid: 'F1', iid: 'TWIN2', pid: 'FATHER1', mid: 'CFDNA1', sex: '0', phen: '0' },
+  ];
+  const members = [
+    { sample_id: 'FATHER1', role: 'father' },
+    { sample_id: 'CFDNA1', role: 'mother' },
+    { sample_id: 'FETUS1', role: 'fetus' },
+    { sample_id: 'TWIN1', role: 'fetus' },
+    { sample_id: 'TWIN2', role: 'fetus' },
+  ];
+
+  const result = render(<Pedigree rows={rows} members={members} />);
+  await waitFor(() => expect(result.container.querySelector('svg')?.getAttribute('width')).toBeTruthy());
+
+  const marked = [...result.container.querySelectorAll('[data-fetus]')].map((node) => node.getAttribute('data-fetus'));
+  expect(marked.sort()).toEqual(['FETUS1', 'TWIN1', 'TWIN2']);
+  expect(result.container.querySelector('[data-fetus="FETUS1"]')?.textContent).toBe('P');
+  expect(result.container.querySelector('[data-fetus="CFDNA1"]')).toBeNull();
+});

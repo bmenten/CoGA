@@ -3637,7 +3637,7 @@ def _holds(monkeypatch, *analyses: str, package_imports: dict | None = None) -> 
 
     async def _held(_session, family_uuid):
         assert family_uuid == "u1"
-        return {"analysis_types": sorted(analyses), "package_imports": package_imports or {}}
+        return {"analyses": sorted(analyses), "package_imports": package_imports or {}}
 
     async def _finding_kinds(_session, _context, _scope):
         # The family holds no repeat call: both kinds are every analysis's.
@@ -4790,7 +4790,7 @@ def _scoped_patches(monkeypatch, seen: dict) -> None:
         session, *, family_id, user, project_id=None, shared_nipt=None, analysis_types=None, genotype_source_held=None,
         analysis=None,
     ):
-        seen["qc"] = (analysis_types, genotype_source_held)
+        seen["qc"] = (analysis, genotype_source_held)
         return SampleIntegrityReport(overall_status="pass")
 
     async def _sections(
@@ -4830,8 +4830,8 @@ def test_a_sign_out_of_one_analysis_freezes_and_checks_that_analysis_s_data_only
     assert seen["review_scope"].held == frozenset({"conventional_nipt", "monogenic_nipt"})
     reported, scope = seen["sections"]
     assert reported == [] and scope.analysis == "conventional_nipt" and not scope.whole
-    analysis_types, genotype_source_held = seen["qc"]
-    assert analysis_types == ["conventional_nipt"]
+    qc_analysis, genotype_source_held = seen["qc"]
+    assert qc_analysis == "conventional_nipt"
     assert not genotype_source_held("nipt") and genotype_source_held("ccnv") and genotype_source_held("upload")
     # Its own failure alone, with its own import's time, job and imported datasets: not the
     # monogenic NIPT's, though both NIPTs may list a dataset of one type.
@@ -4860,7 +4860,7 @@ def test_the_other_analysis_s_sign_out_holds_its_own_part_of_the_same_family(mon
     )
     assert [entry["variant_id"] for entry in snapshot[rss.REPORTED_VARIANTS_SECTION]] == ["1-1-A-G"]
     assert seen["drift_analysis"] == "monogenic_nipt" and seen["review_scope"].analysis == "monogenic_nipt"
-    assert seen["qc"][0] == ["monogenic_nipt"]
+    assert seen["qc"][0] == "monogenic_nipt"
     assert snapshot["import_incomplete"] == {
         "at": "2026-11-19T08:00:00+00:00",
         "failed_datasets": ["snv"],

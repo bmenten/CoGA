@@ -19,7 +19,7 @@ export interface FamilyAssemblyScope {
  * validated scope (or one that could not be loaded), a package import of the family that
  * partly failed or has not finished, and each package folder the family came from that changed, or
  * went, after its import (the family record's `package_source_changes`: one per analysis it was
- * imported for, such as a monogenic and a conventional NIPT of one pregnancy). Each shows only when it
+ * imported for, such as the monogenic and the conventional NIPT of each pregnancy). Each shows only when it
  * applies, and each prints with a report. Beneath them, a note when the delivered package the
  * family came from was corrected in CoGA before its import, listing each correction.
  *

@@ -90,7 +90,7 @@ Paginagrenzen gaan altijd door `int(...)`, worden minstens 0 en staan zelf als p
 
 ## Alle routers
 
-Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. Alleen `metrics.py` hangt `main.py` bewust buiten `/api` (zie *Metrics voor de monitoring*). De router `families.py` bindt vijf deelrouters in onder hetzelfde pad `/families`; die hebben daarom geen eigen voorvoegsel. Alleen `health.py`, `lookups.py` en `ancestry.py` hebben helemaal geen voorvoegsel; `ancestry.py` schrijft `/families/…` in elk pad.
+Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. Alleen `metrics.py` hangt `main.py` bewust buiten `/api` (zie *Metrics voor de monitoring*). De router `families.py` bindt zes deelrouters in onder hetzelfde pad `/families`; die hebben daarom geen eigen voorvoegsel. Alleen `health.py`, `lookups.py` en `ancestry.py` hebben helemaal geen voorvoegsel; `ancestry.py` schrijft `/families/…` in elk pad.
 
 | Router | Pad onder `/api` | Doel |
 | --- | --- | --- |
@@ -100,7 +100,8 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | `families.py` | `/families` | Familie, leden, structuur, HPO, fenotype-matching, regio van interesse, wie een familie toegewezen kan krijgen of nakijken (`/families/{id}/assignable-users`) |
 | `families_small_variants.py` | `/families` (deel) | Small variants: pagina's, export, compound-het, presets, tags, review en ACMG, en de statistieken van de variantsamenvatting (hoofdstuk 8) |
 | `families_structural_variants.py` | `/families` (deel) | Structurele varianten van een familie |
-| `families_nipt.py` | `/families` (deel) | Monogene NIPT: samenvatting met de kwaliteitscontroles, varianten met de overervingsweergaven, dekking (ook per capture-target) (hoofdstuk 8) |
+| `families_nipt.py` | `/families` (deel) | Monogene NIPT: samenvatting met de kwaliteitscontroles, varianten met de overervingsweergaven, dekking (ook per capture-target), van één zwangerschap tegelijk (`analysis`) (hoofdstuk 8) |
+| `families_cnipt.py` | `/families` (deel) | Conventionele NIPT: de automatische uitslag van elk maternaal plasma, van één zwangerschap tegelijk (`analysis`) (hoofdstuk 8) |
 | `families_reports.py` | `/families` (deel) | Annotatiemanifest, drift, klinische audit, sample-QC, rapport en ondertekening (hoofdstuk 11) |
 | `families_tracks.py` | `/families` (deel) | Tracks: haplotypes, gefaseerde markers, repeats, mtDNA, Paraphase (hoofdstuk 9); voor de variantsamenvatting de SV-lengtes en de SV-tellingen per lid en per paar leden (hoofdstuk 8) |
 | `family_qc_reports.py` | `/families` | Het QC-rapport van de pipeline, via een kortlevende link en afgeschermd (hoofdstuk 2) |

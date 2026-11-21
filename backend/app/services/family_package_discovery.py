@@ -24,6 +24,7 @@ from .family_package_long_read import long_read_family_block, long_read_sample_i
 from .family_package_manifest import _parse_ped_text_strict, ped_member_entries, ped_relatives
 from .family_package_mito_table import MITO_TABLE_PATTERNS, read_mito_table, table_id_member
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files, nipt_draft_column_issues
+from .family_analysis_types import FETUS_ROLE
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_ped_indexes, pgt_roi_phasing_issue, pgt_run_context
 from .family_package_source import _ensure_authorized_package_path, package_folder_link_issues, package_folder_path
@@ -2015,6 +2016,9 @@ def discover_family_package_manifest(request: FamilyPackageManifestBuildRequest)
         for entry in entries:
             if "role" not in entry and entry["sample_id"] in index_roles:
                 entry["role"] = index_roles[entry["sample_id"]]
+            # A monogenic NIPT pair's child is its pregnancy's fetus.
+            if "role" not in entry and nipt_files is not None and entry["sample_id"] == nipt_files.fetus_sample_id:
+                entry["role"] = FETUS_ROLE
         family_block["add_members"] = entries
         if carriers:
             family_block["members"] = carriers

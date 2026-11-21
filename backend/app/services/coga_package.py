@@ -49,6 +49,12 @@ from typing import Annotated, Any, Literal, get_args
 
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 
+from .family_analysis_types import (
+    PREGNANCY_ANALYSIS_TYPES,
+    PREGNANCY_ID_MAX_LENGTH,
+    is_pregnancy_analysis_type,
+    pregnancy_id_problem,
+)
 from .family_identifiers import identifier_problem
 from .family_package_common import manifest_text_problem
 from .family_package_fingerprint import PACKAGE_FINGERPRINT_MAX_ENTRIES, PackageFolderTooLarge
@@ -92,7 +98,9 @@ DatasetName = Literal[
 ]
 Sex = Literal["male", "female", "unknown"]
 # A member's role in the family (family_package_manifest._PED_ROLE_VALUES).
-Role = Literal["proband", "father", "mother", "sibling", "embryo", "relative"]
+# A ``fetus`` is a pregnancy's, of a monogenic or a conventional NIPT: a family may hold several,
+# each listed by its pregnancy's package (the owner's decision of 2026-11-21).
+Role = Literal["proband", "father", "mother", "sibling", "embryo", "fetus", "relative"]
 ClinicalStatus = Literal["affected", "unaffected", "unknown"]
 CarrierStatus = Literal["carrier", "not_carrier", "unknown"]
 CarrierType = Literal["obligate", "proven", "reported", "inferred"]
@@ -119,6 +127,13 @@ def _identifier(value: str) -> str:
     return value
 
 
+def _pregnancy_identifier(value: str) -> str:
+    problem = pregnancy_id_problem(value)
+    if problem is not None:
+        raise ValueError(f"is no pregnancy ID: it {problem}")
+    return value
+
+
 def _package_path(value: str) -> str:
     if not value:
         raise ValueError("is empty")
@@ -137,6 +152,13 @@ def _package_path(value: str) -> str:
 
 Identifier = Annotated[
     str, AfterValidator(_identifier), Field(min_length=1, json_schema_extra={"pattern": IDENTIFIER_PATTERN})
+]
+# The pregnancy a monogenic or a conventional NIPT is of: an ID by the rule of a family or sample
+# ID, given by the laboratory (the owner's decision of 2026-11-21).
+PregnancyId = Annotated[
+    str,
+    AfterValidator(_pregnancy_identifier),
+    Field(min_length=1, max_length=PREGNANCY_ID_MAX_LENGTH, json_schema_extra={"pattern": IDENTIFIER_PATTERN}),
 ]
 PackagePath = Annotated[
     str, AfterValidator(_package_path), Field(min_length=1, json_schema_extra={"pattern": PACKAGE_PATH_PATTERN})
@@ -246,6 +268,11 @@ class CogaPackage(_Strict):
     project: Text | None = None
     assembly: Text | None = None
     analysis_type: AnalysisType | None = None
+    # The pregnancy of a monogenic or a conventional NIPT (``PREGNANCY_ANALYSIS_TYPES``), which a
+    # complete NIPT package names and no other package does: a family may hold several pregnancies
+    # of one woman, each pregnancy's NIPT an analysis of its own. A monogenic and a conventional
+    # NIPT that name the same pregnancy are one pregnancy.
+    pregnancy_id: PregnancyId | None = None
     family: PackageFamily | None = None
     members: list[PackageMember] | None = None
     couples: list[PackageCouple] = Field(default_factory=list)
@@ -453,6 +480,8 @@ def package_issues(package: CogaPackage) -> list[PackageIssue]:
             if getattr(package, name) in (None, []):
                 issues.append(PackageIssue("package_field_missing", f"{name}: a complete package needs it", name))
 
+    issues.extend(_pregnancy_issues(package))
+
     if package.files is not None:
         paths = [entry.path for entry in package.files]
         for path in _duplicates(paths):
@@ -480,6 +509,32 @@ def package_issues(package: CogaPackage) -> list[PackageIssue]:
                     )
                 )
     return issues
+
+
+def _pregnancy_issues(package: CogaPackage) -> list[PackageIssue]:
+    """A complete monogenic or conventional NIPT package names its pregnancy (``pregnancy_id``),
+    and a package of any other analysis names none."""
+    if package.analysis_type is None:
+        return []
+    if is_pregnancy_analysis_type(package.analysis_type):
+        if package.pregnancy_id is None and package.status == "complete":
+            return [
+                PackageIssue(
+                    "package_pregnancy_missing",
+                    f"pregnancy_id: a {package.analysis_type} package names the pregnancy it is of",
+                    "pregnancy_id",
+                )
+            ]
+        return []
+    if package.pregnancy_id is not None:
+        return [
+            PackageIssue(
+                "package_pregnancy_not_nipt",
+                "pregnancy_id: only a monogenic_nipt or conventional_nipt package names a pregnancy",
+                "pregnancy_id",
+            )
+        ]
+    return []
 
 
 def _same_individual_issues(member: PackageMember, here: str, known: dict[str, PackageMember]) -> list[PackageIssue]:
@@ -603,7 +658,26 @@ def coga_package_json_schema() -> dict[str, Any]:
                 }
                 | {"files": {"type": "array", "minItems": 1}},
             },
-        }
+        },
+        # A complete NIPT package names its pregnancy.
+        {
+            "if": {
+                "properties": {
+                    "status": {"const": "complete"},
+                    "analysis_type": {"enum": list(PREGNANCY_ANALYSIS_TYPES)},
+                },
+                "required": ["status", "analysis_type"],
+            },
+            "then": {"required": ["pregnancy_id"], "properties": {"pregnancy_id": {"type": "string"}}},
+        },
+        # A package of any other analysis names none.
+        {
+            "if": {
+                "properties": {"analysis_type": {"type": "string", "not": {"enum": list(PREGNANCY_ANALYSIS_TYPES)}}},
+                "required": ["analysis_type"],
+            },
+            "then": {"properties": {"pregnancy_id": {"type": "null"}}},
+        },
     ]
     return schema
 

@@ -36,6 +36,7 @@ const delivery = (name: string, overrides: Record<string, unknown> = {}) => ({
   project_id: 'p1',
   project: 'PROJECT1',
   analysis_type: 'long_read_wgs',
+  pregnancy_id: null,
   pipeline_name: 'nf-core/example',
   pipeline_version: '1.0.0',
   request_id: null,

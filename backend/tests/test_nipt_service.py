@@ -339,7 +339,7 @@ async def test_run_family_nipt_analysis_says_why_a_nipt_familys_trio_is_not_reso
             FamilyMemberOut(sample_id="mother-1", role="mother", affected=False),
             FamilyMemberOut(sample_id="mother-2", role="mother", affected=False),
         ],
-        metadata={"analysis_types": ["monogenic_nipt"]},
+        metadata={"analyses": ["monogenic_nipt"]},
     )
 
     async def fake_get_family_record(_session, _family_id, _user):

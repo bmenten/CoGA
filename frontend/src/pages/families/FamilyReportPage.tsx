@@ -8,7 +8,6 @@ import FamilyCaseHeader from './FamilyCaseHeader';
 import SignedFamilyReport from './SignedFamilyReport';
 import CniptReportSummary from './CniptReportSummary';
 import AnalysisSignouts from './AnalysisSignouts';
-import { isConventionalNipt } from './cniptResult';
 import { analysisManifest, useAnnotationManifest } from './AnnotationProvenanceSummary';
 import type {
   ApiClassificationDrift,
@@ -23,7 +22,15 @@ import {
   useReportSignouts,
   useSignedVersionDownload,
 } from './reportSignoutQueries';
-import { analysisLabel, analysisQuery, reportPageAnalyses, separatelySignedAnalyses, soleAnalysis } from '../../lib/familyAnalyses';
+import {
+  analysisLabel,
+  analysisQuery,
+  analysisTypeOf,
+  pregnancyAnalyses,
+  reportPageAnalyses,
+  separatelySignedAnalyses,
+  soleAnalysis,
+} from '../../lib/familyAnalyses';
 import type { ApiReportSignoutList } from '../../lib/apiTypes';
 import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import {
@@ -439,6 +446,14 @@ const LiveFamilyReport: React.FC = () => {
   // (or none), as the check resolves it, so a family of one analysis never reads another
   // analysis's record as its latest.
   const recordAnalysis = signOutAnalysis ?? soleAnalysis(family?.metadata);
+  // The conventional NIPT whose result the report shows: the one signed out, or of a family signed
+  // out whole its only one; none for the sign-out of another analysis.
+  const cniptAnalysis =
+    signOutAnalysis !== null
+      ? analysisTypeOf(signOutAnalysis) === 'conventional_nipt'
+        ? signOutAnalysis
+        : null
+      : (pregnancyAnalyses(family?.metadata, 'conventional_nipt')[0] ?? null);
 
   // Evidence drift: classifications whose backing annotation changed since they
   // were made — a sign-out guardrail against stale interpretations. Of a family with several
@@ -846,8 +861,12 @@ const LiveFamilyReport: React.FC = () => {
         <p className="report-disclaimer">{LIVE_REPORT_SIGN_OFF_STATEMENT}</p>
       </section>
 
-      {familyId && isConventionalNipt(family?.metadata) ? (
-        <CniptReportSummary familyId={familyId} projectId={projectId} />
+      {familyId && cniptAnalysis !== null ? (
+        <CniptReportSummary
+          familyId={familyId}
+          projectId={projectId}
+          analysis={pregnancyAnalyses(family?.metadata, 'conventional_nipt').length > 1 ? cniptAnalysis : null}
+        />
       ) : null}
 
       {driftFailed ? (

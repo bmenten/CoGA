@@ -1356,7 +1356,7 @@ describe('FamilyReportPage', () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
         return Promise.resolve({
-          data: { family_id: 'F1', members: [], projects: [], can_sign_out: true, metadata: { analysis_types: ['conventional_nipt'] } },
+          data: { family_id: 'F1', members: [], projects: [], can_sign_out: true, metadata: { analyses: ['conventional_nipt'] } },
         });
       }
       if (url === '/families/F1/cnipt') return Promise.resolve({ data: result });
@@ -2138,7 +2138,9 @@ describe('FamilyReportPage', () => {
       application_label: 'Monogenic NIPT (cfDNA)',
     };
     const SIGNED_NIPT = {
-      samples: { father: 'FATHER1', maternal_plasma: 'CFDNA1', fetus: 'FETUS1' },
+      samples: { father: 'FATHER1', maternal_plasma: 'CFDNA1', fetuses: ['FETUS1'] },
+      analysis: 'monogenic_nipt:ZW1',
+      multiple_pregnancy_note: null,
       fetal_fraction: {
         ff: 0.12,
         ff_computed: 0.12,
@@ -2237,7 +2239,7 @@ describe('FamilyReportPage', () => {
       const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
       expect(nipt.closest('.no-print')).toBeNull();
       expect(nipt).toHaveTextContent(
-        'The monogenic NIPT analysis of the maternal plasma CFDNA1 against the father FATHER1, for fetus FETUS1',
+        'The monogenic NIPT analysis of the maternal plasma CFDNA1 against the father FATHER1, for fetus FETUS1 of pregnancy ZW1',
       );
       expect(nipt).toHaveTextContent(
         'Fetal fraction: 12.0% (95% CI 10.9%–13.1%) from 40 category-7 sites; per-site median 11.8% — Pass; fetal window for de novo alleles 4.0%–8.0%',
@@ -3794,7 +3796,7 @@ describe('FamilyReportPage', () => {
       apiMock.get.mockImplementation((url: string, config?: unknown) => {
         if (url === '/families/F1') {
           return (base(url, config) as Promise<{ data: Record<string, unknown> }>).then((response) => ({
-            data: { ...response.data, metadata: { analysis_types: analysisTypes } },
+            data: { ...response.data, metadata: { analyses: analysisTypes } },
           }));
         }
         if (url.startsWith('/families/F1/cnipt')) return Promise.resolve({ data: { family_id: 'F1', samples: [] } });
@@ -3939,7 +3941,7 @@ describe('FamilyReportPage', () => {
       apiMock.get.mockImplementation((url: string, config?: unknown) => {
         if (url === '/families/F1') {
           return (base(url, config) as Promise<{ data: Record<string, unknown> }>).then((response) => ({
-            data: { ...response.data, metadata: { analysis_types: ['short_read_wgs'] } },
+            data: { ...response.data, metadata: { analyses: ['short_read_wgs'] } },
           }));
         }
         // Named no analysis, the check is of the family's only one.
@@ -3961,7 +3963,7 @@ describe('FamilyReportPage', () => {
       apiMock.get.mockImplementation((url: string, config?: unknown) =>
         url === '/families/F1'
           ? (base(url, config) as Promise<{ data: Record<string, unknown> }>).then((response) => ({
-              data: { ...response.data, metadata: { analysis_types: ['short_read_wgs'] } },
+              data: { ...response.data, metadata: { analyses: ['short_read_wgs'] } },
             }))
           : base(url, config),
       );

@@ -308,7 +308,7 @@ def test_the_family_manifest_holds_one_manifest_per_analysis_in_order(monkeypatc
     _patch_manifest_read(
         monkeypatch,
         rows=[_LONG_READ, _SHORT_READ],
-        metadata={"analysis_types": ["short_read_wgs", "long_read_wgs"]},
+        metadata={"analyses": ["short_read_wgs", "long_read_wgs"]},
     )
     out = asyncio.run(ams.get_family_annotation_manifest(session=None, family_id="FAM1", user=None))
     assert [manifest["analysis_type"] for manifest in out["analyses"]] == ["long_read_wgs", "short_read_wgs"]
@@ -319,7 +319,7 @@ def test_a_sign_out_freezes_the_manifest_of_the_analysis_it_is_of(monkeypatch) -
     _patch_manifest_read(
         monkeypatch,
         rows=[_LONG_READ, _SHORT_READ],
-        metadata={"analysis_types": ["long_read_wgs", "short_read_wgs"]},
+        metadata={"analyses": ["long_read_wgs", "short_read_wgs"]},
     )
     context = types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38")
     out = asyncio.run(ams.analysis_annotation_manifest(None, context, analysis="short_read_wgs"))  # type: ignore[arg-type]
@@ -337,7 +337,7 @@ def test_a_calls_manifest_is_that_of_the_analysis_whose_package_stored_it(monkey
         monkeypatch,
         rows=[_LONG_READ, _SHORT_READ, _row("unspecified", {"sniffles": {"version": "2.2"}})],
         metadata={
-            "analysis_types": ["long_read_wgs", "short_read_wgs"],
+            "analyses": ["long_read_wgs", "short_read_wgs"],
             "package_imports": {
                 "long_read_wgs": _record(["snv", "sv_needlr"], "deepvariant"),
                 "short_read_wgs": _record(["snv"], "haplotypecaller"),
@@ -669,7 +669,7 @@ def test_a_first_manifest_is_recorded_with_no_prior(monkeypatch) -> None:
 
 
 def test_a_replacement_in_a_family_of_several_analyses_names_the_analysis(monkeypatch) -> None:
-    metadata = {"analysis_types": ["long_read_wgs", "short_read_wgs"]}
+    metadata = {"analyses": ["long_read_wgs", "short_read_wgs"]}
     session, events = _patch_replacement(monkeypatch, rows=[_LONG_READ, _SHORT_READ], metadata=metadata)
     admin = _manifest_user("admin")
     # Which analysis must be said, and must be one the family holds.
@@ -699,7 +699,7 @@ def test_a_replacement_in_a_family_of_several_analyses_names_the_analysis(monkey
 
 def test_a_replacement_writes_the_row_of_its_analysis_alone(monkeypatch) -> None:
     session = _MergeSession()
-    metadata = {"analysis_types": ["long_read_wgs", "short_read_wgs"]}
+    metadata = {"analyses": ["long_read_wgs", "short_read_wgs"]}
 
     async def _context(session_, *, family_identifier, user, project_id=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38")

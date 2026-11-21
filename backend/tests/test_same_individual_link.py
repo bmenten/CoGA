@@ -39,6 +39,7 @@ def _package(*members: dict[str, Any]) -> dict[str, Any]:
         "project": "NIPT",
         "assembly": "GRCh38",
         "analysis_type": "conventional_nipt",
+        "pregnancy_id": "ZW1",
         "family": {"family_id": "FAM001"},
         "members": list(members),
         "files": [{"path": "ccnv/PLASMA2_segments.bed.gz", "size": 1, "sha256": "0" * 64}],

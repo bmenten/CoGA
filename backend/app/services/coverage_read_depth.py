@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import clickhouse_interval_tracks
 from .bed_service import BED_UPLOAD_SOURCE
+from .family_package_records import source_base
 from .coverage_content import (
     DECLARED_COVERAGE_CONTENTS,
     LOG2_RATIO,
@@ -101,7 +102,9 @@ def coverage_track_content(
     ``unknown``, from its source, the transforms its records name
     (``interval_track_normalizations_by_sample``) and, for a coverage BED, what its records
     declare (``interval_track_contents_by_sample``). See the module docstring for the rule."""
-    if source == BED_UPLOAD_SOURCE:
+    # A pregnancy's own source is read as the source it is kept for (``source_base``).
+    base = source_base(source)
+    if base == BED_UPLOAD_SOURCE:
         declared = set(contents)
         # Declared unknown (a manifest entry without the key), or two records that disagree:
         # unknown.
@@ -113,7 +116,7 @@ def coverage_track_content(
         if named <= _LOG2_RATIO_TRANSFORMS:
             return LOG2_RATIO
         return UNKNOWN_CONTENT
-    return LOG2_RATIO if source in _LOG2_RATIO_CALLERS else UNKNOWN_CONTENT
+    return LOG2_RATIO if base in _LOG2_RATIO_CALLERS else UNKNOWN_CONTENT
 
 
 def holds_read_depth(
@@ -156,7 +159,8 @@ def _depth_source(contents: Mapping[str, CoverageContent]) -> str | None:
     depth_sources = sorted(source for source, content in contents.items() if content == READ_DEPTH)
     if not depth_sources:
         return None
-    return BED_UPLOAD_SOURCE if BED_UPLOAD_SOURCE in depth_sources else depth_sources[0]
+    beds = [source for source in depth_sources if source_base(source) == BED_UPLOAD_SOURCE]
+    return beds[0] if beds else depth_sources[0]
 
 
 @dataclass(frozen=True)
@@ -183,7 +187,7 @@ class SampleCoverageTracks:
 def coverage_track_label(source: str) -> str:
     """How a note names a caller's coverage track: ``coverage BED``, ``WisecondorX coverage``,
     or a caller not known here by its source."""
-    return _TRACK_LABELS.get(source, f"{source} coverage")
+    return _TRACK_LABELS.get(source_base(source), f"{source} coverage")
 
 
 def not_read_as_depth_note(sample_id: str, source: str, content: str) -> str:
@@ -191,7 +195,7 @@ def not_read_as_depth_note(sample_id: str, source: str, content: str) -> str:
     track = coverage_track_label(source)
     if content == LOG2_RATIO:
         return f"{sample_id}: the {track} holds log2 ratios, not read depth; it is not read as depth."
-    if source == BED_UPLOAD_SOURCE:
+    if source_base(source) == BED_UPLOAD_SOURCE:
         return (
             f"{sample_id}: the coverage BED does not declare whether it holds read depth or a "
             "log2 ratio; it is not read as depth."

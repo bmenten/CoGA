@@ -10,8 +10,9 @@ Package import | A superuser or an administrator checks, corrects and approves t
   existing family, by a package import with *Overwrite* too. So is editing an existing family's members
   or structure. HPO terms are added, changed and removed by the analysts of the family's project (role
   analyst or higher), by superusers and by administrators.
-- For a **monogenic NIPT** case, tick *Monogenic NIPT (cfDNA from maternal plasma)* in the family builder:
-  see [Monogenic NIPT](#monogenic-nipt).
+- For a **monogenic NIPT** case, tick *Monogenic NIPT (cfDNA from maternal plasma)* in the family builder
+  and give the **Pregnancy ID**: see [Monogenic NIPT](#monogenic-nipt). A family may hold several
+  pregnancies of one woman, each pregnancy's NIPT an analysis of its own.
 - Each kind of data switches on part of CoGA:
   - small variants: the small-variant page and Sample QC;
   - structural variants: the SV page;
@@ -31,10 +32,11 @@ The **Package import** page lists under **Deliveries** the family folders the pi
 each with its package file (`coga-package.json`), checked by CoGA. Nothing is imported until you
 approve it.
 
-1. Read the delivery's **State** (*Ready*, *Needs attention*, *Still copying*) and its warnings. **Add
-   a folder by hand** adds a folder no pipeline delivered.
-2. **Correct…** completes or corrects what the package says (the project, the analysis, the members,
-   the datasets), with a reason.
+1. Read the delivery's **State** (*Ready*, *Needs attention*, *Still copying*) and its warnings; a NIPT
+   delivery names its pregnancy (*· pregnancy ZW1*). **Add a folder by hand** adds a folder no pipeline
+   delivered (for a NIPT, give its **Pregnancy ID**).
+2. **Correct…** completes or corrects what the package says (the project, the analysis, a NIPT's
+   pregnancy, the members, the datasets), with a reason.
 3. **Dry run** checks it as an import would, without writing anything. **Approve…** imports it, or tick
    several ready ones and press **Approve selected**. For a family that exists already, choose *Update: add the
    missing datasets and members* or, as an administrator, *Overwrite: replace its datasets and

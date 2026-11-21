@@ -74,7 +74,8 @@ file missing, or of another size, and waits for the next look.
 ## The fields
 
 Every file holds `schema`, `status`, `written_at` and `pipeline`. A complete one also holds
-`project`, `assembly`, `analysis_type`, `family` and at least one entry in `files`. A field the
+`project`, `assembly`, `analysis_type`, `family` and at least one entry in `files`, and a complete
+monogenic or conventional NIPT also `pregnancy_id`. A field the
 format does not know is refused: a misspelt field (`clinical_staus`) would otherwise leave a
 member's status unset without a word. Information of your own goes under `extra`.
 
@@ -87,6 +88,7 @@ member's status unset without a word. Information of your own goes under `extra`
 | `project` | complete | the CoGA project, by its name; it fixes the assembly | samplesheet |
 | `assembly` | complete | the reference assembly (`GRCh38`); must be the project's, compared by build (`GRCh38.p14` and `hg38` are a GRCh38 project's) | pipeline |
 | `analysis_type` | complete | `long_read_wgs` (LR-WGS), `long_read_adaptive_sampling` (LR-AS, long-read adaptive sampling), `short_read_wgs` (SR-WGS, short-read Illumina WGS), `pgt` (PGT), `expanded_carrier_screening` (expanded carrier screening), `monogenic_nipt` (mNIPT) or `conventional_nipt` (cNIPT, conventional NIPT) | samplesheet |
+| `pregnancy_id` | a complete `monogenic_nipt` or `conventional_nipt` | the pregnancy the NIPT is of: the laboratory's ID, printable, no spaces, no `/` or `\`, not `.` or `..`, at most 64 characters. A package of any other analysis names none (below) | samplesheet |
 | `family` | complete | `family_id`; `roi`, the region of interest (a gene or `chr7:1000-2000`); for PGT `pgt` (below) | samplesheet |
 | `members` | no | every member of the family, the pedigree (below) | pipeline and laboratory |
 | `couples` | no | each couple: `partners` (two members) and `context` (`reproductive`, `carrier screening`) | pipeline |
@@ -109,20 +111,45 @@ them, and otherwise they are added in CoGA before the import.
 `members` is the only place the file describes a member, and the pedigree the import reads: CoGA
 writes each member into the manifest's `family.add_members`, its carrier fields under
 `family.members` and its HPO terms under `individuals`; a PED in the folder is not read. List every
-member, also one without data of their own (a fetus).
+member, also one without data of their own (a fetus, role `fetus`).
 
 | Field | Required | What it holds |
 | --- | --- | --- |
 | `sample_id` | yes | the sample's ID: printable, no spaces, no `/` or `\`, not `.` or `..` |
 | `sex` | yes | `male`, `female` or `unknown` |
 | `father`, `mother` | no | members; a father is not female and a mother not male |
-| `role` | no | `proband`, `father`, `mother`, `sibling`, `embryo` or `relative` |
+| `role` | no | `proband`, `father`, `mother`, `sibling`, `embryo`, `fetus` or `relative`. A `fetus` is a pregnancy's, of a monogenic or a conventional NIPT: no proband and no PGT embryo; a twin pregnancy's package lists two. In a NIPT package a child of both parents of unknown sex that is not affected and names no role is read as the fetus |
 | `clinical_status` | no | `affected`, `unaffected` or `unknown` (left out: unknown) |
 | `carrier_status`, `carrier_type` | no | `carrier`, `not_carrier` or `unknown`; `obligate`, `proven`, `reported` or `inferred` |
 | `assay`, `assay_panel` | no | the sample's assay where it is not the family's (`nipt_cfdna` for a monogenic NIPT's maternal plasma, `cnipt_cfdna` for a conventional NIPT's) and its capture panel, which CoGA keeps as the package's analysis's: a conventional NIPT's panel of the same plasma leaves the monogenic NIPT's artefact list as it was |
 | `hpo` | no | `present` and `absent`: HPO terms (`HP:0001250`) |
 | `related_to` | no | members this one is related to by an unknown degree (a PGT index on the mother's side) |
-| `same_individual_as` | no | other samples of the same person: a member of this package, or of another analysis's package the family already holds (a conventional NIPT's plasma names the monogenic NIPT's plasma of the same pregnancy) |
+| `same_individual_as` | no | other samples of the same person: a member of this package, or of another analysis's package the family already holds (a conventional NIPT's plasma names the monogenic NIPT's plasma of the same pregnancy; the plasma of a later pregnancy names the earlier one's: one woman, never one pregnancy) |
+
+### The pregnancy of a NIPT
+
+A family may hold several pregnancies of one woman, each pregnancy's NIPT an analysis of its own (the
+owner's decision of 2026-11-21): a second monogenic or conventional NIPT of the same woman can be of a
+later pregnancy, with another fetus and a very different result. So a complete `monogenic_nipt` or
+`conventional_nipt` package names its pregnancy (`pregnancy_id`), and CoGA keys the analysis by its
+type and that pregnancy (`monogenic_nipt:ZW1`). A package without one is refused
+(`package_pregnancy_missing`), and so is a package of another analysis that names one
+(`package_pregnancy_not_nipt`).
+
+- A monogenic and a conventional NIPT that name the same pregnancy are one pregnancy: two analyses
+  that may list the same plasma and fetus.
+- A package that names a pregnancy the family holds is an import of that pregnancy's analysis again
+  (with update or overwrite): it replaces that pregnancy's data, and its signed versions stay. One
+  that names another pregnancy is a new analysis beside the others, which it leaves as they were.
+- Each pregnancy keeps its data as its own, the father's calls among them: a pregnancy's small
+  variants, coverage tables and ccnv output are stored under sources of its own, so an import of
+  one pregnancy never replaces another's.
+- A maternal plasma and a fetus are one pregnancy's: a package of another pregnancy that lists one
+  another pregnancy's package lists is refused before anything is written. The father may be the
+  same person (the same sample ID) in each pregnancy.
+- A package that lists two or more fetuses is a multiple pregnancy: its results carry a note that a
+  fetal result may be present in one fetus or in more than one, which does not apply to a
+  monozygotic twin. CoGA is not told the zygosity.
 
 For PGT-M, `family.pgt` gives the `inheritance_model` (`AD`, `AR`, `XLD`, `XLR` or
 `mitochondrial`), the `affected_parents` (whose condition the test is for) and the `indexes` (the
@@ -216,7 +243,7 @@ The pipeline's file is never changed: CoGA keeps its bytes and their SHA-256.
 | --- | --- | --- |
 | Fixed: the pipeline's | `schema`, `pipeline`, `assembly`, `family.family_id`, every `sample_id`, `files`, `qc` | Not changed. A wrong value is a refused delivery and a new run or copy. |
 | Used by the pipeline | `sex`, `father`, `mother`, `couples` | Changed with a reason; refused while a dataset in `pipeline_used_pedigree` is in the import. Leave it out, or run the pipeline again. |
-| The laboratory's | `project` (of the same assembly), `analysis_type`, `role`, `clinical_status`, the carrier fields, `hpo`, `related_to`, `same_individual_as`, `family.roi`, `family.pgt`, a dataset in or out of the import and its options (`vcf_sample`, `source_format`, `exclude_filters`, a coverage `content`, another listed file) | Changed with a reason. |
+| The laboratory's | `project` (of the same assembly), `analysis_type`, `pregnancy_id`, `role`, `clinical_status`, the carrier fields, `hpo`, `related_to`, `same_individual_as`, `family.roi`, `family.pgt`, a dataset in or out of the import and its options (`vcf_sample`, `source_format`, `exclude_filters`, a coverage `content`, another listed file) | Changed with a reason. |
 | A member added or removed | a whole member of `members` | Added with a reason when the package's files name the sample and no member is (a column of the phased family VCF: an affected relative read for segregation, a PGT index): the sample ID is the files', never typed. A member added in CoGA is removed again; a member the package delivered is not. A member added with parents, or removed, is a change of the pedigree the pipeline used (above). |
 
 A folder added by hand has no pipeline: CoGA made its package from the folder, so any member is

@@ -61,6 +61,7 @@ const delivery: ImportDeliveryOut = {
   project_id: 'p1',
   project: 'PGT',
   analysis_type: 'pgt',
+  pregnancy_id: null,
   pipeline_name: 'nf-cmgg/copgtm',
   pipeline_version: '1.1.0',
   request_id: null,
@@ -196,11 +197,22 @@ describe('changesBetween', () => {
     ]);
   });
 
+  it('corrects the pregnancy a NIPT package names', () => {
+    const nipt: PackageDocument = { project: 'NIPT', analysis_type: 'monogenic_nipt' };
+    const form = toForm(nipt);
+    expect(form.pregnancy_id).toBe('');
+    expect(changesBetween(nipt, { ...form, pregnancy_id: ' ZW1 ' })).toEqual([{ path: ['pregnancy_id'], value: 'ZW1' }]);
+    expect(changesBetween({ ...nipt, pregnancy_id: 'ZW1' }, { ...form, pregnancy_id: '' })).toEqual([
+      { path: ['pregnancy_id'], value: null },
+    ]);
+  });
+
   it('reads a package without members, datasets or a family', () => {
     const bare: PackageDocument = { project: null };
     expect(toForm(bare)).toEqual({
       project: '',
       analysis_type: '',
+      pregnancy_id: '',
       roi: '',
       inheritance_model: '',
       affected_parents: [],

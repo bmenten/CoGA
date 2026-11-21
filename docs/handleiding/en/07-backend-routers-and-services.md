@@ -90,7 +90,7 @@ Page limits always go through `int(...)`, become at least 0 and are themselves p
 
 ## All routers
 
-All routers are listed in `backend/app/routers/__init__.py` and hang under `/api`. Only `metrics.py` is deliberately mounted by `main.py` outside `/api` (see *Metrics for monitoring*). The router `families.py` includes five sub-routers under the same path `/families`; they therefore have no prefix of their own. Only `health.py`, `lookups.py` and `ancestry.py` have no prefix at all; `ancestry.py` writes `/families/…` in each path.
+All routers are listed in `backend/app/routers/__init__.py` and hang under `/api`. Only `metrics.py` is deliberately mounted by `main.py` outside `/api` (see *Metrics for monitoring*). The router `families.py` includes six sub-routers under the same path `/families`; they therefore have no prefix of their own. Only `health.py`, `lookups.py` and `ancestry.py` have no prefix at all; `ancestry.py` writes `/families/…` in each path.
 
 | Router | Path under `/api` | Purpose |
 | --- | --- | --- |
@@ -100,7 +100,8 @@ All routers are listed in `backend/app/routers/__init__.py` and hang under `/api
 | `families.py` | `/families` | Family, members, structure, HPO, phenotype matching, region of interest, who can be assigned a family or review it (`/families/{id}/assignable-users`) |
 | `families_small_variants.py` | `/families` (part) | Small variants: pages, export, compound het, presets, tags, review and ACMG, and the statistics of the variant summary (chapter 8) |
 | `families_structural_variants.py` | `/families` (part) | Structural variants of a family |
-| `families_nipt.py` | `/families` (part) | Monogenic NIPT: summary with the quality checks, variants with the inheritance views, coverage (also per capture target) (chapter 8) |
+| `families_nipt.py` | `/families` (part) | Monogenic NIPT: summary with the quality checks, variants with the inheritance views, coverage (also per capture target), one pregnancy at a time (`analysis`) (chapter 8) |
+| `families_cnipt.py` | `/families` (part) | Conventional NIPT: the automatic result of each maternal plasma, one pregnancy at a time (`analysis`) (chapter 8) |
 | `families_reports.py` | `/families` (part) | Annotation manifest, drift, clinical audit, sample QC, report and sign-out (chapter 11) |
 | `families_tracks.py` | `/families` (part) | Tracks: haplotypes, phased markers, repeats, mtDNA, Paraphase (chapter 9); for the variant summary, the SV lengths and the SV counts per member and per pair of members (chapter 8) |
 | `family_qc_reports.py` | `/families` | The pipeline's QC report, through a short-lived link and isolated (chapter 2) |

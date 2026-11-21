@@ -27,8 +27,10 @@ from ..schemas import (
     FamilyPackageValidationOut,
 )
 from .bounded_download import require_bgzf_path_end
+from .family_analysis_types import pregnancy_of
 from .family_identifiers import CONTROL_CHARACTERS, IDENTIFIER_RULE, identifier_problem, visible
 from .package_file_reads import remember_read, remembered_read
+from .family_package_records import package_record_key
 from .upload_safety import read_path_text_bounded
 
 
@@ -176,11 +178,16 @@ class ManifestPhenotypes(BaseModel):
 class PackageManifest(BaseModel):
     schema_version: int = 1
     family_id: str | None = None
-    # Optional analysis type of the package, e.g. "monogenic_nipt": the key of the family's
-    # package record of it, added to families.metadata["analysis_types"] so the workspace
-    # surfaces the NIPT tab and resolve_nipt_trio can find the cfDNA sample (see
-    # docs/monogenic-nipt.md). A family may hold several, each from a package of its own.
+    # The analysis type of the package, e.g. "monogenic_nipt". With the pregnancy of a NIPT it
+    # makes the key of the package's analysis (``analysis_key``): the key of the family's package
+    # record of it, added to families.metadata["analyses"], so the workspace surfaces the NIPT tab
+    # and resolve_nipt_trio finds the analysis's samples (see docs/monogenic-nipt.md). A family may
+    # hold several analyses, each from a package of its own.
     analysis_type: str | None = None
+    # The pregnancy a monogenic or a conventional NIPT is of, as the package names it
+    # (coga_package.CogaPackage.pregnancy_id): required for a NIPT, refused for any other analysis
+    # (family_package_validation).
+    pregnancy_id: str | None = None
     roi: str | dict[str, Any] | None = None
     # The reference genome the pipeline aligned to (its FASTA's name), as the package file gives
     # it: the import records it as the Reference assembly of the family's annotation manifest.
@@ -191,6 +198,18 @@ class PackageManifest(BaseModel):
     datasets: dict[str, ManifestDataset] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="allow")
+
+    @property
+    def analysis_key(self) -> str:
+        """The key of the package's analysis, and of the family's package record of it
+        (``family_package_records.package_record_key``): ``monogenic_nipt:ZW1``."""
+        return package_record_key(self.analysis_type, self.pregnancy_id)
+
+    @property
+    def pregnancy(self) -> str | None:
+        """The pregnancy whose analysis the package is (``family_analysis_types.pregnancy_of`` of
+        its key); None for an analysis of no pregnancy."""
+        return pregnancy_of(self.analysis_key)
 
 
 @dataclass(slots=True)

@@ -98,7 +98,7 @@ describe('FamilyNiptReportPage', () => {
           data: {
             family_id: 'NIPT001',
             members: [{ sample_id: 'CFDNA', role: 'proband', active: true }],
-            metadata: { analysis_types: ['monogenic_nipt'] },
+            metadata: { analyses: ['monogenic_nipt'] },
           },
         });
       }
@@ -198,7 +198,7 @@ describe('FamilyNiptReportPage', () => {
           data: {
             family_id: 'NIPT001',
             members: [{ sample_id: 'CFDNA', role: 'proband', active: true }],
-            metadata: { analysis_types: ['monogenic_nipt'] },
+            metadata: { analyses: ['monogenic_nipt'] },
           },
         });
       }
@@ -340,7 +340,7 @@ describe('FamilyNiptReportPage', () => {
         }
         if (url === '/families/NIPT001') {
           return Promise.resolve({
-            data: { family_id: 'NIPT001', members: [], metadata: { analysis_types: ['monogenic_nipt'] } },
+            data: { family_id: 'NIPT001', members: [], metadata: { analyses: ['monogenic_nipt'] } },
           });
         }
         if (url === '/families/NIPT001/nipt/variants') {
@@ -414,7 +414,7 @@ describe('FamilyNiptReportPage', () => {
     apiMock.get.mockImplementation((url: string) =>
       url === '/families/NIPT001'
         ? Promise.resolve({
-            data: { family_id: 'NIPT001', members: [], metadata: { analysis_types: ['monogenic_nipt'] } },
+            data: { family_id: 'NIPT001', members: [], metadata: { analyses: ['monogenic_nipt'] } },
           })
         : Promise.resolve({ data: { family_id: 'NIPT001', total: 0, variants: [] } }),
     );
@@ -441,7 +441,7 @@ describe('FamilyNiptReportPage', () => {
             data: {
               family_id: 'NIPT001',
               members: [],
-              metadata: { analysis_types: ['monogenic_nipt'], ...INCOMPLETE_IMPORT_METADATA },
+              metadata: { analyses: ['monogenic_nipt'], ...INCOMPLETE_IMPORT_METADATA },
             },
           })
         : Promise.resolve({ data: { family_id: 'NIPT001', total: 0, variants: [] } }),
@@ -471,7 +471,7 @@ describe('FamilyNiptReportPage', () => {
       }
       if (url === '/families/NIPT001') {
         return Promise.resolve({
-          data: { family_id: 'NIPT001', members: [], metadata: { analysis_types: ['monogenic_nipt'] } },
+          data: { family_id: 'NIPT001', members: [], metadata: { analyses: ['monogenic_nipt'] } },
         });
       }
       if (url === '/families/NIPT001/nipt/variants') {
@@ -694,7 +694,7 @@ describe('FamilyNiptReportPage', () => {
             data: {
               family_id: 'NIPT001',
               members: [],
-              metadata: { analysis_types: ['monogenic_nipt'] },
+              metadata: { analyses: ['monogenic_nipt'] },
               read_only: readOnly,
               // A supervisor or higher signs out; a reader never (TF-06 H15).
               can_sign_out: !readOnly,
@@ -792,7 +792,7 @@ describe('FamilyNiptReportPage', () => {
             data: {
               family_id: 'NIPT001',
               members: [],
-              metadata: { analysis_types: ['conventional_nipt', 'monogenic_nipt'] },
+              metadata: { analyses: ['conventional_nipt', 'monogenic_nipt'] },
               read_only: false,
               can_sign_out: true,
             },

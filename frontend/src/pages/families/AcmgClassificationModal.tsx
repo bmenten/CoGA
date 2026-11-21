@@ -51,6 +51,7 @@ import {
 } from './smallVariantSearch';
 import type { AcmgFamilyContext } from '../../lib/acmg';
 import { apiPath } from '../../lib/apiPath';
+import { ANALYSIS_PARAM, pregnancyOf } from '../../lib/familyAnalyses';
 import type { ApiFamilyRelationship, ApiSampleIntegrityQc } from '../../lib/apiTypes';
 import type {
   FamilyGenePhenotypeScoreOut,
@@ -278,16 +279,22 @@ export default function AcmgClassificationModal({
   // The Sample QC's parentage checks: a de novo variant is PS2 where they confirm the
   // proband's parents, PM6 where they do not. The Sample QC page's query, so either page's
   // load serves the other.
+  // The Sample QC of the pregnancy the page reads, of a family that holds one per pregnancy: the
+  // page names it (its URL's analysis), and a family of several is checked one at a time.
+  const pageAnalysis = new URLSearchParams(window.location.search).get(ANALYSIS_PARAM);
+  const qcPregnancy = pregnancyOf(pageAnalysis) !== null ? pageAnalysis : null;
   const {
     data: sampleQc,
     isError: sampleQcFailed,
     error: sampleQcError,
     refetch: refetchSampleQc,
   } = useQuery<ApiSampleIntegrityQc>({
-    queryKey: ['family', familyId, 'sample-integrity-qc'],
+    queryKey: ['family', familyId, 'sample-integrity-qc', qcPregnancy],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const response = await api.get(apiPath`/families/${familyId}/qc/sample-integrity`);
+      const response = await api.get(apiPath`/families/${familyId}/qc/sample-integrity`, {
+        params: qcPregnancy ? { [ANALYSIS_PARAM]: qcPregnancy } : undefined,
+      });
       return response.data as ApiSampleIntegrityQc;
     },
   });

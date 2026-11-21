@@ -132,6 +132,21 @@ const pedigreeRelationshipsFor = (couples: DraftCouple[]): PedigreeRelationship[
       metadata: couple.context.trim() ? { context: couple.context.trim() } : {},
     }));
 
+/**
+ * What is wrong with a monogenic NIPT family's pregnancy ID, by the rule of a family or sample ID
+ * (backend `family_analysis_types.pregnancy_id_problem`): required, printable, no whitespace, no
+ * `/` or `\\`, at most 64 characters.
+ */
+const pregnancyIdErrors = (value: string): string[] => {
+  const id = value.trim();
+  if (!id) return ['A monogenic NIPT family names the pregnancy it is of: give its pregnancy ID.'];
+  if (/[\s/\\]/.test(id) || id === '.' || id === '..') {
+    return ['The pregnancy ID is printable text without spaces, "/" or "\\".'];
+  }
+  if (id.length > 64) return ['The pregnancy ID is at most 64 characters.'];
+  return [];
+};
+
 const validateManualFamily = (
   familyId: string,
   members: DraftMember[],
@@ -242,6 +257,10 @@ const FamilyIntakePanel: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [familyId, setFamilyId] = useState('');
   const [monogenicNipt, setMonogenicNipt] = useState(false);
+  // The pregnancy a monogenic NIPT family's analysis is of: a family may hold several pregnancies,
+  // each pregnancy's NIPT an analysis of its own (backend ped_service, the owner's decision of
+  // 2026-11-21).
+  const [pregnancyId, setPregnancyId] = useState('');
   const [members, setMembers] = useState<DraftMember[]>([
     createDraftMember({ isProband: true, affected: true }),
   ]);
@@ -579,7 +598,10 @@ const FamilyIntakePanel: React.FC = () => {
       setStatus(projectError);
       return;
     }
-    const errors = validateManualFamily(familyId, members, couples);
+    const errors = [
+      ...validateManualFamily(familyId, members, couples),
+      ...(monogenicNipt ? pregnancyIdErrors(pregnancyId) : []),
+    ];
     if (errors.length > 0) {
       setStatusTone('error');
       setStatus(errors[0]);
@@ -589,9 +611,12 @@ const FamilyIntakePanel: React.FC = () => {
     const payload = {
       family_id: familyId.trim(),
       project_id: selectedProjectId,
-      // Monogenic NIPT families are tagged so the workspace surfaces the NIPT tab
-      // and resolve_nipt_trio can find the cfDNA sample (see docs/monogenic-nipt.md).
-      ...(monogenicNipt ? { metadata: { analysis_types: [MONOGENIC_NIPT_ANALYSIS_TYPE] } } : {}),
+      // Monogenic NIPT families hold the monogenic NIPT of the pregnancy given, by its key, so the
+      // workspace surfaces the NIPT tab and resolve_nipt_trio can find the cfDNA sample (see
+      // docs/monogenic-nipt.md).
+      ...(monogenicNipt
+        ? { metadata: { analyses: [`${MONOGENIC_NIPT_ANALYSIS_TYPE}:${pregnancyId.trim()}`] } }
+        : {}),
       members: members.map((member) => ({
         sample_id: member.sampleId.trim(),
         father_id: member.fatherId.trim() || null,
@@ -633,8 +658,11 @@ const FamilyIntakePanel: React.FC = () => {
   };
 
   const validationErrors = useMemo(
-    () => validateManualFamily(familyId, members, couples),
-    [familyId, members, couples],
+    () => [
+      ...validateManualFamily(familyId, members, couples),
+      ...(monogenicNipt ? pregnancyIdErrors(pregnancyId) : []),
+    ],
+    [familyId, members, couples, monogenicNipt, pregnancyId],
   );
   // Memoize the pedigree-derived arrays so unrelated panel state (status, ROI
   // query, mode, …) changing on a keystroke doesn't hand <Pedigree> fresh array
@@ -839,10 +867,23 @@ const FamilyIntakePanel: React.FC = () => {
                 Monogenic NIPT (cfDNA from maternal plasma)
               </label>
               {monogenicNipt && (
-                <p className="text-sm leading-7 text-(--color-text-muted)">
-                  Mark the maternal-plasma cfDNA sample below. Add the father, the cfDNA
-                  sample as the mother, and the fetus as the proband.
-                </p>
+                <>
+                  <p className="text-sm leading-7 text-(--color-text-muted)">
+                    Mark the maternal-plasma cfDNA sample below. Add the father, the cfDNA sample as
+                    the mother, and the fetus as the proband: CoGA records it as the pregnancy&apos;s
+                    fetus.
+                  </p>
+                  <label className="field-label" htmlFor="manual-family-pregnancy-id">
+                    Pregnancy ID
+                  </label>
+                  <input
+                    id="manual-family-pregnancy-id"
+                    className="field-input"
+                    value={pregnancyId}
+                    onChange={(event) => setPregnancyId(event.target.value)}
+                    placeholder="The laboratory's ID of the pregnancy"
+                  />
+                </>
               )}
               <div className="action-row">
                 <button

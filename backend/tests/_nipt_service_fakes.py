@@ -36,7 +36,7 @@ def nipt_family(
             FamilyMemberOut(sample_id=father, role="father", affected=False),
             FamilyMemberOut(sample_id=plasma, role="mother", affected=False, sample_metadata={"assays": ["nipt_cfdna"]}),
         ],
-        metadata={"analysis_types": ["monogenic_nipt"]},
+        metadata={"analyses": ["monogenic_nipt"]},
         roi=roi,
     )
 

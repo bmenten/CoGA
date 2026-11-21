@@ -139,7 +139,7 @@ const CHILD_HORIZONTAL_GAP = 44;
 const COUPLE_GAP = 54;
 const BLOCK_HORIZONTAL_GAP = 42;
 const SIBLING_LINE_OFFSET = 24;
-// Sample IDs are drawn under their symbols, an embryo's a size smaller. Neighbouring
+// Sample IDs are drawn under their symbols, an embryo's and a fetus's a size smaller. Neighbouring
 // symbols are spaced so that their labels never touch, so a long ID (FATHER_NIPT beside
 // CFDNA_NIPT) does not run into the next one.
 const LABEL_FONT_SIZE = 8;
@@ -148,7 +148,7 @@ const EMBRYO_LABEL_FONT_SIZE = 7;
 const LABEL_GAP = 6;
 
 const labelFontSize = (member?: PedigreeMember): number =>
-  member?.role === 'embryo' ? EMBRYO_LABEL_FONT_SIZE : LABEL_FONT_SIZE;
+  member?.role === 'embryo' || member?.role === 'fetus' ? EMBRYO_LABEL_FONT_SIZE : LABEL_FONT_SIZE;
 
 /**
  * A label's width in drawing units, estimated from its characters with generous widths
@@ -1745,6 +1745,20 @@ const Pedigree: React.FC<Props> = ({
       }
 
       appendCarrierFill();
+
+      if (member?.role === 'fetus') {
+        // A pregnancy's fetus: a "P" in its symbol, as the pedigree nomenclature draws a pregnancy
+        // (Bennett et al. 2008).
+        group
+          .append('text')
+          .attr('data-fetus', row.iid)
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'central')
+          .attr('font-size', 9)
+          .attr('font-weight', 700)
+          .attr('fill', fill === 'white' ? stroke : 'white')
+          .text('P');
+      }
 
       if (qc && qcMark) {
         // The ring follows the symbol's shape, QC_RING_OFFSET outside it.

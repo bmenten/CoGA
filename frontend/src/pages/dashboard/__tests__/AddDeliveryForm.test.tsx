@@ -142,6 +142,8 @@ describe('AddDeliveryForm', () => {
         project_id: 'p1',
         family_id: 'FAM001A',
         analysis_type: 'long_read_adaptive_sampling',
+        // No NIPT: no pregnancy.
+        pregnancy_id: null,
       })
     );
     await waitFor(() =>
@@ -189,6 +191,8 @@ describe('AddDeliveryForm', () => {
         target: { value: 'p1' },
       }
     );
+    // A NIPT names the pregnancy it is of.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pregnancy ID' }), { target: { value: 'ZW1' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add to Deliveries' }));
 
     await waitFor(() =>
@@ -197,6 +201,7 @@ describe('AddDeliveryForm', () => {
         project_id: 'p1',
         family_id: null,
         analysis_type: 'monogenic_nipt',
+        pregnancy_id: 'ZW1',
       })
     );
   });

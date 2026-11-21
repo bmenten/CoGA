@@ -63,7 +63,6 @@ from .family_package_common import (
 )
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
 from .family_package_qc import clear_analysis_import_records
-from .family_package_records import package_record_key
 from .family_package_source import package_folder_path
 from .raw_import_files_pg import unlink_managed_files
 from .stored_values import json_object
@@ -572,7 +571,7 @@ async def execute_family_package_import(
         job_id=job_id,
         datasets=dataset_types,
         # The analysis whose sign-out the import's marks gate: its package's record.
-        analysis_type=package_record_key(bundle.manifest.analysis_type),
+        analysis_type=bundle.manifest.analysis_key,
         scopes=dataset_scopes(bundle, dataset_types),
     )
     # One import of the family at a time (``hold_family_import``), from before its registration to
@@ -694,7 +693,7 @@ async def _put_back_before_datasets(
         with suppress(Exception):
             await session.rollback()
         await put_back_family_package_record(
-            session, family_context.family_uuid, package_record_key(bundle.manifest.analysis_type)
+            session, family_context.family_uuid, bundle.manifest.analysis_key
         )
     except Exception:  # the flag still marks the family
         logger.warning(
@@ -749,7 +748,7 @@ async def _import_family_datasets(
     with ``package_changed_during_import``, and the package list offers the folder again."""
     import_key = import_mark.key if import_mark is not None else None
     # The analysis each mark this import leaves is of: its package's record.
-    analysis_type = package_record_key(bundle.manifest.analysis_type)
+    analysis_type = bundle.manifest.analysis_key
     # The import as the phenotypes' audit events name it: who runs it, the package (by the
     # folder it was read from, as its log says) and its job.
     phenotype_import = PhenotypeImport(
@@ -816,7 +815,7 @@ async def _import_family_datasets(
         await clear_analysis_import_records(
             session,
             family_uuid=family_context.family_uuid,
-            analysis=package_record_key(bundle.manifest.analysis_type),
+            analysis=bundle.manifest.analysis_key,
         )
 
     package_changed = False

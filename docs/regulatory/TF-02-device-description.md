@@ -126,8 +126,9 @@ The reference is written into the report by the person who drafts it.
 **Which outputs are signed.** The sign-out freezes an analysis of the family into one signed record,
 which the clinical report in the EPD quotes by its report code (§3; the owner's decision of
 2026-10-14; TF-06 H5, H6, H9). A family that holds several analyses (the monogenic and the
-conventional NIPT of one pregnancy) signs each out on its own: each record freezes and checks that
-analysis's data (the owner's decisions of 2026-11-19).
+conventional NIPT of each of a woman's pregnancies) signs each out on its own: each record freezes
+and checks that analysis's data, a NIPT's its own pregnancy's (the owner's decisions of 2026-11-19
+and 2026-11-21).
 
 - **Every family's record** holds the reported small variants, structural variants and CNVs
   (each with its classification, criteria, frozen evidence, tags and note, and its description

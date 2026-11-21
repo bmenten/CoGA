@@ -159,9 +159,16 @@ class NiptQcOut(BaseModel):
 
 
 class NiptSummaryOut(BaseModel):
-    """Monogenic NIPT analysis summary: fetal fraction and category/filter counts."""
+    """Monogenic NIPT analysis summary of one pregnancy: fetal fraction and category/filter
+    counts. ``analysis`` is the key of the monogenic NIPT read (``monogenic_nipt:ZW1``; None for a
+    family the Family Builder tagged), ``fetuses`` the pregnancy's fetuses, and
+    ``multiple_pregnancy_note`` what a fetal result of a multiple pregnancy says of them
+    (``nipt.multiple_pregnancy_note``)."""
 
     family_id: str
+    analysis: Optional[str] = None
+    fetuses: List[str] = Field(default_factory=list)
+    multiple_pregnancy_note: Optional[str] = None
     fetal_fraction: NiptFetalFractionOut
     category_counts: Dict[int, int]
     filter_counts: Dict[str, int]
@@ -362,13 +369,14 @@ class NiptNotClassifiedOut(BaseModel):
 
 
 class NiptTrioOut(BaseModel):
-    """The samples a monogenic NIPT analysis reads: the maternal plasma (cfDNA, a mixture of
-    the mother's and the fetus's DNA, so no genotype), the father, and the fetus's placeholder
-    member, which holds no data (None when the family has none)."""
+    """The samples the monogenic NIPT of one pregnancy reads: the maternal plasma (cfDNA, a
+    mixture of the mother's and the fetus's DNA, so no genotype), the father, and the
+    pregnancy's fetuses, placeholder members that hold no data (none when the family has none,
+    two or more in a multiple pregnancy)."""
 
     cfdna_sample_id: str
     father_sample_id: str
-    fetus_sample_id: Optional[str] = None
+    fetus_sample_ids: List[str] = Field(default_factory=list)
 
 
 class NiptVariantPage(BaseModel):

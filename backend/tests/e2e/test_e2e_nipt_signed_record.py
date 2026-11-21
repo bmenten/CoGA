@@ -572,12 +572,15 @@ def _pair_snapshot(pair_signed: dict) -> dict:
     return ok_json(pair_signed, "detail")["snapshot"]
 
 
-def test_a_nipt_fetus_of_unknown_status_is_imported_as_an_embryo(pair_signed) -> None:
-    # The import reads a child of unknown sex whose status is unknown as an embryo, and the NIPT
-    # trio takes that embryo for the fetus. No member is affected.
+def test_a_nipt_fetus_of_unknown_status_is_imported_as_the_pregnancys_fetus(pair_signed) -> None:
+    # In a NIPT package the import reads a child of unknown sex whose status is unknown as the
+    # pregnancy's fetus (role fetus, the owner's decision of 2026-11-21), which the NIPT trio
+    # takes. No member is affected.
     members = {member["sample_id"]: member for member in ok_json(pair_signed, "family")["members"]}
     fetus = members[pair_signed["ids"]["FETUS_NIPT"]]
-    assert (fetus["role"], fetus["affected"]) == ("embryo", False)
+    assert (fetus["role"], fetus["affected"]) == ("fetus", False)
+    snapshot = _pair_snapshot(pair_signed)
+    assert snapshot["nipt"]["samples"]["fetuses"] == [pair_signed["ids"]["FETUS_NIPT"]]
     assert not any(member["affected"] for member in members.values())
 
 

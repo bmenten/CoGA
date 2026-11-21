@@ -315,7 +315,7 @@ describe('FamilySmallVariantsPage', () => {
             members: TRIO,
             projects: [],
             metadata: {
-              analysis_types: ['long_read_wgs', 'short_read_wgs'],
+              analyses: ['long_read_wgs', 'short_read_wgs'],
               package_imports: {
                 short_read_wgs: record(['haplotypecaller'], '2026-11-01T10:00:00'),
                 long_read_wgs: record(['deepvariant'], '2026-11-02T10:00:00'),
@@ -332,7 +332,7 @@ describe('FamilySmallVariantsPage', () => {
     });
     renderPage();
 
-    const select = await screen.findByRole('combobox', { name: 'Analysis whose variants are shown' });
+    const select = await screen.findByRole('combobox', { name: 'Analysis whose data are shown' });
     expect(select).toHaveValue('long_read_wgs');
     expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual([
       'short-read WGS',
@@ -367,7 +367,7 @@ describe('FamilySmallVariantsPage', () => {
             members: TRIO,
             projects: [],
             metadata: {
-              analysis_types: ['long_read_wgs', 'short_read_wgs'],
+              analyses: ['long_read_wgs', 'short_read_wgs'],
               package_imports: {
                 short_read_wgs: record(['haplotypecaller'], '2026-11-01T10:00:00'),
                 long_read_wgs: record(['deepvariant'], '2026-11-02T10:00:00'),

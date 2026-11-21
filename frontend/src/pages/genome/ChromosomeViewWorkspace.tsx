@@ -47,6 +47,7 @@ import ViewerInteractionSurface from './ViewerInteractionSurface';
 import type { ChromosomeTrackVisibility } from './ChromosomeViewSidebar';
 import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { CHROMS, formatBp, formatRoiCoordinates } from './viewerShared';
+import { sourceBase } from '../../lib/pregnancySources';
 
 const TRACK_HEIGHT = 120;
 const PARENTAL_ORIGIN_PANEL_HEIGHT = 120;
@@ -559,7 +560,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       const scale = coverageScale(content);
                       // A conventional NIPT's plasma: ccnv's track on the NIPT axis.
                       const ccnv =
-                        coverageSource === CCNV_SOURCE ? (availability[member.sample_id]?.ccnv ?? null) : null;
+                        sourceBase(coverageSource) === CCNV_SOURCE ? (availability[member.sample_id]?.ccnv ?? null) : null;
                       return (
                         <ViewerTrackBlock
                           key={`coverage-${coverageSource}`}
@@ -597,7 +598,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                                 : undefined
                             }
                             nipt={
-                              coverageSource === CCNV_SOURCE
+                              sourceBase(coverageSource) === CCNV_SOURCE
                                 ? { fetalFraction: ccnv?.fetal_fraction ?? null }
                                 : undefined
                             }

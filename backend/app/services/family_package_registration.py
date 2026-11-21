@@ -48,14 +48,22 @@ from .family_structure_audit import (
     record_family_deleted,
     record_structure_change,
 )
-from .family_analysis_types import SAMPLE_ASSAY_PANELS_KEY, SAMPLE_ASSAYS_KEY, added_to, sample_assays
+from .family_analysis_types import (
+    FETUS_ROLE,
+    SAMPLE_ASSAY_PANELS_KEY,
+    SAMPLE_ASSAYS_KEY,
+    added_to,
+    pregnancy_of,
+    sample_assays,
+)
 from .family_package_records import (
     PACKAGE_IMPORTS_KEY,
     SOURCES_KEY,
     PackageRecordShapeError,
+    analysis_label,
     family_package_records,
-    package_record_key,
     package_sources,
+    record_members,
     source_collision_message,
     source_collisions,
 )
@@ -68,6 +76,7 @@ from .family_metadata_context import (
 from .family_project_variants import refuse_project_on_other_assembly
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .hpo_service import PHENOTYPES_ROLLED_BACK, PhenotypeImport, record_phenotypes_deleted_with_family
+from .nipt import CNIPT_CFDNA_ASSAY, NIPT_CFDNA_ASSAY
 from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import (
@@ -135,7 +144,9 @@ def _package_record_sources(bundle: FamilyPackageBundle) -> dict[str, list[str]]
     (``dataset_scopes``, read from the package as the loader reads it)."""
     enabled = [name for name, dataset in bundle.manifest.datasets.items() if dataset.enabled]
     snv_callset = dataset_scopes(bundle, ["snv"])["snv"]["source"] if "snv" in enabled else None
-    return package_sources(enabled, None if snv_callset == UNRESOLVED_SNV_SOURCE else snv_callset)
+    return package_sources(
+        enabled, None if snv_callset == UNRESOLVED_SNV_SOURCE else snv_callset, bundle.manifest.pregnancy
+    )
 
 
 def _shared_source_message(family_metadata: Any, bundle: FamilyPackageBundle) -> str | None:
@@ -143,7 +154,7 @@ def _shared_source_message(family_metadata: Any, bundle: FamilyPackageBundle) ->
     ``family_metadata``: a storage source its import would write that another analysis's
     package record of the family lists (``family_package_records.source_collisions``). None
     when it shares none. Checked before the family is marked or written."""
-    key = package_record_key(bundle.manifest.analysis_type)
+    key = bundle.manifest.analysis_key
     records = family_package_records(family_metadata if isinstance(family_metadata, Mapping) else None)
     try:
         collisions = source_collisions(records, key, _package_record_sources(bundle))
@@ -153,6 +164,52 @@ def _shared_source_message(family_metadata: Any, bundle: FamilyPackageBundle) ->
             "tell which data are each analysis's."
         )
     return source_collision_message(key, collisions) if collisions else None
+
+
+def _pregnancy_samples(bundle: FamilyPackageBundle) -> dict[str, str]:
+    """The samples of a pregnancy's package that are its pregnancy's own, by sample ID, each named
+    by what it is: a maternal plasma (its manifest entry's ``assay``, ``nipt_cfdna`` or
+    ``cnipt_cfdna``) or a fetus (a ``fetus`` member)."""
+    entries = _normalize_manifest_samples(bundle.manifest.samples)
+    own: dict[str, str] = {}
+    for member in _package_members(bundle):
+        sample_id = str(member["sample_id"])
+        assay = (entries.get(sample_id) or {}).get("assay")
+        if assay in (NIPT_CFDNA_ASSAY, CNIPT_CFDNA_ASSAY):
+            own[sample_id] = "maternal plasma"
+        elif member.get("role") == FETUS_ROLE:
+            own[sample_id] = "fetus"
+    return own
+
+
+def _shared_pregnancy_sample_message(family_metadata: Any, bundle: FamilyPackageBundle) -> str | None:
+    """Why the package of a pregnancy's NIPT cannot be imported into the family whose metadata
+    is ``family_metadata``: a maternal plasma or a fetus it lists that the package of another
+    pregnancy's NIPT lists. A plasma and a fetus are one pregnancy's (the owner's decision of
+    2026-11-21): the monogenic and the conventional NIPT of one pregnancy may share them, the
+    analyses of two pregnancies never, whose results stay apart. None when it shares none, or
+    names no pregnancy. Checked before the family is marked or written."""
+    pregnancy = bundle.manifest.pregnancy
+    if pregnancy is None:
+        return None
+    own = _pregnancy_samples(bundle)
+    records = family_package_records(family_metadata if isinstance(family_metadata, Mapping) else None)
+    shared: list[str] = []
+    for key, record in sorted(records.items()):
+        other = pregnancy_of(key)
+        if other is None or other == pregnancy:
+            continue
+        shared.extend(
+            f"{own[sample_id]} {visible(sample_id)}, which the {analysis_label(key) or key} lists"
+            for sample_id in sorted(set(own) & set(record_members(record)))
+        )
+    if not shared:
+        return None
+    return (
+        f"The package of pregnancy {visible(pregnancy)} lists the {'; the '.join(shared)}. A maternal "
+        "plasma and a fetus are one pregnancy's: give this pregnancy's samples IDs of their own, or "
+        "correct its pregnancy_id if it is that pregnancy."
+    )
 
 
 def _sample_provenance(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]:
@@ -381,18 +438,18 @@ async def _record_package_raw_files(
 
 # The keys of a package record (``family_package_records``) that keep what the family had before
 # this import registered it: the record of the same analysis, itself without one; the family's
-# analysis types; and, per sample whose metadata the registration changed, the registered keys'
+# analyses; and, per sample whose metadata the registration changed, the registered keys'
 # values (``REGISTERED_SAMPLE_KEYS``, None for a key the sample lacked). An import undone puts
 # them back (``put_back_family_package_record``).
 PREVIOUS_IMPORT_KEY = "previous_import"
-PREVIOUS_ANALYSIS_TYPES_KEY = "previous_analysis_types"
+PREVIOUS_ANALYSES_KEY = "previous_analyses"
 PREVIOUS_SAMPLES_KEY = "previous_samples"
 
 
 async def put_back_family_package_record(session: AsyncSession, family_uuid: str, record_key: str) -> None:
     """Put back what the import that registered the family's package record of the analysis
     ``record_key`` last changed of the family's records, and commit: the record as it was before
-    (its ``previous_import``; none, when it had none), the family's analysis types as they were
+    (its ``previous_import``; none, when it had none), the family's analyses as they were
     then, the registered keys of each sample's metadata (its assays, its capture panels, its
     package records: ``previous_samples``), and the raw-file rows of the package folder no record
     names any more, with the copy of the manifest CoGA kept for the import (unlinked once the rows
@@ -423,11 +480,11 @@ async def put_back_family_package_record(session: AsyncSession, family_uuid: str
         text(
             """
             UPDATE families
-            SET metadata = (COALESCE(metadata, '{}'::jsonb) - 'analysis_types' - 'package_imports')
+            SET metadata = (COALESCE(metadata, '{}'::jsonb) - 'analyses' - 'package_imports')
                 || CASE
-                    WHEN jsonb_typeof(metadata -> 'package_imports' -> CAST(:key AS text) -> 'previous_analysis_types') = 'array'
+                    WHEN jsonb_typeof(metadata -> 'package_imports' -> CAST(:key AS text) -> 'previous_analyses') = 'array'
                         THEN jsonb_build_object(
-                            'analysis_types', metadata -> 'package_imports' -> CAST(:key AS text) -> 'previous_analysis_types'
+                            'analyses', metadata -> 'package_imports' -> CAST(:key AS text) -> 'previous_analyses'
                         )
                     ELSE '{}'::jsonb
                 END
@@ -613,8 +670,8 @@ async def _register_package_provenance(
     the one the family's data was last imported from whole (``package_changed_after_import.
     reference_delivery``), whose fingerprint the folder CoGA serves the family's source files
     from is compared with after the import. It keeps too what the registration replaced: the
-    record of the same analysis (``previous_import``), the family's analysis types
-    (``previous_analysis_types``) and each sample's registered keys (``previous_samples``), which
+    record of the same analysis (``previous_import``), the family's analyses
+    (``previous_analyses``) and each sample's registered keys (``previous_samples``), which
     an import undone puts back (``put_back_family_package_record``)."""
     now = datetime.now(timezone.utc).isoformat()
     await lock_family_pedigree(session, family_identifier)
@@ -625,10 +682,10 @@ async def _register_package_provenance(
     # family records (`import_unfinished`, `import_incomplete`).
     family_metadata: dict[str, Any] = {}
     pgt_metadata = _manifest_pgt_metadata(bundle.manifest)
-    # The record of the package's analysis (``family_package_records``): an import replaces its own
-    # analysis's record and keeps the others' (a monogenic and a conventional NIPT of one
-    # pregnancy, each from a package of its own).
-    record_key = package_record_key(bundle.manifest.analysis_type)
+    # The record of the package's analysis (``family_package_records``), keyed by the analysis's
+    # key: an import replaces its own analysis's record and keeps the others' (the NIPTs of each
+    # pregnancy, short-read and then long-read WGS, each from a package of its own).
+    record_key = bundle.manifest.analysis_key
     record: dict[str, Any] = {
         "source": "family_package",
         # The folder the package was imported from.
@@ -682,9 +739,7 @@ async def _register_package_provenance(
         )
     # The family's other analyses, read under the pedigree lock: with one, the members the family
     # holds keep the values it knows.
-    others = await other_analyses_of(
-        session, family_id=family_identifier, analysis_type=bundle.manifest.analysis_type
-    )
+    others = await other_analyses_of(session, family_id=family_identifier, analysis=record_key)
     record[PREVIOUS_SAMPLES_KEY] = await _register_package_samples(
         session,
         bundle=bundle,
@@ -694,10 +749,10 @@ async def _register_package_provenance(
         registered_at=now,
         others=others,
     )
-    # The package's analysis type (e.g. monogenic_nipt) is added to the family's in the update below:
-    # a family may hold several, such as the monogenic and the conventional NIPT of one pregnancy,
-    # each imported from a package of its own.
-    analysis_type = bundle.manifest.analysis_type.strip() if isinstance(bundle.manifest.analysis_type, str) else ""
+    # The package's analysis (its key: monogenic_nipt:ZW1) is added to the family's in the update
+    # below: a family may hold several, each imported from a package of its own. A package that
+    # names no analysis type adds none.
+    analysis = record_key if (bundle.manifest.analysis_type or "").strip() else None
     # The manifest's PGT context is merged into the family's, key by key.
     await session.execute(
         text(
@@ -708,7 +763,7 @@ async def _register_package_provenance(
                     -- The analysis's record replaced by this import's, the records of the family's
                     -- other analyses kept. The new record keeps, for an import undone to put back,
                     -- the record it replaces (without its own previous record) and the family's
-                    -- analysis types as they were.
+                    -- analyses as they were.
                     || jsonb_build_object(
                         'package_imports',
                         CASE
@@ -718,7 +773,7 @@ async def _register_package_provenance(
                         || jsonb_build_object(
                             CAST(:record_key AS text),
                             CAST(:record AS jsonb)
-                                || jsonb_build_object('previous_analysis_types', metadata -> 'analysis_types')
+                                || jsonb_build_object('previous_analyses', metadata -> 'analyses')
                                 || CASE
                                     WHEN jsonb_typeof(metadata -> 'package_imports' -> CAST(:record_key AS text)) = 'object'
                                         THEN jsonb_build_object(
@@ -729,19 +784,19 @@ async def _register_package_provenance(
                                 END
                         )
                     )
-                    -- The package's analysis type added to the family's, sorted, without repeats.
+                    -- The package's analysis added to the family's, sorted, without repeats.
                     || CASE
-                        WHEN CAST(:analysis_type AS text) IS NULL THEN '{}'::jsonb
+                        WHEN CAST(:analysis AS text) IS NULL THEN '{}'::jsonb
                         ELSE jsonb_build_object(
-                            'analysis_types',
+                            'analyses',
                             (
                                 SELECT jsonb_agg(DISTINCT held.value ORDER BY held.value)
                                 FROM jsonb_array_elements_text(
                                     CASE
-                                        WHEN jsonb_typeof(metadata -> 'analysis_types') = 'array'
-                                            THEN metadata -> 'analysis_types'
+                                        WHEN jsonb_typeof(metadata -> 'analyses') = 'array'
+                                            THEN metadata -> 'analyses'
                                         ELSE '[]'::jsonb
-                                    END || jsonb_build_array(CAST(:analysis_type AS text))
+                                    END || jsonb_build_array(CAST(:analysis AS text))
                                 ) AS held(value)
                             )
                         )
@@ -770,7 +825,7 @@ async def _register_package_provenance(
             "pgt": json.dumps(pgt_metadata) if pgt_metadata else None,
             "record_key": record_key,
             "record": json.dumps(record),
-            "analysis_type": analysis_type or None,
+            "analysis": analysis,
             "pedigree": None if others else bundle.ped.text,
         },
     )
@@ -1013,7 +1068,7 @@ async def _record_package_reference(
         family_uuid=context.family_uuid,
         assembly_id=context.assembly_id,
         modules={"assembly": {"version": name, "detail": f"from {PACKAGE_FILE_NAME}"}},
-        analysis=package_record_key(bundle.manifest.analysis_type),
+        analysis=bundle.manifest.analysis_key,
         modality="package",
         recorded_by=f"import ({PACKAGE_FILE_NAME})",
         source="manifest",
@@ -1138,7 +1193,7 @@ async def _keeps_family_roi(session: AsyncSession, *, family_id: str, bundle: Fa
     family holds another analysis and has a region (``roi_conflict_message``)."""
     if not _manifest_roi_value(bundle.manifest):
         return False
-    if not await other_analyses_of(session, family_id=family_id, analysis_type=bundle.manifest.analysis_type):
+    if not await other_analyses_of(session, family_id=family_id, analysis=bundle.manifest.analysis_key):
         return False
     return await _family_roi_row(session, family_id) is not None
 
@@ -1156,7 +1211,7 @@ async def roi_conflict_message(
     roi_query = _manifest_roi_value(bundle.manifest)
     if not roi_query or not family_id or identifier_problem(family_id) is not None:
         return None
-    if not await other_analyses_of(session, family_id=family_id, analysis_type=bundle.manifest.analysis_type):
+    if not await other_analyses_of(session, family_id=family_id, analysis=bundle.manifest.analysis_key):
         return None
     held = await _family_roi_row(session, family_id)
     if held is None:
@@ -1300,8 +1355,8 @@ WHOLE_FAMILY_KEY = "whole_family"
 
 # Every import mark records the analysis it is of (`analysis_type`): each `import_unfinished`
 # entry, and each failure the `import_incomplete` flag records. A package import's mark records
-# the key of its package's record (``package_record_key``: the analysis the package names, or
-# `unspecified` for one that names none); a single-file upload's or a deletion's records none
+# the key of its package's record (``PackageManifest.analysis_key``: the analysis the package
+# names, a NIPT's with its pregnancy, or `unspecified` for one that names none); a single-file upload's or a deletion's records none
 # (None). The family's analyses share dataset types (`snv`, `qc`, `alignments`…), so the dataset
 # a mark names cannot say whose it is. A sign-out of one analysis is gated by its own imports'
 # marks and by those of no analysis the family holds (``signout_scope.SignoutScope.holds_mark``),
@@ -2495,7 +2550,7 @@ async def _take_package_pedigree(
     from .family_structure_service import take_package_pedigree
 
     members = _package_members(bundle)
-    others = await other_analyses_of(session, family_id=family_id, analysis_type=bundle.manifest.analysis_type)
+    others = await other_analyses_of(session, family_id=family_id, analysis=bundle.manifest.analysis_key)
     try:
         await take_package_pedigree(
             session,
@@ -2581,7 +2636,7 @@ async def _ensure_family_from_ped(
             session,
             family_id=family_id,
             ped=bundle.ped,
-            analysis_type=bundle.manifest.analysis_type,
+            analysis=bundle.manifest.analysis_key,
             members=_package_members(bundle),
         )
         if differences.conflicting:
@@ -2594,7 +2649,9 @@ async def _ensure_family_from_ped(
         )
         if outside is not None:
             raise ImportRefused(outside)
-        shared = _shared_source_message(existing.get("metadata"), bundle)
+        shared = _shared_source_message(existing.get("metadata"), bundle) or _shared_pregnancy_sample_message(
+            existing.get("metadata"), bundle
+        )
         if shared is not None:
             raise ImportRefused(shared)
         roi_conflict = await roi_conflict_message(
@@ -3966,10 +4023,10 @@ def _listed_members(record: Mapping[str, Any]) -> set[str]:
     return {str(member) for member in members if isinstance(member, str)} if isinstance(members, list) else set()
 
 
-async def other_analyses_of(session: AsyncSession, *, family_id: str, analysis_type: str | None) -> OtherAnalyses:
-    """The family's analyses other than ``analysis_type`` (its package records of other keys,
-    ``family_package_records``): a monogenic NIPT, for an import of the conventional NIPT of the
-    same pregnancy. With one, an import of ``analysis_type`` keeps every active member of the family
+async def other_analyses_of(session: AsyncSession, *, family_id: str, analysis: str) -> OtherAnalyses:
+    """The family's analyses other than ``analysis`` (an analysis's key; its package records of
+    other keys, ``family_package_records``): a monogenic NIPT, for an import of the conventional
+    NIPT of the same pregnancy, or of an earlier one. With one, an import of ``analysis`` keeps every active member of the family
     but those only its own analysis's record lists: the other packages' members, and those added
     or renamed in the members editor, whom no record lists. Empty for a family that does not exist,
     or holds no other analysis."""
@@ -3995,8 +4052,8 @@ async def other_analyses_of(session: AsyncSession, *, family_id: str, analysis_t
     if row is None:
         return OtherAnalyses()
     records = family_package_records({PACKAGE_IMPORTS_KEY: _json_object(row.get("package_imports"))})
-    key = package_record_key(analysis_type)
-    analyses = tuple(sorted(analysis for analysis in records if analysis != key))
+    key = analysis
+    analyses = tuple(sorted(other for other in records if other != key))
     if not analyses:
         return OtherAnalyses()
     listed_by_others = set().union(*(_listed_members(records[analysis]) for analysis in analyses))
@@ -4192,7 +4249,7 @@ async def same_individual_outside_message(
     if not links:
         return None
     kept = (
-        (await other_analyses_of(session, family_id=family_id, analysis_type=bundle.manifest.analysis_type)).kept
+        (await other_analyses_of(session, family_id=family_id, analysis=bundle.manifest.analysis_key)).kept
         if overwrite and family_id
         else None
     )
@@ -4226,12 +4283,12 @@ async def family_member_differences(
     *,
     family_id: str,
     ped: ParsedPed,
-    analysis_type: str | None,
+    analysis: str,
     members: Iterable[Mapping[str, Any]] | None = None,
 ) -> MemberDifferences:
     """How the members of a package (``ped``, made of its ``family.add_members``; ``members``, the
     package's members with the statuses its manifest gives them, ``_package_members``, else read
-    from ``ped`` alone) of ``analysis_type`` differ from the family ``family_id`` as CoGA holds it
+    from ``ped`` alone) of the analysis ``analysis`` (its key) differ from the family ``family_id`` as CoGA holds it
     (``ped_service.build_pedigree_text``): a member of the one the other lacks, or one whose sex or
     parents differ. Empty when the family does not exist, or agrees. The package's members are the
     pedigree an import reads (the owner's decision of 2026-11-10): an update adds the members the
@@ -4248,7 +4305,7 @@ async def family_member_differences(
         return MemberDifferences()
     if await _fetch_existing_family(session, family_id=family_id) is None:
         return MemberDifferences()
-    others = await other_analyses_of(session, family_id=family_id, analysis_type=analysis_type)
+    others = await other_analyses_of(session, family_id=family_id, analysis=analysis)
     try:
         stored_text = await ped_service.build_pedigree_text(session, family_id=family_id)
     except HTTPException:

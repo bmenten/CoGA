@@ -924,9 +924,17 @@ export interface FamilyAncestryOut {
   can_choose: boolean;
 }
 
-/** A conventional NIPT family's result: one per maternal plasma with ccnv output. */
+/**
+ * The result of a family's conventional NIPT of one pregnancy (``analysis``, its key:
+ * ``conventional_nipt:ZW1``): one per maternal plasma its package lists with ccnv output, the
+ * pregnancy's fetuses, and what a result of a multiple pregnancy says of them
+ * (``nipt.multiple_pregnancy_note``).
+ */
 export interface FamilyCniptOut {
   family_id: string;
+  analysis: string;
+  fetuses: string[];
+  multiple_pregnancy_note: string | null;
   samples: CniptSampleResultOut[];
 }
 
@@ -1039,7 +1047,7 @@ export interface FamilyMemberBatchUpdateItem {
   sample_id: string;
   new_sample_id?: string | null;
   sex?: "male" | "female" | "und" | null;
-  role?: "proband" | "father" | "mother" | "sibling" | "embryo" | "relative" | null;
+  role?: "proband" | "father" | "mother" | "sibling" | "embryo" | "fetus" | "relative" | null;
   clinical_status?: "unknown" | "unaffected" | "affected" | null;
   carrier_status?: "unknown" | "not_carrier" | "carrier" | null;
   carrier_type?: "obligate" | "proven" | "reported" | "inferred" | null;
@@ -1086,7 +1094,7 @@ export interface FamilyMemberImpactOut {
 /** Schema for a family member with a human-friendly sample ID. */
 export interface FamilyMemberOut {
   sample_id: string;
-  role: "proband" | "father" | "mother" | "sibling" | "embryo" | "relative";
+  role: "proband" | "father" | "mother" | "sibling" | "embryo" | "fetus" | "relative";
   affected: boolean;
   sex: "male" | "female" | "und";
   clinical_status: "unknown" | "unaffected" | "affected";
@@ -1101,7 +1109,7 @@ export interface FamilyMemberOut {
 export interface FamilyMemberUpdate {
   sample_id?: string | null;
   sex?: "male" | "female" | "und" | null;
-  role?: "proband" | "father" | "mother" | "sibling" | "embryo" | "relative" | null;
+  role?: "proband" | "father" | "mother" | "sibling" | "embryo" | "fetus" | "relative" | null;
   clinical_status?: "unknown" | "unaffected" | "affected" | null;
   carrier_status?: "unknown" | "not_carrier" | "carrier" | null;
   carrier_type?: "obligate" | "proven" | "reported" | "inferred" | null;
@@ -1368,7 +1376,7 @@ export interface FamilyStructureCoupleUpdate {
 export interface FamilyStructureMemberCreate {
   sample_id: string;
   sex?: "male" | "female" | "und";
-  role?: "proband" | "father" | "mother" | "sibling" | "embryo" | "relative";
+  role?: "proband" | "father" | "mother" | "sibling" | "embryo" | "fetus" | "relative";
   clinical_status?: "unknown" | "unaffected" | "affected";
   carrier_status?: "unknown" | "not_carrier" | "carrier";
   carrier_type?: "obligate" | "proven" | "reported" | "inferred" | null;
@@ -1379,7 +1387,7 @@ export interface FamilyStructureMemberUpdate {
   sample_id: string;
   new_sample_id?: string | null;
   sex?: "male" | "female" | "und" | null;
-  role?: "proband" | "father" | "mother" | "sibling" | "embryo" | "relative" | null;
+  role?: "proband" | "father" | "mother" | "sibling" | "embryo" | "fetus" | "relative" | null;
   clinical_status?: "unknown" | "unaffected" | "affected" | null;
   carrier_status?: "unknown" | "not_carrier" | "carrier" | null;
   carrier_type?: "obligate" | "proven" | "reported" | "inferred" | null;
@@ -1409,8 +1417,10 @@ export interface FamilyStructureRelativeUpdate {
 }
 
 /**
- * Two samples of one person: the two plasmas of one pregnancy, say. The pedigree draws them
- * as one person, and Sample QC expects their genotypes identical.
+ * Two samples of one person: two samples of a parent, or the plasmas of a woman's NIPTs, say.
+ * The pedigree draws them as one person, and Sample QC expects their genotypes identical, but
+ * never a plasma's: a mixture of the mother's and a fetus's DNA. The plasmas of two pregnancies
+ * are one person, never one pregnancy.
  */
 export interface FamilyStructureSameIndividualUpdate {
   samples: string[];
@@ -2094,13 +2104,15 @@ export interface IdeogramBandOut {
 /**
  * A package folder added to Deliveries by hand (import_manual_delivery.py): the folder under
  * the import roots, the project it belongs to, and, where they differ from what CoGA reads in
- * the folder, the family ID (the folder's name by default) and the analysis.
+ * the folder, the family ID (the folder's name by default), the analysis and, for a NIPT, its
+ * pregnancy.
  */
 export interface ImportDeliveryAdd {
   folder_path: string;
   project_id: string;
   family_id?: string | null;
   analysis_type?: "long_read_wgs" | "long_read_adaptive_sampling" | "short_read_wgs" | "pgt" | "expanded_carrier_screening" | "monogenic_nipt" | "conventional_nipt" | null;
+  pregnancy_id?: string | null;
 }
 
 /**
@@ -2166,6 +2178,7 @@ export interface ImportDeliveryOut {
   project_id: string | null;
   project: string | null;
   analysis_type: string | null;
+  pregnancy_id: string | null;
   pipeline_name: string | null;
   pipeline_version: string | null;
   request_id: string | null;
@@ -2926,9 +2939,18 @@ export interface NiptStatisticsGroupOut {
   vaf_histogram: number[];
 }
 
-/** Monogenic NIPT analysis summary: fetal fraction and category/filter counts. */
+/**
+ * Monogenic NIPT analysis summary of one pregnancy: fetal fraction and category/filter
+ * counts. ``analysis`` is the key of the monogenic NIPT read (``monogenic_nipt:ZW1``; None for a
+ * family the Family Builder tagged), ``fetuses`` the pregnancy's fetuses, and
+ * ``multiple_pregnancy_note`` what a fetal result of a multiple pregnancy says of them
+ * (``nipt.multiple_pregnancy_note``).
+ */
 export interface NiptSummaryOut {
   family_id: string;
+  analysis: string | null;
+  fetuses: string[];
+  multiple_pregnancy_note: string | null;
   fetal_fraction: NiptFetalFractionOut;
   category_counts: Record<string, number>;
   filter_counts: Record<string, number>;
@@ -2992,14 +3014,15 @@ export interface NiptTargetOut {
 }
 
 /**
- * The samples a monogenic NIPT analysis reads: the maternal plasma (cfDNA, a mixture of
- * the mother's and the fetus's DNA, so no genotype), the father, and the fetus's placeholder
- * member, which holds no data (None when the family has none).
+ * The samples the monogenic NIPT of one pregnancy reads: the maternal plasma (cfDNA, a
+ * mixture of the mother's and the fetus's DNA, so no genotype), the father, and the
+ * pregnancy's fetuses, placeholder members that hold no data (none when the family has none,
+ * two or more in a multiple pregnancy).
  */
 export interface NiptTrioOut {
   cfdna_sample_id: string;
   father_sample_id: string;
-  fetus_sample_id: string | null;
+  fetus_sample_ids: string[];
 }
 
 /**

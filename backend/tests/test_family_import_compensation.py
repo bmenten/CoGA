@@ -38,6 +38,7 @@ import pytest
 from app.services import family_package_import as fpi
 from app.services.hpo_service import PhenotypeImport
 from app.services import family_package_registration as registration
+from app.services.family_package_common import PackageManifest
 from backend.tests._family_import_fakes import no_family_import_hold
 
 
@@ -942,6 +943,7 @@ def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
     bundle = SimpleNamespace(
         root=tmp_path,
         manifest=SimpleNamespace(
+            pregnancy=None,
             datasets={
                 "snv": dataset(family_vcf="snv/family.vcf", extra={"source_format": "deepvariant"}),
                 "haplotypes": dataset(family_vcf="GLIMPSE2/FAM.vcf.gz"),
@@ -1724,7 +1726,7 @@ def _snv_job(tmp_path, vcf, *, scope=None, **snv):
     fields = {"scope": scope} if scope is not None else {}
     return family_package_datasets.DatasetImportJob(
         session=SimpleNamespace(),
-        bundle=SimpleNamespace(root=tmp_path, manifest=SimpleNamespace(analysis_type=None)),
+        bundle=SimpleNamespace(root=tmp_path, manifest=PackageManifest()),
         dataset=ManifestDataset(family_vcf="family.vcf", **snv),
         summary=FamilyImportDatasetSummary(dataset_type="snv", status="valid"),
         family_context=SimpleNamespace(

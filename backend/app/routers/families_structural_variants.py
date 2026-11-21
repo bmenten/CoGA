@@ -17,6 +17,7 @@ from ..schemas import (
     VariantOut,
     VariantPage,
 )
+from ..services.family_analysis_types import ANALYSIS_KEY_MAX_LENGTH
 from ..services.clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
     export_family_structural_variants,
@@ -45,7 +46,10 @@ router = APIRouter()
 # their own. A review is that analysis's (analysis_reviews.py).
 AnalysisParam = Annotated[
     str | None,
-    Query(max_length=64, description="The family's analysis to read or review (analysis_type)."),
+    Query(
+        max_length=ANALYSIS_KEY_MAX_LENGTH,
+        description="The family's analysis to read or review (its key: monogenic_nipt:ZW1).",
+    ),
 ]
 # The kind of variants the family's analysis is told by when none is named.
 _SV_KIND = "structural_variants"

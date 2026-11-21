@@ -24,7 +24,7 @@ from .family_metadata_context import (
 )
 
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SEGREGATION_TRACK_TYPE, APCAD_SOURCE, ImportRefused, ParsedPed, _coerce_finite_float, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, whole_package_text_handle
-from .ccnv_output import CCNV_SOURCE, CCNV_TRACK_FILE_LABEL, CcnvOutputError, ccnv_track_rows
+from .ccnv_output import CCNV_TRACK_FILE_LABEL, CcnvOutputError, ccnv_track_rows
 from .clickhouse_column_bounds import UINT64, column_int
 from .import_progress import bytes_read_on_disk, file_size, read_stats
 from .vcf_fields import field_int, parse_format, parse_info
@@ -578,12 +578,13 @@ def _ccnv_rows(
     sample_context: SampleMetadataContext,
     track_type: str,
     path: Path,
+    source: str,
 ) -> Iterator[dict[str, Any] | None]:
     """Each data line of a ccnv bins or segments file (``ccnv_track_rows``) as the row it is
     stored as, None for a line left out: its log2 ratio as the value, and the columns ccnv
     gives beside it (the z-score, weight and branch of a bin; the z-score, call, expected
     ratio, implied fetal fraction, discordance and origin call of a segment) in its
-    ``metadata_json``."""
+    ``metadata_json``, stored under ``source``."""
     for row in ccnv_track_rows(handle, track_type=track_type, file=path.name):
         if row is None:
             yield None
@@ -594,7 +595,7 @@ def _ccnv_rows(
             "assembly_id": sample_context.assembly_id or "",
             "assembly_name": sample_context.assembly_name or "",
             "track_type": track_type,
-            "source": CCNV_SOURCE,
+            "source": source,
             "chr": row.chrom,
             "start": row.start,
             "end": row.end,
@@ -603,7 +604,7 @@ def _ccnv_rows(
             "origin": None,
             "metadata_json": json.dumps(
                 _jsonb_safe(
-                    {"source": CCNV_SOURCE, "filename": path.name, "line_no": row.line_no, **row.kept}
+                    {"source": source, "filename": path.name, "line_no": row.line_no, **row.kept}
                 )
             ),
         }
@@ -615,11 +616,13 @@ async def _import_ccnv_track(
     sample_context: SampleMetadataContext,
     path: Path,
     track_type: str,
+    source: str,
     progress: Callable[[dict[str, int]], Awaitable[None]] | None = None,
     check_only: bool = False,
 ) -> dict[str, int]:
     """Store a ccnv bins file as the sample's ``coverage`` track or its segments file as its
-    ``segments`` track, source ``ccnv``, in place of the one stored from that file. Both hold
+    ``segments`` track, under ``source`` (the pregnancy's ``ccnv`` source,
+    ``family_package_records.pregnancy_source``), in place of the one stored from that file. Both hold
     log2 ratios of the maternal plasma, as ccnv wrote them.
 
     The file is read up to its first row before anything is deleted: one that is no ccnv
@@ -629,7 +632,7 @@ async def _import_ccnv_track(
         raise ImportRefused("Cannot import ccnv interval tracks without an assembly name")
     label = CCNV_TRACK_FILE_LABEL[track_type]
     async with _open_package_text(path) as handle:
-        rows = _ccnv_rows(handle, sample_context=sample_context, track_type=track_type, path=path)
+        rows = _ccnv_rows(handle, sample_context=sample_context, track_type=track_type, path=path, source=source)
         try:
             first, left_out = _first_stored_row(rows)
         except CcnvOutputError as exc:
@@ -645,7 +648,7 @@ async def _import_ccnv_track(
             session,
             sample_context=sample_context,
             track_type=track_type,
-            source=CCNV_SOURCE,
+            source=source,
             filename=path.name,
         )
         result = await _store_track_rows(
@@ -655,11 +658,11 @@ async def _import_ccnv_track(
         session,
         sample_context=sample_context,
         track_type=track_type,
-        source=CCNV_SOURCE,
+        source=source,
         filename=path.name,
         row_count=result["inserted"],
         metadata={
-            "source": CCNV_SOURCE,
+            "source": source,
             "filename": path.name,
             "uploaded_from": "family_package",
         },

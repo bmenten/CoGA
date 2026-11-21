@@ -76,7 +76,7 @@ const GENEA_TARGETS = {
   ],
 };
 
-const FAMILY = { family_id: 'NIPT001', members: [], metadata: { analysis_types: ['monogenic_nipt'] } };
+const FAMILY = { family_id: 'NIPT001', members: [], metadata: { analyses: ['monogenic_nipt'] } };
 
 const respond = (coverage: unknown) =>
   apiMock.get.mockImplementation((url: string) => {
@@ -226,7 +226,7 @@ describe('FamilyNiptCoveragePage', () => {
             family_id: 'NIPT001',
             members: [],
             projects: ['project-1'],
-            metadata: { analysis_types: ['monogenic_nipt'], ...INCOMPLETE_IMPORT_METADATA },
+            metadata: { analyses: ['monogenic_nipt'], ...INCOMPLETE_IMPORT_METADATA },
           },
         });
       }

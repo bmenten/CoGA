@@ -1,4 +1,6 @@
 import React from 'react';
+import MultiplePregnancyNote from './MultiplePregnancyNote';
+import { ANALYSIS_PARAM } from '../../lib/familyAnalyses';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
@@ -62,17 +64,26 @@ const PlasmaSummary: React.FC<{ sample: CniptSampleResultOut }> = ({ sample }) =
  * A conventional NIPT family's result on its report, as the cNIPT page shows it: what the
  * sign-out freezes in the record's `cnipt` section (signed_record_cnipt).
  */
-const CniptReportSummary: React.FC<{ familyId: string; projectId?: string | null }> = ({ familyId, projectId }) => {
+const CniptReportSummary: React.FC<{ familyId: string; projectId?: string | null; analysis: string | null }> = ({
+  familyId,
+  projectId,
+  analysis,
+}) => {
   const { data, isLoading, isError } = useQuery<FamilyCniptOut>({
-    queryKey: ['family', familyId, 'cnipt', projectId ?? undefined],
-    queryFn: async () =>
-      (
-        await api.get(apiPath`/families/${familyId}/cnipt`, {
-          params: projectId ? { project_id: projectId } : undefined,
-        })
-      ).data as FamilyCniptOut,
+    queryKey: ['family', familyId, 'cnipt', projectId ?? undefined, analysis],
+    queryFn: async () => {
+      // The pregnancy's conventional NIPT (its key), named of a family that holds one per pregnancy
+      // of several.
+      const params: Record<string, string> = {};
+      if (analysis) params[ANALYSIS_PARAM] = analysis;
+      if (projectId) params.project_id = projectId;
+      return (await api.get(apiPath`/families/${familyId}/cnipt`, { params })).data as FamilyCniptOut;
+    },
   });
-  const project = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+  const linkParams = new URLSearchParams();
+  if (projectId) linkParams.set('project_id', projectId);
+  if (analysis) linkParams.set(ANALYSIS_PARAM, analysis);
+  const project = linkParams.toString() ? `?${linkParams.toString()}` : '';
   return (
     <section className="surface-card report-signed-checks" aria-label="Conventional NIPT result">
       <h2 className="report-audit-heading">Conventional NIPT result</h2>
@@ -92,6 +103,7 @@ const CniptReportSummary: React.FC<{ familyId: string; projectId?: string | null
               Open the cNIPT page
             </Link>
           </p>
+          <MultiplePregnancyNote note={data.multiple_pregnancy_note} fetuses={data.fetuses} />
           {data.samples.map((sample) => (
             <PlasmaSummary key={sample.sample_id} sample={sample} />
           ))}

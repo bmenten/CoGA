@@ -121,10 +121,15 @@ def test_the_json_schema_asks_a_complete_file_where_it_belongs_and_each_files_si
     schema = coga_package_json_schema()
     assert schema["required"] == ["schema", "status", "written_at", "pipeline"]
     assert schema["additionalProperties"] is False
-    (complete,) = schema["allOf"]
+    complete, nipt, other = schema["allOf"]
     assert complete["if"]["properties"]["status"] == {"const": "complete"}
     assert complete["then"]["required"] == ["project", "assembly", "analysis_type", "family", "files"]
     assert complete["then"]["properties"]["files"] == {"type": "array", "minItems": 1}
+    # A complete NIPT package names its pregnancy, and a package of another analysis none (the
+    # owner's decision of 2026-11-21).
+    assert nipt["if"]["properties"]["analysis_type"] == {"enum": ["monogenic_nipt", "conventional_nipt"]}
+    assert nipt["then"]["required"] == ["pregnancy_id"]
+    assert other["then"]["properties"]["pregnancy_id"] == {"type": "null"}
     # A checksum per file is optional (the owner's decision of 2026-11-11); the size is not.
     file_schema = schema["$defs"]["PackageFile"]
     assert file_schema["required"] == ["path", "size"]

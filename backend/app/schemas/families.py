@@ -24,7 +24,7 @@ class FamilyMemberOut(BaseModel):
     """Schema for a family member with a human-friendly sample ID."""
 
     sample_id: str
-    role: Literal["proband", "father", "mother", "sibling", "embryo", "relative"]
+    role: Literal["proband", "father", "mother", "sibling", "embryo", "fetus", "relative"]
     affected: bool
     sex: Literal["male", "female", "und"] = "und"
     clinical_status: Literal["unknown", "unaffected", "affected"] = "unknown"
@@ -211,7 +211,7 @@ class FamilyStatusUpdate(BaseModel):
 class FamilyStructureMemberCreate(BaseModel):
     sample_id: str = Field(min_length=1)
     sex: Literal["male", "female", "und"] = "und"
-    role: Literal["proband", "father", "mother", "sibling", "embryo", "relative"] = "relative"
+    role: Literal["proband", "father", "mother", "sibling", "embryo", "fetus", "relative"] = "relative"
     clinical_status: Literal["unknown", "unaffected", "affected"] = "unknown"
     carrier_status: Literal["unknown", "not_carrier", "carrier"] = "unknown"
     carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
@@ -224,7 +224,7 @@ class FamilyStructureMemberUpdate(BaseModel):
     # names the member by its stored ID, `sample_id`.
     new_sample_id: Optional[str] = None
     sex: Optional[Literal["male", "female", "und"]] = None
-    role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "relative"]] = None
+    role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "fetus", "relative"]] = None
     clinical_status: Optional[Literal["unknown", "unaffected", "affected"]] = None
     carrier_status: Optional[Literal["unknown", "not_carrier", "carrier"]] = None
     carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
@@ -254,8 +254,10 @@ class FamilyStructureRelativeUpdate(BaseModel):
 
 
 class FamilyStructureSameIndividualUpdate(BaseModel):
-    """Two samples of one person: the two plasmas of one pregnancy, say. The pedigree draws them
-    as one person, and Sample QC expects their genotypes identical."""
+    """Two samples of one person: two samples of a parent, or the plasmas of a woman's NIPTs, say.
+    The pedigree draws them as one person, and Sample QC expects their genotypes identical, but
+    never a plasma's: a mixture of the mother's and a fetus's DNA. The plasmas of two pregnancies
+    are one person, never one pregnancy."""
 
     samples: List[str] = Field(min_length=2, max_length=2)
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -314,7 +316,7 @@ class FamilyMemberDetailOut(BaseModel):
 class FamilyMemberUpdate(BaseModel):
     sample_id: Optional[str] = None
     sex: Optional[Literal["male", "female", "und"]] = None
-    role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "relative"]] = None
+    role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "fetus", "relative"]] = None
     # Phenotype and carrier status are independent axes and are stored
     # separately (clinical_status = phenotype, carrier_status = genotype).
     clinical_status: Optional[Literal["unknown", "unaffected", "affected"]] = None
@@ -330,7 +332,7 @@ class FamilyMemberBatchUpdateItem(BaseModel):
     sample_id: str = Field(min_length=1)
     new_sample_id: Optional[str] = None
     sex: Optional[Literal["male", "female", "und"]] = None
-    role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "relative"]] = None
+    role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "fetus", "relative"]] = None
     clinical_status: Optional[Literal["unknown", "unaffected", "affected"]] = None
     carrier_status: Optional[Literal["unknown", "not_carrier", "carrier"]] = None
     carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None

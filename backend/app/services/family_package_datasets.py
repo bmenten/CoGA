@@ -80,7 +80,7 @@ from .nipt_target_coverage import (
     parse_target_coverage_table,
     target_row_metadata,
 )
-from .family_package_records import PACKAGE_KEY, package_record_key
+from .family_package_records import PACKAGE_KEY, pregnancy_source
 from .family_package_qc import (
     extract_pipeline_versions,
     parse_ado_adi_text,
@@ -154,9 +154,16 @@ class DatasetImportJob:
     @property
     def analysis(self) -> str:
         """The key of the package record of the analysis the import is of
-        (``package_record_key``): its annotation manifest is the one the dataset's versions
-        go into."""
-        return package_record_key(self.bundle.manifest.analysis_type)
+        (``PackageManifest.analysis_key``): its annotation manifest is the one the dataset's
+        versions go into."""
+        return self.bundle.manifest.analysis_key
+
+    def own_source(self, source: str) -> str:
+        """The source a dataset a pregnancy keeps as its own (``family_package_records.
+        PREGNANCY_DATASETS``) stores under that another analysis stores under ``source``: the
+        pregnancy's (``pregnancy_source``), so an import of one of a family's pregnancies never
+        replaces another's data; ``source`` itself for an analysis of no pregnancy."""
+        return pregnancy_source(source, self.bundle.manifest.pregnancy)
 
 
 DatasetImporter = Callable[[DatasetImportJob], Awaitable[FamilyImportDatasetSummary]]
@@ -328,24 +335,26 @@ def snv_dataset_callset(bundle: FamilyPackageBundle) -> str:
     it before anything is written (``dataset_scopes``), so it is read from the file here, as
     the loader reads it. ``auto`` (``UNRESOLVED_SNV_SOURCE``) when it cannot be
     told: no family VCF, one that cannot be read, or one whose caller neither the package nor
-    the header names (which validation refuses)."""
+    the header names (which validation refuses). A pregnancy's package stores it as the
+    pregnancy's own (``family_package_records.pregnancy_source``: ``nipt_p1a2b3c4d``)."""
     dataset = bundle.manifest.datasets.get("snv")
     if dataset is None:
         return UNRESOLVED_SNV_SOURCE
+    pregnancy = bundle.manifest.pregnancy
     source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
     if dataset.per_sample and not dataset.family_vcf:
         if (bundle.manifest.analysis_type or "").strip() == MONOGENIC_NIPT_ANALYSIS_TYPE:
-            return NIPT_SMALL_VARIANT_SOURCE
+            return pregnancy_source(NIPT_SMALL_VARIANT_SOURCE, pregnancy)
         # The caller its package declares, which validation requires.
-        return source_format
+        return pregnancy_source(source_format, pregnancy)
     if source_format != "auto":
-        return source_format
+        return pregnancy_source(source_format, pregnancy)
     try:
         vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
         if vcf_path is None:
             return UNRESOLVED_SNV_SOURCE
         with vcf_path.open("rb") as handle:
-            return _small_variant_callset(UploadFile(file=handle, filename=vcf_path.name))
+            return pregnancy_source(_small_variant_callset(UploadFile(file=handle, filename=vcf_path.name)), pregnancy)
     except Exception:  # noqa: BLE001 - the loader reads the file again, and says why it cannot
         return UNRESOLVED_SNV_SOURCE
 
@@ -413,18 +422,23 @@ class SnvCallsetChanged(RuntimeError):
     recorded for it when it began: refused before anything of it was written."""
 
 
-def _snv_callset_to_store(upload: UploadFile, source_format: str, scope: Mapping[str, Any] | None) -> str:
+def _snv_callset_to_store(
+    upload: UploadFile,
+    source_format: str,
+    scope: Mapping[str, Any] | None,
+    own: Callable[[str], str] = lambda callset: callset,
+) -> str:
     """The callset the SNV loader is to store the family VCF in ``upload`` as: the
     ``source_format`` the dataset declares, or with ``auto`` the one the loader would work
-    out from the file, read on the handle it then reads. The import recorded a callset for
-    the dataset before its first write (``scope``, from ``snv_dataset_callset``); a file
-    that no longer reads as that callset changed while the import ran, and is refused, so
-    the import never stores a callset its bookkeeping does not name. Without a recorded
-    callset (``auto``: the file could not be read then, or an import without bookkeeping)
-    the file's own is stored."""
+    out from the file, read on the handle it then reads; a pregnancy's own
+    (``own``: ``DatasetImportJob.own_source``). The import recorded a callset for the dataset
+    before its first write (``scope``, from ``snv_dataset_callset``); a file that no longer
+    reads as that callset changed while the import ran, and is refused, so the import never
+    stores a callset its bookkeeping does not name. Without a recorded callset (``auto``: the
+    file could not be read then, or an import without bookkeeping) the file's own is stored."""
     if source_format != "auto":
-        return source_format
-    callset = _small_variant_callset(upload)
+        return own(source_format)
+    callset = own(_small_variant_callset(upload))
     recorded = scope.get("source") if isinstance(scope, Mapping) else None
     if recorded not in (None, UNRESOLVED_SNV_SOURCE) and recorded != callset:
         raise SnvCallsetChanged(
@@ -446,12 +460,12 @@ def _snv_dataset_source(job: DatasetImportJob, vcf_path: Path, source_format: st
     without its bookkeeping) reads it from the file here, as the loader reads it, and raises
     as the loader does on a file it cannot read: before anything is written or removed."""
     if source_format != "auto":
-        return source_format
+        return job.own_source(source_format)
     recorded = job.scope.get("source") if isinstance(job.scope, Mapping) else None
     if isinstance(recorded, str) and recorded and recorded != UNRESOLVED_SNV_SOURCE:
         return recorded
     with vcf_path.open("rb") as handle:
-        return _small_variant_callset(UploadFile(file=handle, filename=vcf_path.name))
+        return job.own_source(_small_variant_callset(UploadFile(file=handle, filename=vcf_path.name)))
 
 
 @_dataset_importer("snv")
@@ -563,7 +577,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             # Stored as the callset the import recorded for it before its first write, and
             # nothing else: the one the update check counted and the clean-up
             # removes. One read from the file above (none was recorded) must still be it.
-            callset = _snv_callset_to_store(upload, source_format, job.scope)
+            callset = _snv_callset_to_store(upload, source_format, job.scope, job.own_source)
             if callset != snv_source:
                 raise SnvCallsetChanged(
                     f"The SNV family VCF now reads as the {callset} callset, not the {snv_source} "
@@ -944,6 +958,9 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
     conflict_mode = job.conflict_mode
+    # The pregnancy's own source (family_package_records.pregnancy_source): an import of another
+    # pregnancy's conventional NIPT never replaces this one's tracks and calls.
+    source = job.own_source(CCNV_SOURCE)
     if not family_context.assembly_name:
         return await _register_only(summary, "Registered only; family is not linked to a single assembly")
     if not dataset.per_sample:
@@ -956,12 +973,12 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     if conflict_mode == "update":
         stored_tracks = 0
         for _sample_id, sample_context, _entry in named:
-            stored_tracks += await _stored_track_rows(sample_context, track_type="coverage", source=CCNV_SOURCE)
+            stored_tracks += await _stored_track_rows(sample_context, track_type="coverage", source=source)
         stored_calls = await count_family_structural_variants(
             family_context.assembly_name,
             family_context.family_uuid,
             project_ids=family_context.project_ids,
-            source=CCNV_SOURCE,
+            source=source,
         )
         if stored_tracks or stored_calls:
             return summary.model_copy(
@@ -1010,7 +1027,7 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
         sample_records = _iter_cnv_structural_records(
             text_value,
             sample_id=sample_id,
-            source=CCNV_SOURCE,
+            source=source,
             sample_column=0,
             skipped=skipped,
             keep_format=True,
@@ -1031,7 +1048,7 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
             await _check_track_unless_present(
                 sample_context=sample_context,
                 track_type=track_type,
-                source=CCNV_SOURCE,
+                source=source,
                 conflict_mode=conflict_mode,
                 importer=partial(
                     _import_ccnv_track,
@@ -1039,6 +1056,7 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                     sample_context=sample_context,
                     path=paths[role],
                     track_type=track_type,
+                    source=source,
                 ),
             )
         sample_results[sample_id] = {
@@ -1064,7 +1082,7 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                 session,
                 sample_context=sample.context,
                 track_type=track_type,
-                source=CCNV_SOURCE,
+                source=source,
                 conflict_mode=conflict_mode,
                 importer=partial(
                     _import_ccnv_track,
@@ -1072,6 +1090,7 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                     sample_context=sample.context,
                     path=sample.paths[role],
                     track_type=track_type,
+                    source=source,
                 ),
             )
         await record_sample_ccnv_metadata(session, sample_context=sample.context, ccnv=sample.qc)
@@ -1090,12 +1109,12 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
         family_context.family_uuid,
         family_context.project_ids,
         _merge_sv_records_by_id(records),
-        source=CCNV_SOURCE,
+        source=source,
     )
     await _update_sv_file_metadata(
         session,
         sample_contexts=sample_contexts,
-        source=CCNV_SOURCE,
+        source=source,
         filename=", ".join(str(result["filename"]) for result in sample_results.values()),
     )
     await merge_vcf_header_provenance(
@@ -1113,7 +1132,7 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                 "Imported ccnv bins as coverage and segments as segment interval tracks, its QC, "
                 + ("and its calls into structural variant storage" if records else "and no call (none was made)")
             ),
-            "summary": {"processed": len(records), "source": CCNV_SOURCE, "samples": sample_results},
+            "summary": {"processed": len(records), "source": source, "samples": sample_results},
         }
     )
 
@@ -1514,7 +1533,8 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
 
 async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Import a monogenic NIPT's SNV files, one per sample (``datasets.snv.per_sample``),
-    as one callset with source ``nipt`` (see family_package_nipt).
+    as one callset, the pregnancy's ``nipt`` source (``DatasetImportJob.own_source``; see
+    family_package_nipt): the father's calls of one pregnancy are never another's.
 
     The plasma file goes first, then every other file merges its calls into the stored
     rows (``overwrite_scope="samples"``), so each variant is one row holding each sample's
@@ -1531,12 +1551,13 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
     assembly_name = family_context.assembly_name or ""
+    callset = job.own_source(NIPT_SMALL_VARIANT_SOURCE)
     if job.conflict_mode == "update":
         existing_count = await count_family_small_variants(
             assembly_name,
             family_context.family_uuid,
             project_ids=family_context.project_ids,
-            source=NIPT_SMALL_VARIANT_SOURCE,
+            source=callset,
         )
         if existing_count:
             return summary.model_copy(
@@ -1606,7 +1627,7 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
                 sample_contexts=sample_contexts,
                 file=upload,
                 overwrite=True,
-                format_hint=NIPT_SMALL_VARIANT_SOURCE,
+                format_hint=callset,
                 sample_aliases=aliases,
                 overwrite_scope="samples",
                 record_filter=None if is_plasma else paternal_record_filter(plasma_positions),
@@ -1648,8 +1669,9 @@ async def _import_per_sample_snv(job: DatasetImportJob) -> FamilyImportDatasetSu
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
     assembly_name = family_context.assembly_name or ""
-    # The caller the dataset declares, which validation requires (a direct callset's name).
-    callset = str((dataset.model_extra or {}).get("source_format") or "")
+    # The caller the dataset declares, which validation requires (a direct callset's name); a
+    # pregnancy's own (DatasetImportJob.own_source).
+    callset = job.own_source(str((dataset.model_extra or {}).get("source_format") or ""))
     if job.conflict_mode == "update":
         existing_count = await count_family_small_variants(
             assembly_name,
@@ -1740,10 +1762,12 @@ async def _import_target_coverage_table(
     sample_context: SampleMetadataContext,
     table_path: Path,
     bundle_root: Path,
+    source: str,
     check_only: bool = False,
 ) -> dict[str, Any]:
-    """Store a per-target coverage table as the sample's ``target_coverage`` track, in
-    place of the one stored before (see nipt_target_coverage). The table is read and
+    """Store a per-target coverage table as the sample's ``target_coverage`` track under
+    ``source`` (the pregnancy's ``coverage_table`` source, ``DatasetImportJob.own_source``), in
+    place of the one stored there before (see nipt_target_coverage). The table is read and
     parsed whole first: one that cannot be, or holds no target, is refused with the track
     as it was, the refusal naming the sample and the table, by its path in the package.
     ``check_only`` stops there, deleting and storing nothing."""
@@ -1766,14 +1790,14 @@ async def _import_target_coverage_table(
         session,
         sample_context=sample_context,
         track_type=TARGET_COVERAGE_TRACK_TYPE,
-        source=TARGET_COVERAGE_SOURCE,
+        source=source,
     )
     rows = [
         {
             "sample_id": sample_context.sample_uuid,
             "family_id": sample_context.family_uuid,
             "track_type": TARGET_COVERAGE_TRACK_TYPE,
-            "source": TARGET_COVERAGE_SOURCE,
+            "source": source,
             "filename": table_path.name,
             "chr": target.chrom,
             "start": target.start,
@@ -1789,7 +1813,7 @@ async def _import_target_coverage_table(
         session,
         sample_context=sample_context,
         track_type=TARGET_COVERAGE_TRACK_TYPE,
-        source=TARGET_COVERAGE_SOURCE,
+        source=source,
         filename=table_path.name,
         row_count=len(rows),
         # Where the table came from, as every package loader's record says.
@@ -1839,7 +1863,7 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
             continue
         table_path = _resolve_package_path(bundle.root, raw_entry.get("target_table"))
         if table_path is not None:
-            track_type, source = TARGET_COVERAGE_TRACK_TYPE, TARGET_COVERAGE_SOURCE
+            track_type, source = TARGET_COVERAGE_TRACK_TYPE, job.own_source(TARGET_COVERAGE_SOURCE)
             path = table_path
         else:
             bed_path = _resolve_package_path(
@@ -1847,7 +1871,7 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
             )
             if bed_path is None:
                 continue
-            track_type, source, path = "coverage", BED_UPLOAD_SOURCE, bed_path
+            track_type, source, path = "coverage", job.own_source(BED_UPLOAD_SOURCE), bed_path
         skip = await _skip_stored_sample(
             job, sample_id, sample_context, track_type=track_type, source=source
         )
@@ -1880,6 +1904,7 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
                 sample_context=sample_context,
                 table_path=path,
                 bundle_root=bundle.root,
+                source=job.own_source(TARGET_COVERAGE_SOURCE),
                 check_only=check_only,
             )
             if not check_only:
@@ -1898,8 +1923,10 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
                     overwrite=True,
                     content=content,
                     # Its record says a package loaded it, as the other package tracks' records
-                    # do: the single-file upload shares its source (`web`).
+                    # do: the single-file upload shares its source (`web`), a pregnancy keeps its
+                    # own (DatasetImportJob.own_source).
                     uploaded_from="family_package",
+                    source=job.own_source(BED_UPLOAD_SOURCE),
                     check_only=check_only,
                 )
         return {**stored, COVERAGE_CONTENT_KEY: content}
@@ -2593,7 +2620,7 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 session,
                 sample_context=sample_context,
                 signal_tracks={
-                    CNV_SOURCE: {**signal_tracks, PACKAGE_KEY: package_record_key(bundle.manifest.analysis_type)}
+                    CNV_SOURCE: {**signal_tracks, PACKAGE_KEY: bundle.manifest.analysis_key}
                 },
             )
 
@@ -3168,7 +3195,7 @@ async def _import_qc_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummar
         await _record_sample_qc_metadata(
             session,
             sample_context=sample_context,
-            analysis=package_record_key(bundle.manifest.analysis_type),
+            analysis=bundle.manifest.analysis_key,
             metrics=metrics,
         )
         sample_results[sample_id] = metrics
@@ -3328,7 +3355,7 @@ async def _import_alignments_dataset(job: DatasetImportJob) -> FamilyImportDatas
         await _record_sample_alignment_metadata(
             session,
             sample_context=sample_context,
-            analysis=package_record_key(bundle.manifest.analysis_type),
+            analysis=bundle.manifest.analysis_key,
             alignment=entry,
         )
         sample_results[sample_id] = entry
@@ -3395,7 +3422,7 @@ async def _import_pipeline_info_dataset(job: DatasetImportJob) -> FamilyImportDa
         await _record_family_pipeline_metadata(
             session,
             family_uuid=family_context.family_uuid,
-            analysis=package_record_key(bundle.manifest.analysis_type),
+            analysis=bundle.manifest.analysis_key,
             parameters=parameters,
         )
     return summary.model_copy(

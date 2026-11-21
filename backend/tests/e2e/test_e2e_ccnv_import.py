@@ -6,8 +6,8 @@ import into real Postgres and ClickHouse, as a family of its own (a new id each 
 
 * the family is a conventional NIPT and its plasma is tagged as one;
 * the bins are the plasma's ``coverage`` track and the segments its ``segments`` track, source
-  ``ccnv``, each row with ccnv's values beside it, and the masked bin left out;
-* the gain is a structural variant of the plasma, source ``ccnv``, read back by the family's
+  the pregnancy's ``ccnv`` source, each row with ccnv's values beside it, and the masked bin left out;
+* the gain is a structural variant of the plasma, under that source, read back by the family's
   structural-variant list as a gain;
 * the QC file is kept with the plasma (``samples.metadata.ccnv``), and each of the four files is
   recorded with its SHA-256;
@@ -43,6 +43,10 @@ import yaml
 from backend.tests._ccnv_output import qc_payload, write_ccnv_output
 from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema
+from backend.app.services.family_package_records import pregnancy_source
+
+# The conventional NIPT's ccnv source, its pregnancy's own (family_package_records.pregnancy_source).
+CCNV = pregnancy_source("ccnv", "ZW1")
 
 pytestmark = pytest.mark.integration
 
@@ -55,6 +59,7 @@ def _write_package(root: Path, family_id: str, sample: str) -> None:
         "family_id": family_id,
         "ped": "family.ped",
         "analysis_type": "conventional_nipt",
+        "pregnancy_id": "ZW1",
         "samples": {sample: {"assay": "cnipt_cfdna"}},
         "datasets": {"ccnv": {"per_sample": {sample: entry}}},
     }
@@ -136,7 +141,7 @@ async def _exercise(base: Path, family_id: str) -> dict:
                 family_uuid=family["id"],
                 track_type=track_type,
                 chromosomes=[],
-                source="ccnv",
+                source=CCNV,
                 include_metadata=True,
             )
         )
@@ -148,10 +153,10 @@ async def _exercise(base: Path, family_id: str) -> dict:
         ac.headers["Authorization"] = f"Bearer {token}"
         availability = await ac.get(f"/api/families/{family_id}/track-availability")
         out["availability"] = {"status": availability.status_code, "json": availability.json()}
-        svs = await ac.get(f"/api/families/{family_id}/structural-variants", params={"source": "ccnv"})
+        svs = await ac.get(f"/api/families/{family_id}/structural-variants", params={"source": CCNV})
         out["svs"] = {"status": svs.status_code, "json": svs.json()}
         segments = await ac.get(
-            f"/api/bed/{sample}/segments/batch", params={"chrom": ["21", "X"], "source": "ccnv"}
+            f"/api/bed/{sample}/segments/batch", params={"chrom": ["21", "X"], "source": CCNV}
         )
         out["segments_read"] = {"status": segments.status_code, "json": segments.json()}
         cnipt = await ac.get(f"/api/families/{family_id}/cnipt")
@@ -183,7 +188,7 @@ def run(tmp_path_factory) -> dict:
 def test_the_ccnv_output_is_imported_for_a_conventional_nipt(run) -> None:
     assert run["import"]["completed"] is True, run["import"]
     assert run["import"]["datasets"]["ccnv"][0] == "imported", run["import"]["datasets"]
-    assert run["family_metadata"]["analysis_types"] == ["conventional_nipt"]
+    assert run["family_metadata"]["analyses"] == ["conventional_nipt:ZW1"]
     assert run["sample_metadata"]["assays"] == ["cnipt_cfdna"]
 
 
@@ -216,7 +221,7 @@ def test_the_gain_is_a_structural_variant_of_the_plasma(run) -> None:
         1,
         200000,
         "DUP",
-        "ccnv",
+        CCNV,
     )
     assert variant["copy_change"] == "gain"
     # The plasma carries it, at no stated zygosity: the SV tracks draw it.
@@ -236,8 +241,8 @@ def test_the_qc_file_and_the_four_files_are_kept(run) -> None:
 def test_the_viewers_are_offered_the_ccnv_tracks_as_log2_ratios(run) -> None:
     assert run["availability"]["status"] == 200, run["availability"]
     served = run["availability"]["json"]["samples"][run["sample"]]
-    assert "ccnv" in served["coverage_sources"] and "ccnv" in served["segments_sources"]
-    assert served["coverage_contents"]["ccnv"] == "log2_ratio"
+    assert CCNV in served["coverage_sources"] and CCNV in served["segments_sources"]
+    assert served["coverage_contents"][CCNV] == "log2_ratio"
 
 
 def test_the_viewers_are_served_the_plasmas_fetal_fraction_and_calls(run) -> None:

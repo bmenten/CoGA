@@ -5,6 +5,8 @@ import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyCaseHeader from './FamilyCaseHeader';
+import AnalysisSelect, { useAnalysisNavigation } from './AnalysisSelect';
+import { pregnancyAnalyses, pregnancyAnalysisOf } from '../../lib/familyAnalyses';
 import { apiPath } from '../../lib/apiPath';
 import type { FamilyOut } from '../../lib/apiSchema.generated';
 import {
@@ -98,6 +100,11 @@ const FamilyVariantSummaryPage: React.FC = () => {
   });
 
   const isMonogenicNipt = holdsMonogenicNipt(family?.metadata);
+  // The pregnancy whose monogenic NIPT the NIPT-M tab reads (the URL names it, else the last
+  // imported): a family holds one per pregnancy, each read on its own.
+  const niptAnalyses = pregnancyAnalyses(family?.metadata, 'monogenic_nipt');
+  const niptAnalysis = pregnancyAnalysisOf(family?.metadata, 'monogenic_nipt', location.search);
+  const selectAnalysis = useAnalysisNavigation();
   const has: Record<SectionKey, boolean> = {
     'nipt-m': isMonogenicNipt,
     'small-variants': presence.hasSmallVariants,
@@ -190,7 +197,13 @@ const FamilyVariantSummaryPage: React.FC = () => {
   const sectionOf = (key: SectionKey) => {
     switch (key) {
       case 'nipt-m':
-        return <VariantSummaryNipt familyId={familyId} projectId={projectId} />;
+        return (
+          <VariantSummaryNipt
+            familyId={familyId}
+            projectId={projectId}
+            analysis={niptAnalyses.length > 1 ? niptAnalysis : null}
+          />
+        );
       case 'small-variants':
         return (
           <VariantSummarySmallVariants
@@ -229,6 +242,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
         family={family}
         projectId={projectId}
         current="variant-summary"
+        actions={<AnalysisSelect analyses={niptAnalyses} analysis={niptAnalysis} onChange={selectAnalysis} />}
       />
 
       {/* The header's links read the same checks: both start in this render, so a check that

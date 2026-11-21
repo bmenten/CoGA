@@ -30,6 +30,8 @@
 - **EPD** — the hospital's electronic patient record. The clinical report is drafted and medically
   signed there, not in CoGA, and refers to one signed version of the analysis.
 - **Fetal fraction (FF)** — the share of the cfDNA that comes from the fetus.
+- **Fetus** — the member of a NIPT family that is the pregnancy's child (role `fetus`). It has no data
+  of its own and is neither a proband nor an embryo; a multiple pregnancy has two or more.
 - **gnomAD / TOPMed** — population allele-frequency references.
 - **Haplotype, homolog** — a homolog is one of a person's two copies of a chromosome; a haplotype is the
   set of alleles on one homolog.
@@ -55,6 +57,9 @@
   with one; the default scope of the variant pages.
 - **MNV** — multi-nucleotide variant: neighbouring bases changed together.
 - **Monarch Initiative** — a knowledge graph that links genes, diseases and HPO phenotypes.
+- **Multiple pregnancy** — a pregnancy whose NIPT package lists two or more fetuses. Its NIPT results
+  carry a note: a fetal result may be present in one fetus or in more than one, and the analysis cannot
+  tell which (not so for a monozygotic twin).
 - **NeedLR** — the structural-variant annotation tool of the long-read pipeline; its annotations fill
   the *Needlr annotations* filters.
 - **P / LP / B / LB** — pathogenic, likely pathogenic, benign, likely benign.
@@ -65,6 +70,9 @@
 - **pLI / LOEUF** — gene constraint: how intolerant a gene is to loss of function (a high pLI or a low
   LOEUF means constrained).
 - **popmax** — the highest allele frequency in any gnomAD sub-population.
+- **Pregnancy ID** — the laboratory's ID of a pregnancy, which a NIPT package names (`pregnancy_id`).
+  Each pregnancy's NIPT is an analysis of its own (*monogenic NIPT of pregnancy ZW1*); a monogenic and
+  a conventional NIPT are one pregnancy only when they name the same pregnancy ID.
 - **Priority score** — the Exomiser-style score that ranks candidates within a family; not a probability.
 - **Recombination** — a crossover between the two homologs at meiosis; the haplotype an embryo carries
   changes at that point.
@@ -73,9 +81,10 @@
   *viewer* (reads), *analyst* (also analyses), *supervisor* (also signs out), *superuser* (also every
   project, the configuration the analyses read and package import) and *admin* (the whole
   administration).
-- **Same individual** — two samples of one person, each under its own sample ID (the plasmas of a
-  monogenic and a conventional NIPT of one pregnancy). The pedigree draws them as one symbol, and Sample
-  QC expects their genotypes identical.
+- **Same individual** — two samples of one person, each under its own sample ID (a parent sampled
+  twice, or the plasmas of a woman's NIPTs). The pedigree draws them as one symbol, and Sample QC
+  expects their genotypes identical, but never compares a maternal plasma. Two plasmas of one woman are
+  one person, never one pregnancy.
 - **Sign-out** — the analytical sign-off in CoGA, by a supervisor, a superuser or an administrator: it
   closes the analysis and freezes it into a signed version that can never change. The medical
   sign-off is given on the clinical report, in the EPD.

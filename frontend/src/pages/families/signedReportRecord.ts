@@ -37,6 +37,7 @@ import { COUNT_UNIT_MARK, describeCountOffset, formatCorrectedCounts } from '../
 import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText, recurrenceText } from './niptClassification';
 import { formatAlleleFrequency, scoreBesideClass } from './reportNarrative';
 import { formatCompoundHetPhaseStatus, formatLocus } from './smallVariantResultUtils';
+import { sourceBase } from '../../lib/pregnancySources';
 
 type Json = Record<string, unknown>;
 
@@ -1069,14 +1070,27 @@ export interface SignedCniptSample {
   };
 }
 
-/** A conventional NIPT family's results, one per maternal plasma (`signed_record_cnipt`). */
+/**
+ * A conventional NIPT's results of one pregnancy, one per maternal plasma its package lists
+ * (`signed_record_cnipt`): the analysis (its key), the pregnancy's fetuses, and what a result of
+ * a multiple pregnancy says of them.
+ */
 export interface SignedCnipt {
+  analysis: string | null;
+  fetuses: string[];
+  multiplePregnancyNote: string | null;
   samples: SignedCniptSample[];
 }
 
-/** A monogenic NIPT family's NIPT results, as its record froze them (`signed_record_nipt`). */
+/**
+ * A monogenic NIPT's results of one pregnancy, as its record froze them (`signed_record_nipt`):
+ * its trio (the pregnancy's fetuses, two or more in a multiple pregnancy), the analysis (its key)
+ * and what a fetal result of a multiple pregnancy says of the fetuses.
+ */
 export interface SignedNipt {
-  samples: { father: string | null; maternalPlasma: string | null; fetus: string | null };
+  samples: { father: string | null; maternalPlasma: string | null; fetuses: string[] };
+  analysis: string | null;
+  multiplePregnancyNote: string | null;
   fetalFraction: SignedNiptFetalFraction | null;
   deNovoWindow: { strictMin: number | null; strictMax: number | null } | null;
   /** [category, count], in category order. */
@@ -2197,7 +2211,12 @@ const parseCniptSample = (sample: Json): SignedCniptSample => {
   };
 };
 
-const parseCnipt = (value: Json): SignedCnipt => ({ samples: objects(value.samples).map(parseCniptSample) });
+const parseCnipt = (value: Json): SignedCnipt => ({
+  analysis: text(value.analysis),
+  fetuses: strings(value.fetuses),
+  multiplePregnancyNote: text(value.multiple_pregnancy_note),
+  samples: objects(value.samples).map(parseCniptSample),
+});
 
 const parseNipt = (value: Json): SignedNipt => {
   const samples = isObject(value.samples) ? value.samples : {};
@@ -2214,8 +2233,10 @@ const parseNipt = (value: Json): SignedNipt => {
     samples: {
       father: text(samples.father),
       maternalPlasma: text(samples.maternal_plasma),
-      fetus: text(samples.fetus),
+      fetuses: strings(samples.fetuses),
     },
+    analysis: text(value.analysis),
+    multiplePregnancyNote: text(value.multiple_pregnancy_note),
     fetalFraction: ff
       ? {
           status: text(ff.status),
@@ -2749,7 +2770,7 @@ const COVERAGE_CONTENT_WORDS: Record<CoverageContent, string> = {
 
 /** How the signed record names a caller's coverage track: "coverage BED", "WisecondorX", … */
 export const coverageTrackCaller = (source: string): string =>
-  source === 'web' ? 'coverage BED' : coverageSourceLabel(source);
+  sourceBase(source) === 'web' ? 'coverage BED' : coverageSourceLabel(source);
 
 /** Where a track's files came from, each once: "upload", "package", "upload and package". */
 const coverageTrackOrigins = (track: SignedCoverageTrack): string =>
@@ -2770,7 +2791,7 @@ export const describeCoverageTracks = (tracks: SignedCoverageTrack[]): string =>
 export const describeCoverageContent = (track: SignedCoverageTrack): string => {
   if (track.content === 'read_depth') return 'read depth';
   if (track.content === 'log2_ratio') return 'log2 ratio, not read as depth';
-  return track.source === 'web'
+  return sourceBase(track.source) === 'web'
     ? 'unknown: it declares neither read depth nor a log2 ratio, so it is not read as depth'
     : 'unknown: what it holds is not recorded, so it is not read as depth';
 };

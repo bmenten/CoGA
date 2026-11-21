@@ -59,7 +59,7 @@ from backend.app.services.clickhouse_variant_records import (
 )
 from backend.app.services.clickhouse_variant_storage import SMALL_VARIANT_ENTRY_COLUMNS
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services.family_package_common import ManifestDataset
+from backend.app.services.family_package_common import ManifestDataset, PackageManifest
 from backend.app.services.family_package_datasets import DatasetImportJob
 from backend.app.services.hpo_service import PhenotypeImport
 from backend.app.services.family_variant_write_lock import (
@@ -831,7 +831,7 @@ async def test_the_package_sv_datasets_hold_the_lock_until_their_sv_files_are_re
     monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", _nothing)
     job = DatasetImportJob(
         session=postgres.session("import"),  # type: ignore[arg-type]
-        bundle=SimpleNamespace(root=Path("/package"), ped=None, manifest=SimpleNamespace(analysis_type=None)),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=Path("/package"), ped=None, manifest=PackageManifest()),  # type: ignore[arg-type]
         dataset=dataset,
         summary=FamilyImportDatasetSummary(dataset_type="sv", status="valid"),
         family_context=_family_context(),

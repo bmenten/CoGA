@@ -12,9 +12,18 @@ say which fetus a finding concerns.
 ### Setting up a conventional NIPT family
 
 A package import makes the family when its package says `analysis_type: conventional_nipt` (**cNIPT**
-in *Deliveries*), with ccnv's bins, segments, calls and QC file for the plasma. A folder of ccnv output
-added by hand is read the same way: CoGA proposes the plasma as the mother of the pregnancy. The family
-page then shows a **cNIPT** tab.
+in *Deliveries*) and names the pregnancy (`pregnancy_id`), with ccnv's bins, segments, calls and QC
+file for the plasma. A folder of ccnv output added by hand is read the same way: give its **Pregnancy
+ID**, and CoGA proposes the plasma as the mother of the pregnancy. The family page then shows a
+**cNIPT** tab.
+
+A family may hold the NIPTs of several pregnancies of one woman, each an analysis of its own. A cNIPT
+and an mNIPT are one pregnancy only when their packages name the same pregnancy ID. The cNIPT page
+shows one pregnancy at a time: choose it in **Analysis whose data are shown**, beside the family name
+(*conventional NIPT of pregnancy ZW1*). The page opens on the pregnancy imported last. When the
+pregnancy's package lists two or more fetuses, the page, the report and the signed version show the
+**multiple-pregnancy note**: a fetal result may be present in one fetus or in more than one, and the
+analysis cannot tell which (not so for a monozygotic twin).
 
 ### The cNIPT page
 
@@ -42,8 +51,9 @@ mark where a fetal trisomy and monosomy lie at the fetal fraction.
 Sign the family out from its **Report** page, which shows the result above the reported findings. The
 signed version keeps the result as the cNIPT page showed it, with the bounds and the files it was read
 from. A plasma without a result, or a result on provisional bounds, asks for an acknowledgement with a
-reason. When the family also holds the monogenic NIPT of the pregnancy, each NIPT is signed out on its
-own: the **Report** page signs out the conventional NIPT (**Sign out the conventional NIPT**), and its
-record freezes and checks the conventional NIPT's data only.
+reason. When the family also holds another analysis (the monogenic NIPT of the pregnancy, or another
+pregnancy's NIPT), each is signed out on its own: the **Report** page signs out the conventional NIPT
+(of several pregnancies, the one you pick under *Analysis to sign out*; the button names it, **Sign out
+the conventional NIPT of pregnancy ZW1**), and its record freezes and checks that analysis's data only.
 
 [Conventional NIPT reference (the fetal fraction, the rule, the targets and the bounds)](/docs/reference/conventional-nipt "further-reading")

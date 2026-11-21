@@ -32,7 +32,7 @@ from .clickhouse_family_variants import (
 )
 from .clickhouse_variant_ids import build_small_variant_id
 from .clinical_audit_service import record_clinical_event
-from .family_analysis_types import SAMPLE_ASSAY_PANELS_KEY
+from .family_analysis_types import PREGNANCY_SEPARATOR, SAMPLE_ASSAY_PANELS_KEY
 from .nipt import (
     DEFAULT_NIPT_ASSAY_KEY,
     MONOGENIC_NIPT_ANALYSIS_TYPE,
@@ -342,8 +342,9 @@ async def bulk_upsert_nipt_artifacts(
 
 
 # Where the SQL of ``_cfdna_sample_scopes`` reads a cfDNA sample's capture panel: the one the
-# monogenic NIPT's package named, Sample.metadata[SAMPLE_ASSAY_PANELS_KEY][MONOGENIC_NIPT_ANALYSIS_TYPE]
-# (test_nipt_artifact_pg pins the two together).
+# package of its monogenic NIPT named, Sample.metadata[SAMPLE_ASSAY_PANELS_KEY] under that
+# analysis's key, whose analysis type is MONOGENIC_NIPT_ANALYSIS_TYPE (``monogenic_nipt:ZW1``: a
+# plasma is the sample of one pregnancy). test_nipt_artifact_pg pins the two together.
 CFDNA_PANEL_PATH = (SAMPLE_ASSAY_PANELS_KEY, MONOGENIC_NIPT_ANALYSIS_TYPE)
 
 
@@ -351,23 +352,37 @@ async def _cfdna_sample_scopes(session: AsyncSession) -> list[tuple[str, str]]:
     """Each cfDNA sample's ID with its artifact scope, in every project.
 
     A cfDNA sample is one whose assays hold ``nipt_cfdna``; its scope is the capture panel the
-    monogenic NIPT's package named for it (``assay_panels``), resolved as ``nipt_assay_key``
+    package of its monogenic NIPT named for it (``assay_panels``), resolved as ``nipt_assay_key``
     resolves it for the analysis.
     """
     result = await session.execute(
         text(
-            # The panel at CFDNA_PANEL_PATH.
+            # The panel at CFDNA_PANEL_PATH: under the key of the sample's monogenic NIPT, the
+            # analysis type before the pregnancy (family_analysis_types.PREGNANCY_SEPARATOR).
             """
             SELECT sample_id,
-                   CASE WHEN jsonb_typeof(metadata -> 'assay_panels' -> 'monogenic_nipt') = 'string'
-                        THEN metadata -> 'assay_panels' ->> 'monogenic_nipt' END AS assay_panel
+                   (
+                       SELECT panel.value #>> '{}'
+                       FROM jsonb_each(
+                           CASE WHEN jsonb_typeof(metadata -> 'assay_panels') = 'object'
+                                THEN metadata -> 'assay_panels' ELSE '{}'::jsonb END
+                       ) AS panel(analysis, value)
+                       WHERE split_part(panel.analysis, :separator, 1) = :analysis_type
+                         AND jsonb_typeof(panel.value) = 'string'
+                       ORDER BY panel.analysis
+                       LIMIT 1
+                   ) AS assay_panel
             FROM samples
             WHERE jsonb_typeof(metadata -> 'assays') = 'array'
               AND (metadata -> 'assays') @> CAST(:assays AS jsonb)
             ORDER BY sample_id
             """
         ),
-        {"assays": json.dumps([NIPT_CFDNA_ASSAY])},
+        {
+            "assays": json.dumps([NIPT_CFDNA_ASSAY]),
+            "separator": PREGNANCY_SEPARATOR,
+            "analysis_type": CFDNA_PANEL_PATH[1],
+        },
     )
     return [(str(sample_id), assay_key_for_panel(assay_panel)) for sample_id, assay_panel in result.all()]
 

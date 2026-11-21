@@ -1,4 +1,11 @@
-import { analysisQuery, niptVariantAnalysis } from '../../lib/familyAnalyses';
+import {
+  ANALYSIS_PARAM,
+  analysisQuery,
+  pregnancyAnalyses,
+  pregnancyAnalysisOf,
+  pregnancyOf,
+  smallVariantAnalyses,
+} from '../../lib/familyAnalyses';
 import React, { useId, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -58,6 +65,8 @@ import SmallVariantFilterForm from './SmallVariantFilterForm';
 import FilterCollapseToggle from './FilterCollapseToggle';
 import SmallVariantResults from './SmallVariantResults';
 import NiptQcPanel from './NiptQcPanel';
+import AnalysisSelect from './AnalysisSelect';
+import MultiplePregnancyNote from './MultiplePregnancyNote';
 import NiptRecessiveGenes from './NiptRecessiveGenes';
 import NiptTargetCoverage from './NiptTargetCoverage';
 import VariantResultsLoading from './VariantResultsLoading';
@@ -258,6 +267,7 @@ const FamilyNiptPage: React.FC = () => {
     sampleDraftFilters,
     sampleFilters,
     searchReady,
+    selectAnalysis,
     setDraftFilterValue,
     toggleDraftFilterListValue,
   } = useSmallVariantSearchState({
@@ -298,16 +308,25 @@ const FamilyNiptPage: React.FC = () => {
   );
 
 
+  // The pregnancy whose monogenic NIPT the page reads: a family holds one per pregnancy, each
+  // read on its own (the owner's decision of 2026-11-21); the URL names it, else the last imported.
+  const niptAnalyses = pregnancyAnalyses(family?.metadata, 'monogenic_nipt');
+  const niptAnalysis = pregnancyAnalysisOf(family?.metadata, 'monogenic_nipt', location.search);
+  // Named in a request of a family that holds several (backend nipt.nipt_analysis_of).
+  const namedNipt = niptAnalyses.length > 1 ? niptAnalysis : null;
+  const niptPregnancy = pregnancyOf(niptAnalysis);
+  const analysisParams: Record<string, string> = namedNipt ? { [ANALYSIS_PARAM]: namedNipt } : {};
+
   const {
     data: summary,
     isError: summaryFailed,
     error: summaryError,
     refetch: refetchSummary,
   } = useQuery<ApiNiptSummary>({
-    queryKey: ['family', familyId, 'nipt', 'summary'],
+    queryKey: ['family', familyId, 'nipt', 'summary', niptAnalysis],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/nipt/summary`);
+      const res = await api.get(apiPath`/families/${familyId}/nipt/summary`, { params: analysisParams });
       return res.data as ApiNiptSummary;
     },
   });
@@ -321,8 +340,9 @@ const FamilyNiptPage: React.FC = () => {
   // How many variants are tagged report, for "Show reported": the family's review summary,
   // which counts a tag's variants as the review-tag filter selects them (the family page's
   // curation summary, under the same key).
-  // The family's monogenic NIPT, named when the family holds another analysis with small variants.
-  const variantAnalysis = niptVariantAnalysis(family?.metadata);
+  // The pregnancy's monogenic NIPT, whose reviews these are: named when the family holds another
+  // analysis with small variants of its own (another pregnancy's, the couple's carrier screening).
+  const variantAnalysis = smallVariantAnalyses(family?.metadata).length > 1 ? niptAnalysis : null;
   const reviewSummaryKey = ['family', familyId, 'small-variant-review-summary', variantAnalysis] as const;
   const { data: reviewSummary } = useQuery<ApiSmallVariantReviewSummary>({
     queryKey: reviewSummaryKey,
@@ -377,10 +397,10 @@ const FamilyNiptPage: React.FC = () => {
     error: coverageError,
     refetch: refetchCoverage,
   } = useQuery<ApiNiptCoverageSummary>({
-    queryKey: ['family', familyId, 'nipt', 'coverage', filters.panel_id, filters.gene],
+    queryKey: ['family', familyId, 'nipt', 'coverage', niptAnalysis, filters.panel_id, filters.gene],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
-      const params: Record<string, string> = {};
+      const params: Record<string, string> = { ...analysisParams };
       if (filters.panel_id) params.panel_id = filters.panel_id;
       if (filters.gene.trim()) params.gene = filters.gene.trim();
       const res = await api.get(apiPath`/families/${familyId}/nipt/coverage`, { params });
@@ -396,12 +416,12 @@ const FamilyNiptPage: React.FC = () => {
     error: variantsError,
     refetch: refetchVariants,
   } = useQuery<SmallVariantPage>({
-    queryKey: [...niptVariantsKey, JSON.stringify(filters), page],
+    queryKey: [...niptVariantsKey, niptAnalysis, JSON.stringify(filters), page],
     // Wait for the De novo default (or the URL's search), so no unfiltered search goes out.
     enabled: Boolean(familyId && isMonogenicNipt && searchReady),
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/nipt/variants`, {
-        params: buildVariantParams(filters, page),
+        params: { ...buildVariantParams(filters, page), ...analysisParams },
         paramsSerializer: niptParamsSerializer,
       });
       return res.data as NiptSmallVariantPage;
@@ -540,6 +560,7 @@ const FamilyNiptPage: React.FC = () => {
   // coverage QC and candidate list match what the analyst is viewing.
   const niptReportQuerySuffix = (() => {
     const params = new URLSearchParams();
+    if (namedNipt) params.set(ANALYSIS_PARAM, namedNipt);
     if (projectId) params.set('project_id', projectId);
     if (filters.panel_id) params.set('panel_id', filters.panel_id);
     if (filters.gene.trim()) params.set('gene', filters.gene.trim());
@@ -569,6 +590,7 @@ const FamilyNiptPage: React.FC = () => {
         projectId={projectId}
         current="nipt"
         className="variant-workbench-card"
+        actions={<AnalysisSelect analyses={niptAnalyses} analysis={niptAnalysis} onChange={selectAnalysis} />}
         facts={
           <>
             {summaryFailed ? (
@@ -652,6 +674,7 @@ const FamilyNiptPage: React.FC = () => {
         }
       />
 
+      <MultiplePregnancyNote note={summary?.multiple_pregnancy_note} fetuses={summary?.fetuses} />
       {summary?.qc ? <NiptQcPanel qc={summary.qc} fetalFraction={summary.fetal_fraction} /> : null}
 
       {summaryFailed ? (
@@ -743,9 +766,12 @@ const FamilyNiptPage: React.FC = () => {
             familyId
               ? {
                   path: apiPath`/families/${familyId}/nipt/variants/export?${raw(
-                    niptParamsSerializer(buildSearchParams(filters)),
+                    niptParamsSerializer({ ...buildSearchParams(filters), ...analysisParams }),
                   )}`,
-                  filenameStem: `family-${familyId}-nipt-variants`,
+                  // The file names the pregnancy whose analysis it holds.
+                  filenameStem: niptPregnancy
+                    ? `family-${familyId}-${niptPregnancy}-nipt-variants`
+                    : `family-${familyId}-nipt-variants`,
                 }
               : undefined
           }

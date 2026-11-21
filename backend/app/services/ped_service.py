@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import HTTPException, UploadFile
@@ -19,7 +20,14 @@ from .family_structure_audit import (
     record_structure_version,
 )
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
-from .family_analysis_types import FAMILY_ANALYSIS_TYPES_KEY, SAMPLE_ASSAYS_KEY
+from .family_analysis_types import (
+    FAMILY_ANALYSES_KEY,
+    FETUS_ROLE,
+    SAMPLE_ASSAYS_KEY,
+    analysis_type_of,
+    pregnancy_id_problem,
+    pregnancy_of,
+)
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .pedigree_text import PedMember, pedigree_text, phenotype_code, sex_code
 from .upload_safety import decode_upload_text
@@ -283,7 +291,13 @@ async def _resolve_accessible_project_id(
 
 def _resolve_manual_family_roles(
     members: list[ManualPedMemberCreate],
+    *,
+    fetal: bool = False,
 ) -> dict[str, str]:
+    """Each member's role in a family the Family Builder makes: the members named as a parent
+    are the father and the mother, the member marked proband (else the first that is no parent)
+    the proband, the others siblings. In a monogenic NIPT family (``fetal``) that child is the
+    pregnancy's fetus (``nipt.FETUS_ROLE``), not a proband."""
     father_ids = {member.father_id for member in members if member.father_id}
     mother_ids = {member.mother_id for member in members if member.mother_id}
     explicit_proband = next((member.sample_id for member in members if member.is_proband), None)
@@ -303,7 +317,7 @@ def _resolve_manual_family_roles(
         elif member.sample_id in mother_ids:
             roles[member.sample_id] = "mother"
         elif member.sample_id == proband_id:
-            roles[member.sample_id] = "proband"
+            roles[member.sample_id] = FETUS_ROLE if fetal else "proband"
         else:
             roles[member.sample_id] = "sibling"
     return roles
@@ -323,30 +337,47 @@ def _ped_upload_proband_id(members: list[dict[str, str]], *, parent_ids: set[str
     return next(affected, None) or next((member["iid"] for member in candidates), None)
 
 
-# The metadata the Family Builder may set, each key a list of the values it may hold: what its page
-# sends for a monogenic NIPT family (its analysis types) and the mother's cfDNA sample (its assays). Every other key is written
-# by an import or by an edit the audit trail records (the package folder a family was imported from,
-# a sample's sequencing QC, the import state), and is trusted where it is read, so a request does
-# not set it.
-MANUAL_FAMILY_METADATA: dict[str, frozenset[str]] = {
-    FAMILY_ANALYSIS_TYPES_KEY: frozenset({MONOGENIC_NIPT_ANALYSIS_TYPE}),
+def _is_manual_family_analysis(value: str) -> bool:
+    """Whether ``value`` is an analysis the Family Builder may set: the monogenic NIPT of a
+    pregnancy, by its key (``monogenic_nipt:ZW1``, family_analysis_types.analysis_key)."""
+    pregnancy = pregnancy_of(value)
+    return (
+        analysis_type_of(value) == MONOGENIC_NIPT_ANALYSIS_TYPE
+        and pregnancy is not None
+        and pregnancy_id_problem(pregnancy) is None
+    )
+
+
+# The metadata the Family Builder may set, each key a list of the values it may hold and how a
+# message names them: what its page sends for a monogenic NIPT family (its analysis, the monogenic
+# NIPT of the pregnancy the page names) and the mother's cfDNA sample (its assays). Every other key
+# is written by an import or by an edit the audit trail records (the package folder a family was
+# imported from, a sample's sequencing QC, the import state), and is trusted where it is read, so a
+# request does not set it.
+MANUAL_FAMILY_METADATA: dict[str, tuple[Callable[[str], bool], str]] = {
+    FAMILY_ANALYSES_KEY: (
+        _is_manual_family_analysis,
+        f"{MONOGENIC_NIPT_ANALYSIS_TYPE}:<pregnancy ID>",
+    ),
 }
-MANUAL_SAMPLE_METADATA: dict[str, frozenset[str]] = {
-    SAMPLE_ASSAYS_KEY: frozenset({NIPT_CFDNA_ASSAY}),
+MANUAL_SAMPLE_METADATA: dict[str, tuple[Callable[[str], bool], str]] = {
+    SAMPLE_ASSAYS_KEY: (lambda value: value == NIPT_CFDNA_ASSAY, NIPT_CFDNA_ASSAY),
 }
 
 
-def _require_manual_metadata(metadata: dict[str, Any], allowed: dict[str, frozenset[str]], what: str) -> None:
+def _require_manual_metadata(
+    metadata: dict[str, Any], allowed: dict[str, tuple[Callable[[str], bool], str]], what: str
+) -> None:
     for key, value in metadata.items():
-        values = allowed.get(key)
+        rule = allowed.get(key)
         if (
-            values is None
+            rule is None
             or not isinstance(value, list)
             or not value
-            or not all(isinstance(item, str) and item in values for item in value)
+            or not all(isinstance(item, str) and rule[0](item) for item in value)
             or len(set(value)) != len(value)
         ):
-            accepted = "; ".join(f"{name}: a list of {', '.join(sorted(names))}" for name, names in allowed.items())
+            accepted = "; ".join(f"{name}: a list of {words}" for name, (_test, words) in allowed.items())
             raise HTTPException(
                 status_code=400,
                 detail=f"{what} metadata may hold only {accepted}; other keys are set by an import or an audited edit",
@@ -1142,7 +1173,15 @@ async def _create_manual_family_data(
         session,
         [member.sample_id for member in normalized_members],
     )
-    roles = _resolve_manual_family_roles(normalized_members)
+    roles = _resolve_manual_family_roles(
+        normalized_members,
+        # A monogenic NIPT family: the analysis the Family Builder sets (_is_manual_family_analysis).
+        fetal=any(
+            _is_manual_family_analysis(value)
+            for value in (family.metadata or {}).get(FAMILY_ANALYSES_KEY, [])
+            if isinstance(value, str)
+        ),
+    )
     inserted = await _create_family(
         session,
         family_id=family.family_id,

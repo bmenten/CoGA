@@ -30,8 +30,8 @@ of its own:
   BED what it declared), and the file(s) it was loaded from, from where and when
   (owner decision of 2026-10-20), so it stays traceable which kind of coverage a depth check
   rested on;
-* ``package_intake`` — per analysis the family was imported for (a monogenic and a conventional
-  NIPT of one pregnancy each have their own), the delivered package its last package import came
+* ``package_intake`` — per analysis the family was imported for (the monogenic and the
+  conventional NIPT of each pregnancy each have their own), the delivered package its last package import came
   from (its run, the SHA-256 of the pipeline's package file, the revision imported and that
   package's SHA-256) and each correction made to it in CoGA before the import: every field
   changed, its value before and after and whether the pipeline used it (a member's sex or
@@ -1016,9 +1016,10 @@ async def build_record_sections(
     # Read outside a savepoint of its own: whether the record holds the key at all cannot be
     # frozen as unavailable.
     nipt = await is_nipt_family(session, context)
-    # A monogenic NIPT family's fetus is an embryo member too, with no data of its own: its
-    # record holds the PGT section only where an embryo has haplotype blocks of its own, which
-    # every embryo call reads. Every other family with an embryo holds it.
+    # A monogenic NIPT family's fetus is a member of its own role (``fetus``), no embryo; a NIPT
+    # family that holds an embryo member too holds the PGT section only where an embryo has
+    # haplotype blocks of its own, which every embryo call reads. Every other family with an
+    # embryo holds it.
     if (
         scope.holds_application(PGT_SECTION_ANALYSES)
         and is_pgt_family(context)

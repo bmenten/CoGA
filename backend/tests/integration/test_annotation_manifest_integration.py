@@ -336,7 +336,7 @@ def test_each_analysis_keeps_its_own_manifest() -> None:
                 admin = await admin_account(s, f"manifest-admin-{uuid4()}")
                 await s.execute(
                     text("UPDATE families SET metadata = CAST(:m AS jsonb) WHERE id = CAST(:f AS uuid)"),
-                    {"f": family_uuid, "m": json.dumps({"analysis_types": ["long_read_wgs", "short_read_wgs"]})},
+                    {"f": family_uuid, "m": json.dumps({"analyses": ["long_read_wgs", "short_read_wgs"]})},
                 )
                 await ams.merge_vcf_header_provenance(
                     s, family_uuid=family_uuid, assembly_id=None,

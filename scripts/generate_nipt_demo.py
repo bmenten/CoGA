@@ -33,6 +33,8 @@ FATHER_SAMPLE = "FATHER_NIPT"
 CFDNA_SAMPLE = "CFDNA_NIPT"
 FETUS_SAMPLE = "FETUS_NIPT"
 FAMILY_ID = "FAM_NIPT_DEMO"
+# The pregnancy the demo's monogenic NIPT is of (a NIPT package names it).
+PREGNANCY_ID = "PREG_NIPT_DEMO"
 
 # Where the package belongs in CoGA: a project of this name on this assembly. The folder is
 # delivered in the project's folder of a watched import folder (``<watched folder>/Demo/``).
@@ -192,7 +194,8 @@ def render_coverage_bed() -> str:
 
 def package_members() -> list[dict[str, Any]]:
     """The trio: the father, the mother (her sample is the maternal plasma, assay ``nipt_cfdna``,
-    which tags it for the NIPT analysis) and the affected fetus, without a sample of its own."""
+    which tags it for the NIPT analysis) and the affected fetus (role ``fetus``), without a sample of
+    its own."""
     return [
         {"sample_id": FATHER_SAMPLE, "sex": "male", "clinical_status": "unaffected"},
         {"sample_id": CFDNA_SAMPLE, "sex": "female", "clinical_status": "unaffected", "assay": "nipt_cfdna"},
@@ -201,6 +204,7 @@ def package_members() -> list[dict[str, Any]]:
             "sex": "unknown",
             "father": FATHER_SAMPLE,
             "mother": CFDNA_SAMPLE,
+            "role": "fetus",
             "clinical_status": "affected",
         },
     ]
@@ -235,6 +239,7 @@ def render_package(folder: Path) -> str:
         "project": PROJECT,
         "assembly": ASSEMBLY,
         "analysis_type": "monogenic_nipt",
+        "pregnancy_id": PREGNANCY_ID,
         "family": {"family_id": FAMILY_ID},
         "members": package_members(),
         "datasets": package_datasets(),

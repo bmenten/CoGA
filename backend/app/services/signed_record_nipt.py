@@ -62,6 +62,8 @@ from .nipt import (
     NIPT_TRIO_UNRESOLVED,
     NiptTrio,
     assay_key_for_sample_metadata,
+    multiple_pregnancy_note,
+    nipt_analysis_in_scope,
     resolve_nipt_trio_from_members,
 )
 from .nipt_analysis import (
@@ -147,7 +149,7 @@ async def _family_metadata(session: AsyncSession, context: FamilyMetadataContext
 
 
 async def is_nipt_family(session: AsyncSession, context: FamilyMetadataContext) -> bool:
-    """Whether the family holds a monogenic NIPT analysis (its ``analysis_types``), as the
+    """Whether the family holds a monogenic NIPT analysis (``family_analysis_types``), as the
     NIPT page and the Sample QC read it."""
     return MONOGENIC_NIPT_ANALYSIS_TYPE in family_analysis_types(await _family_metadata(session, context))
 
@@ -155,15 +157,24 @@ async def is_nipt_family(session: AsyncSession, context: FamilyMetadataContext) 
 async def family_nipt_trio(
     session: AsyncSession, context: FamilyMetadataContext
 ) -> tuple[NiptTrio, str] | None:
-    """:func:`nipt_trio_of`, of the members the monogenic NIPT's package lists."""
+    """:func:`nipt_trio_of`, of the monogenic NIPT the record is of (the analysis signed out,
+    or the family's only one: ``nipt.nipt_analysis_in_scope``) and the members its package
+    lists."""
     metadata = await _family_metadata(session, context)
-    return nipt_trio_of(context, listed=analysis_members(metadata, MONOGENIC_NIPT_ANALYSIS_TYPE))
+    analysis = nipt_analysis_in_scope(metadata, MONOGENIC_NIPT_ANALYSIS_TYPE, context.scope.analysis)
+    return nipt_trio_of(
+        context,
+        listed=analysis_members(metadata, analysis) if analysis is not None else frozenset(),
+        analysis=analysis,
+    )
 
 
-def nipt_trio_of(context: FamilyMetadataContext, *, listed: Collection[str]) -> tuple[NiptTrio, str] | None:
-    """The family's NIPT trio and the artifact-list scope of its cfDNA assay, from its active
-    members and those the monogenic NIPT's package lists (``listed``, ``nipt.resolve_nipt_trio``'s
-    rules); None when the trio cannot be resolved."""
+def nipt_trio_of(
+    context: FamilyMetadataContext, *, listed: Collection[str], analysis: str | None
+) -> tuple[NiptTrio, str] | None:
+    """The trio of the family's monogenic NIPT ``analysis`` (its key) and the artifact-list scope
+    of its cfDNA assay, from its active members and those its package lists (``listed``,
+    ``nipt.resolve_nipt_trio``'s rules); None when the trio cannot be resolved."""
     rows = list(context.sample_rows)
     trio = resolve_nipt_trio_from_members(
         (
@@ -176,13 +187,15 @@ def nipt_trio_of(context: FamilyMetadataContext, *, listed: Collection[str]) -> 
             if row.get("sample_id")
         ),
         listed=listed,
+        analysis=analysis,
     )
     if trio is None:
         return None
     assay_key = next(
         (
             assay_key_for_sample_metadata(
-                row.get("sample_metadata") if isinstance(row.get("sample_metadata"), dict) else None
+                row.get("sample_metadata") if isinstance(row.get("sample_metadata"), dict) else None,
+                analysis,
             )
             for row in rows
             if str(row.get("sample_id")) == trio.cfdna_sample_id
@@ -485,8 +498,11 @@ def nipt_section(
         "samples": {
             "father": trio.father_sample_id,
             "maternal_plasma": trio.cfdna_sample_id,
-            "fetus": trio.fetus_sample_id,
+            "fetuses": list(trio.fetus_sample_ids),
         },
+        # The pregnancy's monogenic NIPT, and what its fetal results say of a multiple pregnancy.
+        "analysis": trio.analysis,
+        "multiple_pregnancy_note": multiple_pregnancy_note(len(trio.fetus_sample_ids)),
         "fetal_fraction": _fetal_fraction(checks),
         "de_novo_window": (
             {key: _number(value) for key, value in dataclasses.asdict(window).items()}

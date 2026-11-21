@@ -27,6 +27,7 @@ from backend.app.services.nipt_quality_checks import (
     paternity_verdict,
     plasma_sample_verdict,
 )
+from backend.app.services.nipt import NiptTrio
 from backend.app.services.nipt_service import NiptFamilySummary
 from backend.app.services.nipt_target_coverage import SexChromosomeCoverage, TargetCoverageSummary
 from backend.app.services.sample_integrity_qc import evaluate_paternity
@@ -184,8 +185,9 @@ def test_every_check_of_a_familys_analysis_with_its_verdict() -> None:
         targets=3, median_mean=1500.0, q05_mean=300.0, below_critical=1, below_advisory=1, zero_mean=0,
         incomplete=0, critical_mean_depth=300.0, advisory_mean_depth=1000.0,
     )
+    trio = NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="CFDNA1")
     summary = NiptFamilySummary(
-        analysis=analysis, target_coverage=coverage, sex_chromosomes=_sex("female_with_male_fetal_signal")
+        analysis=analysis, trio=trio, target_coverage=coverage, sex_chromosomes=_sex("female_with_male_fetal_signal")
     )
     checks = nipt_quality_checks(summary, father="FATHER1")
     assert checks.fetal_fraction_check.status == "pass"
@@ -197,5 +199,5 @@ def test_every_check_of_a_familys_analysis_with_its_verdict() -> None:
     assert checks.target_coverage is coverage
     assert checks.quality_failures == {"low_quality": 1}
     # Without per-target coverage: no sex profile, read from the father's X alone.
-    bare = nipt_quality_checks(NiptFamilySummary(analysis=analysis))
+    bare = nipt_quality_checks(NiptFamilySummary(analysis=analysis, trio=trio))
     assert (bare.plasma_sample.status, bare.fetal_sex.call, bare.paternity.father) == ("unknown", "female", "father")

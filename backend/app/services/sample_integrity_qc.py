@@ -269,6 +269,11 @@ class PedigreeSpec:
     roles: dict[str, str] = field(default_factory=dict)
     # Pairs of samples of one person (the family's same-individual links).
     same_individual: list[tuple[str, str]] = field(default_factory=list)
+    # The samples that are a maternal plasma (a monogenic or a conventional NIPT's, by their
+    # assays): a mixture of the mother's and a fetus's DNA, which no genotype relatedness or
+    # Mendelian check reads. Two plasmas of one woman, linked as the same individual, are one
+    # person but no duplicate: each carries its own pregnancy's fetus.
+    mixtures: frozenset[str] = frozenset()
 
 
 _STATUS_RANK: dict[Status, int] = {"skip": 0, "pass": 1, "warn": 2, "fail": 3}
@@ -731,7 +736,9 @@ def _with_same_individuals(
     (the owner's decision of 2026-11-20): two samples of one person are expected identical, and
     what the pedigree records between a sample of one person and a sample of another (a parent, a
     child, a sibling) is expected of every pair of their samples. A mother and her child sampled
-    twice each: all four pairs of the mother's and the child's samples are parent and child."""
+    twice each: all four pairs of the mother's and the child's samples are parent and child. A
+    pair with a maternal plasma is never assessed (``PedigreeSpec.mixtures``): two plasmas of one
+    woman are one person, each with its own pregnancy's fetus, never a duplicate."""
     person = person_of(links)
 
     def of(sample: str) -> str:
@@ -791,14 +798,17 @@ def resolve_application(
     parents_of: dict[str, dict[str, str]],
     person_count: int,
 ) -> ApplicationKind:
-    """Infer the application from the family's analysis types and its shape.
+    """Infer the application from the analysis types of the analyses the QC is run for and the
+    family's shape.
 
     Only monogenic and conventional NIPT are read from the analysis types; the rest from
-    structure (the input files / pedigree the family was built from), per CoGA's design. A family
-    holding both NIPTs of one pregnancy gets the monogenic NIPT's checks: the conventional NIPT
-    adds none (its profile runs no check). ``person_count`` counts people, not samples: two
-    samples of one person (a same-individual link) are one, so one person sampled twice is a
-    single, and a couple with a partner sampled twice a couple.
+    structure (the input files / pedigree the family was built from), per CoGA's design. A QC run
+    for a monogenic and a conventional NIPT together (a family that holds one of each, read whole)
+    gets the monogenic NIPT's checks, of its pregnancy: the conventional NIPT adds none (its
+    profile runs no check). The QC of one pregnancy's NIPT is that analysis's alone
+    (``sample_integrity_service.get_family_sample_integrity_qc``). ``person_count`` counts people,
+    not samples: two samples of one person (a same-individual link) are one, so one person
+    sampled twice is a single, and a couple with a partner sampled twice a couple.
     """
     types = {str(value).strip().lower() for value in analysis_types}
     if "monogenic_nipt" in types:
@@ -1084,7 +1094,8 @@ def evaluate_sample_integrity(
                 _norm_sex(spec.recorded_sex.get(s)),
                 x_genotypes.get(s),
                 read_sex=read_calls.get(s),
-                embryo=spec.roles.get(s) == "embryo",
+                # A fetus, as an embryo, has no sex recorded: the analysis tells it.
+                embryo=spec.roles.get(s) in ("embryo", "fetus"),
             )
             for s in samples
         ]
@@ -1133,10 +1144,12 @@ def evaluate_sample_integrity(
 
     relatedness_checks: list[RelatednessCheck] = []
     if profile.run_relatedness:
+        # A maternal plasma is a mixture of two genomes: no pair with one is assessed.
+        genomes = [sample for sample in samples if sample not in spec.mixtures]
         pair_stats = {
             (a, b): king_relatedness(autosomal[a], autosomal[b])
-            for i, a in enumerate(samples)
-            for b in samples[i + 1:]
+            for i, a in enumerate(genomes)
+            for b in genomes[i + 1:]
         }
         cut = ibs0_parent_child_cut(pair_stats, coparent_pairs)
         for pair, stats in pair_stats.items():
@@ -1159,9 +1172,13 @@ def evaluate_sample_integrity(
     mendelian_checks: list[MendelianCheck] = []
     if profile.run_mendelian:
         for child, parents in spec.parents_of.items():
-            if child not in autosomal:
+            if child not in autosomal or child in spec.mixtures:
                 continue
-            mendelian = _mendelian_check(child, parents, autosomal)
+            mendelian = _mendelian_check(
+                child,
+                {role: parent for role, parent in parents.items() if parent not in spec.mixtures},
+                autosomal,
+            )
             if mendelian is not None:
                 mendelian_checks.append(mendelian)
 

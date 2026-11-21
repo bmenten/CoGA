@@ -2,9 +2,11 @@
 
 A family that holds a ccnv output (a maternal plasma with ``samples.metadata["ccnv"]``) is
 signed out like every family: through the same sign-out, gates and report code
-(``report_signout_service``). Its record also holds ``cnipt``: each maternal plasma's result
-as the cNIPT page showed it to the analyst, computed by the backend (``cnipt_service``,
-``cnipt_result``), not by the browser:
+(``report_signout_service``), one record per analysis: a conventional NIPT per pregnancy. The
+record of a conventional NIPT also holds ``cnipt``: the result of each maternal plasma of its
+pregnancy (those its package lists) as the cNIPT page showed it to the analyst, computed by the
+backend (``cnipt_service``, ``cnipt_result``), not by the browser, with the pregnancy's fetuses
+and what a result of a multiple pregnancy says of them:
 
 * the status (a result, or no result with its reasons) and the verdict of each target (each
   autosome, the sex chromosomes and the segmental CNVs) with its reasons;
@@ -36,9 +38,9 @@ from typing import Any, Mapping
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .ccnv_output import CCNV_SOURCE
-from .cnipt_service import ccnv_plasma_rows, family_cnipt_results
+from .cnipt_service import ccnv_plasma_rows, cnipt_pregnancy, family_cnipt_results
 from .family_metadata_context import FamilyMetadataContext
+from .nipt import CONVENTIONAL_NIPT_ANALYSIS_TYPE, multiple_pregnancy_note, nipt_analysis_in_scope
 from .hash_chain import canonical_hash
 
 # The files each plasma's segments track was loaded from.
@@ -80,13 +82,21 @@ def _iso(value: Any) -> str | None:
 
 
 async def cnipt_results(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, Any]:
-    """Each maternal plasma's result as the cNIPT page shows it (the same object, from the same
-    code), with the inputs it was computed from."""
-    plasmas = await family_cnipt_results(session, context)
+    """Each maternal plasma's result of the record's conventional NIPT (the analysis signed out,
+    or the family's only one: ``nipt.nipt_analysis_in_scope``) as the cNIPT page shows it (the
+    same object, from the same code), with the inputs it was computed from."""
+    analysis = nipt_analysis_in_scope(
+        context.family_metadata, CONVENTIONAL_NIPT_ANALYSIS_TYPE, context.scope.analysis
+    )
+    if analysis is None:
+        # A ccnv output is a conventional NIPT's import: the record names what it cannot read.
+        raise LookupError("The family's ccnv output is of no conventional NIPT it holds")
+    pregnancy = cnipt_pregnancy(context, analysis)
+    plasmas = await family_cnipt_results(session, context, pregnancy)
     files: dict[str, list[dict[str, Any]]] = {}
     for row in (
         await session.execute(
-            _SEGMENT_FILES_SQL, {"family_uuid": context.family_uuid, "source": CCNV_SOURCE}
+            _SEGMENT_FILES_SQL, {"family_uuid": context.family_uuid, "source": pregnancy.source}
         )
     ).mappings():
         files.setdefault(str(row["sample_uuid"]), []).append(
@@ -110,7 +120,12 @@ async def cnipt_results(session: AsyncSession, context: FamilyMetadataContext) -
                 },
             }
         )
-    return {"samples": samples}
+    return {
+        "analysis": analysis,
+        "fetuses": list(pregnancy.fetuses),
+        "multiple_pregnancy_note": multiple_pregnancy_note(len(pregnancy.fetuses)),
+        "samples": samples,
+    }
 
 
 # The catalogue's labels name the application first ("cNIPT: fetal fraction"); the concern names

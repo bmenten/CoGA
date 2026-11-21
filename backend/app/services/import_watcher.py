@@ -567,7 +567,7 @@ async def assess_content(
                 session,
                 family_id=validation.family_id,
                 ped=bundle.ped,
-                analysis_type=bundle.manifest.analysis_type,
+                analysis=bundle.manifest.analysis_key,
                 members=_package_members(bundle),
             )
             if differences.conflicting:
@@ -646,7 +646,7 @@ async def _proposal(
         return package, [], [*failed, *(_as_issue(issue) for issue in draft.errors)]
     loaded = yaml.safe_load(draft.manifest_yaml)
     draft_manifest = loaded if isinstance(loaded, dict) else {}
-    validation, bundle = await validated_package(folder, manifest_text=draft.manifest_yaml)
+    validation, bundle = await validated_package(folder, manifest_text=draft.manifest_yaml, proposal=True)
     if bundle is None and isinstance(draft_manifest.get("datasets"), dict):
         # A dataset the draft's members do not cover (a phased family VCF with a column no member
         # is) keeps the draft from validating. Its members are read without the datasets, so the
@@ -660,7 +660,7 @@ async def _proposal(
             },
         }
         _members_validation, bundle = await validated_package(
-            folder, manifest_text=json.dumps(members_only, default=str)
+            folder, manifest_text=json.dumps(members_only, default=str), proposal=True
         )
     if bundle is None:
         return package, [], [*failed, *(_as_issue(issue) for issue in validation.errors)]
@@ -1581,6 +1581,7 @@ def _delivery_out(row: Any) -> ImportDeliveryOut:
         project_id=ApiId(row["project_id"]) if row["project_id"] else None,
         project=_text(marker.get("project")),
         analysis_type=_text(marker.get("analysis_type")),
+        pregnancy_id=_text(marker.get("pregnancy_id")),
         pipeline_name=_text(pipeline.get("name")),
         pipeline_version=_text(pipeline.get("version")),
         request_id=_text(marker.get("request_id")),

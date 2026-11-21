@@ -201,7 +201,7 @@ async def test_the_package_record_is_put_back_as_it_was(monkeypatch: pytest.Monk
     # The record of the import's analysis, and the family's analysis types, as they were before it;
     # the records of the family's other analyses as they are.
     assert "metadata -> 'package_imports' -> CAST(:key AS text) -> 'previous_import'" in sql
-    assert "metadata -> 'package_imports' -> CAST(:key AS text) -> 'previous_analysis_types'" in sql
+    assert "metadata -> 'package_imports' -> CAST(:key AS text) -> 'previous_analyses'" in sql
     assert "((metadata -> 'package_imports') - CAST(:key AS text))" in sql
     assert params == {"family_uuid": _FAMILY_UUID, "key": "conventional_nipt"}
     # The plasma's assays, panels, manifest entry and package records as they were: it is the
@@ -265,4 +265,4 @@ def test_the_registration_keeps_the_record_the_family_had_before() -> None:
 
     source = inspect.getsource(family_package_registration)
     assert "(metadata -> 'package_imports' -> CAST(:record_key AS text)) - 'previous_import'" in source
-    assert "jsonb_build_object('previous_analysis_types', metadata -> 'analysis_types')" in source
+    assert "jsonb_build_object('previous_analyses', metadata -> 'analyses')" in source

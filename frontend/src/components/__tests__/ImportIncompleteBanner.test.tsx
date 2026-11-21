@@ -351,7 +351,7 @@ describe('ImportIncompleteBanner', () => {
 
   it('shows nothing for a complete import', () => {
     const { container, rerender } = render(
-      <ImportIncompleteBanner metadata={{ analysis_types: ['monogenic_nipt'] }} />,
+      <ImportIncompleteBanner metadata={{ analyses: ['monogenic_nipt'] }} />,
     );
     expect(container).toBeEmptyDOMElement();
 
@@ -568,7 +568,7 @@ describe('importMarksFromMetadata', () => {
 // types: each mark names the analysis it is of, whose sign-out it holds.
 describe('the analysis each mark is of', () => {
   const SEVERAL = {
-    analysis_types: ['long_read_wgs', 'short_read_wgs'],
+    analyses: ['long_read_wgs', 'short_read_wgs'],
     import_incomplete: {
       ...FLAG,
       failed_datasets: ['qc', 'snv'],
@@ -603,7 +603,7 @@ describe('the analysis each mark is of', () => {
   });
 
   it('says nothing of analyses in a family of one', () => {
-    render(<ImportIncompleteBanner metadata={{ ...SEVERAL, analysis_types: ['short_read_wgs'] }} />);
+    render(<ImportIncompleteBanner metadata={{ ...SEVERAL, analyses: ['short_read_wgs'] }} />);
     expect(screen.getByRole('alert')).not.toHaveTextContent(/Each analysis’s sign-out/);
   });
 

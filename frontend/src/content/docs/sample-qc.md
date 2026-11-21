@@ -20,7 +20,7 @@ application, then runs only the checks that fit it:
 | --- | --- | --- |
 | **Family with parents** | a pedigree with parent–child links | sex · relatedness · Mendelian errors |
 | **Shallow-WGS PGT** | a member with the embryo role (imputed genotypes) | sex · **parentage** (embryos ↔ parents) · Mendelian errors |
-| **Monogenic NIPT (cfDNA)** | the family was created as a Monogenic NIPT family | **paternity** · **fetal sex** · **parent sex** · **cfDNA category check** |
+| **Monogenic NIPT (cfDNA)** | the family was created as a Monogenic NIPT family; a family of several pregnancies is checked one pregnancy at a time | **paternity** · **fetal sex** · **parent sex** · **cfDNA category check** |
 | **Conventional NIPT** | the family was created as a conventional NIPT family | none: ccnv's output holds no genotypes, and the fetal sex is known only from the analysis (ccnv's call, in the cNIPT result), as an embryo's is in PGT |
 | **Carrier couple** | two people, no parent–child link | sex · confirmation that the two are unrelated |
 | **Single targeted sample** | one person | sex only |
@@ -130,10 +130,14 @@ Each pair's inferred relationship is compared with the pedigree:
 - Recorded **siblings** that are not first degree → **fail**.
 - A pair expected to be **unrelated** that looks second or third degree → **warn**; first degree or
   duplicate → **fail** (duplicate, swap or consanguinity).
-- Two samples recorded as the **same individual** (two sample IDs of one person, such as the plasmas
-  of a monogenic and a conventional NIPT of one pregnancy) → **pass** when they look a duplicate
-  (*Confirmed the same individual*), otherwise **fail** (*Recorded as the same individual but
-  genotypes look … — possible sample swap.*).
+- Two samples recorded as the **same individual** (two sample IDs of one person, such as a parent
+  sampled twice) → **pass** when they look a duplicate (*Confirmed the same individual*), otherwise
+  **fail** (*Recorded as the same individual but genotypes look … — possible sample swap.*).
+
+A maternal plasma is in no relatedness or Mendelian check: it is a mixture of the mother's DNA and a
+fetus's. So two plasmas of one woman linked as the same individual (the plasmas of a monogenic and a
+conventional NIPT, or of two pregnancies) are one person, but they are never compared for identity:
+each carries its own pregnancy's fetus.
 
 The pedigree is read per person: what it records between a sample of one person and a sample of
 another (parent and child, siblings, co-parents) is expected of every pair of their samples. A mother
@@ -176,6 +180,10 @@ small fetal fraction). CoGA models the case as a trio backed by the father's ger
 cfDNA. So these checks read the cfDNA analysis (the father's alleles in the cfDNA, and the categories),
 not genotype relatedness. The analysis is explained in the
 [Monogenic NIPT reference](/docs/reference/monogenic-nipt).
+
+A family that holds the monogenic NIPT of several pregnancies is checked one pregnancy at a time:
+choose the pregnancy in **Analysis whose data are shown**, beside the family name. The checks of a
+pregnancy read its own plasma, father and fetus or fetuses, never another pregnancy's.
 
 ### Paternity (the father's alleles in the cfDNA)
 

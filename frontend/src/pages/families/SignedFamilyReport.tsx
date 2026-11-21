@@ -20,7 +20,7 @@ import FamilyPageHeader from './FamilyPageHeader';
 import { ClassificationMotivationSentence, ReportClassificationChip } from './ReportClassification';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { formatCount, joinWithAnd } from '../../lib/format';
-import { analysisLabel } from '../../lib/familyAnalyses';
+import { analysisLabel, pregnancyOf } from '../../lib/familyAnalyses';
 import { CATEGORY_LABELS, depth, pct } from './niptClassification';
 import {
   boundValue,
@@ -118,6 +118,7 @@ import {
   type SignedVariantDescriptions,
   packageSourceChangeWords,
 } from './signedReportRecord';
+import MultiplePregnancyNote from './MultiplePregnancyNote';
 
 // What the live report shows around each reported variant and the signed record does not
 // hold. The signed view leaves these out and says so; it never fills them in from live data.
@@ -678,9 +679,13 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
       <p className="report-paragraph">
         The monogenic NIPT analysis of the maternal plasma {nipt.samples.maternalPlasma ?? 'sample'} against the
         father {nipt.samples.father ?? 'sample'}
-        {nipt.samples.fetus ? `, for fetus ${nipt.samples.fetus}` : ''}, as CoGA computed it when this version was
-        signed.
+        {nipt.samples.fetuses.length
+          ? `, for ${nipt.samples.fetuses.length === 1 ? 'fetus' : 'fetuses'} ${nipt.samples.fetuses.join(' and ')}`
+          : ''}
+        {pregnancyOf(nipt.analysis) !== null ? ` of pregnancy ${pregnancyOf(nipt.analysis)}` : ''}, as CoGA computed it
+        when this version was signed.
       </p>
+      <MultiplePregnancyNote note={nipt.multiplePregnancyNote} />
       <div className="report-section">
         <h3 className="report-subheading">Fetal fraction and quality checks</h3>
         <ul className="report-signed-list">
@@ -978,9 +983,12 @@ const CniptResults: React.FC<{ record: SignedReport; version: number }> = ({ rec
       {(cnipt) => (
         <>
           <p className="report-paragraph">
-            The conventional NIPT screening result of each maternal plasma, by the rule of z-score and fetal-fraction
-            concordance, as CoGA computed it from ccnv&rsquo;s output when this version was signed.
+            The conventional NIPT screening result of each maternal plasma
+            {pregnancyOf(cnipt.analysis) !== null ? ` of pregnancy ${pregnancyOf(cnipt.analysis)}` : ''}, by the rule of
+            z-score and fetal-fraction concordance, as CoGA computed it from ccnv&rsquo;s output when this version was
+            signed.
           </p>
+          <MultiplePregnancyNote note={cnipt.multiplePregnancyNote} fetuses={cnipt.fetuses} />
           {cnipt.samples.length ? (
             cnipt.samples.map((sample) => <CniptSampleBody key={sample.sampleId} sample={sample} />)
           ) : (

@@ -21,6 +21,7 @@ and the validation reads every file.
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 import logging
 import os
 import threading
@@ -191,15 +192,17 @@ async def store_remembered_reads(reads: RememberedReads) -> None:
 
 
 async def validated_package(
-    folder_path: str | Path, *, manifest_text: str
+    folder_path: str | Path, *, manifest_text: str, proposal: bool = False
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     """``family_package_validation.load_validated_family_package`` of ``folder_path`` in a
     thread, reading whole only the files it does not remember as they are now, and remembering
-    those it read whole."""
+    those it read whole. ``proposal``: Discover's draft of the folder, as that function reads one."""
     from .family_package_validation import load_validated_family_package
 
     reads = await load_remembered_reads(folder_path)
     with remembering(reads):
-        result = await asyncio.to_thread(load_validated_family_package, folder_path, manifest_text=manifest_text)
+        result = await asyncio.to_thread(
+            partial(load_validated_family_package, folder_path, manifest_text=manifest_text, proposal=proposal)
+        )
     await store_remembered_reads(reads)
     return result

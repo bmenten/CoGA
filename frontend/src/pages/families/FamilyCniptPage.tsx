@@ -8,6 +8,9 @@ import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import type { CniptSampleResultOut, CniptTargetOut, FamilyCniptOut } from '../../lib/apiSchema.generated';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import FamilyCaseHeader from './FamilyCaseHeader';
+import AnalysisSelect, { useAnalysisNavigation } from './AnalysisSelect';
+import MultiplePregnancyNote from './MultiplePregnancyNote';
+import { ANALYSIS_PARAM, pregnancyAnalyses, pregnancyAnalysisOf } from '../../lib/familyAnalyses';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import InfoIcon from '../../components/InfoIcon';
@@ -324,6 +327,11 @@ const FamilyCniptPage: React.FC = () => {
     isError: referenceFailed,
     retry: retryReference,
   } = useFamilyReference(family?.projects, projectIdParam);
+  // The pregnancy whose conventional NIPT the page reads: a family holds one per pregnancy, each
+  // read on its own (the owner's decision of 2026-11-21); the URL names it, else the last imported.
+  const cniptAnalyses = pregnancyAnalyses(family?.metadata, 'conventional_nipt');
+  const cniptAnalysis = pregnancyAnalysisOf(family?.metadata, 'conventional_nipt', location.search);
+  const selectAnalysis = useAnalysisNavigation();
   const {
     data: result,
     isLoading: resultLoading,
@@ -331,14 +339,15 @@ const FamilyCniptPage: React.FC = () => {
     error: resultError,
     refetch: refetchResult,
   } = useQuery<FamilyCniptOut>({
-    queryKey: ['family', familyId, 'cnipt', resolvedProjectId],
-    queryFn: async () =>
-      (
-        await api.get(apiPath`/families/${familyId}/cnipt`, {
-          params: resolvedProjectId ? { project_id: resolvedProjectId } : undefined,
-        })
-      ).data as FamilyCniptOut,
-    enabled: Boolean(familyId && (!family?.projects?.length || !referenceLoading)),
+    queryKey: ['family', familyId, 'cnipt', resolvedProjectId, cniptAnalysis],
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+      if (resolvedProjectId) params.project_id = resolvedProjectId;
+      // Named of a family that holds several (backend nipt.nipt_analysis_of).
+      if (cniptAnalysis && cniptAnalyses.length > 1) params[ANALYSIS_PARAM] = cniptAnalysis;
+      return (await api.get(apiPath`/families/${familyId}/cnipt`, { params })).data as FamilyCniptOut;
+    },
+    enabled: Boolean(familyId && family && (!family.projects?.length || !referenceLoading)),
   });
 
   if (familyLoading || resultLoading || (family?.projects?.length && referenceLoading)) {
@@ -384,6 +393,7 @@ const FamilyCniptPage: React.FC = () => {
         projectId={resolvedProjectId}
         assemblyLabel={referenceLabel}
         current="cnipt"
+        actions={<AnalysisSelect analyses={cniptAnalyses} analysis={cniptAnalysis} onChange={selectAnalysis} />}
         views={
           <GenomeWorkspaceLink
             to={routePath`/families/${family.family_id}/genome${raw(
@@ -396,6 +406,7 @@ const FamilyCniptPage: React.FC = () => {
           </GenomeWorkspaceLink>
         }
       />
+      <MultiplePregnancyNote note={result.multiple_pregnancy_note} fetuses={result.fetuses} />
       {result.samples.map((sample) => (
         <CniptSampleResult
           key={sample.sample_id}

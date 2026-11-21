@@ -730,6 +730,32 @@ def test_two_samples_of_one_person_are_expected_identical_and_in_each_others_pla
     assert all(check.status == "pass" for check in report.relatedness_checks)
 
 
+def test_a_maternal_plasma_of_the_same_woman_is_never_compared_as_her_duplicate() -> None:
+    # Two plasmas of one woman (or her germline sample and a plasma), linked as the same
+    # individual: each is a mixture of her DNA and one pregnancy's fetus, never her duplicate
+    # (the owner's decision of 2026-11-21). No relatedness or Mendelian check reads a plasma.
+    father, mother, child = _trio(42)
+    plasma = _founder(random.Random(43))
+    spec = PedigreeSpec(
+        recorded_sex={"FATHER": "male", "MOTHER": "female", "PLASMA": "female", "CHILD": "male"},
+        parents_of={"CHILD": {"father": "FATHER", "mother": "MOTHER"}},
+        same_individual=[("PLASMA", "MOTHER")],
+        mixtures=frozenset({"PLASMA"}),
+    )
+    autosomal = {"FATHER": father, "MOTHER": mother, "PLASMA": plasma, "CHILD": child}
+    report = evaluate_sample_integrity(autosomal, {}, spec, profile=_WGS)
+    assert not [check for check in report.relatedness_checks if "PLASMA" in (check.sample_a, check.sample_b)]
+    assert all(check.status == "pass" for check in report.relatedness_checks)
+    # The plasma's own child: no Mendelian check reads it as a parent either.
+    as_parent = PedigreeSpec(
+        recorded_sex=spec.recorded_sex,
+        parents_of={"CHILD": {"father": "FATHER", "mother": "PLASMA"}},
+        mixtures=frozenset({"PLASMA"}),
+    )
+    mendel = evaluate_sample_integrity(autosomal, {}, as_parent, profile=_WGS).mendelian_checks
+    assert [check.parents for check in mendel] == [["FATHER"]]
+
+
 def test_a_second_sample_that_is_not_the_person_fails_as_a_possible_swap() -> None:
     report = _trio_with_second_mother_sample(lambda _mother: _founder(random.Random(41)))
 

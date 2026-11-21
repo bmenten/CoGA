@@ -794,7 +794,9 @@ async def test_an_imports_record_keeps_its_mode_and_the_reference_delivery(
     monkeypatch.setattr(registration, "_manifest_member_status_overrides", lambda *_args: {})
     delivery = {"id": "d2", "package_fingerprint": _B}
     bundle = SimpleNamespace(
-        manifest=SimpleNamespace(schema_version=1, metadata={}, analysis_type=None, samples={}, datasets={}),
+        manifest=SimpleNamespace(
+            schema_version=1, metadata={}, analysis_type=None, analysis_key="unspecified", pregnancy=None, samples={}, datasets={}
+        ),
         ped=SimpleNamespace(members=[], text=""),
         root=Path("/imports/WGS/FAM1"),
         manifest_sha256=None,

@@ -32,6 +32,7 @@ import ViewerMemberSection from './ViewerMemberSection';
 import ViewerTrackBlock, { TrackMeta, type ViewerRoiRange } from './ViewerTrackBlock';
 import { formatRoiCoordinates } from './viewerShared';
 import { clamp } from '../../lib/number';
+import { sourceBase } from '../../lib/pregnancySources';
 
 /** The selected chromosomes laid end to end on one axis, in bp (gaps included). */
 export interface Layout {
@@ -364,7 +365,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                       const scale = coverageScale(content);
                       // A conventional NIPT's plasma: ccnv's track on the NIPT axis.
                       const ccnv =
-                        coverageSource === CCNV_SOURCE ? (availability[member.sample_id]?.ccnv ?? null) : null;
+                        sourceBase(coverageSource) === CCNV_SOURCE ? (availability[member.sample_id]?.ccnv ?? null) : null;
                       const { coverageUrls, segmentsUrls } = urlMaps.coverageTrackUrls(
                         member.sample_id,
                         coverageSource,
@@ -413,7 +414,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                                     : undefined
                                 }
                                 nipt={
-                                  coverageSource === CCNV_SOURCE
+                                  sourceBase(coverageSource) === CCNV_SOURCE
                                     ? { fetalFraction: ccnv?.fetal_fraction ?? null }
                                     : undefined
                                 }

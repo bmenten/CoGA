@@ -49,6 +49,7 @@ from ..schemas import ImportDeliveryOut
 from .access_control import CurrentUser
 from .coga_package import PACKAGE_FILE_NAME, CogaPackage, package_document
 from .coga_package_manifest import proposed_sections
+from .family_analysis_types import pregnancy_id_problem
 from .family_identifiers import identifier_problem
 from .family_package_common import manifest_text_sha256
 from .family_package_fingerprint import PackageFolderTooLarge, package_listing
@@ -100,11 +101,12 @@ async def add_manual_delivery(
     family_id: str | None,
     analysis_type: str | None,
     user: CurrentUser,
+    pregnancy_id: str | None = None,
 ) -> ImportDeliveryOut:
     """Add the package folder ``folder_path`` to Deliveries by hand (see the module's docstring),
     for the project ``project_id``, as the family ``family_id`` (the folder's name when None), with
-    the analysis ``analysis_type`` when given: make its package, check it, and record it as
-    ``user``. Returns the delivery."""
+    the analysis ``analysis_type`` when given, of the pregnancy ``pregnancy_id`` for a NIPT: make
+    its package, check it, and record it as ``user``. Returns the delivery."""
     # The project first: an ID that names none is refused as unknown, whatever the folder.
     project_uuid, project_name, assembly = await _project(session, project_id)
     folder = await asyncio.to_thread(_ensure_authorized_package_path, Path(folder_path))
@@ -122,6 +124,11 @@ async def add_manual_delivery(
     problem = identifier_problem(family)
     if problem is not None:
         raise HTTPException(status_code=400, detail=f"The family ID {problem}.")
+    pregnancy = (pregnancy_id or "").strip() or None
+    if pregnancy is not None:
+        problem = pregnancy_id_problem(pregnancy)
+        if problem is not None:
+            raise HTTPException(status_code=400, detail=f"The pregnancy ID {problem}.")
 
     # One addition of a folder at a time: two at once would both find no open delivery.
     await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"coga:manual-delivery:{folder}"})
@@ -162,6 +169,8 @@ async def add_manual_delivery(
         document["assembly"] = assembly
     if analysis_type:
         document["analysis_type"] = analysis_type
+    if pregnancy is not None:
+        document["pregnancy_id"] = pregnancy
     made = CogaPackage.model_validate(document)
     package, proposal_warnings, proposal_issues = await _proposal(folder, made)
     assessment = DeliveryAssessment(

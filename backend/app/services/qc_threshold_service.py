@@ -30,6 +30,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .family_analysis_types import analysis_type_of
 from .sample_integrity_qc import Status
 
 
@@ -826,8 +827,9 @@ async def resolve_profile_thresholds(session: AsyncSession, profile_key: str) ->
     }
 
 
-# The QC profile of each analysis a package may name: its seeded profile's key. An analysis
-# without one is judged by the family's named profile and the default.
+# The QC profile of each analysis type a package may name: its seeded profile's key (an analysis
+# of a pregnancy is judged by its type's). An analysis without one is judged by the family's named
+# profile and the default.
 ANALYSIS_QC_PROFILES: dict[str, str] = {
     "long_read_wgs": "long_read_wgs",
     "short_read_wgs": "short_read_wgs",
@@ -881,7 +883,7 @@ async def resolve_analysis_qc_thresholds(
     """
     if session is None:
         return {"profiles": [], "thresholds": {}}
-    keys = [ANALYSIS_QC_PROFILES.get(analysis) if analysis is not None else None]
+    keys = [ANALYSIS_QC_PROFILES.get(analysis_type_of(analysis)) if analysis is not None else None]
     keys.append(
         (await session.execute(_FAMILY_PROFILE_KEY, {"family_uuid": family_uuid})).scalar_one_or_none()
     )

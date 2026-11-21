@@ -291,7 +291,7 @@ def test_a_sign_out_of_one_analysis_holds_the_tracks_of_its_sources() -> None:
     # A family holding both NIPTs of a pregnancy: the monogenic NIPT's coverage BED and the
     # conventional NIPT's ccnv coverage, and an analyst's upload no record claims.
     metadata = {
-        "analysis_types": ["conventional_nipt", "monogenic_nipt"],
+        "analyses": ["conventional_nipt", "monogenic_nipt"],
         "package_imports": {
             "monogenic_nipt": {"datasets": {"coverage": {}}, "sources": package_sources(["coverage"], None)},
             "conventional_nipt": {"datasets": {"ccnv": {}}, "sources": package_sources(["ccnv"], None)},

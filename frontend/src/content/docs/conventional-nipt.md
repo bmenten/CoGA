@@ -16,11 +16,22 @@ estimates the fetal fraction and the fetal sex. CoGA imports its output, draws i
 ## What CoGA reads
 
 A conventional NIPT family is imported from a package whose analysis is **cNIPT**
-(`analysis_type: conventional_nipt`). Its member is the maternal plasma, the mother of the pregnancy.
+(`analysis_type: conventional_nipt`) and that names its pregnancy (`pregnancy_id`, the laboratory's
+ID of it). Its member is the maternal plasma, the mother of the pregnancy; the pregnancy's fetus may be
+listed without data (role `fetus`; two or more in a multiple pregnancy).
+
+A family may hold several pregnancies of one woman. Each pregnancy's conventional NIPT is an analysis
+of its own (`conventional_nipt:ZW1`), and a monogenic NIPT may stand beside it: a cNIPT and an mNIPT
+are one pregnancy only when their packages name the same pregnancy. A plasma belongs to one
+pregnancy: a package of another pregnancy that lists it is refused. The cNIPT page shows one
+pregnancy at a time: choose it in **Analysis whose data are shown**, beside the family name
+(*conventional NIPT of pregnancy ZW1*). The page opens on the pregnancy imported last.
+
 When the family also holds the monogenic NIPT of the pregnancy under another sample ID for the plasma,
-the two plasmas are one person: link them as the same individual, in the package (`same_individual_as`)
-or with **Edit members** → **Same individual** on the family page. The pedigree then draws the mother
-once, labelled with both IDs.
+or another pregnancy's plasma, the plasmas are one person: link them as the same individual, in the
+package (`same_individual_as`) or with **Edit members** → **Same individual** on the family page. The
+pedigree then draws the mother once, labelled with every ID. One person is never one pregnancy: each
+pregnancy's results stay its own, and the Sample QC never compares a plasma for identity.
 For it, CoGA reads ccnv's four files: the bins, the segments, the gain and loss calls, and the QC
 file. They must be one run's result: the calls state the QC file's fetal sex, fetal fraction and
 sex-chromosome call, and name the same sample, or the import refuses them.
@@ -88,6 +99,12 @@ anything else is inconclusive.
 **Twins.** In a twin pregnancy an aneuploidy of one fetus lies at about half the fetal fraction, at
 the edge of the concordant band. The page says when ccnv reads a twin pregnancy.
 
+**A multiple pregnancy.** When the pregnancy's package lists two or more fetuses, the cNIPT page, the
+report's cNIPT summary and the signed version show a note: a fetal result may be present in one fetus
+or in more than one, and the analysis cannot tell which. It does not apply to a monozygotic twin,
+whose fetuses share one genotype. CoGA is not told the zygosity, so the note appears for every
+multiple pregnancy.
+
 ## The validated claim and population
 
 The validated claim covers **trisomies 21, 18 and 13 and the sex-chromosome aneuploidies** (45,X;
@@ -126,11 +143,13 @@ before clinical use.
 ## Sign-out
 
 The family is signed out from its **Report** page, which shows the result above the reported
-findings. The signed version freezes each plasma's result as the cNIPT page showed it: the verdicts,
-each target in or outside the validated claim, the findings, the fetal fractions, the bounds (each
-QA's or provisional) and the files it was read from. A family that also holds the monogenic NIPT of the pregnancy signs out each NIPT on its own:
-the **Report** page then signs out the conventional NIPT, and its record freezes and checks the
-conventional NIPT's data only (see *Report traceability & sign-out*, *One sign-out per analysis*).
+findings. The signed version freezes the result of each plasma of the pregnancy as the cNIPT page showed it:
+the verdicts, each target in or outside the validated claim, the findings, the fetal fractions, the
+bounds (each QA's or provisional) and the files it was read from, with the pregnancy's fetuses and the
+multiple-pregnancy note. A family that also holds another analysis (the monogenic NIPT of the
+pregnancy, or another pregnancy's NIPT) signs out each analysis on its own: the **Report** page then
+signs out the conventional NIPT of the pregnancy you choose, and its record freezes and checks that
+analysis's data only (see *Report traceability & sign-out*, *One sign-out per analysis*).
 
 The sign-out asks for an acknowledgement with a reason, in the Sample QC's dialog, when a plasma has
 no result or its result rests on provisional bounds. The Sample QC runs no check of its own here:

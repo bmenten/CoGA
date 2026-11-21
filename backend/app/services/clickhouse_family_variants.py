@@ -38,6 +38,7 @@ from .data_scope import normalize_chromosome
 from .ensembl_gene_ids import ensembl_gene_id
 from .analysis_scope import AnalysisScope
 from .family_metadata_context import FamilyMetadataContext
+from .family_package_records import source_base
 from .family_variant_filters import (
     SmallVariantQueryFilters,
     StructuralVariantQueryFilters,
@@ -1882,7 +1883,7 @@ async def fetch_genotype_site_sample(
     where = " AND ".join(where_clauses)
     # A per-sample callset's GT says nothing of the genotype (Mutect2 tumour-only): read it
     # from the allele depths.
-    per_sample = source in PER_SAMPLE_SMALL_VARIANT_SOURCES
+    per_sample = source_base(source) in PER_SAMPLE_SMALL_VARIANT_SOURCES
     allele_depths = ", e.calls.ad AS sample_ads" if per_sample else ""
     query = f"""
         SELECT e.key AS key, e.chrom AS chrom, e.pos AS pos, e.ref AS ref, e.alt AS alt,

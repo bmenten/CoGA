@@ -695,7 +695,7 @@ describe('FamilyMitoDNAAnalysisPage', () => {
               pedigree: '',
               members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
               projects: [],
-              metadata: { analysis_types: analysisTypes },
+              metadata: { analyses: analysisTypes },
             },
           });
         }

@@ -10,6 +10,7 @@
   "project": "Demo",
   "assembly": "GRCh38",
   "analysis_type": "monogenic_nipt",
+  "pregnancy_id": "PREG_NIPT_DEMO",
   "family": {
     "family_id": "FAM_NIPT_DEMO"
   },
@@ -30,6 +31,7 @@
       "sex": "unknown",
       "father": "FATHER_NIPT",
       "mother": "CFDNA_NIPT",
+      "role": "fetus",
       "clinical_status": "affected"
     }
   ],
@@ -50,8 +52,8 @@
   "files": [
     {
       "path": "README.md",
-      "size": 9291,
-      "sha256": "26763c8d5b5cfa8991636a8cbdae412c5c550f81b60c47c68251aabd1e94a380"
+      "size": 9469,
+      "sha256": "d43a8d489e071eda1a18514d4795d0ee3286df9350216942afe3b774a6eb13c4"
     },
     {
       "path": "nipt_coverage.bed",

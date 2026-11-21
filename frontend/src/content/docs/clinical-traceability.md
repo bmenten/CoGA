@@ -222,9 +222,12 @@ SHA-256 content hash), the version the clinical report in the EPD refers to. It 
     on each flank), and that QC's verdict against the thresholds in force: met; not met, with each
     measure, its value and its threshold; or not counted. The thresholds are recorded with it;
   - the haplotype file the calls were read from;
-  - a monogenic NIPT family's fetus, which the import reads as an embryo when its sex and status are
-    unknown, has no data of its own: its record holds no embryo calls;
-- for a monogenic NIPT family, its **NIPT results** as the NIPT page computes them at sign-out:
+  - a NIPT pregnancy's fetus (role `fetus`) is no embryo: it has no data of its own, and the record
+    holds no embryo calls for it;
+- for a monogenic NIPT family, the **NIPT results** of the pregnancy signed out, as the NIPT page
+  computes them at sign-out:
+  - the pregnancy, its fetuses and, for a multiple pregnancy, the note that a fetal result may be
+    present in one fetus or in more than one;
   - the fetal fraction;
   - the quality checks with their verdicts (paternity, the fetal sex from both signals, the maternal
     plasma sample);
@@ -261,8 +264,10 @@ screen, and every printout of it starts with *Draft* or *Not the signed report*.
 ### One sign-out per analysis
 
 A family can hold several analyses, each imported from a package of its own: the monogenic and the
-conventional NIPT of one pregnancy, or short-read and then long-read WGS of the same DNA. Each analysis
-is signed out on its own, and its signed version freezes and checks that analysis's data only:
+conventional NIPT of each pregnancy of one woman, or short-read and then long-read WGS of the same DNA.
+Each pregnancy's NIPT is an analysis of its own, named by its type and its pregnancy (*monogenic NIPT
+of pregnancy ZW1*). Each analysis is signed out on its own, and its signed version freezes and checks
+that analysis's data only:
 
 - its reported variants, with their evidence drift and their descriptions: the variants its own
   reviews tag for the report. A review is one analysis's: a variant reviewed in the short-read analysis
@@ -275,7 +280,7 @@ is signed out on its own, and its signed version freezes and checks that analysi
   holds none of them and says so of its analysis (*The short-read WGS had no repeat-expansion
   calls.*): the other analysis's record freezes them;
 - its application's results: the NIPT results for the monogenic NIPT, the cNIPT results for the
-  conventional NIPT, the embryo calls for PGT or the monogenic NIPT;
+  conventional NIPT, each of its own pregnancy, and the embryo calls for PGT or the monogenic NIPT;
 - its Sample QC, on genotypes of its own (the conventional NIPT runs no check);
 - its sequencing QC, judged against its own cut-offs;
 - its package's delivery and package-folder changes, and what its own imports failed to import or
@@ -295,15 +300,16 @@ or a failed dataset of another analysis does not stop it.
 
 Where you sign out:
 
-- the monogenic NIPT on its NIPT report;
+- a pregnancy's monogenic NIPT on its NIPT report (choose the pregnancy in **Analysis whose data are
+  shown**);
 - every other analysis on the family's Report page. When several remain, pick one under *Analysis to
-  sign out*. The button names it: **Sign out the conventional NIPT**, or **Amend sign-out of the
-  conventional NIPT** once it is signed out.
+  sign out*. The button names it: **Sign out the conventional NIPT of pregnancy ZW1**, or **Amend
+  sign-out of the conventional NIPT of pregnancy ZW1** once it is signed out.
 
 The Report page lists each analysis under *Sign-out of each analysis*: its latest signed version, with
 the report code, signer and date, and whether the family's data still match it. It opens on the latest
 signed version of the analyses it signs out. A signed version names its analysis (*Clinical report —
-signed version 2 of the conventional NIPT*), and its *latest* and its check are that analysis's. The
+signed version 2 of the conventional NIPT of pregnancy ZW1*), and its *latest* and its check are that analysis's. The
 versions of all the family's analyses are numbered in one series. The live report pages show the
 family's current data whole; a sign-out freezes the analysis's part of it.
 
@@ -385,7 +391,7 @@ with **Retry**, and none of the family's data (a report: *Report could not be lo
 
 CoGA shows a family's read files (IGV), signal tracks and QC report from the package folder of the
 analysis whose import recorded them: a family imported for two analyses, such as the monogenic and the
-conventional NIPT of a pregnancy, has a folder for each. After the import it keeps watching each folder,
+conventional NIPT of a pregnancy, or the NIPTs of two pregnancies, has a folder for each. After the import it keeps watching each folder,
 against the import that read that analysis's data whole (as a new family or with overwrite):
 
 - A file added, removed or changed in size or time: every family page shows *Package folder changed
@@ -572,8 +578,8 @@ matches that version:
 
 - *This page still matches signed version 2* — even then, print the signed version for the record. Of
   a family of several analyses the page shows every analysis's data, so it says which part matches
-  (*The conventional NIPT data on this page still match signed version 2, which holds the conventional
-  NIPT data only: …*);
+  (*The short-read WGS data on this page still match signed version 2, which holds the short-read WGS
+  data only: …*);
 - amber — something changed after sign-out, and the card names what;
 - grey — *This page could not be checked against signed version N — treat it as unsigned.*
 

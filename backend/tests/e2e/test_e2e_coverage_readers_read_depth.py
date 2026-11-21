@@ -39,6 +39,10 @@ import pytest
 
 from backend.tests._kept_manifest import kept_manifest
 from backend.tests.e2e._harness import ensure_postgres_schema, write_file
+from backend.app.services.family_package_records import pregnancy_source
+
+# The monogenic NIPT's coverage BED source: its pregnancy's own (family_package_records.pregnancy_source).
+NIPT_BED = pregnancy_source("web", "ZW1")
 
 pytestmark = pytest.mark.integration
 
@@ -187,6 +191,7 @@ def _nipt_package(root: Path, family_id: str) -> Path:
         "schema_version: 1",
         f"family_id: {family_id}",
         "analysis_type: monogenic_nipt",
+        "pregnancy_id: ZW1",
         "ped: family.ped",
         "roi: 1:10000-20000",
         "samples:",
@@ -384,14 +389,15 @@ def test_both_packages_are_imported_with_every_callers_coverage(run) -> None:
         (f"FATHER_{mito}", "qdnaseq"): None,
         (f"FATHER_{mito}", "hificnv"): "none",
     }
-    assert run["stored"][nipt]["sources"] == {f"CFDNA_{nipt}": ["web", "wisecondorx"]}
+    # The monogenic NIPT's coverage BED under its pregnancy's own source.
+    assert run["stored"][nipt]["sources"] == {f"CFDNA_{nipt}": [NIPT_BED, "wisecondorx"]}
     # Each coverage BED's record keeps what its manifest entry declared; no other
     # caller's record declares anything.
     assert {key: value for key, value in run["stored"][mito]["contents"].items() if value} == {
         (f"PROBAND_{mito}", "web"): "read_depth"
     }
     assert {key: value for key, value in run["stored"][nipt]["contents"].items() if value} == {
-        (f"CFDNA_{nipt}", "web"): "read_depth"
+        (f"CFDNA_{nipt}", NIPT_BED): "read_depth"
     }
 
 

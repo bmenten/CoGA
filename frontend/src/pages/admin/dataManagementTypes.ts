@@ -1,4 +1,5 @@
 import { coverageSourceLabel, orderCoverageSources } from '../../lib/coverageSources';
+import { sourceBase } from '../../lib/pregnancySources';
 
 // The responses these pages read are the generated types (FamilyInventoryDetailOut,
 // ClickHouseVariantAssemblyListOut, FamilyRawFilesOut, …). What stays here is the page's own
@@ -66,7 +67,7 @@ export const TRACK_LABELS: Record<FamilyTrackType, string> = {
 
 /** The caller that wrote a track, as the inventory names it: a BED loaded by hand is `web`. */
 export const trackSourceLabel = (source: string): string =>
-  source === 'web' ? 'BED upload' : coverageSourceLabel(source);
+  sourceBase(source) === 'web' ? 'BED upload' : coverageSourceLabel(source);
 
 /**
  * The callers whose `trackType` track a sample holds, each with its rows, in the order the
