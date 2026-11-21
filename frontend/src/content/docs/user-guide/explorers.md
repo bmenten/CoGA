@@ -60,6 +60,8 @@ show a more severe class, from another family's review.
   imported, or for a few seconds after its members or projects change, the page says how many families
   are being added or brought up to date: their variants may be missing, or counted as before the change.
   Refresh in a moment.
+- A person sampled twice (two samples linked as the same individual) is one carrier, also when two
+  families each show one of the samples. The carriers list still names each sample.
 
 The same filtered variants can also be viewed three other ways, from the tabs above the results:
 

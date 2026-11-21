@@ -20,6 +20,9 @@ The cohort, in two fresh projects P1 and P2:
 * D (P1): a proband and a sibling taken out of the family, whose calls stay in the rows.
 * E (P2): the proband of B shown in a family of its own too (a member of two families).
 
+The last test adds, in a project P3 of its own, a mother sampled twice (two samples linked as the
+same individual) and a family showing one of her samples: one carrier, once the samples are linked.
+
 Synthetic data only, on chromosome 13 at 62.3 Mb, where no other test writes. Skipped unless
 ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -663,3 +666,98 @@ def test_a_broad_filter_read_window_by_window_lists_what_one_query_lists(
     if "impacts" in filters:
         # The contig's variant is kept, in one query and window by window.
         assert any(_CONTIG in dict(one["rows"]) for _c, _s, _o, _e, one, _w in outcomes)
+
+
+# F (P3): a mother sampled twice, MOTHER-F and MOTHER2-F, both carrying it; G (P3): MOTHER2-F
+# shown in a family of its own. Linked as the same individual, the two samples are one carrier.
+_PERSON = "13-62300701-C-G"
+
+
+def test_a_person_sampled_twice_is_one_carrier_once_the_samples_are_linked(cohort: dict[str, Any]) -> None:
+    from sqlalchemy import text
+
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.services.clickhouse_variant_storage import insert_small_variant_records
+    from backend.app.services.variant_carrier_summary import reconcile_variant_carriers
+    from backend.app.services.variant_explorer_service import ExplorerScope, GlobalVariantFilters
+
+    tag = cohort["tag"]
+
+    async def _run() -> tuple[tuple[int, ...], int, list[str], tuple[int, ...]]:
+        async with get_postgres_sessionmaker()() as session:
+            project = (
+                await session.execute(
+                    text(
+                        "INSERT INTO projects (name, species_id, assembly_id) "
+                        "SELECT :n, species_id, id FROM assemblies WHERE id = CAST(:a AS uuid) RETURNING id::text"
+                    ),
+                    {"n": f"carrier-summary P3 {tag}", "a": cohort["assembly_id"]},
+                )
+            ).scalar_one()
+            families: dict[str, str] = {}
+            samples: dict[str, str] = {}
+            for label, members in (("F", ("PROBAND-F", "MOTHER-F", "MOTHER2-F")), ("G", ("MOTHER2-F",))):
+                families[label] = (
+                    await session.execute(
+                        text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
+                        {"f": f"CARR-{label}-{tag}"},
+                    )
+                ).scalar_one()
+                await session.execute(
+                    text("INSERT INTO family_projects (family_id, project_id) VALUES (CAST(:f AS uuid), CAST(:p AS uuid))"),
+                    {"f": families[label], "p": project},
+                )
+                for name in members:
+                    if name not in samples:
+                        samples[name] = (
+                            await session.execute(
+                                text(
+                                    "INSERT INTO samples (sample_id, family_id, sex) "
+                                    "VALUES (:s, CAST(:f AS uuid), 'female') RETURNING id::text"
+                                ),
+                                {"s": f"{name}-{tag}", "f": families[label]},
+                            )
+                        ).scalar_one()
+                    await session.execute(
+                        text(
+                            "INSERT INTO family_members (family_id, sample_id, role, active) "
+                            "VALUES (CAST(:f AS uuid), CAST(:s AS uuid), 'proband', true)"
+                        ),
+                        {"f": families[label], "s": samples[name]},
+                    )
+            await session.commit()
+        n = {name: f"{name}-{tag}" for name in samples}
+        await insert_small_variant_records(
+            _ASSEMBLY,
+            families["F"],
+            [project],
+            [_record(_PERSON, {n["PROBAND-F"]: "0/0", n["MOTHER-F"]: "0/1", n["MOTHER2-F"]: "0/1"})],
+        )
+        await insert_small_variant_records(_ASSEMBLY, families["G"], [project], [_record(_PERSON, {n["MOTHER2-F"]: "0/1"})])
+        scope = ExplorerScope(assembly_id=cohort["assembly_id"], assembly_name=_ASSEMBLY, project_ids=[project])
+        both = list(families.values())
+
+        await reconcile_variant_carriers(cohort["assembly_id"], _ASSEMBLY, family_uuids=both)
+        async with get_postgres_sessionmaker()() as session:
+            unlinked = (await _explorer(session, scope, GlobalVariantFilters()))["rows"][_PERSON]
+            await session.execute(
+                text(
+                    "INSERT INTO family_relationships (family_id, relationship_type, sample_id_a, sample_id_b) "
+                    "VALUES (CAST(:f AS uuid), 'same_individual', CAST(:a AS uuid), CAST(:b AS uuid))"
+                ),
+                {"f": families["F"], "a": samples["MOTHER2-F"], "b": samples["MOTHER-F"]},
+            )
+            await session.commit()
+            # The link changes both families' contributions: each counts her under her person.
+            pending = (await _explorer(session, scope, GlobalVariantFilters()))["pending"]
+        status = await reconcile_variant_carriers(cohort["assembly_id"], _ASSEMBLY, family_uuids=both)
+        async with get_postgres_sessionmaker()() as session:
+            linked = await _explorer(session, scope, GlobalVariantFilters())
+        by_family = {value: key for key, value in families.items()}
+        return unlinked, pending, sorted(by_family[family] for family in status.refreshed), linked["rows"][_PERSON]
+
+    unlinked, pending, refreshed, linked = run_closing_stores(_run)
+    # (families, carriers, heterozygous, homozygous)
+    assert unlinked == (2, 2, 2, 0)
+    assert pending == 2 and refreshed == ["F", "G"]
+    assert linked == (2, 1, 1, 0)

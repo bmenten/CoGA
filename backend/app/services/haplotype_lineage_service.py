@@ -61,6 +61,7 @@ from dataclasses import dataclass, field
 from typing import Any, Collection, Iterable
 
 from .pgt_embryo_calls import normalize_sex
+from .same_individual import person_of, same_individual_pairs
 from .sex_chromosomes import X_STRETCH_LAST_POSITION, hemizygous_chromosome, x_stretches
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,9 @@ class Pedigree:
     children_of: dict[str, set[str]]
     # sample name -> the members it is related to by an unknown degree (``relative`` edges)
     relatives_of: dict[str, set[str]] = field(default_factory=dict)
+    # sample name -> the person it is (``same_individual.person_of``): two samples of one person
+    # linked as the same individual name one person; a sample no link names is its own.
+    person: dict[str, str] = field(default_factory=dict)
 
     def parents(self, name: str) -> set[str]:
         return set(self.parents_of.get(name, {}).values())
@@ -184,6 +188,7 @@ def build_pedigree(
     sample_rows: Iterable[dict[str, Any]],
     relationship_rows: Iterable[dict[str, Any]],
 ) -> Pedigree:
+    relationship_rows = list(relationship_rows)
     roles: dict[str, str] = {}
     for row in sample_rows:
         name = str(row.get("sample_id") or "")
@@ -209,7 +214,13 @@ def build_pedigree(
         side = "father" if role_a == "father" else "mother" if role_a == "mother" else role_a or "parent"
         parents_of.setdefault(child, {})[side] = parent
         children_of.setdefault(parent, set()).add(child)
-    return Pedigree(roles=roles, parents_of=parents_of, children_of=children_of, relatives_of=relatives_of)
+    return Pedigree(
+        roles=roles,
+        parents_of=parents_of,
+        children_of=children_of,
+        relatives_of=relatives_of,
+        person=person_of(same_individual_pairs(relationship_rows)),
+    )
 
 
 @dataclass(slots=True)
@@ -220,7 +231,28 @@ class NuclearCore:
     members: set[str] = field(default_factory=set)
 
 
-def identify_core(pedigree: Pedigree) -> NuclearCore:
+def _embryos_parent(
+    pedigree: Pedigree, side: str, embryos: list[str], holding: Collection[str] | None
+) -> str | None:
+    """The embryos' parent of ``side`` (``father``/``mother``): the one sample the embryos name,
+    else, when the samples they name are one person sampled twice (linked as the same
+    individual), the one of them that holds the data read (``holding``, the samples with
+    phased genotypes or blocks; any of them when none or several do), the parent of the most
+    embryos first, then by sample ID. None when they name none, or two people."""
+    named: dict[str, int] = {}
+    for embryo in embryos:
+        parent = pedigree.parents_of.get(embryo, {}).get(side)
+        if parent:
+            named[parent] = named.get(parent, 0) + 1
+    if len(named) <= 1:
+        return next(iter(named), None)
+    if len({pedigree.person.get(parent, parent) for parent in named}) != 1:
+        return None
+    pool = sorted(parent for parent in named if holding is not None and parent in holding) or sorted(named)
+    return max(pool, key=lambda parent: named[parent])
+
+
+def identify_core(pedigree: Pedigree, holding: Collection[str] | None = None) -> NuclearCore:
     """Identify the index nuclear family.
 
     PGT classifies the EMBRYOS, so the index parents are the embryos' parents. This
@@ -229,13 +261,15 @@ def identify_core(pedigree: Pedigree) -> NuclearCore:
     have only one recorded parent — the other side is a donor/unknown and is left
     ``None`` (its lane is greyed downstream). Families with no embryos fall back to
     the couple sharing the most children.
+
+    A parent sampled twice whose embryos name either sample is one parent: the sample that holds
+    the data read (``holding``) is the core's (:func:`_embryos_parent`), and its own embryos are
+    the core's children; an embryo of the other sample is read as a relative.
     """
     embryos = sorted(name for name, role in pedigree.roles.items() if role == "embryo")
     if embryos:
-        fathers_of = {pedigree.parents_of.get(e, {}).get("father") for e in embryos} - {None}
-        mothers_of = {pedigree.parents_of.get(e, {}).get("mother") for e in embryos} - {None}
-        father = next(iter(fathers_of)) if len(fathers_of) == 1 else None
-        mother = next(iter(mothers_of)) if len(mothers_of) == 1 else None
+        father = _embryos_parent(pedigree, "father", embryos, holding)
+        mother = _embryos_parent(pedigree, "mother", embryos, holding)
         known_parent = father or mother
         if known_parent:
             if father and mother:
@@ -1197,7 +1231,7 @@ def annotate_lineage(
     relative coloured in one stretch and not another is grey (unknown) in the other.
     """
     pedigree = build_pedigree(sample_rows, relationship_rows)
-    core = identify_core(pedigree)
+    core = identify_core(pedigree, holding=segments_by_name)
     result: dict[str, list[dict[str, Any]] | None] = {}
 
     two_parent = bool(core.father) and bool(core.mother)

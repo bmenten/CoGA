@@ -7,14 +7,14 @@ from the mother alone. For an X-linked condition the female partner's
 carrier status alone puts a son at risk, so on chrX outside the pseudo-autosomal regions a
 variant she carries is kept on its own. These tests pin the pure rule
 (``_filter_expanded_carrier_screening``) and how the couple is found
-(``_carrier_partner_names``); the search applies the rule after its SQL prefilter
+(``_carrier_partners``); the search applies the rule after its SQL prefilter
 (``test_clickhouse_family_variants.py::test_fetch_small_variant_rows_prefilters_expanded_carrier_candidates``).
 """
 
 from __future__ import annotations
 
 from backend.app.services.clickhouse_variant_queries import (
-    _carrier_partner_names,
+    _carrier_partners,
     _filter_expanded_carrier_screening,
 )
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
@@ -67,6 +67,13 @@ def _kept(records, sample_rows=_COUPLE, relationship_rows=None, *, assembly_name
         for record in _filter_expanded_carrier_screening(
             records, sample_rows, relationship_rows, assembly_name=assembly_name
         )
+    ]
+
+
+def _kept_left_out(records, sample_rows, relationship_rows, *, left_out) -> list[str]:
+    return [
+        record.variant_id
+        for record in _filter_expanded_carrier_screening(records, sample_rows, relationship_rows, left_out=left_out)
     ]
 
 
@@ -217,24 +224,24 @@ class TestWhoTheCoupleIs:
             {"sample_id": "P2", "role": "other"},
         ]
         relationships = [{"relationship_type": "couple", "sample_id_a": "P1", "sample_id_b": "P2"}]
-        assert _carrier_partner_names(rows, relationships) == ("P1", "P2")
+        assert _carrier_partners(rows, relationships) == (("P1",), ("P2",))
 
     def test_a_relationship_naming_an_unknown_sample_is_ignored(self) -> None:
         relationships = [{"relationship_type": "couple", "sample_id_a": "WOMAN", "sample_id_b": "GHOST"}]
-        assert _carrier_partner_names(_COUPLE, relationships) == ("WOMAN", "MAN")
+        assert _carrier_partners(_COUPLE, relationships) == (("WOMAN",), ("MAN",))
 
     def test_mother_and_father_are_the_couple_without_a_relationship(self) -> None:
         rows = [*_COUPLE, {"sample_id": "CHILD", "role": "proband"}]
-        assert _carrier_partner_names(rows) == ("WOMAN", "MAN")
+        assert _carrier_partners(rows) == (("WOMAN",), ("MAN",))
 
     def test_a_two_member_family_is_the_couple(self) -> None:
         rows = [{"sample_id": "A", "role": "other"}, {"sample_id": "B", "role": "other"}]
-        assert _carrier_partner_names(rows) == ("A", "B")
+        assert _carrier_partners(rows) == (("A",), ("B",))
 
     def test_two_samples_of_one_person_are_not_a_couple(self) -> None:
         rows = [{"sample_id": "A", "role": "proband"}, {"sample_id": "A2", "role": "relative"}]
         same = [{"relationship_type": "same_individual", "sample_id_a": "A2", "sample_id_b": "A"}]
-        assert _carrier_partner_names(rows, same) is None
+        assert _carrier_partners(rows, same) is None
         record = SmallVariantRecord(
             variant_key=None,
             variant_id="v",
@@ -255,13 +262,58 @@ class TestWhoTheCoupleIs:
     def test_a_couple_with_a_partner_sampled_twice_is_the_couple(self) -> None:
         rows = [{"sample_id": "A", "role": "other"}, {"sample_id": "A2", "role": "other"}, {"sample_id": "B", "role": "other"}]
         same = [{"relationship_type": "same_individual", "sample_id_a": "A", "sample_id_b": "A2"}]
-        assert _carrier_partner_names(rows, same) == ("A", "B")
+        assert _carrier_partners(rows, same) == (("A", "A2"), ("B",))
         # Without the link, three samples are no couple.
-        assert _carrier_partner_names(rows) is None
+        assert _carrier_partners(rows) is None
+
+    def test_a_partner_sampled_twice_carries_what_either_sample_carries(self) -> None:
+        rows = [
+            {"sample_id": "WOMAN", "role": "mother", "sex": "female"},
+            {"sample_id": "WOMAN2", "role": "other", "sex": "female"},
+            {"sample_id": "MAN", "role": "father", "sex": "male"},
+        ]
+        same = [{"relationship_type": "same_individual", "sample_id_a": "WOMAN2", "sample_id_b": "WOMAN"}]
+        only_second = _variant("cftr-1", "CFTR", man="0/1")
+        only_second.calls.append(_call("WOMAN2", "0/1"))
+        his = _variant("cftr-2", "CFTR", man="0/1", start=200)
+        assert _carrier_partners(rows, same) == (("WOMAN", "WOMAN2"), ("MAN",))
+        assert _kept([only_second, his], rows, same) == ["cftr-1", "cftr-2"]
+        # Without the link the two samples are two people, and three people are no couple
+        # under a mother and a father: the mother's sample alone is read.
+        assert _kept([only_second, his], rows) == []
+
+    def test_a_sample_only_another_analysis_lists_is_not_read(self) -> None:
+        rows = [
+            {"sample_id": "WOMAN", "role": "mother", "sex": "female"},
+            {"sample_id": "WOMAN2", "role": "other", "sex": "female"},
+            {"sample_id": "MAN", "role": "father", "sex": "male"},
+        ]
+        same = [{"relationship_type": "same_individual", "sample_id_a": "WOMAN", "sample_id_b": "WOMAN2"}]
+        assert _carrier_partners(rows, same, left_out={"WOMAN"}) == (("WOMAN2",), ("MAN",))
+        record = _variant("cftr-1", "CFTR", woman="0/1", man="0/1")
+        assert _kept_left_out([record], rows, same, left_out={"WOMAN2"}) == ["cftr-1"]
+        record_of_second = _variant("cftr-2", "CFTR", man="0/1")
+        record_of_second.calls.append(_call("WOMAN2", "0/1"))
+        assert _kept_left_out([record_of_second], rows, same, left_out={"WOMAN2"}) == []
+        # A partner none of whose samples the reading reads leaves no couple to screen.
+        assert _carrier_partners(rows, same, left_out={"MAN"}) is None
+
+    def test_a_man_recorded_male_on_one_of_his_samples_is_male(self) -> None:
+        rows = [
+            {"sample_id": "WOMAN", "role": "mother", "sex": "female"},
+            {"sample_id": "MAN", "role": "father", "sex": "male"},
+            {"sample_id": "MAN2", "role": "other", "sex": "unknown"},
+        ]
+        same = [{"relationship_type": "same_individual", "sample_id_a": "MAN", "sample_id_b": "MAN2"}]
+        his_x = _variant("dmd-1", "DMD", chr="X", start=_DMD)
+        his_x.calls.append(_call("MAN2", "1"))
+        assert _kept([his_x], rows, same, assembly_name="GRCh38") == []
+        hers_x = _variant("dmd-2", "DMD", woman="0/1", chr="X", start=_DMD + 100)
+        assert _kept([hers_x], rows, same, assembly_name="GRCh38") == ["dmd-2"]
 
     def test_no_couple_means_no_finding(self) -> None:
         rows = [{"sample_id": "A", "role": "proband"}, {"sample_id": "B", "role": "sibling"}, {"sample_id": "C"}]
-        assert _carrier_partner_names(rows) is None
+        assert _carrier_partners(rows) is None
         record = SmallVariantRecord(
             variant_key=None,
             variant_id="v",

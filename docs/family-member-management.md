@@ -91,7 +91,9 @@ with three samples is linked one pair at a time. Read only, the table shows the 
 family that holds such a link. The table keeps a row per sample. The pedigree draws the person as
 one symbol labelled with all its IDs (*PLASMA1 / PLASMA2*), with the sex, clinical status, carrier
 status and parents any of its samples records, and Sample QC expects the samples' genotypes
-identical ([sample-qc.md](../frontend/src/content/docs/sample-qc.md)).
+identical ([sample-qc.md](../frontend/src/content/docs/sample-qc.md)). *Expanded carrier
+screening* reads a partner on each of their samples, and the Variant Explorer counts the person
+once ([data-import.md](data-import.md), "Several analyses in one family").
 
 **Save changes** sends the whole draft as one `PUT /families/{family_id}/structure`:
 

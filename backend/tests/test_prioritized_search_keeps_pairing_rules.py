@@ -39,7 +39,7 @@ from backend.app.services.clickhouse_variant_queries import (
     _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS,
     _call_has_alt,
     _call_is_het,
-    _carrier_partner_names,
+    _carrier_partners,
     _family_affected_unaffected_sample_names,
     _is_mitochondrial_chromosome,
     _small_call_map,
@@ -186,8 +186,12 @@ def _sql_prefilter(record: SmallVariantRecord, filters, context: FamilyMetadataC
     affected, unaffected = _family_affected_unaffected_sample_names(context)
     calls = _small_call_map(record)
     if filters.expanded_carrier_screening:
-        partners = _carrier_partner_names(context.sample_rows, context.relationship_rows)
-        if partners is None or not any(_call_has_alt(calls.get(partner)) for partner in partners):
+        partners = _carrier_partners(
+            context.sample_rows, context.relationship_rows, left_out=context.scope.left_out_members
+        )
+        if partners is None or not any(
+            _call_has_alt(calls.get(sample)) for samples in partners for sample in samples
+        ):
             return False
         if not record.gene_symbols or _is_mitochondrial_chromosome(record.chr):
             return False

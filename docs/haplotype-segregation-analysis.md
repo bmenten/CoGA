@@ -140,7 +140,11 @@ both.
 
 - **Pedigree IBD colouring** — `backend/app/services/haplotype_lineage_service.py`
   (`annotate_lineage`): builds the pedigree, finds the embryo-anchored nuclear core, propagates
-  founder colour by IBD matching and splits each relative at recombinations. It reads chrX one
+  founder colour by IBD matching and splits each relative at recombinations. The core's parents are
+  the embryos' parents (`identify_core`); embryos that name two samples of one parent, linked as the
+  same individual, have the one that holds the data read (the samples with blocks, or the file's
+  samples when the blocks are built), else the parent of the most embryos, and an embryo of the
+  other sample is read as a relative. It reads chrX one
   stretch at a time by the PARs of the family's assembly (`_lineage_stretches`). Between
   the PARs a man recorded as male is one copy; a man and a member with two copies are read from the
   runs of her homolog he carries (`one_copy_share_runs` and `_one_copy_relative_blocks`); two men
