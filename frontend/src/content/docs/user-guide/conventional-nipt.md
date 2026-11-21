@@ -19,7 +19,7 @@ ID**, and CoGA proposes the plasma as the mother of the pregnancy. The family pa
 
 A family may hold the NIPTs of several pregnancies of one woman, each an analysis of its own. A cNIPT
 and an mNIPT are one pregnancy only when their packages name the same pregnancy ID. The cNIPT page
-shows one pregnancy at a time: choose it in **Analysis whose data are shown**, beside the family name
+shows one pregnancy at a time: choose it in the analysis list beside the family name
 (*conventional NIPT of pregnancy ZW1*). The page opens on the pregnancy imported last. When the
 pregnancy's package lists two or more fetuses, the page, the report and the signed version show the
 **multiple-pregnancy note**: a fetal result may be present in one fetus or in more than one, and the

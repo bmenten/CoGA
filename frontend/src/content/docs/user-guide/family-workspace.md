@@ -22,8 +22,8 @@ of them you can work on the case and move between analyses.
   reader in its project.
 - A *Not validated for clinical use* banner shows when the family is outside the validated scope.
 - In a family of several analyses (short-read and then long-read WGS, or the NIPTs of several
-  pregnancies of one woman), a page that reads one analysis at a time offers **Analysis whose data are
-  shown** beside the family name, with the analysis imported last shown first.
+  pregnancies of one woman), a page that reads one analysis at a time offers a list of the analyses
+  beside the family name, with the analysis imported last shown first.
 
 A row of links at the foot of the header leads to the family's analyses: **Small variants**,
 **Structural variants**, **Repeat expansions**, **Paraphase**, **mtDNA analysis**, **Monogenic NIPT**

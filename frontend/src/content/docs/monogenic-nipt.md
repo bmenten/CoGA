@@ -44,8 +44,7 @@ named by its type and its pregnancy (`monogenic_nipt:ZW1`).
   and its own copy of the father's calls. A plasma or a fetus belongs to one pregnancy: a package of
   another pregnancy that lists one of them is refused before anything is written.
 - The NIPT page, its coverage page and report, and the Sample QC show one pregnancy at a time. Choose
-  it in **Analysis whose data are shown**, beside the family name (*monogenic NIPT of pregnancy
-  ZW1*). The pages open on the pregnancy imported last.
+  it in the analysis list beside the family name (*monogenic NIPT of pregnancy ZW1*). The pages open on the pregnancy imported last.
 - Two plasmas of one woman, linked as the same individual, are one person in the pedigree but never
   one pregnancy: their results never merge, and the Sample QC never compares a plasma for identity.
 

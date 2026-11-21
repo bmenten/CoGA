@@ -182,7 +182,7 @@ not genotype relatedness. The analysis is explained in the
 [Monogenic NIPT reference](/docs/reference/monogenic-nipt).
 
 A family that holds the monogenic NIPT of several pregnancies is checked one pregnancy at a time:
-choose the pregnancy in **Analysis whose data are shown**, beside the family name. The checks of a
+choose the pregnancy in the analysis list beside the family name. The checks of a
 pregnancy read its own plasma, father and fetus or fetuses, never another pregnancy's.
 
 ### Paternity (the father's alleles in the cfDNA)

@@ -27,8 +27,8 @@ its data, reviews and sign-out are its own.
   of theirs.
 - Each pregnancy has its own plasma and fetus. The father may be the same sample in both: each
   pregnancy keeps its own copy of his calls.
-- The NIPT page, its report and the Sample QC show one pregnancy at a time. Choose it in **Analysis
-  whose data are shown**, beside the family name (*monogenic NIPT of pregnancy ZW1*). The page opens on
+- The NIPT page, its report and the Sample QC show one pregnancy at a time. Choose it in the analysis
+  list beside the family name (*monogenic NIPT of pregnancy ZW1*). The page opens on
   the pregnancy imported last.
 - Two plasmas of one woman, linked as the same individual, are drawn as one person but are never one
   pregnancy: their results never merge.

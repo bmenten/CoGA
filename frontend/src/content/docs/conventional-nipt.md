@@ -24,7 +24,7 @@ A family may hold several pregnancies of one woman. Each pregnancy's conventiona
 of its own (`conventional_nipt:ZW1`), and a monogenic NIPT may stand beside it: a cNIPT and an mNIPT
 are one pregnancy only when their packages name the same pregnancy. A plasma belongs to one
 pregnancy: a package of another pregnancy that lists it is refused. The cNIPT page shows one
-pregnancy at a time: choose it in **Analysis whose data are shown**, beside the family name
+pregnancy at a time: choose it in the analysis list beside the family name
 (*conventional NIPT of pregnancy ZW1*). The page opens on the pregnancy imported last.
 
 When the family also holds the monogenic NIPT of the pregnancy under another sample ID for the plasma,
