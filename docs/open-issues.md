@@ -60,8 +60,6 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | CLIN-80 | P3 | Count a person sampled twice (two samples linked as the same individual) once in the Variant Explorer's carrier counts | developer | |
 | CLIN-81 | P3 | Pick the sample that holds an analysis's data when the mother is sampled twice: the monogenic NIPT trio (without the `nipt_cfdna` assay the last mother wins) and the PGT core (no mother) | developer | |
 | CLIN-82 | P3 | Read both samples of a partner sampled twice in one analysis's carrier screen: one is read, and a call only the other holds is missed | developer | |
-| ENG-24 | P3 | Make the end-to-end modules independent of their order: the review-audit module leaves a variant tagged for the report | developer | |
-| ENG-25 | P3 | Settle the copies that differ: two ROI region parsers, two Mendelian-consistency rules, two `_coerce_int`; drop the unused tag `family_id` column | developer | |
 
 ## Waiting for a decision
 
@@ -306,15 +304,3 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - A structure edit that takes a member out keeps their calls in the family's rows unless it clears them. The Variant Explorer counts only the members a family shows (the owner's decision of 2026-11-06), but the family page still lists a variant only taken-out members carry, with 0/0 for each member it shows.
 - The family search's sample filter, given a taken-out member's name through the API, reads that member's calls; the interface offers only members.
 - The owner decides whether the family search leaves such variants out, as the Explorer does: that changes what the search keeps (Major).
-
-### ENG-24 · End-to-end modules depend on their order
-
-- The end-to-end suite run on a database the integration suite has just used fails in `clickhouse_integrity`, the Explorer's counts and panel match, the family panel-region join, the ranking cache and ancestry; each passes on fresh containers, as CI runs it. Integration tests leave rows behind that these modules read.
-- Run on their own, `test_e2e_review_audit.py` then `test_e2e_signout_acknowledges_what_was_shown.py` fail the latter's `test_the_module_leaves_nothing_tagged_for_the_report`: the review-audit module leaves a variant of the shared family tagged for the report, and the sign-out module checks that the family's report list ends empty. The full suite, with other modules run in between, passes. Each module should leave the family as it found it, or check only its own tags.
-
-### ENG-25 · Copies that differ
-
-- The region of interest is parsed twice: `family_service._parse_region_of_interest` uses `GENOMIC_REGION_PATTERN` and answers 400 on negative coordinates; `family_package_registration._ROI_REGION_PATTERN` is a pattern of its own.
-- One Mendelian-consistency rule is written twice: `sample_integrity_qc._mendelian_consistent` and `phased_marker_service._is_mendelian_consistent`.
-- `clickhouse_variant_records._coerce_int` and `family_package_common._coerce_int` read `b"1.5"` differently (1 against none), and both differ from `vcf_fields.field_int` on a bool: decide one reading before folding them.
-- `small_variant_tag_definitions.family_id` is a column no code writes: drop it from `03_assay.sql`.

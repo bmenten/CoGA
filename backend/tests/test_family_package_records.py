@@ -713,7 +713,7 @@ def test_a_package_of_another_analysis_keeps_the_family_s_region_of_interest(mon
     monkeypatch.setattr(registration, "other_analyses_of", others)
     monkeypatch.setattr(registration, "_family_roi_row", family_roi)
     monkeypatch.setattr(registration, "_package_roi_assembly", assembly)
-    monkeypatch.setattr(registration, "_resolve_manifest_roi", resolve)
+    monkeypatch.setattr(registration, "resolve_roi", resolve)
 
     def package(roi: str | None) -> Any:
         manifest = SimpleNamespace(analysis_type="conventional_nipt", family={"roi": roi} if roi else {}, roi=roi)

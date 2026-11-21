@@ -614,7 +614,6 @@ The review tags and the saved filter sets:
 ```mermaid
 erDiagram
     projects |o--o{ small_variant_tag_definitions : "project_id (set null)"
-    families |o--o{ small_variant_tag_definitions : "family_id (cascade)"
     small_variant_tag_definitions ||--o{ small_variant_tag_definition_project_links : "tag_id (cascade)"
     projects ||--o{ small_variant_tag_definition_project_links : "project_id (cascade)"
     families |o--o{ structural_variant_filter_presets : "family_id (cascade)"
@@ -626,7 +625,6 @@ erDiagram
         text key UK "what reviews and presets hold"
         text scope "global or project"
         uuid project_id FK
-        uuid family_id FK
         boolean is_active
     }
     small_variant_tag_definition_project_links {

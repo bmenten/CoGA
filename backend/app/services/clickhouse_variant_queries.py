@@ -89,7 +89,6 @@ from .clickhouse_variant_records import (
     _casefold,
     _contains_casefold,
     _status_filter_terms,
-    _coerce_int,
     _coerce_float,
     _annotation_terms,
     _annotation_text,
@@ -109,6 +108,7 @@ from .clickhouse_variant_records import (
     _annotation_spliceai_max,
     mane_only_condition,
 )
+from .vcf_fields import field_int
 
 
 class _SearchAssembly(Protocol):
@@ -349,7 +349,7 @@ def _indexed(values: Any, index: int) -> Any:
 def _int_list(value: Any) -> list[int]:
     result: list[int] = []
     for item in _listify(value):
-        parsed = _coerce_int(item)
+        parsed = field_int(item)
         if parsed is not None:
             result.append(parsed)
     return result
@@ -781,21 +781,21 @@ def _structural_annotation_extra(
     read_depths = {
         key: value
         for key, value in {
-            "query_ref_reads": _coerce_int(_structural_info_value(record, "Ref_Reads")),
-            "query_total_reads": _coerce_int(_structural_info_value(record, "Total_Reads")),
-            "maternal_ref_reads": _coerce_int(_structural_info_value(record, "Maternal_Ref_Reads")),
-            "maternal_total_reads": _coerce_int(_structural_info_value(record, "Maternal_Total_Reads")),
-            "paternal_ref_reads": _coerce_int(_structural_info_value(record, "Paternal_Ref_Reads")),
-            "paternal_total_reads": _coerce_int(_structural_info_value(record, "Paternal_Total_Reads")),
+            "query_ref_reads": field_int(_structural_info_value(record, "Ref_Reads")),
+            "query_total_reads": field_int(_structural_info_value(record, "Total_Reads")),
+            "maternal_ref_reads": field_int(_structural_info_value(record, "Maternal_Ref_Reads")),
+            "maternal_total_reads": field_int(_structural_info_value(record, "Maternal_Total_Reads")),
+            "paternal_ref_reads": field_int(_structural_info_value(record, "Paternal_Ref_Reads")),
+            "paternal_total_reads": field_int(_structural_info_value(record, "Paternal_Total_Reads")),
         }.items()
         if value is not None
     }
     genotype_counts = {
         key: value
         for key, value in {
-            "hom_ref": _coerce_int(_structural_info_value(record, "GT_homWT")),
-            "het": _coerce_int(_structural_info_value(record, "GT_het")),
-            "hom_alt": _coerce_int(_structural_info_value(record, "GT_homVAR")),
+            "hom_ref": field_int(_structural_info_value(record, "GT_homWT")),
+            "het": field_int(_structural_info_value(record, "GT_het")),
+            "hom_alt": field_int(_structural_info_value(record, "GT_homVAR")),
         }.items()
         if value is not None
     }
@@ -1001,7 +1001,7 @@ def _primary_gene_keys(record: SmallVariantRecord) -> tuple[str | None, str | No
 
 def _chromosome_sort_key(chromosome: str) -> tuple[int, int, str]:
     cleaned = normalize_chromosome(chromosome).upper()
-    numeric = _coerce_int(cleaned)
+    numeric = field_int(cleaned)
     if numeric is not None:
         return 0, numeric, cleaned
     if cleaned == "X":

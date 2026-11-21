@@ -14,18 +14,28 @@ from typing import Any
 
 
 def field_int(value: Any) -> int | None:
-    """A field's text read as a whole number, tolerating a decimal (``"12.0"`` and ``"12.7"``
-    are 12) and surrounding spaces. None for a missing value (``None``, ``""``, ``"."``) and
-    for one that reads as no finite number (``"junk"``, ``"inf"``, ``"nan"``), so that a
-    malformed record is skipped rather than ending the whole read."""
-    if value is None or str(value).strip() in {"", "."}:
+    """A value read as a whole number, the one reading of every file and stored value CoGA
+    reads: its text, tolerating a decimal (``"12.0"`` and ``"12.7"`` are 12, as are 12.0 and
+    12.7) and surrounding spaces; bytes read as their UTF-8 text (``b"1.5"`` is 1). None for a
+    missing value (``None``, ``""``, ``"."``), for a bool (a flag is no number), and for one
+    that reads as no finite number (``"junk"``, ``"inf"``, ``"nan"``), so that a malformed record
+    is skipped rather than ending the whole read."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            value = bytes(value).decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    text = "" if value is None else str(value).strip()
+    if text in {"", "."}:
         return None
     try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
+        return int(text)
+    except ValueError:
         try:
-            return int(float(str(value).strip()))
-        except (TypeError, ValueError, OverflowError):
+            return int(float(text))
+        except (ValueError, OverflowError):
             return None
 
 

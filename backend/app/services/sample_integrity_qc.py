@@ -399,18 +399,23 @@ def classify_relatedness(
 
 # --- Mendelian consistency ---------------------------------------------------
 
-def _mendelian_consistent(father: Genotype, mother: Genotype, child: Genotype) -> bool:
-    """Child genotype forms from one paternal + one maternal allele."""
-    child_state = tuple(sorted(child))
-    for pa in father:
-        for ma in mother:
-            if tuple(sorted((pa, ma))) == child_state:
-                return True
-    return False
-
-
 # An allele, as an index (these genotypes) or as the allele itself (phased_marker_service).
 Allele = TypeVar("Allele", int, str)
+
+
+def mendelian_consistent(
+    father: tuple[Allele, Allele], mother: tuple[Allele, Allele], child: tuple[Allele, Allele]
+) -> bool:
+    """Whether the child's genotype forms from one paternal and one maternal allele. False is a
+    Mendelian inconsistency (an impossible transmission: a likely sample swap or wrong
+    pedigree), distinct from an unknown parent of origin (both parents and the child
+    heterozygous), which is consistent."""
+    child_state = tuple(sorted(child))
+    for paternal in father:
+        for maternal in mother:
+            if tuple(sorted((paternal, maternal))) == child_state:
+                return True
+    return False
 
 
 def shares_allele(a: tuple[Allele, Allele], b: tuple[Allele, Allele]) -> bool:
@@ -442,7 +447,7 @@ def mendelian_stats(
             if f is None or m is None:
                 continue
             informative += 1
-            if not _mendelian_consistent(f, m, c):
+            if not mendelian_consistent(f, m, c):
                 errors += 1
         else:
             parent = f if father is not None else m

@@ -22,11 +22,11 @@ from .family_metadata_context import (
     SampleMetadataContext,
 )
 
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SEGREGATION_TRACK_TYPE, APCAD_SOURCE, ImportRefused, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, whole_package_text_handle
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SEGREGATION_TRACK_TYPE, APCAD_SOURCE, ImportRefused, ParsedPed, _coerce_finite_float, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, whole_package_text_handle
 from .ccnv_output import CCNV_SOURCE, CCNV_TRACK_FILE_LABEL, CcnvOutputError, ccnv_track_rows
 from .clickhouse_column_bounds import UINT64, column_int
 from .import_progress import bytes_read_on_disk, file_size, read_stats
-from .vcf_fields import parse_format, parse_info
+from .vcf_fields import field_int, parse_format, parse_info
 
 
 class EmptyTrackFileError(RuntimeError):
@@ -53,7 +53,7 @@ def _coordinate(value: Any) -> int | None:
     """A track row's start, end or position: a whole number the interval table's UInt64
     columns hold, else None, and the row is left out as malformed: a negative coordinate
     would fail the insert of the whole batch."""
-    return column_int(_coerce_int(value), UINT64)
+    return column_int(field_int(value), UINT64)
 
 
 async def _delete_sample_interval_source(
@@ -848,7 +848,7 @@ def _apcad_value(
         return value
     ad_raw = _first_mapping_value(fmt_vals, ("AD",))
     if ad_raw is not None:
-        coerced = [_coerce_int(item) for item in ad_raw.split(",")]
+        coerced = [field_int(item) for item in ad_raw.split(",")]
         depths = [depth for depth in coerced if depth is not None]
         if len(depths) >= 2:
             total = sum(depths)
@@ -978,7 +978,7 @@ def _parse_apcad_interval_row(
             if column_value is not None:
                 extra[key] = column_value
     else:
-        if len(parts) >= 7 and _coerce_int(parts[1]) is not None and _coerce_int(parts[2]) is None:
+        if len(parts) >= 7 and field_int(parts[1]) is not None and field_int(parts[2]) is None:
             chrom = parts[0]
             pos_raw = parts[1]
             start_raw = None
@@ -1126,7 +1126,7 @@ def _apcad_vcf_samples_with_values(
             if not line or line.startswith("#"):
                 continue
             fields = line.rstrip("\n\r").split("\t")
-            if len(fields) < 8 or _coerce_int(fields[1]) is None:
+            if len(fields) < 8 or field_int(fields[1]) is None:
                 continue
             any_record = True
             info = parse_info(fields[7], flags=True)
@@ -1423,7 +1423,7 @@ def _parse_pcf_segment_row(
 
     sample_id_from_file = _pcf_value(row, "sampleID", "sample_id", "sample")
     arm = _pcf_value(row, "arm")
-    n_probes = _coerce_int(_pcf_value(row, "n.probes", "n_probes", "probes"))
+    n_probes = field_int(_pcf_value(row, "n.probes", "n_probes", "probes"))
     normalized_chrom = normalize_chromosome(chrom)
     record_id_parts = [sample_context.sample_id, origin, normalized_chrom]
     if arm:
@@ -1555,7 +1555,7 @@ def _parse_segregation_row(
         "uploaded_from": "family_package",
         "group": group,
         "raw_af": fraction,
-        "dp": _coerce_int(_pcf_value(row, "gt_DP", "DP")),
+        "dp": field_int(_pcf_value(row, "gt_DP", "DP")),
         "qual": _coerce_finite_float(_pcf_value(row, "QUAL")),
         "filter": _pcf_value(row, "FILTER"),
         "ref": _pcf_value(row, "REF"),

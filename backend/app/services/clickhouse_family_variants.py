@@ -88,7 +88,6 @@ from .clickhouse_variant_records import (
     StructuralVariantRecord,
     _call_metrics,
     _coerce_float,
-    _coerce_int,
 )
 
 from .clickhouse_variant_queries import (
@@ -153,6 +152,7 @@ from .clickhouse_variant_storage import (
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, HOM_REF, clickhouse_genotype_condition
 from .sample_integrity_qc import MIN_GENOTYPE_QUALITY
+from .vcf_fields import field_int
 
 logger = logging.getLogger(__name__)
 
@@ -1273,8 +1273,8 @@ async def _fetch_small_variant_detail_map(
     )
     details: dict[tuple[int, str, int], dict[str, Any]] = {}
     for key, annotation_version, annotation_set_hash, rsid, annotations_json in rows:
-        parsed_key = _coerce_int(key)
-        parsed_annotation_set_hash = _coerce_int(annotation_set_hash)
+        parsed_key = field_int(key)
+        parsed_annotation_set_hash = field_int(annotation_set_hash)
         if parsed_key is None or parsed_annotation_set_hash is None:
             continue
         details[(parsed_key, str(annotation_version or "current"), parsed_annotation_set_hash)] = {
@@ -1566,8 +1566,8 @@ async def _fetch_small_variant_rows(
         [
             (parsed_key, str(row[2] or "current"), int(row[3]))
             for row in rows
-            if (parsed_key := _coerce_int(row[0])) is not None
-            and _coerce_int(row[3]) is not None
+            if (parsed_key := field_int(row[0])) is not None
+            and field_int(row[3]) is not None
         ],
     )
     records: list[SmallVariantRecord] = []
@@ -1599,8 +1599,8 @@ async def _fetch_small_variant_rows(
         sample_filters = row[21] if len(row) > 21 else None
         sample_metrics = row[22] if len(row) > 22 else None
         segregation = _segregation_flags_from_row(row[23:26]) if segregation_flags else None
-        parsed_variant_key = _coerce_int(variant_key)
-        parsed_annotation_set_hash = _coerce_int(annotation_set_hash)
+        parsed_variant_key = field_int(variant_key)
+        parsed_annotation_set_hash = field_int(annotation_set_hash)
         detail = detail_map.get(
             (
                 parsed_variant_key or -1,
@@ -1626,10 +1626,10 @@ async def _fetch_small_variant_rows(
                     sample=sample_name,
                     gt=_normalize_gt(_indexed(sample_gts, index)),
                     gq=_coerce_float(_indexed(sample_gqs, index)),
-                    dp=_coerce_int(_indexed(sample_dps, index)),
+                    dp=field_int(_indexed(sample_dps, index)),
                     af=af_values,
                     ad=_int_list(_indexed(sample_ads, index)),
-                    ps=_coerce_int(_indexed(sample_phase_sets, index)),
+                    ps=field_int(_indexed(sample_phase_sets, index)),
                     filters=_string_list(_indexed(sample_filters, index) or []),
                     metrics=_call_metrics(_indexed(sample_metrics, index)),
                 )
@@ -2264,16 +2264,16 @@ async def _fetch_structural_variant_rows(
                     sample=sample_name,
                     gt=_normalize_gt(_indexed(sample_gts, index)),
                     qual=_coerce_float(_indexed(sample_quals, index)),
-                    read_support=_coerce_int(_indexed(sample_read_supports, index)),
+                    read_support=field_int(_indexed(sample_read_supports, index)),
                     filter=str(_indexed(sample_filters_raw, index) or "").strip() or None,
-                    copy_number=_coerce_int(_indexed(sample_copy_numbers, index)),
+                    copy_number=field_int(_indexed(sample_copy_numbers, index)),
                 )
             )
         if not calls:
             continue
         records.append(
             StructuralVariantRecord(
-                variant_key=_coerce_int(variant_key),
+                variant_key=field_int(variant_key),
                 variant_id=str(variant_id),
                 chr=normalize_chromosome(str(chrom)),
                 start=int(start),
@@ -2281,9 +2281,9 @@ async def _fetch_structural_variant_rows(
                 sv_type=str(sv_type or ""),
                 source=str(source) if source is not None else None,
                 remote_chr=normalize_chromosome(str(remote_chr)) if remote_chr not in (None, "") else None,
-                remote_start=_coerce_int(remote_start),
+                remote_start=field_int(remote_start),
                 remote_end=None,
-                sv_len=_coerce_int(sv_len),
+                sv_len=field_int(sv_len),
                 filters=_string_list(filters_raw),
                 gene_symbols=_string_list(gene_symbols),
                 # Track mode never reads annotations downstream (annotation_extra is

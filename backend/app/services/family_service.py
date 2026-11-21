@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 from typing import Any, cast
 
 from fastapi import HTTPException
@@ -50,28 +49,7 @@ from .family_variant_filters import (
 from .genotypes import genotype_has_alt
 from .metadata_service import get_family_record, list_family_records, update_family_roi_record
 from .access_control import CurrentUser
-from .roi_gene_lookup import roi_gene_region
-
-GENOMIC_REGION_PATTERN = re.compile(
-    r"^(?P<chrom>(?:chr)?[A-Za-z0-9_]+):(?P<start>[0-9,]+)(?:-(?P<end>[0-9,]+))?$",
-    re.IGNORECASE,
-)
-
-
-def _parse_region_of_interest(query: str) -> tuple[str, int, int] | None:
-    match = GENOMIC_REGION_PATTERN.match(query.strip())
-    if not match:
-        return None
-    chrom = normalize_chromosome(match.group("chrom"))
-    start = int(match.group("start").replace(",", ""))
-    end_raw = match.group("end")
-    end = int(end_raw.replace(",", "")) if end_raw else start
-    if start < 0 or end < 0:
-        raise HTTPException(status_code=400, detail="ROI coordinates must be non-negative")
-    if end < start:
-        start, end = end, start
-    return chrom, start, end
-
+from .roi_gene_lookup import resolve_roi
 
 def _sample_specific_filters(sample_name: str, filters: list[str] | None) -> list[str]:
     prefix = f"{sample_name}:"
@@ -136,26 +114,13 @@ async def _build_family_roi_payload(
     assembly_id: str,
     query: str,
 ) -> dict[str, Any]:
-    cleaned_query = query.strip()
-    region = _parse_region_of_interest(cleaned_query)
-    if region:
-        chrom, start, end = region
-        return {
-            "query": cleaned_query,
-            "label": cleaned_query,
-            "source": "region",
-            "assembly_id": assembly_id,
-            "chr": chrom,
-            "start": start,
-            "end": end,
-        }
-    gene = await roi_gene_region(session, assembly_id=assembly_id, query=cleaned_query)
-    if gene is None:
+    roi = await resolve_roi(session, assembly_id=assembly_id, query=query)
+    if roi is None:
         raise HTTPException(
             status_code=404,
             detail="ROI gene or genomic location could not be resolved",
         )
-    return gene
+    return roi
 
 
 async def _repeat_expansion_presence_by_sample(

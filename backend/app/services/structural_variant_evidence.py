@@ -55,11 +55,12 @@ from .clickhouse_variant_queries import (
     _structural_variant_where_clauses,
 )
 from .clickhouse_variant_ids import _structural_table_name
-from .clickhouse_variant_records import StructuralVariantRecord, _coerce_int
+from .clickhouse_variant_records import StructuralVariantRecord
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import StructuralVariantQueryFilters
 from .hash_chain import canonical_hash, canonical_json, jsonb_float
+from .vcf_fields import field_int
 
 # The evidence fields grouped under the name a drift reports when they change, in the
 # order a reviewer reads them.
@@ -219,7 +220,7 @@ def _structural_record(row: Sequence[Any]) -> StructuralVariantRecord:
         gene_symbols,
     ) = row
     return StructuralVariantRecord(
-        variant_key=_coerce_int(variant_key),
+        variant_key=field_int(variant_key),
         variant_id=str(stored_variant_id),
         chr=normalize_chromosome(str(chrom)),
         start=int(start),
@@ -227,9 +228,9 @@ def _structural_record(row: Sequence[Any]) -> StructuralVariantRecord:
         sv_type=str(sv_type or ""),
         source=str(source) if source is not None else None,
         remote_chr=normalize_chromosome(str(remote_chr)) if remote_chr not in (None, "") else None,
-        remote_start=_coerce_int(remote_start),
+        remote_start=field_int(remote_start),
         remote_end=None,
-        sv_len=_coerce_int(sv_len),
+        sv_len=field_int(sv_len),
         filters=_string_list(filters_raw),
         gene_symbols=_string_list(gene_symbols),
         annotations=_collect_annotations(_decode_json_payload(annotations_json)),

@@ -209,7 +209,7 @@ def test_the_import_and_the_family_page_look_a_gene_up_with_one_query() -> None:
     page, manifest = _Session({"FROM genes": [gene]}), _Session({"FROM genes": [gene]})
 
     on_the_page = asyncio.run(family_service._build_family_roi_payload(page, assembly_id=ASSEMBLY, query=" cftr "))  # type: ignore[arg-type]
-    in_the_manifest = asyncio.run(registration._resolve_manifest_roi(manifest, assembly_id=ASSEMBLY, query="cftr"))  # type: ignore[arg-type]
+    in_the_manifest = asyncio.run(registration.resolve_roi(manifest, assembly_id=ASSEMBLY, query="cftr"))  # type: ignore[arg-type]
 
     assert page.statements == manifest.statements
     assert on_the_page == in_the_manifest == {
@@ -408,3 +408,25 @@ async def test_the_import_puts_the_roi_warning_in_its_result(monkeypatch: pytest
     assert warning not in seen[0] and warning in seen[-1]
 
 
+
+
+def test_the_import_and_the_family_page_read_a_region_with_one_parser() -> None:
+    # Both resolve a written region with roi_gene_lookup.resolve_roi: the same record, and no
+    # gene lookup.
+    from backend.app.services import family_service
+
+    page, manifest = _Session({}), _Session({})
+
+    on_the_page = asyncio.run(family_service._build_family_roi_payload(page, assembly_id=ASSEMBLY, query=" chr7:2,000-1,000 "))  # type: ignore[arg-type]
+    in_the_manifest = asyncio.run(registration.resolve_roi(manifest, assembly_id=ASSEMBLY, query="chr7:2,000-1,000"))  # type: ignore[arg-type]
+
+    assert on_the_page == in_the_manifest == {
+        "query": "chr7:2,000-1,000",
+        "label": "chr7:2,000-1,000",
+        "source": "region",
+        "assembly_id": ASSEMBLY,
+        "chr": "7",
+        "start": 1000,
+        "end": 2000,
+    }
+    assert page.statements == manifest.statements == []

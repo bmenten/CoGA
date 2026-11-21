@@ -900,19 +900,6 @@ def _missing_scalar(value: Any) -> bool:
     return value is None or str(value).strip() in {"", "."}
 
 
-def _coerce_int(value: Any) -> int | None:
-    if _missing_scalar(value):
-        return None
-    # OverflowError: an infinite value ("inf", float("inf")) is no whole number either.
-    try:
-        return int(value)
-    except (TypeError, ValueError, OverflowError):
-        try:
-            return int(float(str(value)))
-        except (TypeError, ValueError, OverflowError):
-            return None
-
-
 def _coerce_finite_float(value: Any) -> float | None:
     if _missing_scalar(value):
         return None

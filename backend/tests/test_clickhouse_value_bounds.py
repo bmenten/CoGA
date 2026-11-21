@@ -251,18 +251,14 @@ def test_a_decimal_is_kept_only_when_it_is_finite_and_a_float32_holds_it() -> No
 
 
 def test_no_number_parser_raises_on_an_infinite_value() -> None:
-    # None raises OverflowError: the value is left out.
-    for coerce in (
-        clickhouse_variant_records._coerce_int,
-        family_package_common._coerce_int,
-        # The VEP table's and the SV uploads' reader (annotation_table_parser and
-        # structural_variant_ingest kept a copy each).
-        vcf_fields.field_int,
-    ):
-        assert coerce("inf") is None
-        assert coerce("-inf") is None
-        assert coerce(float("inf")) is None
-        assert coerce("12.0") == 12
+    # None raises OverflowError: the value is left out. One whole-number reader serves the
+    # package readers, the stored values and the uploads (vcf_fields.field_int).
+    assert vcf_fields.field_int("inf") is None
+    assert vcf_fields.field_int("-inf") is None
+    assert vcf_fields.field_int(float("inf")) is None
+    assert vcf_fields.field_int("12.0") == 12
+    assert not hasattr(clickhouse_variant_records, "_coerce_int")
+    assert not hasattr(family_package_common, "_coerce_int")
     assert structural_variant_ingest.parse_svlen("inf") is None
     assert variant_upload_service._first_present_int({"DP": "inf", "MED_DP": "80"}, "DP", "MED_DP") == 80
     assert variant_upload_service._first_present_int({"PS": "-inf"}, "PS") is None

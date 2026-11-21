@@ -76,7 +76,7 @@ from .raw_import_files_pg import (
     store_managed_file,
     unlink_managed_files,
 )
-from .roi_gene_lookup import roi_gene_region
+from .roi_gene_lookup import resolve_roi
 from .same_individual import person_of
 from .vcf_header_provenance import reference_name
 
@@ -1021,41 +1021,6 @@ async def _record_package_reference(
     await session.commit()
 
 
-_ROI_REGION_PATTERN = re.compile(
-    r"^(?P<chrom>(?:chr)?[A-Za-z0-9_]+):(?P<start>[0-9,]+)(?:-(?P<end>[0-9,]+))?$",
-    re.IGNORECASE,
-)
-
-
-async def _resolve_manifest_roi(
-    session: AsyncSession,
-    *,
-    assembly_id: str | None,
-    query: str,
-) -> dict[str, Any] | None:
-    if not assembly_id:
-        return None
-    region_match = _ROI_REGION_PATTERN.match(query.strip())
-    if region_match:
-        chrom = normalize_chromosome(region_match.group("chrom"))
-        start = int(region_match.group("start").replace(",", ""))
-        end_value = region_match.group("end")
-        end = int(end_value.replace(",", "")) if end_value else start
-        if end < start:
-            start, end = end, start
-        return {
-            "query": query,
-            "label": query,
-            "source": "region",
-            "assembly_id": assembly_id,
-            "chr": chrom,
-            "start": start,
-            "end": end,
-        }
-    # As the family page resolves an ROI (roi_gene_lookup).
-    return await roi_gene_region(session, assembly_id=assembly_id, query=query)
-
-
 # A manifest's region of interest that does not resolve. The PGT calls and the NIPT
 # coverage check read the family's region of interest, so an import whose manifest names one
 # leaves the family with that region or with none, never with a region the package does not
@@ -1137,7 +1102,7 @@ async def manifest_roi_issue(
             "looked up in the assembly of the family's project, and none is chosen. Choose the "
             "project the family is imported into.",
         )
-    if await _resolve_manifest_roi(session, assembly_id=assembly_id, query=roi_query) is not None:
+    if await resolve_roi(session, assembly_id=assembly_id, query=roi_query) is not None:
         return None
     return _issue(
         MANIFEST_ROI_UNRESOLVED,
@@ -1197,7 +1162,7 @@ async def roi_conflict_message(
     if held is None:
         return None
     assembly_id = await _package_roi_assembly(session, project_id=project_id, family_id=family_id)
-    roi = await _resolve_manifest_roi(session, assembly_id=assembly_id, query=roi_query)
+    roi = await resolve_roi(session, assembly_id=assembly_id, query=roi_query)
     if roi is None:
         return None
     if (normalize_chromosome(str(roi["chr"])), int(roi["start"]), int(roi["end"])) == (
@@ -1235,7 +1200,7 @@ async def _apply_manifest_roi(
     # family without one, and one that does not resolve clears nothing.
     if keep_family_roi:
         return None
-    roi = await _resolve_manifest_roi(
+    roi = await resolve_roi(
         session,
         assembly_id=context.assembly_id,
         query=roi_query,

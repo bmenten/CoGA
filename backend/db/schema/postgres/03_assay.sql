@@ -557,7 +557,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_filter_presets_unique ON sma
 -- lists it as global, and its key stays taken.
 CREATE TABLE IF NOT EXISTS small_variant_tag_definitions (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    family_id uuid,
     key text NOT NULL,
     label text NOT NULL,
     description text,
@@ -575,7 +574,6 @@ CREATE TABLE IF NOT EXISTS small_variant_tag_definitions (
     CONSTRAINT small_variant_tag_definitions_group_check CHECK (("group" = ANY (ARRAY['collaboration'::text, 'classification'::text, 'custom'::text]))),
     CONSTRAINT small_variant_tag_definitions_scope_check CHECK ((scope = ANY (ARRAY['global'::text, 'project'::text]))),
     CONSTRAINT small_variant_tag_definitions_scope_project_check CHECK ((((scope = 'global'::text) AND (project_id IS NULL)) OR ((scope = 'project'::text) AND ((project_id IS NOT NULL) OR (NOT is_active))))),
-    CONSTRAINT small_variant_tag_definitions_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
     CONSTRAINT small_variant_tag_definitions_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
 );
 

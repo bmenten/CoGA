@@ -158,58 +158,71 @@ async def _collect(root: Path) -> dict:
                 "classification": "Benign - class 1",
             },
         }
-        r["review"] = capture(
-            await ac.put(f"/api/families/{FAMILY}/small-variants/{PLP_VARIANT_ID}/review", json=review_payload)
-        )
-        # The review as a variant list serves it: the list the tables, the report and the
-        # ACMG dialog opened from a list read.
-        r["list_after_review"] = capture(
-            await ac.get(
-                f"/api/families/{FAMILY}/small-variants",
-                params={"review_tag": "report", "page_size": 50},
+        try:
+            r["review"] = capture(
+                await ac.put(f"/api/families/{FAMILY}/small-variants/{PLP_VARIANT_ID}/review", json=review_payload)
             )
-        )
-        r["audit"] = capture(await ac.get(f"/api/families/{FAMILY}/clinical-audit"))
-        r["integrity_clinical"] = capture(
-            await ac.get("/api/admin/integrity/verify", params={"table": "clinical_audit_events", "family_id": FAMILY})
-        )
-        r["integrity_badtable"] = capture(
-            await ac.get("/api/admin/integrity/verify", params={"table": "not_a_table", "family_id": FAMILY})
-        )
+            # The review as a variant list serves it: the list the tables, the report and the
+            # ACMG dialog opened from a list read.
+            r["list_after_review"] = capture(
+                await ac.get(
+                    f"/api/families/{FAMILY}/small-variants",
+                    params={"review_tag": "report", "page_size": 50},
+                )
+            )
+            r["audit"] = capture(await ac.get(f"/api/families/{FAMILY}/clinical-audit"))
+            r["integrity_clinical"] = capture(
+                await ac.get("/api/admin/integrity/verify", params={"table": "clinical_audit_events", "family_id": FAMILY})
+            )
+            r["integrity_badtable"] = capture(
+                await ac.get("/api/admin/integrity/verify", params={"table": "not_a_table", "family_id": FAMILY})
+            )
 
-        signout_body = {
-            "acknowledge_drift": True,
-            "drift_acknowledgement_reason": "e2e validation",
-            "acknowledge_qc": True,
-            "qc_acknowledgement_reason": "e2e validation",
-            # The abnormal repeat and Paraphase calls are not reviewed here (REQ-TRACE-016).
-            "acknowledge_unreviewed_findings": True,
-            "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
-        }
-        signout_url = f"/api/families/{FAMILY}/report/sign-out"
-        r["signout1"] = capture(await _harness.sign_out(ac, signout_url, signout_body))
-        r["signout2"] = capture(await _harness.sign_out(ac, signout_url, signout_body))
-        r["integrity_signouts"] = capture(
-            await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
-        )
-        # The report page asks whether its live content still matches the latest
-        # sign-out. Straight after signing it must — through the real JSONB round-trip —
-        # and after a reported review is edited it must not.
-        check_url = f"/api/families/{FAMILY}/report/sign-out-check"
-        r["check_after_signout"] = capture(await ac.get(check_url))
-        r["review_edit"] = capture(
-            await ac.put(
-                f"/api/families/{FAMILY}/small-variants/{PLP_VARIANT_ID}/review",
-                json={**review_payload, "note": "E2E: note edited after sign-out"},
+            signout_body = {
+                "acknowledge_drift": True,
+                "drift_acknowledgement_reason": "e2e validation",
+                "acknowledge_qc": True,
+                "qc_acknowledgement_reason": "e2e validation",
+                # The abnormal repeat and Paraphase calls are not reviewed here (REQ-TRACE-016).
+                "acknowledge_unreviewed_findings": True,
+                "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
+            }
+            signout_url = f"/api/families/{FAMILY}/report/sign-out"
+            r["signout1"] = capture(await _harness.sign_out(ac, signout_url, signout_body))
+            r["signout2"] = capture(await _harness.sign_out(ac, signout_url, signout_body))
+            r["integrity_signouts"] = capture(
+                await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
             )
-        )
-        r["check_after_edit"] = capture(await ac.get(check_url))
-        # REQ-TRACE-007: the report page renders a signed version from this record alone, so
-        # after the edit it must still hold what was signed.
-        signed_version = (r["signout2"].get("json") or {}).get("version")
-        if signed_version is not None:
-            r["signed_after_edit"] = capture(
-                await ac.get(f"/api/families/{FAMILY}/report/sign-outs/{signed_version}")
+            # The report page asks whether its live content still matches the latest
+            # sign-out. Straight after signing it must — through the real JSONB round-trip —
+            # and after a reported review is edited it must not.
+            check_url = f"/api/families/{FAMILY}/report/sign-out-check"
+            r["check_after_signout"] = capture(await ac.get(check_url))
+            r["review_edit"] = capture(
+                await ac.put(
+                    f"/api/families/{FAMILY}/small-variants/{PLP_VARIANT_ID}/review",
+                    json={**review_payload, "note": "E2E: note edited after sign-out"},
+                )
+            )
+            r["check_after_edit"] = capture(await ac.get(check_url))
+            # REQ-TRACE-007: the report page renders a signed version from this record alone, so
+            # after the edit it must still hold what was signed.
+            signed_version = (r["signout2"].get("json") or {}).get("version")
+            if signed_version is not None:
+                r["signed_after_edit"] = capture(
+                    await ac.get(f"/api/families/{FAMILY}/report/sign-outs/{signed_version}")
+                )
+        finally:
+            # Nothing tagged for the report and no ACMG classification left on the shared family
+            # for the modules that run after this one.
+            r["review_cleared"] = capture(
+                await ac.put(
+                    f"/api/families/{FAMILY}/small-variants/{PLP_VARIANT_ID}/review",
+                    json={"classification": None, "tags": [], "note": None, "acmg": None},
+                )
+            )
+            r["left_tagged"] = capture(
+                await ac.get(f"/api/families/{FAMILY}/small-variants", params={"review_tag": "report", "page_size": 50})
             )
 
         # A compound-het pair review removed by a later save: the pair is recorded on the
@@ -599,3 +612,12 @@ def test_a_quick_tag_toggle_records_the_tag_and_no_classification_change(snap):
     ]
     # Cleared at the end, the review goes.
     assert snap["quick_rows_at_end"] == {}
+
+
+def test_the_module_leaves_nothing_tagged_for_the_report(snap):
+    # The shared family is left as the module found it: the P/LP review cleared, nothing tagged
+    # for the report (the modules after this one read the family's report list).
+    assert _resp(snap, "review_cleared")["status"] == 200, _resp(snap, "review_cleared")
+    left = _resp(snap, "left_tagged")
+    assert left["status"] == 200, left
+    assert left["json"]["variants"] == []

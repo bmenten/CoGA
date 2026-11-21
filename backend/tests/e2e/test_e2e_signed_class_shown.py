@@ -82,76 +82,79 @@ async def _collect(root: Path) -> dict:
 
         # ACMG classify: class 4, its text and its class tag. Then the review dialog's class 3:
         # the text and class tag it writes, the ACMG classification kept.
-        r["acmg_classify"] = capture(
-            await ac.put(
-                small(OVERRIDDEN),
-                json={
-                    "classification": "Likely pathogenic - class 4",
-                    "tags": ["acmg_class_4", "report"],
-                    "acmg": _ACMG_CLASS_4,
-                },
+        try:
+            r["acmg_classify"] = capture(
+                await ac.put(
+                    small(OVERRIDDEN),
+                    json={
+                        "classification": "Likely pathogenic - class 4",
+                        "tags": ["acmg_class_4", "report"],
+                        "acmg": _ACMG_CLASS_4,
+                    },
+                )
             )
-        )
-        r["dialog_class_3"] = capture(
-            await ac.put(small(OVERRIDDEN), json={"classification": "VUS - class 3", "tags": ["acmg_class_3", "report"]})
-        )
-        r["tag_only"] = capture(await ac.put(small(TAG_ONLY), json={"tags": ["acmg_class_4", "report"]}))
-        r["word_before_tag"] = capture(
-            await ac.put(small(WORD_BEFORE_TAG), json={"classification": "VUS", "tags": ["acmg_class_4", "report"]})
-        )
-        r["word_only"] = capture(await ac.put(small(WORD_ONLY), json={"classification": "Pathogenic", "tags": ["report"]}))
-        r["sv_tag_only"] = capture(await ac.put(structural(SV_TAG_ONLY), json={"tags": ["acmg_class_4", "report"]}))
-        r["sv_scored"] = capture(
-            await ac.put(
-                structural(SV_SCORED),
-                json={
-                    "classification": "Pathogenic - class 5",
-                    "tags": ["report"],
-                    "cnv_acmg": _CNV_SCORING,
-                    "source": "needlr",
-                },
+            r["dialog_class_3"] = capture(
+                await ac.put(small(OVERRIDDEN), json={"classification": "VUS - class 3", "tags": ["acmg_class_3", "report"]})
             )
-        )
-        # The live report's lists, as the report page reads them.
-        r["live_small"] = capture(await ac.get(f"{family}/small-variants", params=_REPORTED))
-        r["live_sv"] = capture(await ac.get(f"{family}/structural-variants", params=_REPORTED))
+            r["tag_only"] = capture(await ac.put(small(TAG_ONLY), json={"tags": ["acmg_class_4", "report"]}))
+            r["word_before_tag"] = capture(
+                await ac.put(small(WORD_BEFORE_TAG), json={"classification": "VUS", "tags": ["acmg_class_4", "report"]})
+            )
+            r["word_only"] = capture(await ac.put(small(WORD_ONLY), json={"classification": "Pathogenic", "tags": ["report"]}))
+            r["sv_tag_only"] = capture(await ac.put(structural(SV_TAG_ONLY), json={"tags": ["acmg_class_4", "report"]}))
+            r["sv_scored"] = capture(
+                await ac.put(
+                    structural(SV_SCORED),
+                    json={
+                        "classification": "Pathogenic - class 5",
+                        "tags": ["report"],
+                        "cnv_acmg": _CNV_SCORING,
+                        "source": "needlr",
+                    },
+                )
+            )
+            # The live report's lists, as the report page reads them.
+            r["live_small"] = capture(await ac.get(f"{family}/small-variants", params=_REPORTED))
+            r["live_sv"] = capture(await ac.get(f"{family}/structural-variants", params=_REPORTED))
 
-        r["signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-        first = (r["signout"]["json"] or {}).get("version")
-        r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{first}"))
-        r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+            r["signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+            first = (r["signout"]["json"] or {}).get("version")
+            r["detail"] = capture(await ac.get(f"{family}/report/sign-outs/{first}"))
+            r["check"] = capture(await ac.get(f"{family}/report/sign-out-check"))
 
-        # After sign-out: a class changed by its text alone, the tags as they were; and the
-        # CNV-scored SV's text cleared, its scoring kept.
-        r["word_changed"] = capture(
-            await ac.put(
-                small(WORD_BEFORE_TAG), json={"classification": "Likely benign", "tags": ["acmg_class_4", "report"]}
+            # After sign-out: a class changed by its text alone, the tags as they were; and the
+            # CNV-scored SV's text cleared, its scoring kept.
+            r["word_changed"] = capture(
+                await ac.put(
+                    small(WORD_BEFORE_TAG), json={"classification": "Likely benign", "tags": ["acmg_class_4", "report"]}
+                )
             )
-        )
-        r["sv_text_cleared"] = capture(
-            await ac.put(structural(SV_SCORED), json={"classification": None, "tags": ["report"]})
-        )
-        r["check_changed"] = capture(await ac.get(f"{family}/report/sign-out-check"))
-        r["live_small_changed"] = capture(await ac.get(f"{family}/small-variants", params=_REPORTED))
-        r["live_sv_changed"] = capture(await ac.get(f"{family}/structural-variants", params=_REPORTED))
-        r["signout_changed"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-        second = (r["signout_changed"]["json"] or {}).get("version")
-        r["detail_changed"] = capture(await ac.get(f"{family}/report/sign-outs/{second}"))
-        r["chain"] = capture(
-            await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
-        )
+            r["sv_text_cleared"] = capture(
+                await ac.put(structural(SV_SCORED), json={"classification": None, "tags": ["report"]})
+            )
+            r["check_changed"] = capture(await ac.get(f"{family}/report/sign-out-check"))
+            r["live_small_changed"] = capture(await ac.get(f"{family}/small-variants", params=_REPORTED))
+            r["live_sv_changed"] = capture(await ac.get(f"{family}/structural-variants", params=_REPORTED))
+            r["signout_changed"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+            second = (r["signout_changed"]["json"] or {}).get("version")
+            r["detail_changed"] = capture(await ac.get(f"{family}/report/sign-outs/{second}"))
+            r["chain"] = capture(
+                await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
+            )
 
-        # The family ends on a record of today's build, with nothing tagged for the report.
-        r["final_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
-        cleared = {"classification": None, "tags": [], "note": None}
-        for variant_id in SMALL_VARIANTS:
-            r[f"untag_{variant_id}"] = capture(await ac.put(small(variant_id), json={**cleared, "acmg": None}))
-        for variant_id in STRUCTURAL_VARIANTS:
-            r[f"untag_{variant_id}"] = capture(
-                await ac.put(structural(variant_id), json={**cleared, "cnv_acmg": None})
-            )
-        r["left_tagged_small"] = capture(await ac.get(f"{family}/small-variants", params=_REPORTED))
-        r["left_tagged_sv"] = capture(await ac.get(f"{family}/structural-variants", params=_REPORTED))
+            # The family ends on a record of today's build, with nothing tagged for the report.
+            r["final_signout"] = capture(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+        finally:
+            # Nothing tagged for the report left for the modules that run after this one.
+            cleared = {"classification": None, "tags": [], "note": None}
+            for variant_id in SMALL_VARIANTS:
+                r[f"untag_{variant_id}"] = capture(await ac.put(small(variant_id), json={**cleared, "acmg": None}))
+            for variant_id in STRUCTURAL_VARIANTS:
+                r[f"untag_{variant_id}"] = capture(
+                    await ac.put(structural(variant_id), json={**cleared, "cnv_acmg": None})
+                )
+            r["left_tagged_small"] = capture(await ac.get(f"{family}/small-variants", params=_REPORTED))
+            r["left_tagged_sv"] = capture(await ac.get(f"{family}/structural-variants", params=_REPORTED))
     return out
 
 
