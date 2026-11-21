@@ -26,7 +26,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import describe_error, own_error_message, scrub_log
+from ..core.coga_logging import describe_error, error_text, own_error_message, scrub_log
 from ..core.config import settings
 from .bounded_download import download_text
 from .monarch_phenotype_score import reset_information_content_cache
@@ -533,7 +533,7 @@ async def ensure_monarch_on_startup(session: AsyncSession) -> dict[str, Any] | N
         logger.warning(
             "Monarch's newest release was not loaded at start (%s). Phenotype matching and the "
             "phenotype ranking have no Monarch data until it is loaded (Administration, Monarch data).",
-            own_error_message(exc) or describe_error(exc),
+            error_text(exc),
         )
         await _rollback_quietly(session)
         return None

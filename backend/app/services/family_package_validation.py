@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 import yaml
 
+from ..core.coga_logging import error_text
 from ..schemas import (
     FamilyImportDatasetSummary,
     FamilyImportValidationIssue,
@@ -27,7 +28,7 @@ from .family_package_manifest import _manifest_added_member_entries, _manifest_a
 from .family_package_fingerprint import PackageFingerprint, PackageFolderTooLarge, package_fingerprint
 from .family_package_mito_table import mito_sample_calls, read_mito_table
 from .family_package_pgt import pgt_roi_phasing_issue
-from .family_package_source import _ensure_authorized_package_path, package_folder_link_issues, package_folder_path, parse_manifest_text
+from .family_package_source import _ensure_authorized_package_path, manifest_parse_problem, package_folder_link_issues, package_folder_path, parse_manifest_text
 from .family_package_nipt import nipt_vcf_column_issue
 from .ccnv_output import CcnvOutputError, ccnv_vcf_header_problems
 from .family_package_ccnv import CCNV_DATASET, ccnv_entry_paths, ccnv_sample_issues, check_ccnv_track_header, read_ccnv_qc_file, read_ccnv_vcf_header
@@ -499,7 +500,7 @@ def _validate_ccnv_dataset(
                 check_ccnv_track_header(path, track_type=track_type, file=_display_path(root, path))
             except CcnvOutputError as exc:
                 errors.append(
-                    _issue("ccnv_file_invalid", str(exc), dataset=CCNV_DATASET, sample_id=sample_id, path=path)
+                    _issue("ccnv_file_invalid", error_text(exc), dataset=CCNV_DATASET, sample_id=sample_id, path=path)
                 )
         qc_path, calls_path = paths["qc"], paths["calls"]
         if qc_path is None or not qc_path.is_file():
@@ -509,7 +510,7 @@ def _validate_ccnv_dataset(
             qc = read_ccnv_qc_file(qc_path, file=qc_file)
         except CcnvOutputError as exc:
             errors.append(
-                _issue("ccnv_qc_invalid", str(exc), dataset=CCNV_DATASET, sample_id=sample_id, path=qc_path)
+                _issue("ccnv_qc_invalid", error_text(exc), dataset=CCNV_DATASET, sample_id=sample_id, path=qc_path)
             )
             continue
         if calls_path is None or not calls_path.is_file():
@@ -519,7 +520,7 @@ def _validate_ccnv_dataset(
             meta_lines, columns = read_ccnv_vcf_header(calls_path, file=vcf_file)
         except CcnvOutputError as exc:
             errors.append(
-                _issue("ccnv_file_invalid", str(exc), dataset=CCNV_DATASET, sample_id=sample_id, path=calls_path)
+                _issue("ccnv_file_invalid", error_text(exc), dataset=CCNV_DATASET, sample_id=sample_id, path=calls_path)
             )
             continue
         for problem in ccnv_vcf_header_problems(meta_lines, qc, file=vcf_file):
@@ -1859,7 +1860,7 @@ def take_package_fingerprint(
     try:
         return package_fingerprint(root, kept_manifest_sha256=manifest_text_sha256(manifest_text)), None
     except PackageFolderTooLarge as exc:
-        return None, _issue("package_folder_too_large", str(exc), path=root)
+        return None, _issue("package_folder_too_large", error_text(exc), path=root)
     except OSError as exc:
         reason = exc.strerror or type(exc).__name__
         return None, _issue("package_folder_unreadable", f"The package folder could not be listed: {reason}", path=root)
@@ -1912,12 +1913,14 @@ def _validate_and_load_package(
 
     manifest_source = MANIFEST_KEPT_IN_COGA
     problem = manifest_text_problem(manifest_text)
+    if problem is not None:
+        errors.append(_issue("manifest_parse_failed", f"Manifest could not be parsed: {problem}"))
+        return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
     try:
-        if problem is not None:
-            raise ValueError(problem)
         manifest_payload, manifest = parse_manifest_text(manifest_text)
     except (json.JSONDecodeError, ValueError, ValidationError, yaml.YAMLError) as exc:
-        errors.append(_issue("manifest_parse_failed", f"Manifest could not be parsed: {exc}"))
+        # Told without quoting the manifest: a YAML error's text quotes it around the fault.
+        errors.append(_issue("manifest_parse_failed", f"Manifest could not be parsed: {manifest_parse_problem(exc)}"))
         return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
     manifest_sha256 = manifest_text_sha256(manifest_text)
 

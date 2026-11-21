@@ -26,7 +26,7 @@ from typing import Any
 
 import httpx
 
-from ..core.coga_logging import describe_error, own_error_message
+from ..core.coga_logging import error_text
 from ..core.config import (
     HPO_LATEST_RELEASE_API_URL,
     HPO_PINNED_RELEASE,
@@ -55,12 +55,6 @@ class HpoFileRefused(ValueError):
     """An HPO release, an ontology file or the request that names one, refused in CoGA's words:
     a release named by no date, one HPO has not published, a file that states no release or
     another, one without terms. Nothing is imported."""
-
-
-def _download_failure(exc: BaseException) -> str:
-    """A failed download in CoGA's words (``own_error_message``: the download cap), any other
-    error by its kind: an HTTP error's text quotes the address it was fetched from."""
-    return own_error_message(exc) or describe_error(exc)
 
 
 @dataclass(frozen=True)
@@ -161,7 +155,7 @@ async def fetch_latest_hpo_release(client: httpx.AsyncClient | None = None) -> L
             http, HPO_LATEST_RELEASE_API_URL, max_bytes=_MAX_RELEASE_ANSWER_BYTES, source="HPO's release list"
         )
     except (httpx.HTTPError, ValueError) as exc:
-        raise HpoReleaseUnavailable(f"HPO's release list could not be read ({_download_failure(exc)}).") from exc
+        raise HpoReleaseUnavailable(f"HPO's release list could not be read ({error_text(exc)}).") from exc
     finally:
         if client is None:
             await http.aclose()
@@ -188,7 +182,7 @@ async def download_hpo_release(release: date, client: httpx.AsyncClient | None =
         )
     except (httpx.HTTPError, ValueError) as exc:
         raise HpoReleaseUnavailable(
-            f"HPO release {release.isoformat()} could not be downloaded ({_download_failure(exc)})."
+            f"HPO release {release.isoformat()} could not be downloaded ({error_text(exc)})."
         ) from exc
     finally:
         if client is None:

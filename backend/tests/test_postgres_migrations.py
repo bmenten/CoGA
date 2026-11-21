@@ -240,6 +240,21 @@ def test_an_empty_database_is_made_by_the_revisions(_database) -> None:
     assert revision == SchemaRevision(before=None, after="0001")
 
 
+def test_a_migration_alembic_stops_names_alembics_error_by_its_kind(_database, monkeypatch) -> None:
+    from alembic.util import CommandError
+
+    def stopped(config, target):
+        raise CommandError("SENTINEL-TEXT of Alembic's error")
+
+    monkeypatch.setattr(postgres_migrations.command, "upgrade", stopped)
+
+    with pytest.raises(SchemaMigrationRefused) as refused:
+        postgres_migrations._migrate(object())  # type: ignore[arg-type]
+
+    # CoGA's sentence; Alembic's text is not CoGA's, and the log's traceback has its frames.
+    assert str(refused.value) == "The schema migration stopped (CommandError)."
+
+
 def test_a_database_with_tables_but_no_ledger_is_refused_before_anything_runs(_database) -> None:
     _database.tables = 3
 

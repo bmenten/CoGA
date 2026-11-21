@@ -40,7 +40,7 @@ from sqlalchemy import RowMapping, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import describe_error, own_error_message
+from ..core.coga_logging import describe_error, error_text
 from ..core.config import DGV_PINNED_RELEASES, DgvPinnedRelease, settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import DgvLoadJobOut, DgvLoadStatusOut, DgvPinnedReleaseOut
@@ -675,7 +675,7 @@ async def _run_job(job_id: str) -> None:
         )
     except DgvFileRefused as exc:
         logger.error("DGV load %s refused its file", job_id)
-        await _record_failure(job_id, owner, (own_error_message(exc) or describe_error(exc))[:2000])
+        await _record_failure(job_id, owner, error_text(exc)[:2000])
     except httpx.HTTPError as exc:
         logger.error("DGV load %s could not download its file (%s)", job_id, describe_error(exc))
         await _record_failure(

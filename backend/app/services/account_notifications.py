@@ -22,6 +22,7 @@ from email.message import EmailMessage
 from sqlalchemy import String, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import error_text
 from .access_control import ADMIN_ROLES
 from .outgoing_mail import MailNotSent, app_url, mail_enabled, mail_field, new_message, send_mail
 
@@ -132,7 +133,7 @@ def notify_account_request(account: AccountRequest, recipients: list[str]) -> bo
     try:
         send_mail(account_request_message(account, recipients))
     except MailNotSent as exc:
-        logger.error("the mail about the account waiting for approval was not sent: %s", exc)
+        logger.error("the mail about the account waiting for approval was not sent: %s", error_text(exc))
         return False
     logger.info(
         "the mail about the account waiting for approval went to %d administrator(s)",

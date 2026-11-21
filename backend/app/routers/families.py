@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import own_error_message
+from ..core.coga_logging import error_text
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import (
@@ -327,7 +327,7 @@ async def family_phenotype_match(
     except MonarchSemsimError as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"Monarch phenotype matching is unavailable: {own_error_message(exc)}",
+            detail=f"Monarch phenotype matching is unavailable: {error_text(exc)}",
         ) from exc
 
     # For gene results, flag which symbols exist in this platform so the UI can link

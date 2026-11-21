@@ -99,6 +99,30 @@ def test_a_kept_manifest_that_no_text_can_hold_does_not_parse(package: Path, tex
     assert words in validation.errors[0].message
 
 
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        # A YAML error's text quotes the manifest around the fault: told by where it is.
+        (_KEPT + "notes: [SENTINEL-VALUE\n", "Manifest could not be parsed: it is not valid YAML (line 7, column 1)"),
+        (_KEPT + "notes: *SENTINEL-VALUE\n", "Manifest could not be parsed: it is not valid YAML (line 6, column 8)"),
+        # A model error names the field, never the value it refused.
+        (
+            _KEPT.replace("schema_version: 1", "schema_version: SENTINEL-VALUE"),
+            "Manifest could not be parsed: schema_version: Input should be a valid integer, unable to parse "
+            "string as an integer",
+        ),
+        ("- SENTINEL-VALUE\n", "Manifest could not be parsed: Manifest must contain a mapping/object at the top level"),
+    ],
+    ids=["yaml-syntax", "yaml-alias", "model", "not-a-mapping"],
+)
+def test_a_manifest_that_does_not_parse_is_told_without_quoting_it(package: Path, text: str, message: str) -> None:
+    validation, bundle = load_validated_family_package(package, manifest_text=text)
+
+    assert bundle is None
+    assert [(issue.code, issue.message) for issue in validation.errors] == [("manifest_parse_failed", message)]
+    assert "SENTINEL" not in validation.model_dump_json()
+
+
 def test_an_empty_manifest_is_refused(package: Path) -> None:
     # What a job that keeps no manifest is run with: the folder's files are not read in its place.
     (package / "manifest.yaml").write_text(_KEPT, encoding="utf-8")

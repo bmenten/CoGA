@@ -19,7 +19,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import describe_error, own_error_message, scrub_log
+from ..core.coga_logging import error_text, scrub_log
 from ..core.config import CYTOBAND_BACKUP_FILES, settings
 from ..schemas import (
     ReferenceAutoImportResult,
@@ -690,7 +690,7 @@ async def _download_gencode_genes(
         # CoGA's refusal as it is written (the download and gzip caps), any other error by its
         # kind: an upstream error's text quotes the address and what was read. The genome is
         # scrubbed of control characters so it cannot forge log lines (CodeQL py/log-injection).
-        reason = own_error_message(exc) or describe_error(exc)
+        reason = error_text(exc)
         logger.warning(
             "GTF gene import failed for %s (%s); falling back to UCSC",
             scrub_log(ucsc_genome),
@@ -1007,7 +1007,7 @@ async def import_reference_from_ucsc(
                     client, assembly_id=assembly_id, ucsc_genome=ucsc_genome
                 )
             except _AnnotationDownloadFailed as failure:
-                gencode, gtf_failure = None, own_error_message(failure)
+                gencode, gtf_failure = None, error_text(failure)
             if gencode is not None:
                 gencode_rows, gene_source_url, gene_source, gene_release = gencode
                 genes = await apply_reference_gene_rows(

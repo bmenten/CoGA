@@ -14,7 +14,7 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import scrub_log
+from ..core.coga_logging import error_text, scrub_log
 from ..core.config import SEGMENTAL_DUPLICATIONS_PINNED_SHA256, settings
 from ..core.html_sanitize import sanitize_reference_html
 from ..core.sql import require_uuid
@@ -632,7 +632,7 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
             )
         except ReferenceFileRefused as exc:
             # An expected refusal, logged once without a traceback: its message is the fix.
-            logger.error("%s", exc)
+            logger.error("%s", error_text(exc))
         except Exception:
             logger.exception(
                 "Failed to bootstrap %s for assembly %s from %s",

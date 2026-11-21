@@ -22,7 +22,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import describe_error, own_error_message, scrub_log
+from ..core.coga_logging import describe_error, error_text, scrub_log
 from ..core.config import (
     HPO_PINNED_ONTOLOGY_SHA256,
     HPO_PINNED_ONTOLOGY_URL,
@@ -681,7 +681,7 @@ def _download_hpo_ontology_file(
             payload = _read_bounded(response, max_bytes)
     except Exception as exc:
         raise RuntimeError(
-            f"Failed to download HPO ontology from {url} ({own_error_message(exc) or describe_error(exc)})"
+            f"Failed to download HPO ontology from {url} ({error_text(exc)})"
         ) from exc
     if not payload.lstrip().startswith(b"format-version:"):
         raise RuntimeError(f"The download from {url} is not an OBO ontology file")
@@ -763,7 +763,7 @@ async def ensure_hpo_ontology_on_startup(
             logger.warning(
                 "HPO's newest release was not downloaded (%s). Importing the vendored release %s, "
                 "the backup.",
-                own_error_message(exc) or describe_error(exc),
+                error_text(exc),
                 HPO_PINNED_RELEASE,
             )
         except Exception:
@@ -826,7 +826,7 @@ async def _import_backup_hpo_ontology(
         except Exception as exc:
             if isinstance(exc, HpoOntologyChecksumMismatch):
                 # Not the vendored file: an expected refusal, logged without a traceback.
-                logger.error("%s The HPO ontology was not imported.", own_error_message(exc))
+                logger.error("%s The HPO ontology was not imported.", error_text(exc))
             else:
                 logger.exception("Failed to download HPO ontology from %s", HPO_PINNED_ONTOLOGY_URL)
             try:
@@ -848,7 +848,7 @@ async def _import_backup_hpo_ontology(
         payload = await asyncio.to_thread(read_pinned_hpo_ontology, resolved_path)
     except HpoOntologyChecksumMismatch as exc:
         # An expected refusal, logged once without a traceback: its message is the fix.
-        logger.error("%s", own_error_message(exc))
+        logger.error("%s", error_text(exc))
         return None
     except OSError as exc:
         logger.error(
@@ -1647,7 +1647,7 @@ async def hpo_release_check(session: AsyncSession) -> dict[str, Any]:
     try:
         latest = await hpo_release_download.fetch_latest_hpo_release()
     except hpo_release_download.HpoReleaseUnavailable as exc:
-        result["error"] = own_error_message(exc) or describe_error(exc)
+        result["error"] = error_text(exc)
         return result
     loaded_date = loaded.get("release_date")
     result.update(

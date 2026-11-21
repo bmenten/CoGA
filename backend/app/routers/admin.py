@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import describe_error, own_error_message
+from ..core.coga_logging import describe_error, error_text, own_error_message
 from ..core.content_disposition import content_disposition
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_superuser
@@ -973,7 +973,7 @@ async def sync_hpo_terms(
             preview_only=payload.preview_only,
         )
     except HpoReleaseUnavailable as exc:
-        raise HTTPException(status_code=502, detail=own_error_message(exc)) from exc
+        raise HTTPException(status_code=502, detail=error_text(exc)) from exc
     except (OSError, ValueError) as exc:
         # CoGA's refusal as it is written; any other error by its kind: its text can quote the
         # file read or the path given.
@@ -1055,7 +1055,7 @@ async def refresh_monarch_associations(
         # Nothing was committed: the loaded release stays.
         raise HTTPException(
             status_code=502,
-            detail=f"Monarch data could not be loaded, and the loaded release was kept: {own_error_message(exc)}",
+            detail=f"Monarch data could not be loaded, and the loaded release was kept: {error_text(exc)}",
         ) from exc
     # A new Monarch release means a new Mendeliome: re-version the generated panel
     # (a no-op if the gene set is unchanged). It never fails the refresh, but the admin

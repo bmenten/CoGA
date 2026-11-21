@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, Iterator, Mapping, Sequence
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import error_text
 from ..schemas import (
     FamilyImportDatasetSummary,
 )
@@ -990,7 +991,7 @@ async def _import_ccnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
         try:
             qc = read_ccnv_qc_file(paths["qc"], file=qc_file)
         except CcnvOutputError as exc:
-            raise ImportRefused(str(exc)) from exc
+            raise ImportRefused(error_text(exc)) from exc
         text_value = _read_package_text(paths["calls"])
         header_lines = [line for line in text_value.splitlines() if line.startswith("##")]
         problems = ccnv_vcf_header_problems(header_lines, qc, file=vcf_file)
@@ -1756,7 +1757,7 @@ async def _import_target_coverage_table(
     try:
         targets = parse_target_coverage_table(text_value.splitlines())
     except TargetCoverageFormatError as exc:
-        raise ImportRefused(f"{file_of}: {exc}") from exc
+        raise ImportRefused(f"{file_of}: {error_text(exc)}") from exc
     if not targets:
         raise ImportRefused(f"{file_of} holds no target")
     if check_only:
@@ -2132,7 +2133,7 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
             # would fail the insert with a database error.
             raise ImportRefused(
                 f"Paraphase JSON for {sample_id} holds a value that cannot be read where a number "
-                f"is expected ({exc}); nothing was stored"
+                f"is expected ({error_text(exc)}); nothing was stored"
             ) from exc
         if not rows:
             # Paraphase reports every region it analysed: a JSON without one is no result.

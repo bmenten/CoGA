@@ -34,6 +34,7 @@ from backend.app.core.coga_logging import (
     RedactServerErrorFilter,
     describe_error,
     describe_traceback,
+    error_text,
     install_event_loop_exception_handler,
     install_server_error_redaction,
     log_event_loop_exception,
@@ -165,6 +166,17 @@ def test_own_error_message_keeps_the_words_of_an_error_coga_raised() -> None:
 def test_own_error_message_is_none_for_any_error_whose_text_coga_did_not_write(error: BaseException) -> None:
     assert "Jane Doe" in str(error)
     assert own_error_message(error) is None
+    # What a record, an answer or a log line says of it: its kind.
+    assert error_text(error) == describe_error(error)
+    assert "Jane Doe" not in error_text(error)
+
+
+def test_error_text_is_cogas_own_sentence_as_it_is_written() -> None:
+    from backend.app.services.family_package_common import ImportRefused
+
+    assert error_text(ImportRefused("The NeedlR file of S2 holds no structural variant")) == (
+        "The NeedlR file of S2 holds no structural variant"
+    )
 
 
 # The value a request carried. Never written in a raising line: a frame's source line is

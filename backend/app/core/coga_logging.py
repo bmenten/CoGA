@@ -86,6 +86,12 @@ def own_error_message(exc: BaseException) -> str | None:
     return None
 
 
+def error_text(exc: BaseException) -> str:
+    """What a stored failure, an answer or a log line says of an error: CoGA's own sentence
+    (:func:`own_error_message`), any other error by its kind (:func:`describe_error`)."""
+    return own_error_message(exc) or describe_error(exc)
+
+
 def _defined_by_coga(cls: type) -> bool:
     # The backend's package is ``app`` as the server runs it, and also ``backend.app`` where a
     # test imports it from the repository root.

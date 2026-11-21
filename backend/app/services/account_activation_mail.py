@@ -19,6 +19,7 @@ import logging
 from dataclasses import dataclass
 from email.message import EmailMessage
 
+from ..core.coga_logging import error_text
 from .outgoing_mail import MailNotSent, app_url, mail_enabled, mail_field, new_message, plain_address, send_mail
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ def notify_account_activation(activation: AccountActivation) -> bool:
     try:
         send_mail(account_activation_message(activation, recipient))
     except MailNotSent as exc:
-        logger.error("the mail about the account activation was not sent: %s", exc)
+        logger.error("the mail about the account activation was not sent: %s", error_text(exc))
         return False
     logger.info("the mail about the account activation went to its user")
     return True

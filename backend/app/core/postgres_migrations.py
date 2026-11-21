@@ -46,7 +46,7 @@ from alembic.util import CommandError
 from sqlalchemy import Connection, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from .coga_logging import describe_error, own_error_message
+from .coga_logging import describe_error, error_text
 from .postgres import _schema_files, _split_sql_script
 
 logger = logging.getLogger(__name__)
@@ -213,7 +213,7 @@ def check_schema_revision(connection: Connection) -> str:
     try:
         current = ledger_revision(connection)
     except SchemaMigrationRefused as exc:
-        raise _refuse_start(f"{own_error_message(exc)} The backend does not start.") from exc
+        raise _refuse_start(f"{error_text(exc)} The backend does not start.") from exc
     known = {script_revision.revision for script_revision in migration_script().walk_revisions()}
     if current is not None and current not in known:
         raise _refuse_start(
