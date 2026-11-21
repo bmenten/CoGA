@@ -52,7 +52,7 @@ const monarchDown = () =>
     Object.assign(new Error('Request failed with status code 502'), {
       response: {
         status: 502,
-        data: { detail: 'Monarch phenotype matching is unavailable: read timeout' },
+        data: { detail: 'Monarch phenotype matching is unavailable: Monarch semsim search failed (ReadTimeout)' },
       },
     }),
   );
@@ -201,7 +201,7 @@ describe('MonarchPhenotypeMatchPanel', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Could not load the phenotype match — this is not an empty result.');
-    expect(alert).toHaveTextContent('Monarch phenotype matching is unavailable: read timeout');
+    expect(alert).toHaveTextContent('Monarch phenotype matching is unavailable: Monarch semsim search failed (ReadTimeout)');
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.queryByText(/No phenotype matches were returned/)).not.toBeInTheDocument();
 

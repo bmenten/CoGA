@@ -19,7 +19,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import scrub_log
+from ..core.coga_logging import describe_error, own_error_message, scrub_log
 from ..core.config import CYTOBAND_BACKUP_FILES, settings
 from ..schemas import (
     ReferenceAutoImportResult,
@@ -637,7 +637,8 @@ def _stated_release_date(release: GencodeRelease) -> date | None:
 
 
 class _AnnotationDownloadFailed(Exception):
-    """The GTF annotation for a genome could not be fetched or read; the reason is the message."""
+    """The GTF annotation for a genome could not be fetched or read; the reason is the message:
+    CoGA's own refusal as it is written, any other error by its kind."""
 
 
 async def _download_gencode_genes(
@@ -686,14 +687,16 @@ async def _download_gencode_genes(
         label = f"{source_label} {release.label}" if release.label else source_label
         return rows, url, label, release
     except Exception as exc:  # pragma: no cover - network shape varies
-        # Values from the request and the upstream error are scrubbed of control
-        # characters so they cannot forge log lines (CodeQL py/log-injection).
+        # CoGA's refusal as it is written (the download and gzip caps), any other error by its
+        # kind: an upstream error's text quotes the address and what was read. The genome is
+        # scrubbed of control characters so it cannot forge log lines (CodeQL py/log-injection).
+        reason = own_error_message(exc) or describe_error(exc)
         logger.warning(
             "GTF gene import failed for %s (%s); falling back to UCSC",
             scrub_log(ucsc_genome),
-            scrub_log(exc),
+            scrub_log(reason),
         )
-        raise _AnnotationDownloadFailed(f"{type(exc).__name__}: {exc}"[:300]) from exc
+        raise _AnnotationDownloadFailed(reason[:300]) from exc
 
 
 async def _download_gencode_refseq_metadata(client: httpx.AsyncClient) -> dict[str, list[str]]:
@@ -1004,7 +1007,7 @@ async def import_reference_from_ucsc(
                     client, assembly_id=assembly_id, ucsc_genome=ucsc_genome
                 )
             except _AnnotationDownloadFailed as failure:
-                gencode, gtf_failure = None, str(failure)
+                gencode, gtf_failure = None, own_error_message(failure)
             if gencode is not None:
                 gencode_rows, gene_source_url, gene_source, gene_release = gencode
                 genes = await apply_reference_gene_rows(

@@ -384,7 +384,7 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
 
     # When the GTF was wanted but could not be fetched, the result says so.
     async def failing_gencode(client, *, assembly_id: str, ucsc_genome: str):
-        raise reference_source_service._AnnotationDownloadFailed("ConnectError: timed out")
+        raise reference_source_service._AnnotationDownloadFailed("ConnectError")
 
     monkeypatch.setattr(reference_source_service, "_download_gencode_genes", failing_gencode)
     fallback = await reference_source_service.import_reference_from_ucsc(
@@ -392,7 +392,7 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
     )
     assert fallback.genes_inserted == 1
     assert fallback.gene_warning == (
-        "The gene annotation GTF could not be fetched (ConnectError: timed out); the UCSC refGene "
+        "The gene annotation GTF could not be fetched (ConnectError); the UCSC refGene "
         "table was used instead, without biotypes, Ensembl identifiers or MANE tags."
     )
     assert applied_sources["genes"] == ("ucsc refGene", "https://example.org/refGene.txt.gz")
@@ -567,3 +567,25 @@ async def test_a_reference_answer_that_is_no_json_is_answered_502() -> None:
             await reference_source_service._get_json(client, url)
 
     assert (refused.value.status_code, refused.value.detail) == (502, f"Unexpected response from {url}")
+
+
+@pytest.mark.asyncio
+async def test_a_gtf_that_cannot_be_fetched_is_named_by_the_errors_kind(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # An upstream error's text quotes the address and what was read: the fallback's reason,
+    # which the import result shows, and the log line name the error by its kind.
+    async def unreachable(*_args, **_kwargs):
+        raise httpx.ConnectError("SENTINEL-TEXT of the failed download")
+
+    monkeypatch.setattr(reference_source_service.settings, "reference_gencode_gtf_url", "https://example.org/gencode.gtf.gz")
+    monkeypatch.setattr(reference_source_service, "download_bounded_bytes", unreachable)
+
+    with caplog.at_level("WARNING", logger=reference_source_service.logger.name):
+        with pytest.raises(reference_source_service._AnnotationDownloadFailed) as failed:
+            await reference_source_service._download_gencode_genes(
+                object(), assembly_id="assembly-1", ucsc_genome=reference_source_service.HUMAN_GRCH38_UCSC_GENOME
+            )
+
+    assert str(failed.value) == "ConnectError"
+    assert "SENTINEL" not in caplog.text and "(ConnectError)" in caplog.text

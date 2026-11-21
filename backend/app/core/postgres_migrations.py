@@ -46,6 +46,7 @@ from alembic.util import CommandError
 from sqlalchemy import Connection, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from .coga_logging import describe_error, own_error_message
 from .postgres import _schema_files, _split_sql_script
 
 logger = logging.getLogger(__name__)
@@ -212,7 +213,7 @@ def check_schema_revision(connection: Connection) -> str:
     try:
         current = ledger_revision(connection)
     except SchemaMigrationRefused as exc:
-        raise _refuse_start(f"{exc} The backend does not start.") from exc
+        raise _refuse_start(f"{own_error_message(exc)} The backend does not start.") from exc
     known = {script_revision.revision for script_revision in migration_script().walk_revisions()}
     if current is not None and current not in known:
         raise _refuse_start(
@@ -260,7 +261,8 @@ def _migrate(connection: Connection) -> SchemaRevision:
     try:
         command.upgrade(_alembic_config(connection), "head")
     except CommandError as exc:
-        raise SchemaMigrationRefused(f"The schema migration stopped: {exc}") from exc
+        # Named by its kind: Alembic's text is not CoGA's sentence. The log's traceback has its frames.
+        raise SchemaMigrationRefused(f"The schema migration stopped ({describe_error(exc)}).") from exc
     after = ledger_revision(connection)
     if after is None:  # pragma: no cover - upgrade("head") always records a revision
         raise SchemaMigrationRefused("The schema migration recorded no revision.")

@@ -43,6 +43,10 @@ _GZIP_HEADER_FIXED = 12
 _GZIP_FLAG_EXTRA = 0x04
 
 
+class DownloadTooLargeError(ValueError):
+    """The response passes the download cap."""
+
+
 class GzipTooLargeError(ValueError):
     """The decompressed output passes the cap."""
 
@@ -149,7 +153,8 @@ async def download_bounded_bytes(
     Streaming (vs ``response.content``) means an oversized body is stopped mid-transfer
     instead of being buffered whole first. ``none_on_404`` returns None for a 404 (the
     "optional file" pattern). Raises ``httpx.HTTPError`` on transport/status errors (the
-    caller keeps its own upstream-error handling) and ``ValueError`` when the cap trips.
+    caller keeps its own upstream-error handling) and ``DownloadTooLargeError`` (a
+    ``ValueError``) when the cap trips.
     """
     label = source or url
     chunks: list[bytes] = []
@@ -161,7 +166,7 @@ async def download_bounded_bytes(
         async for chunk in response.aiter_bytes(_READ_CHUNK):
             total += len(chunk)
             if total > max_bytes:
-                raise ValueError(f"{label} download exceeds {max_bytes} bytes")
+                raise DownloadTooLargeError(f"{label} download exceeds {max_bytes} bytes")
             chunks.append(chunk)
     return b"".join(chunks)
 

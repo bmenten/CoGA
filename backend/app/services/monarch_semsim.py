@@ -16,6 +16,8 @@ from typing import Any, Iterable
 
 import httpx
 
+from ..core.coga_logging import describe_error
+
 logger = logging.getLogger(__name__)
 
 MONARCH_SEMSIM_SEARCH_URL = "https://api-v3.monarchinitiative.org/v3/api/semsim/search"
@@ -109,8 +111,9 @@ async def semsim_search(
             response.raise_for_status()
         results = _normalize_results(response.json())
     except (httpx.HTTPError, asyncio.TimeoutError, ValueError) as exc:
-        logger.warning("Monarch semsim search failed: %s", exc)
-        raise MonarchSemsimError(str(exc)) from exc
+        # Named by its kind: an HTTP error's text quotes the request, the terms sent included.
+        logger.warning("Monarch semsim search failed (%s)", describe_error(exc))
+        raise MonarchSemsimError(f"Monarch semsim search failed ({describe_error(exc)})") from exc
 
     _cache_put(key, results)
     return results

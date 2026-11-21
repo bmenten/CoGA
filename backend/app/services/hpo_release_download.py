@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 
+from ..core.coga_logging import describe_error, own_error_message
 from ..core.config import (
     HPO_LATEST_RELEASE_API_URL,
     HPO_PINNED_RELEASE,
@@ -50,6 +51,18 @@ class HpoReleaseUnavailable(RuntimeError):
     """HPO could not be reached, or did not answer as expected: the check or download failed."""
 
 
+class HpoFileRefused(ValueError):
+    """An HPO release, an ontology file or the request that names one, refused in CoGA's words:
+    a release named by no date, one HPO has not published, a file that states no release or
+    another, one without terms. Nothing is imported."""
+
+
+def _download_failure(exc: BaseException) -> str:
+    """A failed download in CoGA's words (``own_error_message``: the download cap), any other
+    error by its kind: an HTTP error's text quotes the address it was fetched from."""
+    return own_error_message(exc) or describe_error(exc)
+
+
 @dataclass(frozen=True)
 class LatestHpoRelease:
     release_version: str  # hp/releases/2026-09-01, as an ontology file states it
@@ -60,14 +73,14 @@ class LatestHpoRelease:
 
 def hpo_release_date(value: str) -> date:
     """The date that names an HPO release: ``2026-09-01``, ``v2026-09-01`` or
-    ``hp/releases/2026-09-01``. ValueError for anything else."""
+    ``hp/releases/2026-09-01``. HpoFileRefused (a ValueError) for anything else."""
     match = _RELEASE_NAME.fullmatch((value or "").strip())
     if match is None:
-        raise ValueError("An HPO release is named by its date, such as 2026-09-01.")
+        raise HpoFileRefused("An HPO release is named by its date, such as 2026-09-01.")
     try:
         return date.fromisoformat(match.group(1))
     except ValueError as exc:
-        raise ValueError(f"{match.group(1)} is not a date, so it names no HPO release.") from exc
+        raise HpoFileRefused(f"{match.group(1)} is not a date, so it names no HPO release.") from exc
 
 
 def hpo_release_version(release: date) -> str:
@@ -148,7 +161,7 @@ async def fetch_latest_hpo_release(client: httpx.AsyncClient | None = None) -> L
             http, HPO_LATEST_RELEASE_API_URL, max_bytes=_MAX_RELEASE_ANSWER_BYTES, source="HPO's release list"
         )
     except (httpx.HTTPError, ValueError) as exc:
-        raise HpoReleaseUnavailable(f"HPO's release list could not be read: {exc}") from exc
+        raise HpoReleaseUnavailable(f"HPO's release list could not be read ({_download_failure(exc)}).") from exc
     finally:
         if client is None:
             await http.aclose()
@@ -160,9 +173,9 @@ async def fetch_latest_hpo_release(client: httpx.AsyncClient | None = None) -> L
 async def download_hpo_release(release: date, client: httpx.AsyncClient | None = None) -> bytes:
     """The ontology file of the HPO release, as HPO serves it from the release's PURL.
 
-    ValueError when HPO has no such release (404), HpoReleaseUnavailable when it cannot be
-    downloaded or what it serves is not an OBO ontology file. The bytes are returned as served:
-    the sync checks the release they state and records their SHA-256."""
+    HpoFileRefused (a ValueError) when HPO has no such release (404), HpoReleaseUnavailable
+    when it cannot be downloaded or what it serves is not an OBO ontology file. The bytes are
+    returned as served: the sync checks the release they state and records their SHA-256."""
     url = hpo_release_url(release)
     http = client or _client()
     try:
@@ -174,12 +187,14 @@ async def download_hpo_release(release: date, client: httpx.AsyncClient | None =
             none_on_404=True,
         )
     except (httpx.HTTPError, ValueError) as exc:
-        raise HpoReleaseUnavailable(f"HPO release {release.isoformat()} could not be downloaded: {exc}") from exc
+        raise HpoReleaseUnavailable(
+            f"HPO release {release.isoformat()} could not be downloaded ({_download_failure(exc)})."
+        ) from exc
     finally:
         if client is None:
             await http.aclose()
     if payload is None:
-        raise ValueError(f"HPO has published no release {release.isoformat()} ({url}).")
+        raise HpoFileRefused(f"HPO has published no release {release.isoformat()} ({url}).")
     if not payload.lstrip().startswith(b"format-version:"):
         raise HpoReleaseUnavailable(f"What {url} served is not an OBO ontology file.")
     return payload
