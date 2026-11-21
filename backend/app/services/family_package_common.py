@@ -752,16 +752,23 @@ def _read_package_vcf_with(path: Path, *, label: str, reader: PackageVcfReader) 
             lines = _iter_upload_text_lines(UploadFile(file=raw, filename=path.name), kind="VCF")
             return _whole_vcf_lines(lines, path=path, label=label)
     except HTTPException as exc:
-        raise _refused_by_reader(path, label=label, reader=reader, refusal=exc) from exc
+        raise _refused_by_reader(
+            path,
+            label=label,
+            reader=reader,
+            too_large=exc.status_code == 413,
+            not_utf8=isinstance(exc.__cause__, UnicodeDecodeError),
+        ) from exc
     except UNREADABLE_FILE_ERRORS as exc:
         raise UnreadableVcf(path, label=label) from exc
 
 
 def _refused_by_reader(
-    path: Path, *, label: str, reader: PackageVcfReader, refusal: HTTPException
+    path: Path, *, label: str, reader: PackageVcfReader, too_large: bool, not_utf8: bool
 ) -> UnreadableVcf:
-    """A reader's refusal (a 400 or a 413) of the file as ``UnreadableVcf``, in fixed words."""
-    if refusal.status_code == 413:
+    """A reader's refusal of the file as ``UnreadableVcf``, in fixed words: ``too_large`` for its
+    413, ``not_utf8`` for a 400 over text that is not UTF-8, else unreadable."""
+    if too_large:
         if reader == "loader":
             problem = "holds a line longer than the import reads (16 MiB)"
         else:
@@ -772,7 +779,7 @@ def _refused_by_reader(
         return UnreadableVcf(
             path, label=label, problem=problem, code=DATASET_VCF_TOO_LARGE, remedy="The import would refuse it."
         )
-    if isinstance(refusal.__cause__, UnicodeDecodeError):
+    if not_utf8:
         return UnreadableVcf(path, label=label, problem="could not be read: it is not UTF-8 text")
     return UnreadableVcf(path, label=label)
 
