@@ -692,16 +692,17 @@ a.variant-card-gene:hover {
 
 /* Per-member genotype table, aligned in columns via subgrid. Content-sized: the columns
    take what their values need and sit at the start, so the call stays beside the sample
-   on a wide card; only the sample column gives way when the card is narrow. */
+   on a wide card. A sample ID is never broken; when the card is narrow, the role and the
+   call give way first, wrapping between their words ("plasma / (cfDNA)", "no call /
+   (reference)"). */
 .variant-card-gtlist {
   display: grid;
   /* The sample, then one column per field (FamilyGenotypeGrid sets how many). */
-  grid-template-columns: minmax(0, max-content) repeat(var(--gt-cols, 5), max-content);
+  grid-template-columns: max-content repeat(var(--gt-cols, 5), minmax(min-content, max-content));
   justify-content: start;
   gap: 0.0625rem 0.5rem;
   margin-top: 0;
   font-size: var(--fs-xs);
-  overflow-wrap: anywhere;
 }
 
 .variant-card-gthead,
@@ -723,10 +724,9 @@ a.variant-card-gene:hover {
   display: inline-flex;
   align-items: baseline;
   gap: 0.25rem;
-  min-width: 0;
   font-weight: 600;
   color: var(--color-text);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .variant-card-gtline-sex {
@@ -808,6 +808,8 @@ a.variant-card-gene:hover {
   margin-top: -0.0625rem;
   color: var(--color-text-muted);
   font-size: var(--fs-2xs);
+  /* A note never widens the value columns it is read under. */
+  overflow-wrap: anywhere;
 }
 
 /* A heading over a group of members (the maternal line, the father). */
