@@ -1113,8 +1113,12 @@ def _normalize_manifest_samples(samples: dict[str, Any] | list[Any] | None) -> d
 
 
 def _is_ped_embryo(member: PedMember, *, fathers: set[str], mothers: set[str]) -> bool:
-    if member.role_hint == "embryo":
-        return True
+    """An embryo: a member the PED gives ``role=embryo``, or, when it gives no role, a child of
+    two recorded parents of unknown sex who is not affected. A role it gives wins: the couple's
+    child of unknown sex with ``role=proband`` is the index (as ``_ped_members_for_import``
+    reads it)."""
+    if member.role_hint is not None:
+        return member.role_hint == "embryo"
     if member.iid in fathers or member.iid in mothers:
         return False
     has_recorded_parents = member.pid not in {"", "0"} and member.mid not in {"", "0"}

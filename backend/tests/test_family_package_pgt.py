@@ -456,6 +456,30 @@ def test_the_roles_and_statuses_the_ped_gives_are_the_drafts(tmp_path: Path) -> 
     assert [warning.code for warning in validation.warnings if warning.code.startswith("pgt_")] == []
 
 
+def test_the_couples_child_of_unknown_sex_named_proband_is_the_index_not_an_embryo(tmp_path: Path) -> None:
+    # ngs-bits could not read the index's sex (sex 0) and its status is not known (-9): without a
+    # role it would read as an embryo, but the role the PED gives wins.
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    _write(
+        root / f"{FAMILY}.ped",
+        f"{FAMILY}\t{FATHER}\t0\t0\t1\t-9\trole=father\n"
+        f"{FAMILY}\t{MOTHER}\t0\t0\t2\t-9\trole=mother\tcarrier=1\n"
+        f"{FAMILY}\t{INDEX}\t{FATHER}\t{MOTHER}\t0\t-9\trole=proband\n"
+        + "".join(f"{FAMILY}\t{embryo}\t{FATHER}\t{MOTHER}\t0\t-9\trole=embryo\n" for embryo in EMBRYOS),
+    )
+
+    result = _discover(root)
+
+    manifest = yaml.safe_load(result.manifest_yaml)
+    index = next(entry for entry in manifest["family"]["add_members"] if entry["sample_id"] == INDEX)
+    assert index["role"] == "proband"
+    assert manifest["metadata"]["pgt"]["indexes"] == [INDEX]
+    assert any(warning.code == "pgt_index" and warning.sample_id == INDEX for warning in result.warnings)
+    ped, errors = _parse_ped_text_strict((root / f"{FAMILY}.ped").read_text(encoding="utf-8"))
+    assert ped is not None and errors == []
+    assert family_package_pgt._ped_embryo_sample_ids(ped) == set(EMBRYOS)
+
+
 def test_an_index_under_other_parents_in_the_ped_is_a_relative_linked_through_them(tmp_path: Path) -> None:
     # The affected mother's sister, under the grandparents: linked by the PED, not the couple's
     # child. The grandparents are in the PED to link her, and are no index.
