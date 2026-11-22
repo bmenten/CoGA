@@ -179,6 +179,24 @@ def test_a_low_risk_of_the_segmental_cnvs_names_those_it_did_not_assess() -> Non
     )
 
 
+def test_a_claimed_target_below_ccnvs_arm_level_limit_of_detection_is_inconclusive() -> None:
+    # Below ccnv's limit of detection of arm-level events the plasma cannot show a claimed
+    # aneuploidy: no claimed target reads low risk (the owner's decision of 2026-11-21).
+    below = "the fetal fraction (10.0%) is below ccnv's limit of detection of arm-level events (12.0%), so it cannot be read as low risk"
+    targets = _targets(evaluate_cnipt(_qc(lod_ff_35mb=0.12), _genome(), resolve_cnipt_bounds({})))
+    for claimed in ("21", "18", "13"):
+        assert targets[claimed] == ("inconclusive", [below])
+    assert targets["sex_chromosomes"] == ("inconclusive", ["ccnv calls XX (confidence 99.8%)", below])
+    # Outside the claim, an autosome reads as the rule reads it; the segmental CNVs are not assessed.
+    assert targets["1"] == ("low_risk", [])
+    assert targets["segmental"][0] == "not_assessed"
+    # A finding the plasma does show keeps its verdict.
+    shown = evaluate_cnipt(_qc(lod_ff_35mb=0.12), _genome(_segment("21", 0, CHROM_MB, **TRISOMY)), resolve_cnipt_bounds({}))
+    assert _targets(shown)["21"][0] == "high_risk"
+    # At the limit, or without one, a claimed target reads low risk.
+    assert _targets(evaluate_cnipt(_qc(lod_ff_35mb=0.10), _genome(), resolve_cnipt_bounds({})))["21"] == ("low_risk", [])
+
+
 @pytest.mark.parametrize(
     ("lods", "from_mb", "segmental"),
     [

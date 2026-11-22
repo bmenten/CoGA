@@ -96,6 +96,10 @@ a finding:
   - an aneuploidy finding on X or Y raises it.
 - The segmental target takes the worst assessed segmental finding. A low risk gives in its reasons
   the size assessed from, each low-risk finding and each finding left unassessed.
+- A claimed target (21, 18, 13, the sex chromosomes) that would be low risk is **inconclusive** while
+  the fetal fraction is below ccnv's limit of detection of arm-level events (`lod_ff_35mb`): the
+  plasma cannot show its aneuploidy (the owner's decision of 2026-11-21). A finding the plasma does
+  show keeps its verdict, and a target outside the claim reads as the rule reads it.
 - **Warnings**: a fetal fraction below the warning bound, ccnv's low-FF warning, ccnv's prenatal and
   fragmentomics warnings, and a twin pregnancy ccnv reads. In a twin pregnancy an aneuploidy of one
   fetus lies at about half the fetal fraction. The owner put twins in scope with one fetal fraction
