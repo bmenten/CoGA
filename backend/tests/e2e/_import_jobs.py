@@ -58,6 +58,22 @@ def one_sample_package(
     return root
 
 
+async def acknowledged(delivery_id: str, **body: Any) -> dict[str, Any]:
+    """The body of an approval of the delivery ``delivery_id`` (``body``, revision 0 unless it says
+    otherwise) that acknowledges its warnings as they are now: by their SHA-256, as the list gives
+    it (``import_watcher.warnings_sha256``), which an approval with warnings must name."""
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.services.import_watcher import warnings_sha256
+
+    async with get_postgres_sessionmaker()() as session:
+        warnings = (
+            await session.execute(
+                text("SELECT warnings FROM import_deliveries WHERE id = CAST(:id AS uuid)"), {"id": str(delivery_id)}
+            )
+        ).scalar_one_or_none()
+    return {"revision": 0, **body, "acknowledge_warnings": True, "warnings_sha256": warnings_sha256(warnings or [])}
+
+
 async def queue_import(
     folder: Path,
     project_id: str | None,

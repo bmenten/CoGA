@@ -614,6 +614,8 @@ const ImportDeliveriesPanel: React.FC = () => {
               dry_run: input.dryRun,
               conflict_mode: input.conflictMode,
               acknowledge_warnings: input.acknowledged,
+              // The warnings shown, by their SHA-256: ones a check again changed since are refused.
+              warnings_sha256: delivery.warnings_sha256,
             }
           );
           results.push({

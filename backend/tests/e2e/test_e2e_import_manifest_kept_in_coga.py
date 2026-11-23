@@ -30,7 +30,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job, one_sample_package
+from backend.tests.e2e._import_jobs import acknowledged, claim_import_job, one_sample_package
 from backend.tests.e2e.test_e2e_import_watcher import write_package
 
 pytestmark = pytest.mark.integration
@@ -81,7 +81,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
             out["delivery"] = delivery
             approved = await client.post(
                 f"/api/family-imports/deliveries/{delivery['_id']}/approve",
-                json={"revision": 0, "acknowledge_warnings": True},
+                json=await acknowledged(delivery["_id"]),
                 headers=headers,
             )
             out["approved"] = capture(approved)

@@ -132,6 +132,7 @@ async def approve_family_package_delivery(
         dry_run=payload.dry_run,
         conflict_mode=payload.conflict_mode,
         acknowledge_warnings=payload.acknowledge_warnings,
+        warnings_sha256=payload.warnings_sha256,
     )
     return ImportDeliveryApproveOut(delivery=delivery, job=job)
 

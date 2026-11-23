@@ -13,7 +13,13 @@ and the import job as a worker runs it, for synthetic one-sample packages:
   offered again (``ready``, the failed job still named), recorded as
   ``import_delivery_offered_again``; approved again, its import is queued;
 - a failed delivery whose folder changed since is ``superseded``, and the folder's new delivery is
-  the one listed;
+  the one listed; one whose folder is gone is ``gone`` after two rounds;
+- a lock file that comes and goes (a document opened on the share) supersedes the delivery, and its
+  going reopens it, superseding the lock file's delivery;
+- an approval of a delivery with warnings names them by their SHA-256: unnamed it is refused
+  (400), named as they were before a change (409);
+- an open delivery of an existing family is not checked again while nothing of the family changes,
+  and is once a member's status changes in CoGA;
 - the chain verifies.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
@@ -22,6 +28,7 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets 
 from __future__ import annotations
 
 import hashlib
+import shutil
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -30,7 +37,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job, job_outcome
+from backend.tests.e2e._import_jobs import acknowledged, claim_import_job, job_outcome
 from backend.tests.e2e.test_e2e_import_watcher import package_folder, write_package
 
 pytestmark = pytest.mark.integration
@@ -72,10 +79,12 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         project = (
             await session.execute(text("SELECT name FROM projects WHERE id = CAST(:p AS uuid)"), {"p": project_id})
         ).scalar_one()
-    names = {key: f"E2E_LISTED_{key}_{run}" for key in ("LATER", "FAILED", "MOVED")}
+    names = {key: f"E2E_LISTED_{key}_{run}" for key in ("LATER", "FAILED", "MOVED", "LOCK", "GONE")}
     folders = {key: package_folder(base, name, project) for key, name in names.items()}
     for key, folder in folders.items():
         write_package(folder, project=project, family_id=names[key])
+    # A file the package file does not list: the delivery warns of it.
+    (folders["LOCK"] / "notes.txt").write_text("a note of the lab\n", encoding="utf-8")
     # The pipeline's file names a coverage dataset whose BED was put into the folder after it was
     # written: its package file lists the VCF and the PED, not the BED.
     later = folders["LATER"]
@@ -133,7 +142,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
             return capture(
                 await client.post(
                     f"/api/family-imports/deliveries/{delivery['id']}/approve",
-                    json={"revision": 0, "acknowledge_warnings": True},
+                    json=await acknowledged(delivery["id"]),
                 )
             )
 
@@ -163,18 +172,71 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
 
         # A failed import, offered again; and one whose folder changed since.
         failed_jobs: dict[str, str] = {}
-        for key in ("FAILED", "MOVED"):
+        for key in ("FAILED", "MOVED", "GONE"):
             approved = await approve(names[key])
             out[f"{key.lower()}_approved"] = approved
             failed_jobs[key] = approved["json"]["job"]["_id"]
             await _fail_job(failed_jobs[key])
         out["failed_jobs"] = failed_jobs
         (folders["MOVED"] / "notes.txt").write_text("written after the failed import\n", encoding="utf-8")
+        shutil.rmtree(folders["GONE"])
         out["round"] = await import_watcher.run_watch_round(sessionmaker, roots)
         out["offered"] = await delivery_of(names["FAILED"])
         out["moved"] = await deliveries_of(names["MOVED"])
         out["list"] = capture(await client.get("/api/family-imports/deliveries", params={"limit": 200}))
         out["approved_again"] = await approve(names["FAILED"])
+
+        # A lock file comes and goes: its delivery supersedes this one, and its going reopens it.
+        lock_file = folders["LOCK"] / "~$qc.xlsx"
+        lock_file.write_text("opened on the share\n", encoding="utf-8")
+        await import_watcher.run_watch_round(sessionmaker, roots)
+        out["lock_during"] = await deliveries_of(names["LOCK"])
+        lock_file.unlink()
+        out["lock_round"] = await import_watcher.run_watch_round(sessionmaker, roots)
+        out["lock_after"] = await deliveries_of(names["LOCK"])
+        out["gone"] = await deliveries_of(names["GONE"])
+
+        # The warnings an approval acknowledges are the ones its approver saw.
+        lock_id = out["lock_after"][0][0]
+        lock_url = f"/api/family-imports/deliveries/{lock_id}/approve"
+        out["warnings_unnamed"] = capture(
+            await client.post(lock_url, json={"revision": 0, "dry_run": True, "acknowledge_warnings": True})
+        )
+        out["warnings_stale"] = capture(
+            await client.post(
+                lock_url,
+                json={
+                    "revision": 0,
+                    "dry_run": True,
+                    "acknowledge_warnings": True,
+                    "warnings_sha256": import_watcher.warnings_sha256([]),
+                },
+            )
+        )
+        out["warnings_named"] = capture(await client.post(lock_url, json=await acknowledged(lock_id, dry_run=True)))
+
+        # An open delivery of an existing family: checked again once a member's status changes.
+        copy = later.parent / f"E2E_LISTED_COPY_{run}"
+        shutil.copytree(later, copy)
+        await import_watcher.run_watch_round(sessionmaker, roots)
+        await import_watcher.run_watch_round(sessionmaker, roots)
+        out["copy_before"] = await delivery_of(copy.name)
+        async with sessionmaker() as session:
+            out["copy_family_state"] = (
+                await session.execute(
+                    text("SELECT validation ->> 'family_state' FROM import_deliveries WHERE id = CAST(:id AS uuid)"),
+                    {"id": out["copy_before"]["id"]},
+                )
+            ).scalar_one()
+            await session.execute(
+                text(
+                    "UPDATE family_members SET clinical_status = 'unaffected', affected = false "
+                    "WHERE family_id = (SELECT id FROM families WHERE family_id = :f)"
+                ),
+                {"f": names["LATER"]},
+            )
+            await session.commit()
+        out["copy_round"] = await import_watcher.run_watch_round(sessionmaker, roots)
 
         out["verified"] = capture(
             await client.get(
@@ -262,6 +324,45 @@ def test_a_failed_import_is_offered_again_in_the_round_that_finds_it_failed(ran)
 
 def test_a_failed_delivery_whose_folder_changed_is_superseded_by_the_folders_new_delivery(ran) -> None:
     assert [state for _id, state in ran["moved"]] == ["superseded", "ready"]
+
+
+def test_a_failed_delivery_whose_folder_is_gone_goes_after_two_rounds(ran) -> None:
+    assert [state for _id, state in ran["gone"]] == ["gone"]
+    gone = [
+        after
+        for action, folder, after in ran["events"]
+        if folder == ran["names"]["GONE"] and action == "import_delivery_gone"
+    ]
+    assert len(gone) == 1 and gone[0]["failed_job_id"] == ran["failed_jobs"]["GONE"]
+
+
+def test_a_lock_file_that_comes_and_goes_reopens_the_delivery_it_set_aside(ran) -> None:
+    assert [state for _id, state in ran["lock_during"]] == ["superseded", "ready"]
+    assert [state for _id, state in ran["lock_after"]] == ["ready", "superseded"]
+    assert ran["lock_round"].reopened == {"ready": 1}
+    lock = ran["names"]["LOCK"]
+    actions = [action for action, folder, _after in ran["events"] if folder == lock]
+    assert actions.count("import_delivery_reopened") == 1
+    assert actions.count("import_delivery_superseded") == 2
+
+
+def test_an_approval_names_the_warnings_it_acknowledges(ran) -> None:
+    from backend.app.services.import_delivery_review import WARNINGS_CHANGED, WARNINGS_NOT_NAMED
+
+    assert (ran["warnings_unnamed"]["status"], ran["warnings_unnamed"]["json"]["detail"]) == (400, WARNINGS_NOT_NAMED)
+    assert (ran["warnings_stale"]["status"], ran["warnings_stale"]["json"]["detail"]) == (409, WARNINGS_CHANGED)
+    assert ran["warnings_named"]["status"] == 200, ran["warnings_named"]
+
+
+def test_an_open_delivery_is_checked_again_when_what_it_read_of_its_family_changes(ran) -> None:
+    copy = ran["copy_before"]
+    assert copy["state"] == "needs_attention"
+    assert len(ran["copy_family_state"]) == 64
+    copy_events = [action for action, folder, _after in ran["events"] if folder.startswith("E2E_LISTED_COPY_")]
+    # Seen again in a round with nothing of the family changed: not checked again; checked again
+    # once a member's status changed.
+    assert copy_events.count("import_delivery_checked_again") == 1
+    assert sum(ran["copy_round"].checked_again.values()) >= 1
 
 
 def test_each_step_is_on_the_chain_and_the_chain_verifies(ran) -> None:

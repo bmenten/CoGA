@@ -681,7 +681,7 @@ async def test_a_round_counts_the_deliveries_superseded_by_a_run(tmp_path: Path,
     async def look(*_args: Any) -> tuple[str, str]:
         return next(looks)
 
-    async def mark_missing(*_args: Any) -> int:
+    async def mark_missing(*_args: Any, **_kwargs: Any) -> int:
         return 0
 
     monkeypatch.setattr(import_delivery_review, "sync_delivery_jobs", no_jobs)
@@ -888,7 +888,7 @@ async def test_an_open_delivery_seen_again_is_checked_again_only_when_coga_chang
     assert not any("INSERT INTO import_deliveries" in statement for statement in store)
 
     # A delivery decided (or still copying) is never checked again.
-    for state in ("refused", "queued", "imported", "incomplete", "superseded"):
+    for state in ("refused", "queued", "imported", "incomplete"):
         assert await watcher.look_at_folder(factory(_seen(state=state)), tmp_path, folder) is None
     assert len(assessed) == 1
 
@@ -982,8 +982,9 @@ async def test_a_round_skips_only_a_watched_folder_that_lists_nothing_while_deli
     async def open_deliveries(_factory: Any, _root: Path) -> int:
         return 1
 
-    async def mark_missing(_factory: Any, root: Path, seen: set[str]) -> int:
+    async def mark_missing(_factory: Any, root: Path, seen: set[str], *, unreadable: Any = ()) -> int:
         counted.append((root, seen))
+        assert list(unreadable) == []
         return 0
 
     monkeypatch.setattr(import_delivery_review, "sync_delivery_jobs", no_jobs)
@@ -1331,4 +1332,135 @@ async def test_a_proposal_that_failed_stands_until_a_correction_gives_what_it_co
     with pytest.raises(RuntimeError, match="read on"):
         await watcher.assess_content(_factory([]), folder, assessment(), base=base, effective=corrected)
     assert len(validated) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["superseded", "gone"])
+async def test_a_delivery_set_aside_whose_folder_is_as_it_was_checked_again_is_reopened(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    # A lock file of a document opened on the share made the folder a new delivery, which
+    # superseded this one; the file is gone again, so the folder is as this one was checked. Its
+    # row is the folder's (one per fingerprint): it is checked again and reopened, never left
+    # superseded behind an open delivery no approval can take.
+    folder = _package(tmp_path, "FAM1")
+    stored: list[tuple[str, Any]] = []
+
+    async def fingerprint(_folder: Path) -> str:
+        return "a" * 64
+
+    async def assess(_factory: Any, checked: Path, _read: Any = None, **kwargs: Any) -> Any:
+        assert kwargs.get("watched_in") == tmp_path
+        return watcher.DeliveryAssessment(state="ready", project_id="p1")
+
+    async def update(
+        _factory: Any, _folder: Path, delivery_id: str, _fingerprint: str, assessment: Any, why: Any, **_kwargs: Any
+    ) -> str:
+        stored.append((delivery_id, why))
+        return assessment.state
+
+    _patch_fingerprints(monkeypatch, fingerprint)
+    monkeypatch.setattr(watcher, "assess_delivery", assess)
+    monkeypatch.setattr(watcher, "_update_checked_again", update)
+
+    assert await watcher.look_at_folder(lambda: _SeenSession([], _seen(state=state)), tmp_path, folder) == (
+        "reopened",
+        "ready",
+    )
+    ((delivery_id, why),) = stored
+    assert why is watcher.FOLDER_AS_BEFORE
+    assert (why.action, why.states, why.supersede_others) == ("import_delivery_reopened", ("superseded", "gone"), True)
+
+
+def test_a_project_folder_that_cannot_be_listed_is_named_and_its_deliveries_are_not_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+    readable = _package(tmp_path / "WGS", "FAM1")
+    (tmp_path / "PGT").mkdir()
+    real_names_in = watcher._names_in
+
+    def names_in(folder: Path) -> list[str] | None:
+        return None if folder.name == "PGT" else real_names_in(folder)
+
+    monkeypatch.setattr(watcher, "_names_in", names_in)
+
+    listing = watcher.marked_folders(tmp_path)
+
+    assert listing is not None
+    assert (listing.folders, listing.unreadable) == ([readable.resolve()], [(tmp_path / "PGT").resolve()])
+
+
+@pytest.mark.asyncio
+async def test_a_round_does_not_count_a_delivery_in_an_unreadable_project_folder_as_missing(tmp_path: Path) -> None:
+    store: list[tuple[str, dict[str, Any]]] = []
+
+    class _MissingSession:
+        async def __aenter__(self) -> "_MissingSession":
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            return None
+
+        async def execute(self, statement: Any, params: Any = None) -> Any:
+            store.append((str(statement), dict(params or {})))
+            return SimpleNamespace(all=lambda: [])
+
+        async def commit(self) -> None:
+            return None
+
+    unreadable = tmp_path / "PGT"
+    assert await watcher.mark_missing(lambda: _MissingSession(), tmp_path, set(), unreadable=[unreadable]) == 0
+
+    ((sql, params),) = store
+    assert "starts_with(folder_path, u.prefix || '/')" in sql
+    assert params["unreadable"] == [str(unreadable)]
+
+
+@pytest.mark.asyncio
+async def test_what_a_check_read_of_the_family_changing_is_a_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A member's status corrected in the members editor, or the region set on the family page, as
+    # an issue of the delivery asks: the delivery is checked again, not left needing attention.
+    _coga(monkeypatch, project=("p1", "GRCh38"))
+    states = iter(["b" * 64, "c" * 64])
+
+    async def family_state(_session: Any, family_id: str | None) -> str | None:
+        assert family_id == "FAM1"
+        return next(states)
+
+    monkeypatch.setattr(watcher, "family_state", family_state)
+    seen = _seen(
+        issues=[],
+        project_id="p1",
+        validation={"family_id": "FAM1", "sample_ids": ["PROBAND"], "family_state": "b" * 64},
+    )
+
+    assert await watcher._coga_side_changed(_Session([]), seen) is False
+    assert await watcher._coga_side_changed(_Session([]), seen) is True
+
+
+@pytest.mark.asyncio
+async def test_the_family_state_is_a_digest_of_what_coga_holds_and_none_without_a_family() -> None:
+    class _StateSession:
+        def __init__(self, state: str | None) -> None:
+            self.state = state
+
+        async def execute(self, statement: Any, params: Any = None) -> Any:
+            row = {"state": self.state} if self.state is not None else None
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
+
+    held = '{"family": [], "links": [], "members": [], "samples": []}'
+    assert await watcher.family_state(_StateSession(held), "FAM1") == hashlib.sha256(held.encode()).hexdigest()
+    assert await watcher.family_state(_StateSession(None), "FAM1") is None
+    assert await watcher.family_state(_StateSession(held), None) is None
+
+
+def test_the_warnings_digest_follows_each_warning_and_their_order() -> None:
+    one = {"code": "package_qc_warned", "message": "The pipeline's QC warned.", "path": None}
+    two = {"code": "package_files_proposed", "message": "CoGA listed a file.", "path": None}
+
+    assert watcher.warnings_sha256([one, two]) == watcher.warnings_sha256(json.dumps([one, two]))
+    assert watcher.warnings_sha256([one, two]) != watcher.warnings_sha256([two, one])
+    assert watcher.warnings_sha256([one]) != watcher.warnings_sha256([{**one, "message": "Another."}])
+    assert watcher._delivery_out(_listed_row(warnings=[one])).warnings_sha256 == watcher.warnings_sha256([one])
 

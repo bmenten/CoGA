@@ -13,7 +13,8 @@ route's check, as for every overwrite).
   package's members the family's pedigree. An ``imported`` delivery is approved again only with
   overwrite, when its family's record names it as its last import, made with update, while the
   family's reference delivery is ``changed_after_import``: only an overwrite ends that change (a
-  failed overwrite leaves it ``imported``). Its warnings must be acknowledged. Its folder must be
+  failed overwrite leaves it ``imported``). Its warnings must be acknowledged, as the approver saw
+  them (their SHA-256 as the list gave it: one a check again changed since is refused). Its folder must be
   as it was checked (the same package fingerprint); one that changed is left to the watcher's next
   round, which makes it a new delivery. The approval names the revision of the package the approver saw
   (``import_delivery_revisions``: 0 when it was not corrected); one corrected since is refused.
@@ -41,7 +42,8 @@ route's check, as for every overwrite).
   an update completes), and is ``ready`` or ``needs_attention`` with the failed job still named.
   One whose folder changed since is ``superseded``: a watched folder's new delivery is the offer,
   a folder added by hand is added again. One whose folder cannot be read now is tried again in
-  the next round.
+  the next round; one whose folder is not there while the folder it lies under lists something is
+  ``gone`` after ``GONE_AFTER_ROUNDS`` rounds, as an open delivery goes.
 
 Each decision is an event on the clinical audit chain ``system:import-inbox``, by the person
 who made it, and is in the request audit too.
@@ -51,6 +53,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -63,19 +66,23 @@ from ..core.sql import require_uuid
 from ..schemas import FamilyPackageImportJobOut, ImportDeliveryOut
 from .access_control import CurrentUser
 from .clinical_audit_service import audit_actor, record_clinical_event
+from .family_package_common import _json_list
 from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
 from .family_package_jobs import queue_family_import_job
 from .coga_package import package_document_sha256
 from .import_watcher import (
+    GONE_AFTER_ROUNDS,
     IMPORT_INBOX_CHAIN,
     UPDATE_IMPORT_UNDER_A_CHANGE,
     WATCHER_ACTOR,
     CheckAgain,
     _assess_again,
     _fingerprint,
+    _names_in,
     _store_check_again,
     get_import_delivery,
     latest_revision,
+    warnings_sha256 as warnings_digest,
 )
 
 DELIVERY_NOT_FOUND = "Delivery not found"
@@ -108,6 +115,14 @@ DELIVERY_REVISED_SINCE = (
 WARNINGS_NOT_ACKNOWLEDGED = (
     "The delivery has warnings: check them, and confirm that you did (acknowledge_warnings), to "
     "approve it."
+)
+WARNINGS_NOT_NAMED = (
+    "The delivery has warnings: name the ones you checked by their SHA-256, as the list gives it "
+    "(warnings_sha256), to approve it."
+)
+WARNINGS_CHANGED = (
+    "The delivery's warnings changed since you looked at them: look at it again, and check its "
+    "warnings as they are now."
 )
 REAPPROVAL_NEEDS_AN_OVERWRITE = (
     "The delivery is imported: it is approved again only to overwrite its family's data, after an "
@@ -212,12 +227,15 @@ async def approve_delivery(
     dry_run: bool,
     conflict_mode: str,
     acknowledge_warnings: bool,
+    warnings_sha256: str | None = None,
 ) -> tuple[ImportDeliveryOut, FamilyPackageImportJobOut]:
     """Approve the delivery ``delivery_id`` (see the module's docstring) as its package is at
-    ``revision``: queue its import job, or its dry run, as ``user``. Refused: 404 for no such
-    delivery; 409 for one in another state, one whose issues a choice does not resolve, one
-    corrected since ``revision``, or one whose folder changed; 400 for a choice that does not fit
-    it, or warnings not acknowledged."""
+    ``revision``: queue its import job, or its dry run, as ``user``. Its warnings, when it has any,
+    are acknowledged as the list gave them (``warnings_sha256``, ``import_watcher.warnings_sha256``):
+    a check again since may have changed them. Refused: 404 for no such delivery; 409 for one in
+    another state, one whose issues a choice does not resolve, one corrected since ``revision``,
+    one whose warnings changed, or one whose folder changed; 400 for a choice that does not fit
+    it, or warnings not acknowledged or not named."""
     delivery = await _locked_delivery(session, delivery_id)
     codes = _issue_codes(delivery["issues"])
     state = delivery["state"]
@@ -252,8 +270,13 @@ async def approve_delivery(
         raise HTTPException(status_code=400, detail="The delivery is a new family: it is imported with cancel.")
     if codes & _RESOLVED_BY_AN_OVERWRITE and conflict_mode != "overwrite":
         raise HTTPException(status_code=400, detail=MEMBERS_DIFFER_NEED_AN_OVERWRITE)
-    if _issue_codes(delivery["warnings"]) and not acknowledge_warnings:
+    has_warnings = bool(_json_list(delivery["warnings"]))
+    if has_warnings and not acknowledge_warnings:
         raise HTTPException(status_code=400, detail=WARNINGS_NOT_ACKNOWLEDGED)
+    if has_warnings and warnings_sha256 is None:
+        raise HTTPException(status_code=400, detail=WARNINGS_NOT_NAMED)
+    if has_warnings and warnings_sha256 != warnings_digest(delivery["warnings"]):
+        raise HTTPException(status_code=409, detail=WARNINGS_CHANGED)
     if delivery["project_id"] is None:
         raise HTTPException(status_code=409, detail="The delivery names no project CoGA has.")
     current, revised = await latest_revision(session, delivery["id"])
@@ -319,6 +342,7 @@ async def approve_delivery(
             "marker_sha256": delivery["marker_sha256"],
             "revision": current,
             "warnings_acknowledged": bool(acknowledge_warnings),
+            **({"warnings_sha256": warnings_sha256} if has_warnings else {}),
             **({"reapproval": True} if reapproval else {}),
         },
     )
@@ -429,6 +453,7 @@ class OfferedAgain:
 
     offered: dict[str, int] = field(default_factory=dict)
     superseded: int = 0
+    gone: int = 0
 
 
 async def offer_failed_deliveries_again(session_factory: async_sessionmaker[AsyncSession]) -> OfferedAgain:
@@ -436,14 +461,15 @@ async def offer_failed_deliveries_again(session_factory: async_sessionmaker[Asyn
     folder is as it was checked is checked again as a whole, in place, and is ``ready`` or
     ``needs_attention``, recorded as ``import_delivery_offered_again`` with the failed job; one
     whose folder changed since is ``superseded``; one whose folder cannot be read now is left for
-    the next round."""
+    the next round, and one whose folder is not there is ``gone`` once it has been missing for
+    ``GONE_AFTER_ROUNDS`` rounds (``_count_failed_missing``)."""
     done = OfferedAgain()
     async with session_factory() as session:
         rows = (
             await session.execute(
                 text(
                     """
-                    SELECT id::text AS id, folder_path, folder_name, state, package_fingerprint, issues, warnings,
+                    SELECT id::text AS id, watch_root, folder_path, folder_name, state, package_fingerprint, issues, warnings,
                            project_id::text AS project_id, marker, validation, marker_sha256, run_id, family_id,
                            package, package_check, job_id::text AS job_id
                     FROM import_deliveries
@@ -457,6 +483,7 @@ async def offer_failed_deliveries_again(session_factory: async_sessionmaker[Asyn
         folder = Path(row["folder_path"])
         fingerprint = await _fingerprint(folder)
         if fingerprint is None:
+            done.gone += await _count_failed_missing(session_factory, dict(row), folder)
             continue
         if fingerprint != row["package_fingerprint"]:
             done.superseded += await _supersede_failed(session_factory, dict(row))
@@ -516,3 +543,46 @@ async def _supersede_failed(session_factory: async_sessionmaker[AsyncSession], d
         )
         await session.commit()
     return 1
+
+
+async def _count_failed_missing(
+    session_factory: async_sessionmaker[AsyncSession], delivery: dict[str, Any], folder: Path
+) -> int:
+    """Count a round against the failed delivery ``delivery`` whose folder could not be
+    fingerprinted, when the folder is not there while the folder it lies under (its watched
+    folder, or the import root of one added by hand) lists something: a share that is not mounted,
+    or a folder that cannot be read, decides nothing. One missing for ``GONE_AFTER_ROUNDS`` rounds
+    is ``gone``, recorded on the chain. Returns 1 when it went, else 0."""
+    if await asyncio.to_thread(os.path.lexists, folder) or not await asyncio.to_thread(
+        _names_in, Path(delivery["watch_root"])
+    ):
+        return 0
+    async with session_factory() as session:
+        missing = (
+            await session.execute(
+                text(
+                    """
+                    UPDATE import_deliveries
+                    SET missing_rounds = missing_rounds + 1,
+                        state = CASE WHEN missing_rounds + 1 >= :rounds THEN 'gone' ELSE state END,
+                        state_changed_at = CASE WHEN missing_rounds + 1 >= :rounds THEN now() ELSE state_changed_at END
+                    WHERE id = CAST(:id AS uuid) AND state = 'failed'
+                    RETURNING state
+                    """
+                ),
+                {"id": delivery["id"], "rounds": GONE_AFTER_ROUNDS},
+            )
+        ).first()
+        went = missing is not None and missing[0] == "gone"
+        if went:
+            await _record(
+                session,
+                user=None,
+                action="import_delivery_gone",
+                delivery=delivery,
+                summary=f"Delivery {delivery['folder_name']}: gone, its folder is no longer there after its import failed",
+                after={"state": "gone", "failed_job_id": delivery["job_id"]},
+            )
+        await session.commit()
+    return 1 if went else 0
+

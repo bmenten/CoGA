@@ -29,13 +29,17 @@ proposes what the file leaves out: with the size and SHA-256 it reads, no checks
 and a warning an approver acknowledges (``package_files_proposed``).
 
 Some of those issues come from what CoGA holds, not from the folder: a project the package file
-names that CoGA lacks, or of another assembly, and a family or samples that already exist. An open
-delivery (``ready``, ``needs_attention``) seen again is checked again, as a whole, when that has
-changed since its check (a project added, a family imported or deleted): its row then holds what
-the new check found, and the chain the change.
+names that CoGA lacks, or of another assembly, a family or samples that already exist, and what the
+check reads of that family (its members' values, its region, its other analyses). An open delivery
+(``ready``, ``needs_attention``) seen again is checked again, as a whole, when that has changed
+since its check (a project added, a family imported or deleted, a member's status corrected in the
+members editor): its row then holds what the new check found, and the chain the change.
 
 A delivery still open whose folder, or package file, has been missing for ``GONE_AFTER_ROUNDS`` rounds
-while its watched folder could be read is ``gone``. A watched folder that cannot be read, or that
+while its watched folder could be read is ``gone``; one in a project folder that cannot be listed
+is not missing. A delivery a round set aside (``superseded``, ``gone``) whose folder is as it was
+checked again (a lock file of a document opened on the share, come and gone) is reopened: checked
+again, and the folder's open deliveries superseded by it. A watched folder that cannot be read, or that
 lists nothing but hidden entries while it had open deliveries (a share not mounted reads as an
 empty folder), is skipped for the round: nothing is decided on it. One that lists anything else,
 even folders without a package file, is mounted and watched. Each change of a delivery's state is an event on the
@@ -59,10 +63,11 @@ gone.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -147,6 +152,9 @@ OPEN_STATES = ("incomplete", "ready", "needs_attention")
 # The open deliveries checked again when what CoGA holds changes (an incomplete one's folder
 # changes once its copy has finished, which is a new delivery).
 _CHECKED_AGAIN_STATES = ("ready", "needs_attention")
+# The deliveries a round set aside, not a person, that are offered again when their folder is as
+# they were checked again: superseded by a newer state of the folder, or gone.
+_REOPENED_STATES = ("superseded", "gone")
 # The issues a check takes from what CoGA holds, not from the folder: the project the package
 # file names, and the family and samples the package holds.
 _PROJECT_ISSUES = frozenset({"package_project_unknown", "package_assembly_differs"})
@@ -203,6 +211,8 @@ class WatchedFolderListing:
 
     folders: list[Path]
     empty: bool
+    # The project folders in it that could not be listed: what lies in them is not missing.
+    unreadable: list[Path] = field(default_factory=list)
 
 
 def _names_in(folder: Path) -> list[str] | None:
@@ -231,13 +241,16 @@ def marked_folders(root: Path) -> WatchedFolderListing | None:
     each package folder into the folder of its project (``<root>/<project>/<package>``, the owner's
     decision of 2026-11-10). A folder directly in ``root`` that holds a package file is a package
     folder too, outside any project folder: its delivery needs attention for it
-    (``package_not_in_project_folder``)."""
+    (``package_not_in_project_folder``). A project folder that cannot be listed is named
+    (``unreadable``): the deliveries in it are not missing, as for a watched folder that cannot be
+    read."""
     if not root.is_dir():
         return None
     names = _names_in(root)
     if names is None:
         return None
     folders: list[Path] = []
+    unreadable: list[Path] = []
     for name in names:
         child = _listed_package_folder(root / name)
         if child is None or not child.is_dir():
@@ -246,11 +259,15 @@ def marked_folders(root: Path) -> WatchedFolderListing | None:
             if child not in folders:
                 folders.append(child)
             continue
-        for inner in _names_in(child) or []:
+        inner_names = _names_in(child)
+        if inner_names is None:
+            unreadable.append(child)
+            continue
+        for inner in inner_names:
             folder = _listed_package_folder(child / inner)
             if folder is not None and folder.is_dir() and _holds_package_file(folder) and folder not in folders:
                 folders.append(folder)
-    return WatchedFolderListing(folders=folders, empty=not names)
+    return WatchedFolderListing(folders=folders, empty=not names, unreadable=unreadable)
 
 
 def project_folder_of(root: Path, folder: Path) -> str | None:
@@ -637,6 +654,10 @@ async def assess_content(
             shared = shared_with_another_analysis(existing.get("metadata"), bundle) if existing is not None else None
             if shared is not None:
                 issues.append(_issue(SHARED_WITH_ANOTHER_ANALYSIS, shared))
+        # What the checks above read of the family in CoGA, as a digest: a change of it (a member's
+        # values in the members editor, the region on the family page, another analysis imported)
+        # checks the delivery again (``_coga_side_changed``).
+        assessment.validation["family_state"] = await family_state(session, validation.family_id)
         if project_id is not None:
             roi = await manifest_roi_issue(
                 session,
@@ -893,15 +914,82 @@ def _json_object(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+async def family_state(session: AsyncSession, family_id: str | None) -> str | None:
+    """A digest of what a delivery's check reads of the family ``family_id`` in CoGA: its members
+    (sample, sex, role, clinical and carrier values, whether active), its samples, its links
+    between members, its region of interest and pedigree, and its package records (one per
+    analysis). The SHA-256 of their JSON, which Postgres writes with its keys in one order and each
+    list sorted; None when CoGA holds no such family."""
+    if not family_id:
+        return None
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT jsonb_build_object(
+                    'family', jsonb_build_array(
+                        f.pedigree, f.roi_query, f.roi_label, f.roi_source, f.roi_assembly_id::text,
+                        f.roi_chr, f.roi_start, f.roi_end, f.metadata -> 'package_imports'
+                    ),
+                    'members', COALESCE((
+                        SELECT jsonb_agg(
+                            jsonb_build_array(s.sample_id, fm.role, fm.clinical_status, fm.carrier_status,
+                                              fm.carrier_type, fm.carrier_evidence, fm.affected, fm.active)
+                            ORDER BY s.sample_id, fm.role
+                        )
+                        FROM family_members fm JOIN samples s ON s.id = fm.sample_id
+                        WHERE fm.family_id = f.id
+                    ), '[]'::jsonb),
+                    'samples', COALESCE((
+                        SELECT jsonb_agg(jsonb_build_array(s.sample_id, s.sex) ORDER BY s.sample_id)
+                        FROM samples s WHERE s.family_id = f.id
+                    ), '[]'::jsonb),
+                    'links', COALESCE((
+                        SELECT jsonb_agg(
+                            jsonb_build_array(fr.relationship_type, sa.sample_id, sb.sample_id, fr.role_a, fr.role_b,
+                                              fr.active)
+                            ORDER BY fr.relationship_type, sa.sample_id, sb.sample_id, fr.role_a, fr.role_b, fr.active
+                        )
+                        FROM family_relationships fr
+                        JOIN samples sa ON sa.id = fr.sample_id_a
+                        JOIN samples sb ON sb.id = fr.sample_id_b
+                        WHERE fr.family_id = f.id
+                    ), '[]'::jsonb)
+                )::text AS state
+                FROM families f
+                WHERE f.family_id = :family_id
+                """
+            ),
+            {"family_id": family_id},
+        )
+    ).mappings().first()
+    if row is None or not isinstance(row.get("state"), str):
+        return None
+    return hashlib.sha256(row["state"].encode("utf-8")).hexdigest()
+
+
+def warnings_sha256(warnings: Any) -> str:
+    """The SHA-256 of a delivery's warnings as the list gives them (each one's code, message, path
+    and sample, in their order): an approval names the one its approver saw, and one whose warnings
+    changed since is refused (``import_delivery_review.approve_delivery``)."""
+    listed = [
+        [item.get("code"), item.get("message"), item.get("path"), item.get("sample_id")]
+        for item in _json_list(warnings)
+        if isinstance(item, dict)
+    ]
+    return hashlib.sha256(json.dumps(listed, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
 async def _coga_side_changed(session: AsyncSession, delivery: Mapping[Any, Any]) -> bool:
     """Whether what CoGA holds has changed, since the open delivery ``delivery`` was checked, in what
     its check read there: the project its package file names (added, deleted, or of another
     assembly), and the family and samples its package holds (imported, or deleted). It compares
     only what the check read: the project when the package file could be read (the check named it
     unknown, kept its id, or went on to validate the package), the family and samples when it
-    validated the package, and the members its package's same-individual links name (a sample the
-    family did not hold, which the import of another analysis's package added since; a link an
-    update does not make). So a check that could not run, or a package file that could not be
+    validated the package, what it read of the family then (``family_state``: a member's values,
+    the region, the links, another analysis's record), and the members its package's
+    same-individual links name (a sample the family did not hold, which the import of another
+    analysis's package added since; a link an update does not make). So a check that could not run, or a package file that could not be
     read, is never checked again: what it found holds until the folder changes."""
     codes = {str(item.get("code")) for item in _json_list(delivery["issues"]) if isinstance(item, dict)}
     # The project of the package as checked, or as corrected since; else the package file's.
@@ -913,6 +1001,8 @@ async def _coga_side_changed(session: AsyncSession, delivery: Mapping[Any, Any])
         if project_id != delivery["project_id"] or {issue.code for issue in project_issues} != codes & _PROJECT_ISSUES:
             return True
     if validation is not None:
+        if await family_state(session, _text(validation.get("family_id"))) != validation.get("family_state"):
+            return True
         existing = await _existing_package_entity_warnings(
             session,
             family_id=_text(validation.get("family_id")),
@@ -1011,15 +1101,20 @@ def _failed_check(exc: BaseException) -> DeliveryAssessment:
 
 
 async def _assess_again(
-    session_factory: async_sessionmaker[AsyncSession], folder: Path, seen: Mapping[str, Any]
+    session_factory: async_sessionmaker[AsyncSession],
+    folder: Path,
+    seen: Mapping[str, Any],
+    *,
+    watched_in: Path | None = None,
 ) -> DeliveryAssessment:
     """Check the delivery ``seen`` again, as a whole but for its folder's files: the package it
     kept, as corrected since (``seen["effective"]``), with what reading its folder found. A delivery
-    stored without them is checked again from its folder (``assess_delivery``)."""
+    stored without them is checked again from its folder (``assess_delivery``, in the watched
+    folder ``watched_in`` it lies in)."""
     package = _json_object(seen.get("package"))
     package_check = _json_object(seen.get("package_check"))
     if package is None or package_check is None:
-        return await _assess(session_factory, folder)
+        return await _assess(session_factory, folder, watched_in=watched_in)
     try:
         base = CogaPackage.model_validate(package)
         effective = CogaPackage.model_validate(_json_object(seen.get("effective")) or package)
@@ -1050,9 +1145,12 @@ async def look_at_folder(
     (``_supersede_for_run``). Otherwise a new delivery is checked and stored, and an open one
     before it of the folder superseded; a delivery seen before is seen again, and checked again
     when it is open (``ready`` or ``needs_attention``) and what CoGA holds has changed in what its
-    check read (``_coga_side_changed``). Returns ``("new", state)``, ``("checked_again", state)``
-    or ``("superseded", count)`` with the number superseded for a run, or None when the delivery
-    was only seen again or the folder changed while it was checked (the next round takes it).
+    check read (``_coga_side_changed``). One a round set aside (``superseded`` by a newer state of
+    the folder, or ``gone``) whose folder is as it was checked again, a lock file come and gone, is
+    reopened: checked again, and the open ones of the folder superseded (``FOLDER_AS_BEFORE``).
+    Returns ``("new", state)``, ``("checked_again", state)``, ``("reopened", state)`` or
+    ``("superseded", count)`` with the number superseded for a run, or None when the delivery was
+    only seen again or the folder changed while it was checked (the next round takes it).
     The fingerprint taken is put in ``seen_fingerprints`` by the folder's path: the round's
     following of imported deliveries does not list a folder seen as it was imported again
     (``package_changed_after_import``). A new delivery keeps the listing its fingerprint was
@@ -1084,24 +1182,29 @@ async def look_at_folder(
         ).mappings().first()
         seen: dict[str, Any] | None = dict(found) if found is not None else None
         revision = 0
+        why = COGA_CHANGED
         if seen is not None:
             check_again = False
-            if seen["state"] in _CHECKED_AGAIN_STATES:
+            if seen["state"] in (*_CHECKED_AGAIN_STATES, *_REOPENED_STATES):
                 # The package as corrected in CoGA, if it was: its project is the one compared.
                 revision, revised = await latest_revision(session, str(seen["id"]))
                 seen = {**seen, "effective": revised or seen.get("package")}
-                check_again = await _coga_side_changed(session, seen)
+                if seen["state"] in _REOPENED_STATES:
+                    check_again, why = True, FOLDER_AS_BEFORE
+                else:
+                    check_again = await _coga_side_changed(session, seen)
             await session.commit()
             if not check_again:
                 return None
     if seen is not None:
-        assessment = await _assess_again(session_factory, folder, seen)
+        assessment = await _assess_again(session_factory, folder, seen, watched_in=root)
         if await _fingerprint(folder) != fingerprint:
             return None
         state = await _store_check_again(
-            session_factory, folder, str(seen["id"]), fingerprint, assessment, revision=revision
+            session_factory, folder, str(seen["id"]), fingerprint, assessment, why, revision=revision
         )
-        return ("checked_again", state) if state is not None else None
+        kind = "reopened" if why is FOLDER_AS_BEFORE else "checked_again"
+        return (kind, state) if state is not None else None
     # The package file as read before the fingerprint: a folder changed since then is left below.
     assessment = await _assess(session_factory, folder, read, watched_in=root)
     # Changed while it was checked: what was checked is not what is there.
@@ -1252,27 +1355,33 @@ async def _store_delivery(
             after={**summary, "state": assessment.state, "issues": [issue.code for issue in assessment.issues]},
             summary=f"Delivery {folder.name}: {assessment.state.replace('_', ' ')}",
         )
-        superseded = await session.execute(
-            text(
-                """
-                UPDATE import_deliveries
-                SET state = 'superseded', state_changed_at = now()
-                WHERE folder_path = :folder AND id <> CAST(:id AS uuid) AND state = ANY(CAST(:open AS text[]))
-                RETURNING id::text, package_fingerprint
-                """
-            ),
-            {"folder": str(folder), "id": delivery_id, "open": list(OPEN_STATES)},
-        )
-        for old_id, old_fingerprint in superseded.all():
-            await _record(
-                session,
-                action="import_delivery_superseded",
-                delivery_id=str(old_id),
-                after={"folder": folder.name, "package_fingerprint": old_fingerprint, "superseded_by": delivery_id},
-                summary=f"Delivery {folder.name}: superseded, the folder changed",
-            )
+        await _supersede_others(session, folder, delivery_id)
         await session.commit()
     return assessment.state
+
+
+async def _supersede_others(session: AsyncSession, folder: Path, delivery_id: str) -> None:
+    """Supersede the open deliveries of ``folder`` but ``delivery_id``, the one of the folder as it
+    is now, each recorded on the chain."""
+    superseded = await session.execute(
+        text(
+            """
+            UPDATE import_deliveries
+            SET state = 'superseded', state_changed_at = now()
+            WHERE folder_path = :folder AND id <> CAST(:id AS uuid) AND state = ANY(CAST(:open AS text[]))
+            RETURNING id::text, package_fingerprint
+            """
+        ),
+        {"folder": str(folder), "id": delivery_id, "open": list(OPEN_STATES)},
+    )
+    for old_id, old_fingerprint in superseded.all():
+        await _record(
+            session,
+            action="import_delivery_superseded",
+            delivery_id=str(old_id),
+            after={"folder": folder.name, "package_fingerprint": old_fingerprint, "superseded_by": delivery_id},
+            summary=f"Delivery {folder.name}: superseded, the folder changed",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1285,11 +1394,20 @@ class CheckAgain:
     action: str
     reason: str
     after: Mapping[str, Any] = field(default_factory=dict)
+    # The delivery is the folder as it is now: the open ones of the folder are superseded with it.
+    supersede_others: bool = False
 
 
 # An open delivery seen again, when what CoGA holds has changed since its check.
 COGA_CHANGED = CheckAgain(
     states=_CHECKED_AGAIN_STATES, action="import_delivery_checked_again", reason="checked again, what CoGA holds changed"
+)
+# A delivery a round set aside whose folder is as it was checked again.
+FOLDER_AS_BEFORE = CheckAgain(
+    states=_REOPENED_STATES,
+    action="import_delivery_reopened",
+    reason="its folder is as it was checked again, reopened",
+    supersede_others=True,
 )
 
 
@@ -1389,6 +1507,7 @@ async def _update_checked_again(
                     manifest_sha256 = :manifest_sha256,
                     package = COALESCE(CAST(:package AS jsonb), package),
                     package_check = COALESCE(CAST(:package_check AS jsonb), package_check),
+                    missing_rounds = 0,
                     state_changed_at = CASE WHEN state = :state THEN state_changed_at ELSE now() END
                 WHERE id = CAST(:id AS uuid)
                 """
@@ -1431,14 +1550,21 @@ async def _update_checked_again(
             },
             summary=f"Delivery {folder.name}: {why.reason}; {assessment.state.replace('_', ' ')}",
         )
+        if why.supersede_others:
+            await _supersede_others(session, folder, delivery_id)
         await session.commit()
     return assessment.state
 
 
-async def mark_missing(session_factory: async_sessionmaker[AsyncSession], root: Path, seen: set[str]) -> int:
+async def mark_missing(
+    session_factory: async_sessionmaker[AsyncSession],
+    root: Path,
+    seen: set[str],
+    unreadable: Collection[Path] = (),
+) -> int:
     """Count a round against each open delivery of the watched folder ``root`` whose folder, or
-    package file, was not seen; one missing for ``GONE_AFTER_ROUNDS`` rounds is gone. Returns how many
-    went."""
+    package file, was not seen, but those in a project folder that could not be listed
+    (``unreadable``); one missing for ``GONE_AFTER_ROUNDS`` rounds is gone. Returns how many went."""
     gone = 0
     async with session_factory() as session:
         rows = (
@@ -1449,10 +1575,19 @@ async def mark_missing(session_factory: async_sessionmaker[AsyncSession], root: 
                     SET missing_rounds = missing_rounds + 1
                     WHERE watch_root = :root AND origin = 'watched' AND state = ANY(CAST(:open AS text[]))
                       AND NOT (folder_path = ANY(CAST(:seen AS text[])))
+                      AND NOT EXISTS (
+                          SELECT 1 FROM unnest(CAST(:unreadable AS text[])) AS u(prefix)
+                          WHERE starts_with(folder_path, u.prefix || '/')
+                      )
                     RETURNING id::text, folder_name, package_fingerprint, missing_rounds
                     """
                 ),
-                {"root": str(root), "open": list(OPEN_STATES), "seen": sorted(seen)},
+                {
+                    "root": str(root),
+                    "open": list(OPEN_STATES),
+                    "seen": sorted(seen),
+                    "unreadable": sorted(str(folder) for folder in unreadable),
+                },
             )
         ).all()
         for delivery_id, name, fingerprint, missing in rows:
@@ -1482,6 +1617,8 @@ class WatchRound:
     roots_skipped: int = 0
     deliveries: dict[str, int] = field(default_factory=dict)
     checked_again: dict[str, int] = field(default_factory=dict)
+    # Deliveries set aside whose folder was as they were checked again, by state.
+    reopened: dict[str, int] = field(default_factory=dict)
     # Open deliveries superseded because a run is under way in their folder, or failed.
     superseded_for_run: int = 0
     gone: int = 0
@@ -1529,6 +1666,7 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
     result.jobs_ended = await sync_delivery_jobs(session_factory)
     offered = await offer_failed_deliveries_again(session_factory)
     result.offered_again, result.superseded_after_failure = offered.offered, offered.superseded
+    result.gone += offered.gone
     skipped: set[str] = set()
     seen_fingerprints: dict[str, str] = {}
     for root in roots:
@@ -1549,9 +1687,11 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
                 if kind == "superseded":
                     result.superseded_for_run += int(state)
                     continue
-                counts = result.deliveries if kind == "new" else result.checked_again
+                counts = {"new": result.deliveries, "reopened": result.reopened}.get(kind, result.checked_again)
                 counts[state] = counts.get(state, 0) + 1
-        result.gone += await mark_missing(session_factory, root, {str(folder) for folder in folders})
+        result.gone += await mark_missing(
+            session_factory, root, {str(folder) for folder in folders}, unreadable=listing.unreadable
+        )
     followed = await follow_imported_deliveries(
         session_factory, skipped_roots=skipped, seen_fingerprints=seen_fingerprints
     )
@@ -1629,6 +1769,7 @@ async def import_watcher(stop: asyncio.Event) -> None:
                     if (
                         done.deliveries
                         or done.checked_again
+                        or done.reopened
                         or done.superseded_for_run
                         or done.gone
                         or done.roots_skipped
@@ -1640,12 +1781,13 @@ async def import_watcher(stop: asyncio.Event) -> None:
                         or done.changes_ended
                     ):
                         logger.info(
-                            "Import watch round: new deliveries %s, checked again %s, %d superseded by a "
+                            "Import watch round: new deliveries %s, checked again %s, reopened %s, %d superseded by a "
                             "run, %d gone, %d import job(s) ended, failed imports offered again %s, %d "
                             "superseded after a failed import, %d of %d import folder(s) skipped; "
                             "after their import %d folder(s) changed, %d gone, %d change(s) ended",
                             dict(sorted(done.deliveries.items())),
                             dict(sorted(done.checked_again.items())),
+                            dict(sorted(done.reopened.items())),
                             done.superseded_for_run,
                             done.gone,
                             done.jobs_ended,
@@ -1750,6 +1892,7 @@ def _delivery_out(row: Any) -> ImportDeliveryOut:
         request_id=_text(marker.get("request_id")),
         issues=[ImportDeliveryIssue.model_validate(item) for item in _json_list(row["issues"])],
         warnings=[ImportDeliveryIssue.model_validate(item) for item in _json_list(row["warnings"])],
+        warnings_sha256=warnings_sha256(row["warnings"]),
         manifest_sha256=row["manifest_sha256"],
         revision=int(row["revision"]),
         origin=row["origin"],

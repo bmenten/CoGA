@@ -1044,14 +1044,20 @@ passes them all is `ready`. A check that cannot run (an error) is the issue `wat
 with a fixed sentence. A folder that changed while it was checked is left to the next round.
 
 **Checked again when CoGA changes.** Some issues come from what CoGA holds, not from the folder:
-the project the package file names (`package_project_unknown`, `package_assembly_differs`) and a
-family or samples that already exist (`existing_family`, `existing_samples`). Each round, an open
-delivery (`ready` or `needs_attention`) seen again is compared with what CoGA holds now (a project
-added, deleted or of another assembly; a family or samples imported or deleted). When that
+the project the package file names (`package_project_unknown`, `package_assembly_differs`), a
+family or samples that already exist (`existing_family`, `existing_samples`), and what the check
+reads of that family (a member's values the package states otherwise, `package_member_values_conflict`;
+the members it lacks or changes; the region of interest another analysis holds,
+`package_roi_conflict`). Each round, an open delivery (`ready` or `needs_attention`) seen again is
+compared with what CoGA holds now (a project added, deleted or of another assembly; a family or
+samples imported or deleted; and what its check read of the family, kept as a digest,
+`validation.family_state`: the members' sample, sex, role, clinical and carrier values and whether
+active, the links between them, the region and pedigree, and the package records). When that
 differs from what its check found, it is checked again as a whole, in place (the same delivery),
 and the event `import_delivery_checked_again` records the state and issue codes before and after.
 So adding the project a package file names makes its delivery `ready` in the next round, without
-touching the folder. Only what the check read is compared: a delivery whose package file could not
+touching the folder; so does correcting a member in the members editor, or the region on the
+family page, as an issue asks. Only what the check read is compared: a delivery whose package file could not
 be read, or whose check could not run or be stored, is checked again only when its folder changes.
 
 **States** (`import_deliveries.state`):
@@ -1059,8 +1065,8 @@ be read, or whose check could not run or be stored, is checked again only when i
 | State | Meaning |
 | --- | --- |
 | `incomplete`, `ready`, `needs_attention` | open: checked, waiting for a person |
-| `superseded` | a newer delivery of the same folder came before anyone decided, or its pipeline runs again in the folder |
-| `gone` | its folder, or its package file, missing for two rounds while the watched folder could be read |
+| `superseded` | a newer delivery of the same folder came before anyone decided, or its pipeline runs again in the folder; reopened when the folder is as it was checked again (below) |
+| `gone` | its folder, or its package file, missing for two rounds while the watched folder could be read; reopened when the folder is back as it was checked |
 | `queued`, `imported`, `refused` | a person decided (below) |
 | `failed` | its import failed; the round that finds it so offers it again (below) |
 | `changed_after_import` | the reference delivery of a family whose package folder changed, or went, after its import |
@@ -1070,8 +1076,16 @@ A watched folder that cannot be read, or that lists nothing but hidden entries w
 deliveries (a share that is not mounted reads as an empty folder), is skipped for the round:
 nothing is decided on it. A watched folder that lists anything else, even only folders without a
 package file, is mounted: it is watched, so a delivery whose folder was moved away is `gone` after
-two rounds. A watched folder emptied of everything keeps its open deliveries until a delivery or
-another folder is back in it.
+two rounds. A project folder in it that cannot be listed decides nothing either: the deliveries in
+it are not missing. A watched folder emptied of everything keeps its open deliveries until a
+delivery or another folder is back in it.
+
+**A folder as it was again.** A delivery is one row per folder and fingerprint, so a folder that
+comes back to a state seen before is that delivery again. One a round set aside, `superseded` or
+`gone` (a lock file of a document opened on the share made a new delivery, and went with the
+document), is reopened: checked again as a whole, in place, its corrections kept, and the open
+deliveries of the folder are superseded by it. The event `import_delivery_reopened` records it.
+A delivery a person decided (refused, imported) stays as it is.
 
 **The record.** Each change of a delivery's state is an event on the clinical audit chain
 `system:import-inbox`, by `system:import-watcher`: the folder, its fingerprint, the package
@@ -1229,7 +1243,8 @@ Nothing is imported until a superuser decides, on the Package Import page or thr
 
 - `POST /family-imports/deliveries/{id}/approve` with `revision` (the revision of the package the
   approver saw, 0 when it was not corrected: one corrected since answers 409), `dry_run`,
-  `conflict_mode` and `acknowledge_warnings`.
+  `conflict_mode`, `acknowledge_warnings` and `warnings_sha256` (the SHA-256 of the warnings
+  acknowledged, as the list gives them).
   - A delivery that is `ready` is a new family, approved with `cancel`. One that needs attention
     only because its family exists (`existing_family`, with `existing_samples`) is approved with
     `update` (add the missing datasets) or `overwrite` (an administrator's, as every overwrite; a
@@ -1237,9 +1252,11 @@ Nothing is imported until a superuser decides, on the Package Import page or thr
   - A project CoGA lacks is resolved in CoGA, after which the watcher checks the delivery again;
     an issue in what the package says is corrected in CoGA ([above](#correcting-a-delivery)); any
     other issue is resolved in the package, which makes a new delivery.
-  - A delivery with warnings is approved only once they are acknowledged. Its folder must be as it
-    was checked (the same package fingerprint), or the approval answers 409 and the watcher checks
-    it again as a new delivery.
+  - A delivery with warnings is approved only once they are acknowledged, named by their SHA-256
+    (400 without it): a check again may change them after the approver looked, and an approval of
+    warnings that changed answers 409. Its folder must be as it was checked (the same package
+    fingerprint), or the approval answers 409 and the watcher checks it again as a new delivery
+    (a folder added by hand is added again).
   - The import job is queued as the approver, into the project the package file names, with the
     manifest the delivery keeps (made from the package as last corrected). Its metadata names the
     delivery (its id, run, package file's SHA-256 and fingerprint, the revision, the SHA-256 of
@@ -1266,7 +1283,9 @@ Nothing is imported until a superuser decides, on the Package Import page or thr
   `import_delivery_offered_again` records it with the failed job and the state and issues before
   and after. One whose folder changed since is `superseded` (a watched folder's new delivery is the
   offer; a folder added by hand is added again); one whose folder cannot be read now is tried again
-  in the next round. A failed overwrite of a delivery approved again stays `imported` (below).
+  in the next round, and one whose folder is not there, while the folder it lies under lists
+  something, is `gone` after two rounds. A failed overwrite of a delivery approved again stays
+  `imported` (below).
 
 Each decision is an event on the `system:import-inbox` chain, by the person who made it (the
 reason of a refusal, the job, the policy and whether the warnings were acknowledged), and in the
@@ -3216,6 +3235,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `package_fills_member_values` (warning) | The family holds another analysis, and the package gives a member the family holds a value the family does not know yet (a sex, a parent, a status). The import fills it in and keeps every value the family knows: check that it is right. |
 | `package_files_without_checksum` (warning) | `coga-package.json` lists files without a `sha256` or `md5`. CoGA computed their SHA-256 (the import records it), but cannot check that the copy on the share is what the pipeline made. Acknowledge it to approve, or have the pipeline or its copy step write the checksums. |
 | `package_files_proposed` (warning) | The import reads files `coga-package.json` does not list (put into the folder after the pipeline wrote it, such as a CRAM added later): CoGA listed them in the package with their size and the SHA-256 it read (**Correct…** and **Package…** name them). Check that they belong to the package, and acknowledge it to approve; or leave their dataset out in **Correct…**, or have the pipeline write the package file again. |
+| "The delivery's warnings changed since you looked at them" (409, approval) | CoGA checked the delivery again after you opened the list (what CoGA holds changed), and its warnings are not the ones you acknowledged. Look at them again, and approve it as it is now. |
 | `package_file_not_listed` | The import reads a file `coga-package.json` does not list, and CoGA could not list it (no regular file of the folder, or unreadable), or a correction named it. Point the dataset at a file the package lists, or leave it out (**Correct…**); or put the file right, which makes a new delivery. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |
 | "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |

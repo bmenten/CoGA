@@ -30,7 +30,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job, job_outcome
+from backend.tests.e2e._import_jobs import acknowledged, claim_import_job, job_outcome
 from backend.tests.e2e.test_e2e_import_watcher import package_folder, write_package
 
 pytestmark = pytest.mark.integration
@@ -93,7 +93,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
                 },
             )
         )
-        out["approved"] = capture(await client.post(f"{url}/approve", json={"revision": 1, "acknowledge_warnings": True}))
+        out["approved"] = capture(await client.post(f"{url}/approve", json=await acknowledged(delivery_id, revision=1)))
         assert out["approved"]["status"] == 200, out["approved"]
         job_id = out["approved"]["json"]["job"]["_id"]
         worker = f"e2e-hand-{uuid4().hex[:8]}"

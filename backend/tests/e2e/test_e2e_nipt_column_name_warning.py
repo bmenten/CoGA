@@ -35,7 +35,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job
+from backend.tests.e2e._import_jobs import acknowledged, claim_import_job
 from backend.app.services.family_package_records import suffixed_source
 
 pytestmark = pytest.mark.integration
@@ -94,7 +94,7 @@ async def _run_job(ac: Any, delivery_id: str, *, revision: int, dry_run: bool) -
 
     resp = await ac.post(
         f"/api/family-imports/deliveries/{delivery_id}/approve",
-        json={"revision": revision, "dry_run": dry_run, "acknowledge_warnings": True},
+        json=await acknowledged(delivery_id, revision=revision, dry_run=dry_run),
     )
     assert resp.status_code == 200, resp.text
     job_id = str(resp.json()["job"]["_id"])

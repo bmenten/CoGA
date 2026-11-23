@@ -44,7 +44,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job, job_outcome, one_sample_package
+from backend.tests.e2e._import_jobs import acknowledged, claim_import_job, job_outcome, one_sample_package
 from backend.tests.e2e.test_e2e_import_watcher import write_package
 
 pytestmark = pytest.mark.integration
@@ -152,7 +152,7 @@ async def _exercise(base: Path, away: Path, run: str) -> dict[str, Any]:
             approved = capture(
                 await client.post(
                     f"/api/family-imports/deliveries/{delivery_id}/approve",
-                    json={"revision": 0, "acknowledge_warnings": True, **body},
+                    json=await acknowledged(delivery_id, **body),
                 )
             )
             assert approved["status"] == 200, approved
@@ -226,12 +226,12 @@ async def _exercise(base: Path, away: Path, run: str) -> dict[str, Any]:
         out["approvable_again"] = {row["_id"]: row["overwrite_approvable"] for row in listed["json"]}
         again_url = f"/api/family-imports/deliveries/{second['id']}/approve"
         out["again_with_update"] = capture(
-            await client.post(again_url, json={"revision": 0, "acknowledge_warnings": True, "conflict_mode": "update"})
+            await client.post(again_url, json=await acknowledged(second["id"], conflict_mode="update"))
         )
         out["again_dry_run"] = capture(
             await client.post(
                 again_url,
-                json={"revision": 0, "acknowledge_warnings": True, "conflict_mode": "overwrite", "dry_run": True},
+                json=await acknowledged(second["id"], conflict_mode="overwrite", dry_run=True),
             )
         )
 

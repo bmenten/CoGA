@@ -278,6 +278,17 @@ async def test_a_delivery_whose_members_differ_from_its_family_is_queued_only_to
         ),
         ({}, {"conflict_mode": "update"}, 400),
         ({"warnings": [{"code": "optional_dataset_missing"}]}, {}, 400),
+        # Acknowledged, but not named by the SHA-256 the list gave: which warnings were checked?
+        ({"warnings": [{"code": "optional_dataset_missing"}]}, {"acknowledge_warnings": True}, 400),
+        # Named by the SHA-256 of warnings a check again has changed since.
+        (
+            {"warnings": [{"code": "optional_dataset_missing", "message": "Now another."}]},
+            {
+                "acknowledge_warnings": True,
+                "warnings_sha256": review.warnings_digest([{"code": "optional_dataset_missing", "message": "Before."}]),
+            },
+            409,
+        ),
         ({"project_id": None}, {}, 409),
     ],
 )
@@ -426,13 +437,19 @@ def test_overwrite_stays_an_administrators_and_a_refusal_needs_a_reason_in_plain
 
 @pytest.mark.asyncio
 async def test_a_failed_import_is_offered_again_superseded_when_its_folder_changed_or_left_while_unreadable(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
     from pathlib import Path
 
+    root = tmp_path / "share"
+    (root / "UNREADABLE").mkdir(parents=True)
     failed = [
-        {**_delivery(id=f"id-{name}", folder_path=f"/data/share/{name}", folder_name=name, state="failed"), "job_id": f"job-{name}"}
-        for name in ("SAME", "CHANGED", "UNREADABLE")
+        {
+            **_delivery(id=f"id-{name}", folder_path=str(root / name), folder_name=name, state="failed"),
+            "job_id": f"job-{name}",
+            "watch_root": str(root),
+        }
+        for name in ("SAME", "CHANGED", "UNREADABLE", "GONE")
     ]
 
     class _FailedSession:
@@ -444,6 +461,9 @@ async def test_a_failed_import_is_offered_again_superseded_when_its_folder_chang
             self.statements.append((sql, dict(params or {})))
             if "WHERE state = 'failed'" in sql and sql.lstrip().startswith("SELECT"):
                 return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: failed))
+            if "missing_rounds + 1" in sql:
+                # Missing for the second round: gone.
+                return SimpleNamespace(first=lambda: ("gone",))
             return SimpleNamespace(first=lambda: ("id-CHANGED",))
 
         async def commit(self) -> None:
@@ -456,7 +476,7 @@ async def test_a_failed_import_is_offered_again_superseded_when_its_folder_chang
             return None
 
     session = _FailedSession()
-    fingerprints = {"SAME": _FINGERPRINT, "CHANGED": "c" * 64, "UNREADABLE": None}
+    fingerprints = {"SAME": _FINGERPRINT, "CHANGED": "c" * 64, "UNREADABLE": None, "GONE": None}
     rechecked: list[tuple[str, dict[str, Any]]] = []
     stored: list[tuple[str, str, Any]] = []
     recorded: list[dict[str, Any]] = []
@@ -489,7 +509,11 @@ async def test_a_failed_import_is_offered_again_superseded_when_its_folder_chang
 
     done = await review.offer_failed_deliveries_again(lambda: session)  # type: ignore[arg-type]
 
-    assert (done.offered, done.superseded) == ({"needs_attention": 1}, 1)
+    # The folder that is there but cannot be fingerprinted is left; the one that is not there while
+    # its watched folder lists something counts a round, and is gone after its second.
+    assert (done.offered, done.superseded, done.gone) == ({"needs_attention": 1}, 1, 1)
+    missing = [params for sql, params in session.statements if "missing_rounds + 1" in sql]
+    assert missing == [{"id": "id-GONE", "rounds": review.GONE_AFTER_ROUNDS}]
     # As it was checked: checked again as a whole (the failed import may have left its family),
     # in place, as a failed delivery offered again, the failed job named.
     assert [name for name, _seen in rechecked] == ["SAME"]
@@ -504,8 +528,21 @@ async def test_a_failed_import_is_offered_again_superseded_when_its_folder_chang
     # Changed since: superseded, only while it is still failed, and recorded with its job.
     supersede = [params for sql, params in session.statements if "SET state = 'superseded'" in sql]
     assert supersede == [{"id": "id-CHANGED"}]
-    (event,) = recorded
+    event, went = recorded
+    assert (went["action"], went["after"]["failed_job_id"]) == ("import_delivery_gone", "job-GONE")
     assert event["action"] == "import_delivery_superseded"
     assert event["after"]["failed_job_id"] == "job-CHANGED"
     assert event["summary"] == "Delivery CHANGED: superseded, its folder changed after its import failed"
+
+
+@pytest.mark.asyncio
+async def test_a_delivery_with_warnings_is_approved_as_its_approver_saw_them(queued: list[dict[str, Any]]) -> None:
+    warnings = [{"code": "package_files_proposed", "message": "CoGA listed a file.", "path": None}]
+    seen = review.warnings_digest(warnings)
+
+    await _approve(_Session(_delivery(warnings=warnings)), acknowledge_warnings=True, warnings_sha256=seen)
+
+    [_queue, event] = queued
+    after = event["event"]["after"]
+    assert (after["warnings_acknowledged"], after["warnings_sha256"]) == (True, seen)
 

@@ -42,6 +42,8 @@ const delivery = (name: string, overrides: Record<string, unknown> = {}) => ({
   request_id: null,
   issues: [],
   warnings: [],
+  // The SHA-256 of the warnings as the list gives them: an approval sends it back.
+  warnings_sha256: 'd'.repeat(64),
   manifest_sha256: null,
   revision: 0,
   job_id: null,
@@ -613,6 +615,7 @@ describe('ImportDeliveriesPanel', () => {
           dry_run: false,
           conflict_mode: 'cancel',
           acknowledge_warnings: true,
+          warnings_sha256: 'd'.repeat(64),
         }
       )
     );
@@ -641,6 +644,7 @@ describe('ImportDeliveriesPanel', () => {
           dry_run: true,
           conflict_mode: 'cancel',
           acknowledge_warnings: false,
+          warnings_sha256: 'd'.repeat(64),
         }
       )
     );
@@ -678,6 +682,7 @@ describe('ImportDeliveriesPanel', () => {
           dry_run: false,
           conflict_mode: 'update',
           acknowledge_warnings: false,
+          warnings_sha256: 'd'.repeat(64),
         }
       )
     );
@@ -721,6 +726,7 @@ describe('ImportDeliveriesPanel', () => {
           dry_run: false,
           conflict_mode: 'overwrite',
           acknowledge_warnings: false,
+          warnings_sha256: 'd'.repeat(64),
         }
       )
     );
@@ -758,6 +764,7 @@ describe('ImportDeliveriesPanel', () => {
           dry_run: false,
           conflict_mode: 'overwrite',
           acknowledge_warnings: false,
+          warnings_sha256: 'd'.repeat(64),
         }
       )
     );

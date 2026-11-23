@@ -457,12 +457,15 @@ with the delivery.
   is that the family exists already, **Approve…** asks for *Update* (add the missing datasets) or
   *Overwrite* (administrators). A project CoGA does not have is fixed in CoGA: add the project, and
   CoGA checks the delivery again in its next look at the folders. The same happens when the
-  delivery's family is imported or deleted meanwhile. What the package says can be corrected here
+  delivery's family is imported or deleted meanwhile, or changed where a reason asks you to change
+  it (a member's status in the members editor, the region on the family page). What the package says can be corrected here
   (**Correct…**, below); any other reason is fixed in the package, and the corrected folder comes
   back as a new delivery.
 - **Still copying**: a listed file is not there yet, or not complete. It is checked again when the
   copy has finished.
-- A delivery with warnings is approved only once you tick *I checked the warnings*.
+- A delivery with warnings is approved only once you tick *I checked the warnings*. If CoGA checked
+  it again after the list showed it and its warnings changed, the approval is refused: look at
+  them again.
 - **Correct…** completes or corrects what the package says, before you approve it: the project,
   the analysis, a NIPT's pregnancy, the region of interest, the PGT inheritance model, affected parent and index, each
   member's sex, parents, **Related to**, role, clinical status, carrier status and HPO terms, and
@@ -517,8 +520,10 @@ with the delivery.
   family says *Source files archived*: the read files, signal tracks and QC report are no longer
   available. A folder that comes back changed is a change again.
 - A delivery whose folder is moved out of the watched folder leaves the list after two looks at the
-  folders (it is *gone*). A watched folder that holds nothing at all is taken for a share that is not
-  mounted: its deliveries stay listed until something is back in it.
+  folders (it is *gone*). A watched folder that holds nothing at all, or a project folder in it that
+  cannot be read, is taken for a share that is not mounted: its deliveries stay listed until it can
+  be read again. A folder that comes back as it was, or loses a file that came and went (a lock file
+  of a document opened on the share), is listed again as the delivery it was, with its corrections.
 
 An approved delivery shows its import job, and becomes *Imported* or *Import failed* when the job
 ends. A delivery whose import failed (a full disk, a database that went away) is offered again at
