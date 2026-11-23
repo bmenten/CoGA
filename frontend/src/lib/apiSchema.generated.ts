@@ -2200,7 +2200,7 @@ export interface ImportDeliveryOut {
 /**
  * A delivery's package as its import would read it now: the latest revision's (``revision``,
  * 0 for none), or the package as checked; the pipeline's file as written (``original``); the
- * sections CoGA proposed from the folder; and every correction.
+ * sections CoGA proposed from the folder, and the files it listed itself; and every correction.
  */
 export interface ImportDeliveryPackageOut {
   delivery_id: string;
@@ -2209,6 +2209,7 @@ export interface ImportDeliveryPackageOut {
   package_sha256: string | null;
   original: Record<string, unknown> | null;
   proposed: string[];
+  proposed_files: string[];
   revisions: ImportDeliveryRevisionOut[];
   origin: "watched" | "manual";
   addable_members: string[];

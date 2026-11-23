@@ -129,7 +129,9 @@ def test_the_process_checks_what_the_api_checks_and_never_migrates(monkeypatch) 
 
 
 @pytest.mark.parametrize("watched", [[], ["/data/share"]])
-def test_the_process_runs_the_import_watcher_only_when_a_folder_is_watched(monkeypatch, watched: list[str]) -> None:
+def test_the_process_runs_the_import_watcher_also_when_no_folder_is_watched(monkeypatch, watched: list[str]) -> None:
+    # A folder added by hand is a delivery too: a round records its import job's end, and follows
+    # its folder after the import, with no folder watched.
     from backend.app.core.config import settings
 
     recorder = _Recorder()
@@ -151,14 +153,13 @@ def test_the_process_runs_the_import_watcher_only_when_a_folder_is_watched(monke
     async def run() -> int:
         stop = asyncio.Event()
         running = asyncio.create_task(import_worker.run_import_workers(1, stop))
-        while "ancestry_worker" not in recorder.calls or (watched and "import_watcher" not in recorder.calls):
+        while "ancestry_worker" not in recorder.calls or "import_watcher" not in recorder.calls:
             await asyncio.sleep(0)
         stop.set()
         return await running
 
     assert asyncio.run(run()) == import_worker.EXIT_STOPPED
-    expected = ["import_watcher", "stop_import_watcher"] if watched else []
-    assert [call for call in recorder.calls if "watcher" in call] == expected
+    assert [call for call in recorder.calls if "watcher" in call] == ["import_watcher", "stop_import_watcher"]
 
 
 def test_a_start_that_fails_runs_no_worker_and_closes_the_clients(monkeypatch) -> None:

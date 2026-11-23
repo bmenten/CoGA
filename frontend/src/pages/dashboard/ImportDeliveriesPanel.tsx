@@ -38,6 +38,9 @@ const OPEN_STATES = new Set([
   'changed_after_import',
 ]);
 const REFUSABLE_STATES = new Set(['incomplete', 'ready', 'needs_attention']);
+// The states whose issues stand in the way now; a decided delivery's are those of its last check,
+// kept folded.
+const ISSUES_OPEN = REFUSABLE_STATES;
 // The deliveries whose package is corrected before approval: open, and their package read.
 const CORRECTABLE_STATES = new Set(['ready', 'needs_attention']);
 // The issues an approver resolves by choosing update or overwrite: the family exists.
@@ -113,6 +116,86 @@ const SourceChange: React.FC<{ delivery: Delivery }> = ({ delivery }) => {
             : 'Import the folder’s new delivery with overwrite, or refuse it with a reason; an update keeps this.'}
       </div>
       <PackageSourceChangePaths change={change} />
+    </div>
+  );
+};
+
+/**
+ * The imported deliveries whose folder changed after their import into the folder state
+ * `delivery` is (its package fingerprint): `delivery` is that folder's new delivery, whose import
+ * with overwrite, or refusal, ends their family's notice. Empty for any other delivery.
+ */
+export const changedImportsOf = (delivery: Delivery, deliveries: Delivery[]) =>
+  deliveries.filter(
+    (other) =>
+      other._id !== delivery._id &&
+      other.state === 'changed_after_import' &&
+      other.source_change?.kind === 'changed' &&
+      Boolean(other.source_change.fingerprint) &&
+      other.source_change.fingerprint === delivery.package_fingerprint
+  );
+
+/** What the new delivery of a folder that changed after its import says of that change: what
+ * changed since the import, and what ends the family's notice. Its imported delivery is not listed
+ * apart. */
+const ChangedAfterImport: React.FC<{ delivery: Delivery; imported: Delivery[] }> = ({
+  delivery,
+  imported,
+}) => (
+  <>
+    {imported.map((reference) => {
+      const change = reference.source_change;
+      if (!change) return null;
+      return (
+        <div
+          key={reference._id}
+          className="text-xs text-(--color-variant-del)"
+        >
+          <div>
+            This is the new state of a package folder imported before
+            {reference.family_id ? ` for family ${reference.family_id}` : ''}: it
+            has {describePackageSourceChange(change)} since that import
+            {change.detected_at
+              ? ` (found ${formatTimestamp(change.detected_at)})`
+              : ''}
+            .{' '}
+            {delivery.state === 'imported'
+              ? 'This delivery was imported with update, which keeps the family’s notice: approve it again with overwrite to end it.'
+              : delivery.state === 'queued'
+                ? 'Its import is queued: only an overwrite ends the family’s notice.'
+                : 'Import it with overwrite, or refuse it with a reason, to end the family’s notice; an update keeps it.'}
+          </div>
+          <PackageSourceChangePaths change={change} />
+        </div>
+      );
+    })}
+  </>
+);
+
+/** A delivery whose last import failed: CoGA offers it again, checked again, once the watcher has
+ * looked (`failed` until then). */
+const FailedImport: React.FC<{ delivery: Delivery }> = ({ delivery }) => {
+  if (delivery.state === 'failed') {
+    return (
+      <div className="text-xs text-(--color-text-muted)">
+        CoGA checks it again and offers it again at its next look at the
+        folders, while its folder is as it was checked.
+      </div>
+    );
+  }
+  if (
+    !ISSUES_OPEN.has(delivery.state) ||
+    delivery.job_status !== 'failed' ||
+    delivery.job_dry_run
+  ) {
+    return null;
+  }
+  return (
+    <div className="text-xs text-(--color-variant-del)">
+      Its import failed
+      {delivery.job_id ? ` (job ${delivery.job_id.slice(0, 8)})` : ''}: its job
+      under Recent family imports says why. CoGA checked it again and offers it
+      again: approve it once the cause is fixed, or refuse it.
     </div>
   );
 };
@@ -476,7 +559,16 @@ const ImportDeliveriesPanel: React.FC = () => {
       OPEN_STATES.has(delivery.state) || approvableAgainToOverwrite(delivery)
   );
   const closedCount = deliveries.length - open.length;
-  const shown = showClosed ? deliveries : open;
+  const listed = showClosed ? deliveries : open;
+  // A folder that changed after its import is one row, its new delivery's, which tells of the
+  // change: the imported delivery whose change it is is not listed apart.
+  const changedImports = new Map(
+    listed.map((delivery) => [delivery._id, changedImportsOf(delivery, deliveries)])
+  );
+  const folded = new Set(
+    [...changedImports.values()].flat().map((delivery) => delivery._id)
+  );
+  const shown = listed.filter((delivery) => !folded.has(delivery._id));
   const waiting = deliveries.filter(
     (delivery) =>
       delivery.state === 'ready' || delivery.state === 'needs_attention'
@@ -741,20 +833,40 @@ const ImportDeliveriesPanel: React.FC = () => {
                     <span className={stateClass(delivery.state)}>
                       {STATE_LABELS[delivery.state] ?? delivery.state}
                     </span>
+                    {changedImports.get(delivery._id)?.length ? (
+                      <span className="badge-chip badge-chip--danger ml-1">
+                        {STATE_LABELS.changed_after_import}
+                      </span>
+                    ) : null}
                     {delivery.job_id ? (
                       <div className="table-subtle">
                         {delivery.job_dry_run ? 'Dry run' : 'Import'}{' '}
                         {delivery.job_status ?? ''}
                       </div>
                     ) : null}
-                    {delivery.issues.length > 0 ? (
+                    <FailedImport delivery={delivery} />
+                    {delivery.issues.length > 0 &&
+                    ISSUES_OPEN.has(delivery.state) ? (
                       <IssueList issues={delivery.issues} tone="issue" />
                     ) : null}
+                    <ChangedAfterImport
+                      delivery={delivery}
+                      imported={changedImports.get(delivery._id) ?? []}
+                    />
                     <SourceChange delivery={delivery} />
                     {delivery.warnings.length > 0 ? (
                       <details className="text-xs">
                         <summary>{delivery.warnings.length} warning(s)</summary>
                         <IssueList issues={delivery.warnings} tone="warning" />
+                      </details>
+                    ) : null}
+                    {delivery.issues.length > 0 &&
+                    !ISSUES_OPEN.has(delivery.state) ? (
+                      <details className="text-xs">
+                        <summary>
+                          {delivery.issues.length} issue(s) at its last check
+                        </summary>
+                        <IssueList issues={delivery.issues} tone="warning" />
                       </details>
                     ) : null}
                   </td>

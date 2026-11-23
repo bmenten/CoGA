@@ -28,7 +28,8 @@ information goes under ``extra``, which CoGA keeps and never reads.
 - ``check_package_files`` checks the folder against the file's ``files``: each listed file there,
   of its size (else the copy runs still) and, when the file gives one, its checksum (else the copy
   is not what the pipeline made; without one CoGA computes the SHA-256 and the copy is unchecked),
-  and the files the folder holds that it does not list.
+  and the files the folder holds that it does not list. ``read_unlisted_files`` reads such files
+  that the import reads, so that CoGA lists them itself (``import_watcher.assess_delivery``).
 
 What the package says against CoGA (the project, the family) is checked by the import watcher
 (``import_watcher``).
@@ -832,3 +833,37 @@ def check_package_files(folder: Path, files: Iterable[PackageFile], *, checksums
     present = set(_folder_files(folder))
     check.unlisted = sorted(present - set(listed))
     return check
+
+
+@dataclass(slots=True)
+class UnlistedRead:
+    """Files of a package folder its package file does not list, read for CoGA to list them:
+    each file read (``listed``: its entry in ``files``, with its size and no checksum, as the
+    pipeline gave none) with its SHA-256, and the paths that are no regular file in the folder, or
+    could not be read (``unreadable``)."""
+
+    listed: list[PackageFile] = field(default_factory=list)
+    sha256: dict[str, str] = field(default_factory=dict)
+    unreadable: list[str] = field(default_factory=list)
+
+
+def read_unlisted_files(folder: Path, paths: Iterable[str]) -> UnlistedRead:
+    """Read the files ``paths`` of the package folder ``folder``, which its package file does not
+    list, once each: its size and SHA-256. A path the format does not allow, that leads out of the
+    folder, or that is a link, a folder or a file that cannot be read is ``unreadable``."""
+    read = UnlistedRead()
+    for path in sorted(set(paths)):
+        try:
+            if not _path_in_folder(folder, path):
+                raise OSError(path)
+            info = os.lstat(folder / path)
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError(path)
+            entry = PackageFile(path=path, size=info.st_size)
+            sha256, _md5 = _checksums(folder / path, md5=False)
+        except (OSError, ValueError):  # a ValidationError is a ValueError: a path the format refuses
+            read.unreadable.append(path)
+            continue
+        read.listed.append(entry)
+        read.sha256[path] = sha256
+    return read

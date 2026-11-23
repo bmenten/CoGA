@@ -265,6 +265,7 @@ describe('ImportDeliveriesPanel', () => {
               package_sha256: 'c'.repeat(64),
               original: null,
               proposed: [],
+              proposed_files: ['alignments/PROBAND.cram'],
               revisions: [],
               origin: 'watched',
               addable_members: [],
@@ -294,6 +295,10 @@ describe('ImportDeliveriesPanel', () => {
     expect(
       await within(dialog).findByText(/"family_id": "OLD2"/)
     ).toBeInTheDocument();
+    // The files the import reads that the pipeline's file does not list: CoGA listed them.
+    expect(dialog).toHaveTextContent(
+      "CoGA listed 1 file(s) the import reads, which the pipeline's coga-package.json does not list, with the size and SHA-256 it read: alignments/PROBAND.cram."
+    );
     expect(api.get).toHaveBeenCalledWith(
       '/family-imports/deliveries/id-OLD2/package'
     );
@@ -463,6 +468,125 @@ describe('ImportDeliveriesPanel', () => {
       "This is the new state of a package folder that changed after its import. Only an overwrite ends the family's notice"
     );
     expect(dialog).toHaveTextContent('the notice and the sign-out warning stay');
+  });
+
+  it('lists a changed folder once: its new delivery tells of the change since the import', async () => {
+    const familyExists = {
+      code: 'existing_family',
+      message: "Family 'FAMX' already exists. Choose update, overwrite, or cancel before importing data.",
+      path: null,
+    };
+    vi.mocked(api.get).mockResolvedValue({
+      data: [
+        delivery('FAMX', {
+          _id: 'id-FAMX-imported',
+          state: 'changed_after_import',
+          package_fingerprint: 'e'.repeat(64),
+          issues: [familyExists],
+          job_id: 'job-imported',
+          job_status: 'completed',
+          job_dry_run: false,
+          source_change: {
+            kind: 'changed',
+            fingerprint: 'f'.repeat(64),
+            listed: true,
+            added: ['alignments/PROBAND.cram', 'alignments/PROBAND.cram.crai'],
+            removed: [],
+            changed: [],
+            added_count: 2,
+            removed_count: 0,
+            changed_count: 0,
+            detected_at: '2026-11-11T10:00:00Z',
+            found_at_sign_out: false,
+            archived: null,
+          },
+        }),
+        delivery('FAMX', {
+          _id: 'id-FAMX-new',
+          state: 'needs_attention',
+          package_fingerprint: 'f'.repeat(64),
+          issues: [familyExists],
+        }),
+      ],
+    });
+    renderPanel();
+
+    const changed = await loadedRow('FAMX');
+    // One row: the new delivery's, which can be approved or refused; the imported one is not
+    // listed apart, and its stale issues are not told.
+    expect(screen.getAllByText('FAMX', { selector: 'td > div' })).toHaveLength(1);
+    expect(changed.getByText('Needs attention')).toBeInTheDocument();
+    expect(changed.getByText('Changed after import')).toBeInTheDocument();
+    expect(row('FAMX')).toHaveTextContent(
+      'This is the new state of a package folder imported before for family FAMX: it has changed: 2 files added since that import (found'
+    );
+    expect(row('FAMX')).toHaveTextContent(
+      'Import it with overwrite, or refuse it with a reason, to end the family’s notice; an update keeps it.'
+    );
+    expect(changed.getByText('alignments/PROBAND.cram')).toBeInTheDocument();
+    expect(changed.getAllByText(/already exists/)).toHaveLength(1);
+    expect(changed.getByRole('button', { name: 'Approve…' })).toBeInTheDocument();
+    expect(changed.getByRole('button', { name: 'Refuse…' })).toBeInTheDocument();
+  });
+
+  it('folds the issues of a decided delivery, which are those of its last check', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: [
+        delivery('FAMI', {
+          state: 'imported',
+          issues: [
+            {
+              code: 'existing_family',
+              message: "Family 'FAMI' already exists. Choose update, overwrite, or cancel before importing data.",
+              path: null,
+            },
+          ],
+        }),
+      ],
+    });
+    renderPanel();
+    await screen.findByText(/Show decided and superseded/);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Show decided and superseded/ }));
+
+    const imported = await loadedRow('FAMI');
+    const folded = imported.getByText('1 issue(s) at its last check').closest('details');
+    expect(folded).not.toBeNull();
+    expect(folded).not.toHaveAttribute('open');
+  });
+
+  it('says a delivery whose import failed is offered again, and where its job says why', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: [
+        delivery('FAMF', {
+          state: 'needs_attention',
+          issues: [{ code: 'existing_family', message: "Family 'FAMF' already exists.", path: null }],
+          job_id: 'abcdef12-0000-4000-8000-000000000001',
+          job_status: 'failed',
+          job_dry_run: false,
+        }),
+        delivery('FAMD', {
+          job_id: 'abcdef12-0000-4000-8000-000000000002',
+          job_status: 'failed',
+          job_dry_run: true,
+        }),
+        delivery('FAMW', { state: 'failed', job_id: 'job-w', job_status: 'failed', job_dry_run: false }),
+      ],
+    });
+    renderPanel();
+
+    const offered = await loadedRow('FAMF');
+    expect(row('FAMF')).toHaveTextContent(
+      'Its import failed (job abcdef12): its job under Recent family imports says why. CoGA checked it again and offers it again: approve it once the cause is fixed, or refuse it.'
+    );
+    expect(offered.getByRole('button', { name: 'Approve…' })).toBeInTheDocument();
+    // A failed dry run leaves the delivery as it was: nothing was offered again.
+    expect(row('FAMD')).not.toHaveTextContent('Its import failed');
+    // Failed, until the next round checks it again.
+    fireEvent.click(screen.getByRole('checkbox', { name: /Show decided and superseded/ }));
+    expect((await loadedRow('FAMW')).getByText('Import failed', { selector: 'span' })).toBeInTheDocument();
+    expect(row('FAMW')).toHaveTextContent(
+      'CoGA checks it again and offers it again at its next look at the folders, while its folder is as it was checked.'
+    );
   });
 
   it('approves a delivery once its warnings are acknowledged', async () => {

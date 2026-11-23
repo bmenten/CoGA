@@ -23,6 +23,7 @@ from fastapi import HTTPException
 import pytest
 
 from backend.app.schemas import ImportDeliveryChange
+from backend.app.services import import_delivery_review as review
 from backend.app.services import import_delivery_revisions as revisions
 from backend.app.services.coga_package import CogaPackage, package_document
 from backend.app.services.import_watcher import _pedigree_change_issue
@@ -449,7 +450,11 @@ async def test_a_correction_of_a_delivery_whose_folder_changed_is_refused(
 
     with pytest.raises(HTTPException) as refused:
         await _revise(_delivery())
-    assert (refused.value.status_code, refused.value.detail) == (409, revisions.DELIVERY_CHANGED)
+    assert (refused.value.status_code, refused.value.detail) == (409, review.DELIVERY_CHANGED)
+    # A folder added by hand is no watcher's: it is added again, not checked again.
+    with pytest.raises(HTTPException) as refused:
+        await _revise(_delivery(origin="manual"))
+    assert (refused.value.status_code, refused.value.detail) == (409, review.DELIVERY_CHANGED_BY_HAND)
 
 
 @pytest.mark.asyncio

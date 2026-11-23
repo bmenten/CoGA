@@ -40,6 +40,7 @@ from .clinical_audit_service import audit_actor
 from .coga_package import PACKAGE_FILE_NAME
 from .data_scope import normalize_chromosome
 from .family_identifiers import identifier_problem, visible
+from .family_package_fingerprint import PackageFolderTooLarge, package_fingerprint
 from .family_structure_audit import (
     IMPORT_FAILED,
     PACKAGE_IMPORT,
@@ -360,14 +361,23 @@ def _package_relative_path(root: Path, resolved: Path) -> str | None:
 async def _delivery_checked_sha256(session: AsyncSession, bundle: FamilyPackageBundle) -> dict[str, str]:
     """The SHA-256 the check of the delivery the import came from computed for each file of the
     package folder (``import_deliveries.package_check.sha256``, by the path the package file
-    names), when the folder is as that check read it: the delivery's package fingerprint is the
-    one this import took before it read the folder. Empty otherwise (a folder added by hand, whose
-    check reads no file, or one that changed)."""
+    names), when the folder is as that check read it: its fingerprint now, taken as the watcher
+    takes a delivery's (of the folder alone, ``kept_manifest_sha256=None``; the import's own
+    fingerprint also covers the manifest CoGA keeps, so it never equals a delivery's), is the
+    delivery's. Empty otherwise (a folder added by hand, whose check reads no file, or one that
+    changed or cannot be listed)."""
     delivery = bundle.delivery
-    if not isinstance(delivery, dict) or not bundle.package_fingerprint:
+    if not isinstance(delivery, dict):
         return {}
     delivery_id = canonical_uuid(delivery.get("id"))
-    if delivery_id is None or delivery.get("package_fingerprint") != bundle.package_fingerprint:
+    fingerprint = delivery.get("package_fingerprint")
+    if delivery_id is None or not isinstance(fingerprint, str):
+        return {}
+    try:
+        now = (await asyncio.to_thread(package_fingerprint, bundle.root, kept_manifest_sha256=None)).sha256
+    except (OSError, PackageFolderTooLarge):
+        return {}
+    if now != fingerprint:
         return {}
     checked = (
         await session.execute(
@@ -375,7 +385,7 @@ async def _delivery_checked_sha256(session: AsyncSession, bundle: FamilyPackageB
                 "SELECT package_check -> 'sha256' FROM import_deliveries "
                 "WHERE id = CAST(:delivery_id AS uuid) AND package_fingerprint = :fingerprint"
             ),
-            {"delivery_id": delivery_id, "fingerprint": bundle.package_fingerprint},
+            {"delivery_id": delivery_id, "fingerprint": fingerprint},
         )
     ).scalar_one_or_none()
     if isinstance(checked, str):

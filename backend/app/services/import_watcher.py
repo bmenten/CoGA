@@ -23,6 +23,11 @@ package file):
   samples stand in the way, each an issue;
 - ``ready``: it can be approved for import (``import_delivery_review``).
 
+A file the import reads that the package file does not list (one put into the folder after the
+pipeline wrote its file, which a dataset Discover proposed reads) is listed by CoGA itself, as it
+proposes what the file leaves out: with the size and SHA-256 it reads, no checksum of the pipeline,
+and a warning an approver acknowledges (``package_files_proposed``).
+
 Some of those issues come from what CoGA holds, not from the folder: a project the package file
 names that CoGA lacks, or of another assembly, and a family or samples that already exist. An open
 delivery (``ready``, ``needs_attention``) seen again is checked again, as a whole, when that has
@@ -37,14 +42,18 @@ even folders without a package file, is mounted and watched. Each change of a de
 clinical audit chain ``system:import-inbox``, by ``system:import-watcher``. Logs name counts,
 never a folder or a family.
 
-After the watched folders, a round follows, for each family's reference delivery (the one its data
-was last imported from whole, as a new family or with overwrite), whatever its origin, the folder
-CoGA serves the family's source files from: one that is no longer as the reference was imported,
-or is gone, makes the reference ``changed_after_import`` (``package_changed_after_import``).
+Before the watched folders, a round records the end of each approved delivery's import job, and
+offers each delivery whose import failed again: checked again, it waits for a person as a new one
+does (``import_delivery_review``). After them, it follows, for each family's reference delivery
+(the one its data was last imported from whole, as a new family or with overwrite), whatever its
+origin, the folder CoGA serves the family's source files from: one that is no longer as the
+reference was imported, or is gone, makes the reference ``changed_after_import``
+(``package_changed_after_import``).
 
-One watcher looks at a time, wherever import workers run: it holds a Postgres advisory lock on a
-connection of its own (``WatcherLeadership``), and another process's watcher skips its rounds
-until that connection is gone.
+One watcher looks at a time, wherever import workers run, also with no folder watched (a folder
+added by hand is a delivery too): it holds a Postgres advisory lock on a connection of its own
+(``WatcherLeadership``), and another process's watcher skips its rounds until that connection is
+gone.
 """
 
 from __future__ import annotations
@@ -84,6 +93,7 @@ from .coga_package import (
     package_document,
     package_issues,
     read_package_file,
+    read_unlisted_files,
 )
 from .coga_package_manifest import package_manifest, proposed_package, proposed_sections
 from .family_identifiers import identifier_problem
@@ -144,6 +154,8 @@ _EXISTING_ISSUES = frozenset({"existing_family", "existing_samples"})
 GONE_AFTER_ROUNDS = 2
 # How many unlisted files, or members, a warning names.
 _UNLISTED_NAMED = 5
+# The issue of a file the import reads that the package file does not list.
+FILE_NOT_LISTED = "package_file_not_listed"
 
 _PED_SEX = {"1": "male", "2": "female"}
 
@@ -509,9 +521,10 @@ async def assess_content(
     issues.extend(project_issues)
     assessment.manifest_text = None
     assessment.validation = None
-    if effective.family is None or check.get("proposal_issues"):
+    if effective.family is None or (check.get("proposal_issues") and proposed_sections(effective)):
         # A complete file names its family (package_issues), and what it leaves out could not be
-        # proposed: nothing more is read.
+        # proposed, nor has a correction given it since (the JSON of a folder added by hand):
+        # nothing more is read.
         issues.extend(DeliveryIssue.model_validate(item) for item in check.get("proposal_issues") or [])
         assessment.issues, assessment.warnings = issues, warnings
         assessment.state = "needs_attention"
@@ -540,12 +553,16 @@ async def assess_content(
     issues.extend(_as_issue(issue) for issue in validation.errors)
     warnings.extend(_as_issue(issue) for issue in validation.warnings)
     if bundle is not None and not by_hand:
+        # Each file the import reads is one whose SHA-256 the check computed: listed (with a
+        # checksum that matched, or none), or listed by CoGA (``assess_delivery``). A listed file
+        # whose checksum differs, or that could not be read, has its own issue.
         read_files = check.get("sha256") or {}
         not_listed = [path for path in _files_the_import_reads(folder, validation) if path not in read_files]
         issues.extend(
             _issue(
-                "package_file_not_listed",
-                f"The import reads a file {PACKAGE_FILE_NAME} does not list, or whose checksum differs.",
+                FILE_NOT_LISTED,
+                f"The import reads a file {PACKAGE_FILE_NAME} does not list: name a file the package lists, "
+                "or leave its dataset out.",
                 path,
             )
             for path in not_listed
@@ -732,44 +749,104 @@ async def assess_delivery(
         ]
         return assessment
     checked = await asyncio.to_thread(check_package_files, folder, files, checksums=True)
-    folder_warnings: list[DeliveryIssue] = []
-    if checked.unlisted:
-        named = ", ".join(checked.unlisted[:_UNLISTED_NAMED])
-        more = len(checked.unlisted) - _UNLISTED_NAMED
-        folder_warnings.append(
-            _issue(
-                "file_not_in_package",
-                f"The folder holds {len(checked.unlisted)} file(s) {PACKAGE_FILE_NAME} does not list: {named}"
-                + (f", and {more} more." if more > 0 else "."),
-            )
-        )
-    if checked.without_checksum:
-        # The owner's decision of 2026-11-11: a checksum in the package file is optional. CoGA
-        # computed these files' SHA-256 (the import records it), but cannot tell whether the copy
-        # is what the pipeline made: the approver acknowledges it.
-        named = ", ".join(checked.without_checksum[:_UNLISTED_NAMED])
-        more = len(checked.without_checksum) - _UNLISTED_NAMED
-        folder_warnings.append(
-            _issue(
-                "package_files_without_checksum",
-                f"{PACKAGE_FILE_NAME} gives no checksum for {len(checked.without_checksum)} file(s): {named}"
-                + (f", and {more} more" if more > 0 else "")
-                + ". CoGA computed their SHA-256, but cannot check that the copy is what the pipeline made.",
-            )
-        )
     package, proposal_warnings, proposal_issues = await _proposal(folder, read.package)
     assessment.package = package_document(package)
-    assessment.package_check = {
+    check: dict[str, Any] = {
         "issues": [_package_issue(issue).model_dump() for issue in checked.issues],
-        "warnings": [issue.model_dump() for issue in [*folder_warnings, *proposal_warnings]],
+        "warnings": [
+            issue.model_dump()
+            for issue in [*_folder_warnings(checked.unlisted, checked.without_checksum, []), *proposal_warnings]
+        ],
         "sha256": checked.sha256,
         "without_checksum": checked.without_checksum,
         "proposed": proposed_sections(read.package),
+        # The files CoGA listed itself: the import reads them, and the package file does not list them.
+        "proposed_files": [],
         "proposal_issues": [issue.model_dump() for issue in proposal_issues],
     }
     if watched_in is not None:
-        assessment.package_check["project_folder"] = {"name": project_folder_of(watched_in, folder)}
+        check["project_folder"] = {"name": project_folder_of(watched_in, folder)}
+    assessment.package_check = check
+    assessment = await assess_content(session_factory, folder, assessment, base=package, effective=package)
+    not_listed = [issue.path for issue in assessment.issues if issue.code == FILE_NOT_LISTED and issue.path]
+    if not not_listed:
+        return assessment
+    # The import reads files the package file does not list: files put into the folder after the
+    # pipeline wrote it (a CRAM added later, which a dataset Discover proposed reads). CoGA lists
+    # each itself, as it proposes what the file leaves out (the owner's decision of 2026-11-23):
+    # with its size and the SHA-256 it reads now (which the import records), and no checksum of the
+    # pipeline's; the approver acknowledges the warning that says so. A file that is no regular file
+    # of the folder, or cannot be read, stays an issue. The check then runs again with the package
+    # that lists them; its validation takes the VCFs it read whole from what it remembers.
+    unlisted = await asyncio.to_thread(read_unlisted_files, folder, not_listed)
+    document = package_document(package)
+    document["files"] = [*(document.get("files") or []), *(entry.model_dump(exclude_none=True) for entry in unlisted.listed)]
+    package = CogaPackage.model_validate(document)
+    proposed_files = [entry.path for entry in unlisted.listed]
+    check["sha256"] = {**checked.sha256, **unlisted.sha256}
+    check["proposed_files"] = proposed_files
+    check["issues"] = [
+        *check["issues"],
+        *(
+            _issue(
+                FILE_NOT_LISTED,
+                f"The import reads a file {PACKAGE_FILE_NAME} does not list, and CoGA could not read it to "
+                "list it: it is no regular file of the folder, or cannot be read.",
+                path,
+            ).model_dump()
+            for path in unlisted.unreadable
+        ),
+    ]
+    check["warnings"] = [
+        issue.model_dump()
+        for issue in [*_folder_warnings(checked.unlisted, checked.without_checksum, proposed_files), *proposal_warnings]
+    ]
+    assessment.package = package_document(package)
     return await assess_content(session_factory, folder, assessment, base=package, effective=package)
+
+
+def _named(paths: list[str]) -> str:
+    """Up to ``_UNLISTED_NAMED`` of ``paths``, and how many more."""
+    more = len(paths) - _UNLISTED_NAMED
+    return ", ".join(paths[:_UNLISTED_NAMED]) + (f", and {more} more" if more > 0 else "")
+
+
+def _folder_warnings(unlisted: list[str], without_checksum: list[str], proposed: list[str]) -> list[DeliveryIssue]:
+    """The warnings of what reading the package folder found: the files it holds that the package
+    file does not list (``unlisted``), but those CoGA listed itself because the import reads them
+    (``proposed``); the listed files the package file gives no checksum for; and those CoGA
+    listed."""
+    warnings: list[DeliveryIssue] = []
+    others = [path for path in unlisted if path not in set(proposed)]
+    if others:
+        warnings.append(
+            _issue(
+                "file_not_in_package",
+                f"The folder holds {len(others)} file(s) {PACKAGE_FILE_NAME} does not list: {_named(others)}.",
+            )
+        )
+    if without_checksum:
+        # The owner's decision of 2026-11-11: a checksum in the package file is optional. CoGA
+        # computed these files' SHA-256 (the import records it), but cannot tell whether the copy
+        # is what the pipeline made: the approver acknowledges it.
+        warnings.append(
+            _issue(
+                "package_files_without_checksum",
+                f"{PACKAGE_FILE_NAME} gives no checksum for {len(without_checksum)} file(s): {_named(without_checksum)}"
+                ". CoGA computed their SHA-256, but cannot check that the copy is what the pipeline made.",
+            )
+        )
+    if proposed:
+        warnings.append(
+            _issue(
+                "package_files_proposed",
+                f"{PACKAGE_FILE_NAME} does not list {len(proposed)} file(s) the import reads: {_named(proposed)}. "
+                "CoGA added them to the package's files with the size and SHA-256 it read, but cannot check "
+                "that they are what the pipeline made. Check them before approving, or leave their dataset "
+                "out (Correct…).",
+            )
+        )
+    return warnings
 
 
 async def _record(session: AsyncSession, *, action: str, delivery_id: str, after: dict[str, Any], summary: str) -> None:
@@ -1006,11 +1083,12 @@ async def look_at_folder(
             )
         ).mappings().first()
         seen: dict[str, Any] | None = dict(found) if found is not None else None
+        revision = 0
         if seen is not None:
             check_again = False
             if seen["state"] in _CHECKED_AGAIN_STATES:
                 # The package as corrected in CoGA, if it was: its project is the one compared.
-                _revision, revised = await latest_revision(session, str(seen["id"]))
+                revision, revised = await latest_revision(session, str(seen["id"]))
                 seen = {**seen, "effective": revised or seen.get("package")}
                 check_again = await _coga_side_changed(session, seen)
             await session.commit()
@@ -1020,7 +1098,9 @@ async def look_at_folder(
         assessment = await _assess_again(session_factory, folder, seen)
         if await _fingerprint(folder) != fingerprint:
             return None
-        state = await _store_check_again(session_factory, folder, str(seen["id"]), fingerprint, assessment)
+        state = await _store_check_again(
+            session_factory, folder, str(seen["id"]), fingerprint, assessment, revision=revision
+        )
         return ("checked_again", state) if state is not None else None
     # The package file as read before the fingerprint: a folder changed since then is left below.
     assessment = await _assess(session_factory, folder, read, watched_in=root)
@@ -1195,17 +1275,40 @@ async def _store_delivery(
     return assessment.state
 
 
+@dataclass(frozen=True, slots=True)
+class CheckAgain:
+    """Why a delivery is checked again, in place: the states it is checked again in (one in another
+    state, decided meanwhile, is left as it is), the event that records it, what its summary says,
+    and what else the event keeps."""
+
+    states: tuple[str, ...]
+    action: str
+    reason: str
+    after: Mapping[str, Any] = field(default_factory=dict)
+
+
+# An open delivery seen again, when what CoGA holds has changed since its check.
+COGA_CHANGED = CheckAgain(
+    states=_CHECKED_AGAIN_STATES, action="import_delivery_checked_again", reason="checked again, what CoGA holds changed"
+)
+
+
 async def _store_check_again(
     session_factory: async_sessionmaker[AsyncSession],
     folder: Path,
     delivery_id: str,
     fingerprint: str,
     assessment: DeliveryAssessment,
+    why: CheckAgain = COGA_CHANGED,
+    *,
+    revision: int,
 ) -> str | None:
     """``_update_checked_again``; when that fails, the delivery without what its check found, so it
     is not checked again each round."""
     try:
-        return await _update_checked_again(session_factory, folder, delivery_id, fingerprint, assessment)
+        return await _update_checked_again(
+            session_factory, folder, delivery_id, fingerprint, assessment, why, revision=revision
+        )
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - kept without what it could not store, never retried each round
@@ -1215,7 +1318,9 @@ async def _store_check_again(
         issues=[_issue("watch_store_failed", "CoGA could not keep what the delivery's check found; it checks again when the folder changes.")],
     )
     try:
-        return await _update_checked_again(session_factory, folder, delivery_id, fingerprint, unstored)
+        return await _update_checked_again(
+            session_factory, folder, delivery_id, fingerprint, unstored, why, revision=revision
+        )
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - one folder's failure never stops the round
@@ -1229,11 +1334,17 @@ async def _update_checked_again(
     delivery_id: str,
     fingerprint: str,
     assessment: DeliveryAssessment,
+    why: CheckAgain = COGA_CHANGED,
+    *,
+    revision: int,
 ) -> str | None:
     """Store what checking the delivery ``delivery_id`` again found, in its row, and record it on
-    the chain with what it replaced, in one transaction. The row is locked first: a delivery
-    decided meanwhile (approved, refused) is left as it is. What the package file said is kept when the
-    check could not read it (the folder is the same). Returns its state, or None when it was left."""
+    the chain with what it replaced (``why``: its event), in one transaction. The row is locked
+    first: a delivery no longer in one of ``why.states`` (approved, refused meanwhile), or
+    corrected since the check read its package at ``revision`` (the correction checked it, with the
+    package the import will read, and its manifest must stay), is left as it is. What the package
+    file said is kept when the check could not read it (the folder is the same). Returns its state,
+    or None when it was left."""
     async with session_factory() as session:
         before = (
             await session.execute(
@@ -1248,7 +1359,18 @@ async def _update_checked_again(
                 {"id": delivery_id, "fingerprint": fingerprint},
             )
         ).mappings().first()
-        if before is None or before["state"] not in _CHECKED_AGAIN_STATES:
+        if before is None or before["state"] not in why.states:
+            return None
+        latest = (
+            await session.execute(
+                text(
+                    "SELECT COALESCE(max(revision), 0) FROM import_delivery_revisions "
+                    "WHERE delivery_id = CAST(:id AS uuid)"
+                ),
+                {"id": delivery_id},
+            )
+        ).scalar_one()
+        if int(latest) != revision:
             return None
         await session.execute(
             text(
@@ -1293,7 +1415,7 @@ async def _update_checked_again(
         previous = [str(item.get("code")) for item in _json_list(before["issues"]) if isinstance(item, dict)]
         await _record(
             session,
-            action="import_delivery_checked_again",
+            action=why.action,
             delivery_id=delivery_id,
             after={
                 "folder": folder.name,
@@ -1305,8 +1427,9 @@ async def _update_checked_again(
                 "issues": [issue.code for issue in assessment.issues],
                 "previous_state": before["state"],
                 "previous_issues": previous,
+                **why.after,
             },
-            summary=f"Delivery {folder.name}: checked again, what CoGA holds changed; {assessment.state.replace('_', ' ')}",
+            summary=f"Delivery {folder.name}: {why.reason}; {assessment.state.replace('_', ' ')}",
         )
         await session.commit()
     return assessment.state
@@ -1363,6 +1486,10 @@ class WatchRound:
     superseded_for_run: int = 0
     gone: int = 0
     jobs_ended: int = 0
+    # Deliveries whose import failed, offered again by state (``ready``, ``needs_attention``), and
+    # those whose folder changed since, superseded (import_delivery_review.offer_failed_deliveries_again).
+    offered_again: dict[str, int] = field(default_factory=dict)
+    superseded_after_failure: int = 0
     # Imported deliveries whose folder changed, or went, after their import, and changes that
     # ended (package_changed_after_import).
     changed_after_import: int = 0
@@ -1386,17 +1513,22 @@ async def _open_deliveries(session_factory: async_sessionmaker[AsyncSession], ro
 
 
 async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roots: list[Path]) -> WatchRound:
-    """One round over the watched folders ``roots`` (see the module's docstring). It first records
-    the end of each queued delivery's import job (``import_delivery_review.sync_delivery_jobs``),
-    and last follows the package folder of each family imported from a delivery, against its
-    reference delivery (``package_changed_after_import.follow_imported_deliveries``)."""
+    """One round over the watched folders ``roots`` (see the module's docstring), none or more. It
+    first records the end of each queued delivery's import job
+    (``import_delivery_review.sync_delivery_jobs``) and offers each delivery whose import failed
+    again (``import_delivery_review.offer_failed_deliveries_again``), and last follows the package
+    folder of each family imported from a delivery, against its reference delivery
+    (``package_changed_after_import.follow_imported_deliveries``): those hold for a folder added by
+    hand too, so they run with no folder watched."""
     # Imported here: the review module and the following of imported deliveries read this one's
     # chain and list.
-    from .import_delivery_review import sync_delivery_jobs
+    from .import_delivery_review import offer_failed_deliveries_again, sync_delivery_jobs
     from .package_changed_after_import import follow_imported_deliveries
 
     result = WatchRound()
     result.jobs_ended = await sync_delivery_jobs(session_factory)
+    offered = await offer_failed_deliveries_again(session_factory)
+    result.offered_again, result.superseded_after_failure = offered.offered, offered.superseded
     skipped: set[str] = set()
     seen_fingerprints: dict[str, str] = {}
     for root in roots:
@@ -1481,12 +1613,12 @@ class WatcherLeadership:
 
 
 async def import_watcher(stop: asyncio.Event) -> None:
-    """Look into the watched import folders every FAMILY_IMPORT_WATCH_INTERVAL_SECONDS until
-    ``stop`` is set, while this watcher holds the leadership. Returns at once when no folder is
-    watched. A round that fails is logged, without its values, and the next one runs."""
+    """Run a round (``run_watch_round``) every FAMILY_IMPORT_WATCH_INTERVAL_SECONDS until ``stop``
+    is set, while this watcher holds the leadership. It runs wherever import workers run, also
+    with no folder watched: a folder added by hand is a delivery too, whose import job's end a
+    round records, and whose folder it follows after its import. A round that fails is logged,
+    without its values, and the next one runs."""
     roots = watch_roots()
-    if not roots:
-        return
     leadership = WatcherLeadership()
     logger.info("Import watcher watching %d import folder(s)", len(roots))
     try:
@@ -1501,19 +1633,24 @@ async def import_watcher(stop: asyncio.Event) -> None:
                         or done.gone
                         or done.roots_skipped
                         or done.jobs_ended
+                        or done.offered_again
+                        or done.superseded_after_failure
                         or done.changed_after_import
                         or done.gone_after_import
                         or done.changes_ended
                     ):
                         logger.info(
                             "Import watch round: new deliveries %s, checked again %s, %d superseded by a "
-                            "run, %d gone, %d import job(s) ended, %d of %d import folder(s) skipped; "
+                            "run, %d gone, %d import job(s) ended, failed imports offered again %s, %d "
+                            "superseded after a failed import, %d of %d import folder(s) skipped; "
                             "after their import %d folder(s) changed, %d gone, %d change(s) ended",
                             dict(sorted(done.deliveries.items())),
                             dict(sorted(done.checked_again.items())),
                             done.superseded_for_run,
                             done.gone,
                             done.jobs_ended,
+                            dict(sorted(done.offered_again.items())),
+                            done.superseded_after_failure,
                             done.roots_skipped,
                             len(roots),
                             done.changed_after_import,
@@ -1560,8 +1697,16 @@ UPDATE_IMPORT_UNDER_A_CHANGE = """
     )
 """
 
+# The deliveries the list gives first, before the decided ones: those that wait for a person or
+# for their import, an imported one whose folder changed since, a failed one until it is offered
+# again, and one an administrator may approve again to overwrite. So none drops off a list of the
+# latest changes behind the superseded deliveries of a slow copy.
+LISTED_FIRST_STATES = ("incomplete", "ready", "needs_attention", "queued", "changed_after_import", "failed")
+
 _DELIVERY_COLUMNS = f"""
     (d.state = 'imported' AND {UPDATE_IMPORT_UNDER_A_CHANGE}) AS overwrite_approvable,
+    (SELECT r.package FROM import_delivery_revisions r WHERE r.delivery_id = d.id
+     ORDER BY r.revision DESC LIMIT 1) AS revised_package,
     d.id::text AS id, d.watch_root, d.folder_path, d.folder_name, d.state, d.package_fingerprint,
     d.marker_sha256, d.marker, d.run_id, d.family_id, d.project_id::text AS project_id, d.issues,
     d.warnings, d.manifest_sha256, d.job_id::text AS job_id, d.first_seen_at, d.last_seen_at,
@@ -1582,6 +1727,10 @@ def _delivery_out(row: Any) -> ImportDeliveryOut:
         else (row["package"] if isinstance(row["package"], dict) else {})
     )
     pipeline: dict[str, Any] = marker["pipeline"] if isinstance(marker.get("pipeline"), dict) else {}
+    # Where the package belongs as the import reads it: as last corrected in CoGA (the project, the
+    # analysis, the pregnancy are the laboratory's), else as delivered.
+    revised = _json_object(row.get("revised_package"))
+    described: dict[str, Any] = revised if revised is not None else marker
     return ImportDeliveryOut(
         _id=ApiId(row["id"]),
         watch_root=row["watch_root"],
@@ -1593,9 +1742,9 @@ def _delivery_out(row: Any) -> ImportDeliveryOut:
         run_id=row["run_id"],
         family_id=row["family_id"],
         project_id=ApiId(row["project_id"]) if row["project_id"] else None,
-        project=_text(marker.get("project")),
-        analysis_type=_text(marker.get("analysis_type")),
-        pregnancy_id=_text(marker.get("pregnancy_id")),
+        project=_text(described.get("project")),
+        analysis_type=_text(described.get("analysis_type")),
+        pregnancy_id=_text(described.get("pregnancy_id")),
         pipeline_name=_text(pipeline.get("name")),
         pipeline_version=_text(pipeline.get("version")),
         request_id=_text(marker.get("request_id")),
@@ -1624,7 +1773,8 @@ def _source_change(value: Any) -> PackageSourceChangeOut | None:
 async def list_import_deliveries(
     session: AsyncSession, *, states: list[str] | None, limit: int
 ) -> list[ImportDeliveryOut]:
-    """The deliveries, the latest change first; with ``states``, those in one of them."""
+    """The deliveries, those in ``LISTED_FIRST_STATES`` (and an imported one an administrator may
+    approve again) first, then the latest change first; with ``states``, those in one of them."""
     rows = (
         await session.execute(
             text(
@@ -1633,11 +1783,17 @@ async def list_import_deliveries(
                 FROM import_deliveries d
                 LEFT JOIN family_import_jobs j ON j.id = d.job_id
                 WHERE CAST(:states AS text[]) IS NULL OR d.state = ANY(CAST(:states AS text[]))
-                ORDER BY d.state_changed_at DESC, d.id
+                ORDER BY (
+                    d.state = ANY(CAST(:first AS text[])) OR (d.state = 'imported' AND {UPDATE_IMPORT_UNDER_A_CHANGE})
+                ) DESC, d.state_changed_at DESC, d.id
                 LIMIT :limit
                 """
             ),
-            {"states": states, "limit": max(1, min(int(limit), DELIVERY_LIST_LIMIT))},
+            {
+                "states": states,
+                "first": list(LISTED_FIRST_STATES),
+                "limit": max(1, min(int(limit), DELIVERY_LIST_LIMIT)),
+            },
         )
     ).mappings().all()
     return [_delivery_out(row) for row in rows]

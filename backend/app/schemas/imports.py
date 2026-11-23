@@ -355,7 +355,7 @@ class ImportDeliveryRevisionOut(BaseModel):
 class ImportDeliveryPackageOut(BaseModel):
     """A delivery's package as its import would read it now: the latest revision's (``revision``,
     0 for none), or the package as checked; the pipeline's file as written (``original``); the
-    sections CoGA proposed from the folder; and every correction."""
+    sections CoGA proposed from the folder, and the files it listed itself; and every correction."""
 
     delivery_id: str
     revision: int
@@ -363,6 +363,9 @@ class ImportDeliveryPackageOut(BaseModel):
     package_sha256: Optional[str] = None
     original: Optional[Dict[str, Any]] = None
     proposed: List[str] = Field(default_factory=list)
+    # The files the import reads that the pipeline's file does not list, which CoGA listed in the
+    # package with the size and SHA-256 it read (import_watcher.assess_delivery).
+    proposed_files: List[str] = Field(default_factory=list)
     revisions: List[ImportDeliveryRevisionOut] = Field(default_factory=list)
     # ``manual``: a folder added by hand, whose package CoGA made: members are added and removed
     # freely, and the package is edited as JSON.

@@ -441,8 +441,11 @@ the repository (`docs/coga-package.md`, `docs/schemas/`). A short one:
 **What CoGA checks.** The package file follows the format. Every listed file is there at its size,
 with its checksum where the package file gives one; a file listed without one has its SHA-256
 computed by CoGA, and the delivery warns that the copy was not checked against what the pipeline
-made (acknowledge it to approve). Every file the import reads is listed; a file in the folder the package file
-does not list is a warning. The project exists with the package file's assembly (by its build:
+made (acknowledge it to approve). Every file the import reads is listed: one the package file does
+not list, such as a CRAM put into the folder after the pipeline wrote its file, CoGA lists itself in
+the package, with its size and the SHA-256 it reads, and the delivery warns you to check it
+(**Correct…** and **Package…** name it; leave its dataset out if it does not belong). Any other file
+in the folder the package file does not list is a warning. The project exists with the package file's assembly (by its build:
 `GRCh38.p14` and `hg38` are a GRCh38 project's), and the package
 passes validation as a dry run runs it. A PED in the folder that says otherwise than the
 package file's members is a warning: the pipeline may have used it. Each check that fails is listed
@@ -501,7 +504,8 @@ with the delivery.
 - After the import CoGA keeps watching the folder, also one added by hand: the family's read files
   (IGV), signal tracks and QC report are shown from it. A folder that changes (a file added, removed,
   or changed in size or time), or is gone for two looks while the folder around it can be read, is
-  listed as *Changed after import*, with the files that changed, and every page of the family shows
+  listed as *Changed after import*, with the files that changed (on the row of the folder's new
+  delivery, once there is one: a folder is one row), and every page of the family shows
   *Package folder changed after import* (or *Package folder gone*); signing out its report asks for a
   reason. It ends when the folder is as it was imported again, or when its new delivery is imported
   with overwrite or refused with a reason: a refused folder state is not raised again. Importing it
@@ -517,7 +521,12 @@ with the delivery.
   mounted: its deliveries stay listed until something is back in it.
 
 An approved delivery shows its import job, and becomes *Imported* or *Import failed* when the job
-ends. The decided and superseded deliveries are listed on request.
+ends. A delivery whose import failed (a full disk, a database that went away) is offered again at
+CoGA's next look at the folders: checked again, it waits under its state as before, saying its import
+failed and naming the job, whose record under *Recent family imports* says why. If the failed import
+kept the family with the datasets that did import, the family now exists: approve it with *Update*
+to add what failed. A folder that changed since is a new delivery instead. The decided and
+superseded deliveries are listed on request; their issues are those of their last check, folded.
 
 ### The steps
 

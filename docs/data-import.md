@@ -942,14 +942,17 @@ delivery on the Package Import page, and only then is its import queued (below).
 **Settings.**
 
 - `FAMILY_IMPORT_WATCH_ROOTS` names the watched folders: local folders under
-  `FAMILY_IMPORT_ROOTS`, comma-separated or a JSON list. Empty, the default, means no watcher. A
-  folder outside the import roots is not watched, and the log says how many; an entry with a
-  scheme (`gs://` or `s3://`) stops the backend at start: name the folder a bucket is mounted on.
+  `FAMILY_IMPORT_ROOTS`, comma-separated or a JSON list. Empty, the default, means no folder is
+  watched; the rounds still run, for what they do beyond the watched folders (the end of each
+  approved delivery's import, a failed one offered again, the folders of imported ones followed),
+  which a folder added by hand needs too. A folder outside the import roots is not watched, and the
+  log says how many; an entry with a scheme (`gs://` or `s3://`) stops the backend at start: name
+  the folder a bucket is mounted on.
 - `FAMILY_IMPORT_WATCH_INTERVAL_SECONDS` (default 300, 30 to 86400) is the time between rounds.
-- The watcher runs where the import workers run: in each import-worker process, and in the API
-  when it runs import workers itself (`FAMILY_IMPORT_WORKER_COUNT` above 0). One watcher looks at
-  a time: it holds a Postgres advisory lock on a connection of its own, and the others skip their
-  rounds until that connection is gone.
+- The watcher runs where the import workers run, whether a folder is watched or not: in each
+  import-worker process, and in the API when it runs import workers itself
+  (`FAMILY_IMPORT_WORKER_COUNT` above 0). One watcher looks at a time: it holds a Postgres advisory
+  lock on a connection of its own, and the others skip their rounds until that connection is gone.
 
 **Project folders.** A watched folder holds a folder per project, named exactly as the project in
 CoGA, and each package folder lies in the folder of its project (the owner's decision of
@@ -989,7 +992,8 @@ file, as JSON so that every ID stays text:
     (`dataset_vcf_sample_unknown`) until that sample is added as a member
     ([Correcting a delivery](#correcting-a-delivery)).
   - Only a draft whose members themselves do not validate is refused (`discover_failed`), and the
-    package then keeps no members.
+    package then keeps no members: the delivery needs attention until a correction gives the
+    members and datasets (a folder added by hand, edited as JSON).
 - What the file gives wins over Discover's draft: the family ID, the analysis, the region of
   interest and the PGT details.
 - What Discover proposes is written into the package the delivery keeps
@@ -1016,14 +1020,22 @@ changes is a new delivery. One seen before is checked again only when what CoGA 
    checksum has its SHA-256 computed, and the delivery warns that the copy is unchecked
    (`package_files_without_checksum`). The import records the SHA-256 this check computed, for
    the folder as it read it, rather than read each file again. A file in the folder that the
-   package file does not list is a warning (a file browser's own files are not counted);
+   package file does not list is a warning (a file browser's own files are not counted), unless
+   the import reads it (step 7);
 4. the pipeline's QC (`fail` needs attention, `warn` is a warning), and the project and its
    assembly;
 5. the manifest made from the package file (above), and the folder's PED against the members;
 6. the package's validation, as a dry run runs it ([Validation](#validation)), and the region of
    interest;
-7. every file the import reads (each file an enabled dataset names, and the PED when Discover
-   proposed the members from it) is listed, with a matching checksum where it has one;
+7. every file the import reads (each file an enabled dataset names) is listed, with a matching
+   checksum where it has one. One the package file does not list (a file put into the folder after
+   the pipeline wrote its file, such as a CRAM added later that a dataset Discover proposed reads)
+   is listed by CoGA itself, as it proposes what the file leaves out (the owner's decision of
+   2026-11-23): CoGA reads it once, adds it to the package's `files` with its size and no checksum
+   (the pipeline gave none), keeps the SHA-256 it read (which the import records), and warns
+   (`package_files_proposed`): the approver acknowledges that CoGA cannot check it is what the
+   pipeline made. A file it cannot list that way (no regular file of the folder, or unreadable),
+   and one a correction makes the import read, needs attention (`package_file_not_listed`);
 8. a family or samples that already exist: an existing family needs an approver's choice of update
    or overwrite, never a new family.
 
@@ -1049,7 +1061,8 @@ be read, or whose check could not run or be stored, is checked again only when i
 | `incomplete`, `ready`, `needs_attention` | open: checked, waiting for a person |
 | `superseded` | a newer delivery of the same folder came before anyone decided, or its pipeline runs again in the folder |
 | `gone` | its folder, or its package file, missing for two rounds while the watched folder could be read |
-| `queued`, `imported`, `failed`, `refused` | a person decided (below) |
+| `queued`, `imported`, `refused` | a person decided (below) |
+| `failed` | its import failed; the round that finds it so offers it again (below) |
 | `changed_after_import` | the reference delivery of a family whose package folder changed, or went, after its import |
 | `archived` | one whose gone folder a superuser confirmed as deliberately gone ([below](#after-the-import-a-package-folder-that-changes)) |
 
@@ -1068,12 +1081,23 @@ run and its status). Verify it with
 `GET /admin/integrity/verify?table=clinical_audit_events&family_id=system:import-inbox`. The logs
 name counts only, never a folder or a family.
 
-**The list.** `GET /family-imports/deliveries` (superuser) gives the deliveries, the latest change
-first, with their state, issues, warnings, what the package file says (project, analysis type,
-pipeline, run, request) and the last import job it was approved for (`job_id`, `job_status`,
-`job_dry_run`); `state` (repeatable) keeps those in the states named, `limit` (at most 200) how
-many. The Package Import page shows them under **Deliveries**, the open ones first (the decided
-and superseded ones on request), with how many wait.
+**The list.** `GET /family-imports/deliveries` (superuser) gives the deliveries: those that wait for
+a person or their import first (with an imported one whose folder changed, a failed one not yet
+offered again, and one an administrator may approve again), so that none drops off behind the
+superseded deliveries of a slow copy, then the latest change first. Each comes with its state,
+issues and warnings, what the package file says (the pipeline, run and request; the project,
+analysis type and pregnancy as last corrected in CoGA) and the last import job it was approved
+for (`job_id`, `job_status`, `job_dry_run`); `state` (repeatable) keeps those in the states named,
+`limit` (at most 200) how many. The Package Import page shows them under **Deliveries**, the open ones first (the decided
+and superseded ones on request), with how many wait. A folder is one row:
+
+- The new delivery of a folder that changed after its import tells of the change (*Changed after
+  import*, what changed since, and what ends the family's notice); the imported delivery whose
+  change it is is not listed apart.
+- A decided delivery's issues are those of its last check (an existing family it was approved for
+  with update, say): they are folded, under *issue(s) at its last check*.
+- A delivery whose import failed, offered again, says so with the failed job, whose record under
+  *Recent family imports* says why.
 
 #### Correcting a delivery
 
@@ -1186,7 +1210,11 @@ the family's package record of its analysis names it as added by hand.
   one, the delivery needs attention until it is corrected.
 - No watcher looks at it before its import, also when the folder lies in a watched folder: it is
   never superseded or gone by a round, and is not checked again when what CoGA holds changes; a
-  correction checks it. After its import the watcher follows its folder as it does a watched
+  correction checks it. It is superseded when a pipeline's package file appears in its folder (the
+  watcher's delivery of the folder is the one to decide on), or when its folder changed after its
+  import failed; one whose import failed is offered again as a watched delivery is (below). An
+  approval or a correction of one whose folder changed since it was added answers 409: refuse it,
+  and add the folder again by hand. After its import the watcher follows its folder as it does a watched
   delivery's ([below](#after-the-import-a-package-folder-that-changes)).
 - Refused: a folder outside the import roots, a family ID no family can be stored under (400), a
   project CoGA does not have (404), a folder that holds its own `coga-package.json` (409: deliver
@@ -1230,6 +1258,15 @@ Nothing is imported until a superuser decides, on the Package Import page or thr
   it is `archived` ([below](#after-the-import-a-package-folder-that-changes)).
 - At the start of each round the watcher records the end of each queued delivery's import job:
   `imported` when it completed, `failed` when it failed.
+- **A failed import is offered again** (the owner's decision of 2026-11-23), in the same round,
+  whatever its origin: a delivery whose folder is as it was checked is checked again as a whole,
+  in place, for what the failed import may have left (a new family kept with the datasets that
+  imported, flagged import-incomplete: its family now exists, so an update completes it), and is
+  `ready` or `needs_attention` again, the failed job still named (`job_id`, `job_status`). The event
+  `import_delivery_offered_again` records it with the failed job and the state and issues before
+  and after. One whose folder changed since is `superseded` (a watched folder's new delivery is the
+  offer; a folder added by hand is added again); one whose folder cannot be read now is tried again
+  in the next round. A failed overwrite of a delivery approved again stays `imported` (below).
 
 Each decision is an event on the `system:import-inbox` chain, by the person who made it (the
 reason of a refusal, the job, the policy and whether the warnings were acknowledged), and in the
@@ -3178,6 +3215,8 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | `package_adds_members` (warning) | The package adds members to a family that exists. Update and overwrite add them to the family's pedigree: check that they belong to it. |
 | `package_fills_member_values` (warning) | The family holds another analysis, and the package gives a member the family holds a value the family does not know yet (a sex, a parent, a status). The import fills it in and keeps every value the family knows: check that it is right. |
 | `package_files_without_checksum` (warning) | `coga-package.json` lists files without a `sha256` or `md5`. CoGA computed their SHA-256 (the import records it), but cannot check that the copy on the share is what the pipeline made. Acknowledge it to approve, or have the pipeline or its copy step write the checksums. |
+| `package_files_proposed` (warning) | The import reads files `coga-package.json` does not list (put into the folder after the pipeline wrote it, such as a CRAM added later): CoGA listed them in the package with their size and the SHA-256 it read (**Correct…** and **Package…** name them). Check that they belong to the package, and acknowledge it to approve; or leave their dataset out in **Correct…**, or have the pipeline write the package file again. |
+| `package_file_not_listed` | The import reads a file `coga-package.json` does not list, and CoGA could not list it (no regular file of the folder, or unreadable), or a correction named it. Point the dataset at a file the package lists, or leave it out (**Correct…**); or put the file right, which makes a new delivery. |
 | `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to its import folder, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |
 | "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |

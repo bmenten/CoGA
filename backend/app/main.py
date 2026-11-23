@@ -149,13 +149,10 @@ async def lifespan(app: FastAPI):
     carrier_task = (
         asyncio.create_task(variant_carrier_worker(carrier_stop)) if family_import_worker_tasks else None
     )
-    # So does the import watcher, when FAMILY_IMPORT_WATCH_ROOTS names a folder: one at a time.
+    # So does the import watcher, one at a time: also with no folder watched, as a folder added
+    # by hand is a delivery too, whose import's end a round records.
     watcher_stop = asyncio.Event()
-    watcher_task = (
-        asyncio.create_task(import_watcher(watcher_stop))
-        if family_import_worker_tasks and settings.family_import_watch_roots
-        else None
-    )
+    watcher_task = asyncio.create_task(import_watcher(watcher_stop)) if family_import_worker_tasks else None
     try:
         yield
     finally:

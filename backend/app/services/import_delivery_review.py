@@ -34,6 +34,14 @@ route's check, as for every overwrite).
   apart (``package_changed_after_import.archive_gone_delivery``).
 - **The job's end.** A queued delivery whose import job has ended is ``imported`` or ``failed``
   (``sync_delivery_jobs``, at the start of each watch round).
+- **A failed import, offered again** (the owner's decision of 2026-11-23). A delivery whose import
+  failed (a full disk, a database that went away) waits for a person again: in the same round it
+  is checked again as a whole, in place (``offer_failed_deliveries_again``), for what it failed
+  may have left (a family kept with the datasets that imported, flagged import-incomplete, which
+  an update completes), and is ``ready`` or ``needs_attention`` with the failed job still named.
+  One whose folder changed since is ``superseded``: a watched folder's new delivery is the offer,
+  a folder added by hand is added again. One whose folder cannot be read now is tried again in
+  the next round.
 
 Each decision is an event on the clinical audit chain ``system:import-inbox``, by the person
 who made it, and is in the request audit too.
@@ -43,6 +51,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +70,10 @@ from .import_watcher import (
     IMPORT_INBOX_CHAIN,
     UPDATE_IMPORT_UNDER_A_CHANGE,
     WATCHER_ACTOR,
+    CheckAgain,
+    _assess_again,
+    _fingerprint,
+    _store_check_again,
     get_import_delivery,
     latest_revision,
 )
@@ -77,6 +90,17 @@ DELIVERY_CHANGED = (
     "The delivery's folder changed since it was checked: nothing was queued. The watcher checks "
     "it again in its next round, as a new delivery."
 )
+# The same for a folder added by hand, which no watcher looks at before its import.
+DELIVERY_CHANGED_BY_HAND = (
+    "The delivery's folder changed since it was added: nothing was queued. Refuse this delivery, "
+    "and add the folder again by hand."
+)
+
+
+def delivery_changed(origin: Any) -> str:
+    """Why a delivery whose folder changed since its check is not approved or corrected, by its
+    origin: a watched folder's is checked again as a new delivery, one added by hand is not."""
+    return DELIVERY_CHANGED_BY_HAND if origin == "manual" else DELIVERY_CHANGED
 DELIVERY_REVISED_SINCE = (
     "The delivery's package was corrected since you looked at it: look at it again, and approve "
     "it as it is now."
@@ -236,7 +260,7 @@ async def approve_delivery(
     if revision != current:
         raise HTTPException(status_code=409, detail=DELIVERY_REVISED_SINCE)
     if await _folder_fingerprint(delivery["folder_path"]) != delivery["package_fingerprint"]:
-        raise HTTPException(status_code=409, detail=DELIVERY_CHANGED)
+        raise HTTPException(status_code=409, detail=delivery_changed(delivery["origin"]))
     package = revised or (
         delivery["package"] if isinstance(delivery["package"], dict) else json.loads(delivery["package"] or "null")
     )
@@ -396,3 +420,99 @@ async def sync_delivery_jobs(session_factory: async_sessionmaker[AsyncSession]) 
             )
         await session.commit()
     return len(rows)
+
+
+@dataclass(slots=True)
+class OfferedAgain:
+    """What ``offer_failed_deliveries_again`` did: the deliveries offered again, by the state their
+    check again found, and those superseded because their folder changed since."""
+
+    offered: dict[str, int] = field(default_factory=dict)
+    superseded: int = 0
+
+
+async def offer_failed_deliveries_again(session_factory: async_sessionmaker[AsyncSession]) -> OfferedAgain:
+    """Offer each delivery whose import failed again (see the module's docstring): one whose
+    folder is as it was checked is checked again as a whole, in place, and is ``ready`` or
+    ``needs_attention``, recorded as ``import_delivery_offered_again`` with the failed job; one
+    whose folder changed since is ``superseded``; one whose folder cannot be read now is left for
+    the next round."""
+    done = OfferedAgain()
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT id::text AS id, folder_path, folder_name, state, package_fingerprint, issues, warnings,
+                           project_id::text AS project_id, marker, validation, marker_sha256, run_id, family_id,
+                           package, package_check, job_id::text AS job_id
+                    FROM import_deliveries
+                    WHERE state = 'failed'
+                    ORDER BY state_changed_at, id
+                    """
+                )
+            )
+        ).mappings().all()
+    for row in rows:
+        folder = Path(row["folder_path"])
+        fingerprint = await _fingerprint(folder)
+        if fingerprint is None:
+            continue
+        if fingerprint != row["package_fingerprint"]:
+            done.superseded += await _supersede_failed(session_factory, dict(row))
+            continue
+        async with session_factory() as session:
+            revision, revised = await latest_revision(session, row["id"])
+        seen = {**row, "effective": revised or row["package"]}
+        assessment = await _assess_again(session_factory, folder, seen)
+        # Changed while it was checked: the next round finds it changed.
+        if await _fingerprint(folder) != fingerprint:
+            continue
+        state = await _store_check_again(
+            session_factory,
+            folder,
+            row["id"],
+            fingerprint,
+            assessment,
+            CheckAgain(
+                states=("failed",),
+                action="import_delivery_offered_again",
+                reason="its import failed, offered again",
+                after={"failed_job_id": row["job_id"]},
+            ),
+            revision=revision,
+        )
+        if state is not None:
+            done.offered[state] = done.offered.get(state, 0) + 1
+    return done
+
+
+async def _supersede_failed(session_factory: async_sessionmaker[AsyncSession], delivery: dict[str, Any]) -> int:
+    """Supersede the failed delivery ``delivery``, whose folder changed since it was checked: it can
+    no longer be approved as it was. Returns 1, or 0 when it was decided meanwhile."""
+    async with session_factory() as session:
+        superseded = (
+            await session.execute(
+                text(
+                    """
+                    UPDATE import_deliveries
+                    SET state = 'superseded', state_changed_at = now()
+                    WHERE id = CAST(:id AS uuid) AND state = 'failed'
+                    RETURNING id::text
+                    """
+                ),
+                {"id": delivery["id"]},
+            )
+        ).first()
+        if superseded is None:
+            return 0
+        await _record(
+            session,
+            user=None,
+            action="import_delivery_superseded",
+            delivery=delivery,
+            summary=f"Delivery {delivery['folder_name']}: superseded, its folder changed after its import failed",
+            after={"state": "superseded", "failed_job_id": delivery["job_id"], "folder_changed": True},
+        )
+        await session.commit()
+    return 1

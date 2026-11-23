@@ -6,7 +6,8 @@ format, so that a run under way is never offered for import. It checks the folde
 files the package file lists: a file missing or of another size means the copy runs still, a
 checksum that differs a copy that is not what the pipeline made, and a path that leads out of the
 folder through a link is refused. A file the package file does not list is reported apart, but for
-what a file browser writes and the package file itself.
+what a file browser writes and the package file itself; one the import reads is read for CoGA to
+list it (its size and SHA-256), unless it is no regular file of the folder.
 
 All samples and values here are synthetic.
 """
@@ -27,6 +28,7 @@ from backend.app.services.coga_package import (
     PackageFile,
     check_package_files,
     read_package_file,
+    read_unlisted_files,
 )
 
 
@@ -293,3 +295,44 @@ def test_a_folder_too_large_to_be_a_package_is_refused(package: Path, monkeypatc
 
     with pytest.raises(package_module.PackageFolderTooLarge):
         check_package_files(package, [], checksums=False)
+
+
+def test_an_unlisted_file_is_read_for_coga_to_list_it_and_one_that_is_no_regular_file_is_not(
+    package: Path, tmp_path: Path
+) -> None:
+    (package / "late").mkdir()
+    (package / "late" / "PROBAND.cram").write_bytes(b"a CRAM put into the folder later")
+    (package / "late" / "linked.cram").symlink_to("PROBAND.cram")
+    outside = tmp_path / "outside.cram"
+    outside.write_bytes(b"x")
+    (package / "late" / "out.cram").symlink_to(outside)
+
+    read = read_unlisted_files(
+        package,
+        ["late/PROBAND.cram", "late/PROBAND.cram", "late/linked.cram", "late/out.cram", "late/missing.cram", "snv"],
+    )
+
+    content = (package / "late" / "PROBAND.cram").read_bytes()
+    # Listed with its size and no checksum: the pipeline gave none; its SHA-256 is CoGA's.
+    assert [entry.model_dump(exclude_none=True) for entry in read.listed] == [
+        {"path": "late/PROBAND.cram", "size": len(content)}
+    ]
+    assert read.sha256 == {"late/PROBAND.cram": hashlib.sha256(content).hexdigest()}
+    assert read.unreadable == ["late/linked.cram", "late/missing.cram", "late/out.cram", "snv"]
+
+
+def test_an_unlisted_file_that_cannot_be_read_or_whose_path_the_format_refuses_is_not_listed(
+    package: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (package / "bad name\\x.cram").write_bytes(b"x")
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(package_module, "_checksums", refuse)
+
+    read = read_unlisted_files(package, ["family.ped", "bad name\\x.cram"])
+
+    assert (read.listed, read.sha256) == ([], {})
+    assert read.unreadable == ["bad name\\x.cram", "family.ped"]
+

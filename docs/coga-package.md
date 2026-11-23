@@ -215,7 +215,10 @@ Against the folder and CoGA, when the import watcher reads the file
 - a PED in the folder against the members (a warning when it says otherwise: the pipeline's tools
   may have read it);
 - the package's validation with the manifest made from the file, and every file the import reads
-  listed;
+  listed. A file the import reads that the file does not list (put into the folder after the file
+  was written, such as a CRAM added later) is listed by CoGA in the package it keeps, with its size
+  and no checksum, and its SHA-256 kept: the delivery warns (`package_files_proposed`), and an
+  approver checks it;
 - the family and samples CoGA already holds: a sample a `same_individual_as` names that the
   file does not list is an active member of the family (its ID written as the family holds it),
   or the delivery needs attention (`package_same_individual_outside`), and its import is refused.
@@ -231,7 +234,7 @@ The pipeline's file is never changed: CoGA keeps its bytes and their SHA-256.
   with its reason, who made it and when, also on the import inbox's audit chain. The import reads
   the package with the changes ([data-import.md](data-import.md#correcting-a-delivery)).
 - What CoGA proposed for a minimal file is written into the package first, and corrected the same
-  way.
+  way; so are the files CoGA listed because the import reads them.
 - The family's record keeps the file's checksum, the revision, the SHA-256 of the package imported
   and every change. The signed record (*Package intake*) and the family page (*Corrected at
   intake*) list every change made at intake, marking a change of what the pipeline used and a
