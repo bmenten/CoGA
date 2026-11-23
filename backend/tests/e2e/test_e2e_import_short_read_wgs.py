@@ -31,7 +31,7 @@ from sqlalchemy import text
 
 from backend.tests._short_read_wgs_package import MAX_AF, members, write_short_read_wgs_folder
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job, job_outcome
+from backend.tests.e2e._import_jobs import acknowledged, claim_import_job, job_outcome
 from backend.tests.e2e.test_e2e_import_watcher import write_package
 
 pytestmark = pytest.mark.integration
@@ -80,7 +80,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         delivery_id = out["added"]["json"]["_id"]
         url = f"/api/family-imports/deliveries/{delivery_id}"
         out["package"] = capture(await client.get(f"{url}/package"))
-        out["approved"] = capture(await client.post(f"{url}/approve", json={"revision": 0, "acknowledge_warnings": True}))
+        out["approved"] = capture(await client.post(f"{url}/approve", json=await acknowledged(delivery_id)))
         assert out["approved"]["status"] == 200, out["approved"]
         job_id = out["approved"]["json"]["job"]["_id"]
         worker = f"e2e-srwgs-{uuid4().hex[:8]}"

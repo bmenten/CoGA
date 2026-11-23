@@ -224,6 +224,9 @@ class ImportDeliveryOut(ApiDocumentModel):
     request_id: Optional[str] = None
     issues: List[ImportDeliveryIssue] = Field(default_factory=list)
     warnings: List[ImportDeliveryIssue] = Field(default_factory=list)
+    # The SHA-256 of the warnings as listed: an approval names the one its approver acknowledged,
+    # and one whose warnings changed since is refused (import_watcher.warnings_sha256).
+    warnings_sha256: str
     manifest_sha256: Optional[str] = None
     # How many corrections were made to its package in CoGA (import_delivery_revisions.py): the
     # revision an approval names.
@@ -252,13 +255,16 @@ class ImportDeliveryOut(ApiDocumentModel):
 class ImportDeliveryApprove(BaseModel):
     """A delivery approved for import: as a dry run or for real; ``cancel`` for a new family,
     ``update`` or ``overwrite`` (an administrator's) for one whose family exists; its warnings
-    acknowledged when it has any. ``revision`` is the revision of its package the approver saw (0
-    when it was not corrected): an approval of another is refused."""
+    acknowledged when it has any, named by their SHA-256 as the list gave it
+    (``warnings_sha256``): one whose warnings changed since is refused. ``revision`` is the
+    revision of its package the approver saw (0 when it was not corrected): an approval of another
+    is refused."""
 
     revision: int = Field(ge=0)
     dry_run: bool = False
     conflict_mode: Literal["cancel", "update", "overwrite"] = "cancel"
     acknowledge_warnings: bool = False
+    warnings_sha256: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class ImportDeliveryAdd(BaseModel):
@@ -355,7 +361,7 @@ class ImportDeliveryRevisionOut(BaseModel):
 class ImportDeliveryPackageOut(BaseModel):
     """A delivery's package as its import would read it now: the latest revision's (``revision``,
     0 for none), or the package as checked; the pipeline's file as written (``original``); the
-    sections CoGA proposed from the folder; and every correction."""
+    sections CoGA proposed from the folder, and the files it listed itself; and every correction."""
 
     delivery_id: str
     revision: int
@@ -363,6 +369,9 @@ class ImportDeliveryPackageOut(BaseModel):
     package_sha256: Optional[str] = None
     original: Optional[Dict[str, Any]] = None
     proposed: List[str] = Field(default_factory=list)
+    # The files the import reads that the pipeline's file does not list, which CoGA listed in the
+    # package with the size and SHA-256 it read (import_watcher.assess_delivery).
+    proposed_files: List[str] = Field(default_factory=list)
     revisions: List[ImportDeliveryRevisionOut] = Field(default_factory=list)
     # ``manual``: a folder added by hand, whose package CoGA made: members are added and removed
     # freely, and the package is edited as JSON.

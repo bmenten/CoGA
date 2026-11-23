@@ -25,7 +25,7 @@ from uuid import uuid4
 import pytest
 
 from backend.tests.e2e._harness import capture
-from backend.tests.e2e._import_jobs import claim_import_job, job_outcome
+from backend.tests.e2e._import_jobs import acknowledged, claim_import_job, job_outcome
 
 pytestmark = pytest.mark.integration
 
@@ -99,7 +99,7 @@ async def _collect(base: Path) -> dict[str, Any]:
         assert added["status"] == 200, added
         delivery = f"/api/family-imports/deliveries/{added['json']['_id']}"
         out["package"] = capture(await ac.get(f"{delivery}/package"))
-        approved = capture(await ac.post(f"{delivery}/approve", json={"revision": 0, "acknowledge_warnings": True}))
+        approved = capture(await ac.post(f"{delivery}/approve", json=await acknowledged(added["json"]["_id"])))
         assert approved["status"] == 200, approved
         job_id = str(approved["json"]["job"]["_id"])
         await claim_import_job(job_id, _WORKER)

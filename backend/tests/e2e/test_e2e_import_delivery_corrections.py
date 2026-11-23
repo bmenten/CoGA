@@ -33,7 +33,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job, job_outcome
+from backend.tests.e2e._import_jobs import acknowledged, claim_import_job, job_outcome
 from backend.tests.e2e.test_e2e_import_watcher import package_folder, write_package
 
 pytestmark = pytest.mark.integration
@@ -94,12 +94,12 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         out["blank_reason"] = await revise(1, "   ", (["members", sample, "role"], "proband"))
         out["sex"] = await revise(1, "The request form gives another sex.", (["members", sample, "sex"], "female"))
         out["approve_attention"] = capture(
-            await client.post(f"{url}/approve", json={"revision": 2, "acknowledge_warnings": True})
+            await client.post(f"{url}/approve", json=await acknowledged(delivery_id, revision=2))
         )
         out["sex_back"] = await revise(2, "The pipeline's sex was right.", (["members", sample, "sex"], "male"))
         out["package3"] = capture(await client.get(f"{url}/package"))
-        out["approve_stale"] = capture(await client.post(f"{url}/approve", json={"revision": 2, "acknowledge_warnings": True}))
-        out["approved"] = capture(await client.post(f"{url}/approve", json={"revision": 3, "acknowledge_warnings": True}))
+        out["approve_stale"] = capture(await client.post(f"{url}/approve", json=await acknowledged(delivery_id, revision=2)))
+        out["approved"] = capture(await client.post(f"{url}/approve", json=await acknowledged(delivery_id, revision=3)))
         job_id = out["approved"]["json"]["job"]["_id"]
         worker = f"e2e-correct-{uuid4().hex[:8]}"
         await claim_import_job(job_id, worker)

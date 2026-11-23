@@ -24,7 +24,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job, job_outcome
+from backend.tests.e2e._import_jobs import acknowledged, claim_import_job, job_outcome
 from backend.tests.e2e.test_e2e_import_watcher import package_folder, write_package
 
 pytestmark = pytest.mark.integration
@@ -80,7 +80,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         client.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(client)}"
         url = f"/api/family-imports/deliveries/{delivery['id']}/approve"
         out["unacknowledged"] = capture(await client.post(url, json={"revision": 0}))
-        approved = capture(await client.post(url, json={"revision": 0, "acknowledge_warnings": True}))
+        approved = capture(await client.post(url, json=await acknowledged(delivery["id"])))
         out["approved"] = approved
     job_id = approved["json"]["job"]["_id"]
     worker = f"e2e-no-checksums-{uuid4().hex[:8]}"

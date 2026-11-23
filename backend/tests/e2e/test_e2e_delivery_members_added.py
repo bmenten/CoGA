@@ -35,7 +35,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.tests.e2e._harness import capture, ensure_postgres_schema
-from backend.tests.e2e._import_jobs import claim_import_job, job_outcome
+from backend.tests.e2e._import_jobs import acknowledged, claim_import_job, job_outcome
 from backend.tests.e2e._pgt_package import ROI, write_pgt_package
 from backend.tests.e2e.test_e2e_import_watcher import write_package
 
@@ -122,7 +122,7 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
             (["members", index], {"sex": "female", "role": "relative", "clinical_status": "affected", "related_to": [father]}),
             (["family", "pgt", "indexes"], [index]),
         )
-        out["approved"] = capture(await client.post(f"{url}/approve", json={"revision": 3, "acknowledge_warnings": True}))
+        out["approved"] = capture(await client.post(f"{url}/approve", json=await acknowledged(delivery_id, revision=3)))
         job_id = out["approved"]["json"]["job"]["_id"]
         worker = f"e2e-added-{uuid4().hex[:8]}"
         await claim_import_job(job_id, worker)

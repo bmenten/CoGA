@@ -6,8 +6,10 @@ warnings must be acknowledged; its folder must be as it was checked; the approva
 revision of the package it saw, and one corrected since is refused. The import job is queued as
 the approver, with the delivery's manifest, project and record (its corrections included), and in the same transaction the
 delivery is queued (a dry run leaves it as it was) and the decision recorded. An open delivery is
-refused with a reason in plain text. Overwrite stays an administrator's. The paths through the
-real stores are in e2e/test_e2e_import_delivery_approval.py.
+refused with a reason in plain text. Overwrite stays an administrator's. A delivery whose import
+failed is offered again: checked again in place when its folder is as it was checked, superseded
+when it changed, left for the next round when it cannot be read. The paths through the real stores
+are in e2e/test_e2e_import_delivery_approval.py.
 
 All samples and values here are synthetic.
 """
@@ -276,6 +278,17 @@ async def test_a_delivery_whose_members_differ_from_its_family_is_queued_only_to
         ),
         ({}, {"conflict_mode": "update"}, 400),
         ({"warnings": [{"code": "optional_dataset_missing"}]}, {}, 400),
+        # Acknowledged, but not named by the SHA-256 the list gave: which warnings were checked?
+        ({"warnings": [{"code": "optional_dataset_missing"}]}, {"acknowledge_warnings": True}, 400),
+        # Named by the SHA-256 of warnings a check again has changed since.
+        (
+            {"warnings": [{"code": "optional_dataset_missing", "message": "Now another."}]},
+            {
+                "acknowledge_warnings": True,
+                "warnings_sha256": review.warnings_digest([{"code": "optional_dataset_missing", "message": "Before."}]),
+            },
+            409,
+        ),
         ({"project_id": None}, {}, 409),
     ],
 )
@@ -300,6 +313,10 @@ async def test_a_delivery_whose_folder_changed_is_not_approved(queued: list[dict
         await _approve(_Session(_delivery()))
 
     assert (refused.value.status_code, refused.value.detail) == (409, review.DELIVERY_CHANGED)
+    # A folder added by hand, which no watcher looks at before its import, is added again.
+    with pytest.raises(HTTPException) as refused:
+        await _approve(_Session(_delivery(origin="manual")))
+    assert (refused.value.status_code, refused.value.detail) == (409, review.DELIVERY_CHANGED_BY_HAND)
     assert queued == []
 
 
@@ -416,3 +433,116 @@ def test_overwrite_stays_an_administrators_and_a_refusal_needs_a_reason_in_plain
 
     assert overwrite.status_code == 403
     assert (blank.status_code, nul.status_code, empty.status_code) == (400, 400, 422)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_import_is_offered_again_superseded_when_its_folder_changed_or_left_while_unreadable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    from pathlib import Path
+
+    root = tmp_path / "share"
+    (root / "UNREADABLE").mkdir(parents=True)
+    failed = [
+        {
+            **_delivery(id=f"id-{name}", folder_path=str(root / name), folder_name=name, state="failed"),
+            "job_id": f"job-{name}",
+            "watch_root": str(root),
+        }
+        for name in ("SAME", "CHANGED", "UNREADABLE", "GONE")
+    ]
+
+    class _FailedSession:
+        def __init__(self) -> None:
+            self.statements: list[tuple[str, dict[str, Any]]] = []
+
+        async def execute(self, statement: Any, params: Any = None) -> Any:
+            sql = str(statement)
+            self.statements.append((sql, dict(params or {})))
+            if "WHERE state = 'failed'" in sql and sql.lstrip().startswith("SELECT"):
+                return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: failed))
+            if "missing_rounds + 1" in sql:
+                # Missing for the second round: gone.
+                return SimpleNamespace(first=lambda: ("gone",))
+            return SimpleNamespace(first=lambda: ("id-CHANGED",))
+
+        async def commit(self) -> None:
+            return None
+
+        async def __aenter__(self) -> "_FailedSession":
+            return self
+
+        async def __aexit__(self, *_exc: Any) -> None:
+            return None
+
+    session = _FailedSession()
+    fingerprints = {"SAME": _FINGERPRINT, "CHANGED": "c" * 64, "UNREADABLE": None, "GONE": None}
+    rechecked: list[tuple[str, dict[str, Any]]] = []
+    stored: list[tuple[str, str, Any]] = []
+    recorded: list[dict[str, Any]] = []
+
+    async def fingerprint(folder: Path) -> str | None:
+        return fingerprints[folder.name]
+
+    async def revision(_session: Any, _delivery_id: str) -> tuple[int, None]:
+        return 0, None
+
+    async def assess_again(_factory: Any, folder: Path, seen: dict[str, Any]) -> Any:
+        rechecked.append((folder.name, seen))
+        return SimpleNamespace(state="needs_attention")
+
+    async def store(
+        _factory: Any, folder: Path, delivery_id: str, found: str, _assessment: Any, why: Any, *, revision: int
+    ) -> str:
+        assert revision == 0
+        stored.append((delivery_id, found, why))
+        return "needs_attention"
+
+    async def record(_session: Any, **kwargs: Any) -> None:
+        recorded.append(kwargs)
+
+    monkeypatch.setattr(review, "_fingerprint", fingerprint)
+    monkeypatch.setattr(review, "latest_revision", revision)
+    monkeypatch.setattr(review, "_assess_again", assess_again)
+    monkeypatch.setattr(review, "_store_check_again", store)
+    monkeypatch.setattr(review, "record_clinical_event", record)
+
+    done = await review.offer_failed_deliveries_again(lambda: session)  # type: ignore[arg-type]
+
+    # The folder that is there but cannot be fingerprinted is left; the one that is not there while
+    # its watched folder lists something counts a round, and is gone after its second.
+    assert (done.offered, done.superseded, done.gone) == ({"needs_attention": 1}, 1, 1)
+    missing = [params for sql, params in session.statements if "missing_rounds + 1" in sql]
+    assert missing == [{"id": "id-GONE", "rounds": review.GONE_AFTER_ROUNDS}]
+    # As it was checked: checked again as a whole (the failed import may have left its family),
+    # in place, as a failed delivery offered again, the failed job named.
+    assert [name for name, _seen in rechecked] == ["SAME"]
+    assert rechecked[0][1]["effective"] is None
+    ((delivery_id, found, why),) = stored
+    assert (delivery_id, found) == ("id-SAME", _FINGERPRINT)
+    assert (why.states, why.action, dict(why.after)) == (
+        ("failed",),
+        "import_delivery_offered_again",
+        {"failed_job_id": "job-SAME"},
+    )
+    # Changed since: superseded, only while it is still failed, and recorded with its job.
+    supersede = [params for sql, params in session.statements if "SET state = 'superseded'" in sql]
+    assert supersede == [{"id": "id-CHANGED"}]
+    event, went = recorded
+    assert (went["action"], went["after"]["failed_job_id"]) == ("import_delivery_gone", "job-GONE")
+    assert event["action"] == "import_delivery_superseded"
+    assert event["after"]["failed_job_id"] == "job-CHANGED"
+    assert event["summary"] == "Delivery CHANGED: superseded, its folder changed after its import failed"
+
+
+@pytest.mark.asyncio
+async def test_a_delivery_with_warnings_is_approved_as_its_approver_saw_them(queued: list[dict[str, Any]]) -> None:
+    warnings = [{"code": "package_files_proposed", "message": "CoGA listed a file.", "path": None}]
+    seen = review.warnings_digest(warnings)
+
+    await _approve(_Session(_delivery(warnings=warnings)), acknowledge_warnings=True, warnings_sha256=seen)
+
+    [_queue, event] = queued
+    after = event["event"]["after"]
+    assert (after["warnings_acknowledged"], after["warnings_sha256"]) == (True, seen)
+

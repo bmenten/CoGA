@@ -2118,14 +2118,17 @@ export interface ImportDeliveryAdd {
 /**
  * A delivery approved for import: as a dry run or for real; ``cancel`` for a new family,
  * ``update`` or ``overwrite`` (an administrator's) for one whose family exists; its warnings
- * acknowledged when it has any. ``revision`` is the revision of its package the approver saw (0
- * when it was not corrected): an approval of another is refused.
+ * acknowledged when it has any, named by their SHA-256 as the list gave it
+ * (``warnings_sha256``): one whose warnings changed since is refused. ``revision`` is the
+ * revision of its package the approver saw (0 when it was not corrected): an approval of another
+ * is refused.
  */
 export interface ImportDeliveryApprove {
   revision: number;
   dry_run?: boolean;
   conflict_mode?: "cancel" | "update" | "overwrite";
   acknowledge_warnings?: boolean;
+  warnings_sha256?: string | null;
 }
 
 export interface ImportDeliveryApproveOut {
@@ -2184,6 +2187,7 @@ export interface ImportDeliveryOut {
   request_id: string | null;
   issues: ImportDeliveryIssue[];
   warnings: ImportDeliveryIssue[];
+  warnings_sha256: string;
   manifest_sha256: string | null;
   revision: number;
   origin: "watched" | "manual";
@@ -2200,7 +2204,7 @@ export interface ImportDeliveryOut {
 /**
  * A delivery's package as its import would read it now: the latest revision's (``revision``,
  * 0 for none), or the package as checked; the pipeline's file as written (``original``); the
- * sections CoGA proposed from the folder; and every correction.
+ * sections CoGA proposed from the folder, and the files it listed itself; and every correction.
  */
 export interface ImportDeliveryPackageOut {
   delivery_id: string;
@@ -2209,6 +2213,7 @@ export interface ImportDeliveryPackageOut {
   package_sha256: string | null;
   original: Record<string, unknown> | null;
   proposed: string[];
+  proposed_files: string[];
   revisions: ImportDeliveryRevisionOut[];
   origin: "watched" | "manual";
   addable_members: string[];

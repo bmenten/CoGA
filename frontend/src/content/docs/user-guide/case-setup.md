@@ -41,11 +41,17 @@ approve it.
    several ready ones and press **Approve selected**. For a family that exists already, choose *Update: add the
    missing datasets and members* or, as an administrator, *Overwrite: replace its datasets and
    pedigree*. **Refuse…** sets a delivery aside, with a reason.
-4. Follow the job under **Recent family imports**: the latest 10 jobs, up to 100 on **Show all**.
+4. Follow the job under **Recent family imports**: the latest 10 jobs, up to 100 on **Show all**. A
+   delivery whose import failed is offered again: checked again, it waits among the deliveries, naming
+   the failed job; once the cause is fixed, approve it again (with *Update* when the failed import kept
+   the family).
 
 CoGA keeps watching the folder after the import. A folder that changes, or is gone, is listed as
-*Changed after import*, and every page of the family warns of it (*Package folder changed after
+*Changed after import* (on one row, the folder's new delivery's once there is one), and every page of
+the family warns of it (*Package folder changed after
 import* or *Package folder gone*); signing out meanwhile asks for a reason. See
-[Family report and sign-out](#clinical-report) for what ends the warning.
+[Family report and sign-out](#clinical-report) for what ends the warning. A file put into the folder
+later that the import reads, such as a CRAM, is listed by CoGA in the new delivery's package itself,
+with a warning: check it before you approve.
 
 [Data import reference (who may do what, reference data, package steps and checks)](/docs/reference/data-import "further-reading")

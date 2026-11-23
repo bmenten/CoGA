@@ -391,6 +391,25 @@ export const downloadPackage = (pkg: PackageDocument) => {
   window.URL.revokeObjectURL(url);
 };
 
+/** The files the import reads that the pipeline's coga-package.json does not list, which CoGA
+ * listed in the package itself, with the size and SHA-256 it read. */
+export const ProposedFiles: React.FC<{ paths: string[] }> = ({ paths }) =>
+  paths.length ? (
+    <div className="status-note">
+      CoGA listed {paths.length} file(s) the import reads, which the
+      pipeline&apos;s coga-package.json does not list, with the size and
+      SHA-256 it read:{' '}
+      {paths.map((path, index) => (
+        <React.Fragment key={path}>
+          {index ? ', ' : ''}
+          <code>{path}</code>
+        </React.Fragment>
+      ))}
+      . CoGA cannot check that they are what the pipeline made: check them, or
+      leave their dataset out.
+    </div>
+  ) : null;
+
 /** The package as the import would read it now, as coga-package.json: shown and saved. */
 const PackageJson: React.FC<{
   pkg: PackageDocument;
@@ -467,6 +486,7 @@ export const PackageFileDialog: React.FC<{
           CoGA could not read this delivery&apos;s package.
         </p>
       ) : null}
+      <ProposedFiles paths={packageQuery.data?.proposed_files ?? []} />
       {pkg ? <PackageJson pkg={pkg} open /> : null}
       {packageQuery.data?.revisions.length ? (
         <History revisions={packageQuery.data.revisions} />
@@ -681,6 +701,7 @@ const DeliveryCorrectionDialog: React.FC<DeliveryCorrectionDialogProps> = ({
               the folder: check them.
             </p>
           ) : null}
+          <ProposedFiles paths={packageQuery.data?.proposed_files ?? []} />
 
           <div className="delivery-correction-grid">
             <label className="field-label">

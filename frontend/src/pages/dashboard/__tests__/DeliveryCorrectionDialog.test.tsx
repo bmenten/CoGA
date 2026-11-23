@@ -67,6 +67,7 @@ const delivery: ImportDeliveryOut = {
   request_id: null,
   issues: [],
   warnings: [],
+  warnings_sha256: 'd'.repeat(64),
   manifest_sha256: null,
   revision: 1,
   origin: 'watched',

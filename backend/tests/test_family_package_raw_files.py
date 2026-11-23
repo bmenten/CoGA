@@ -35,6 +35,7 @@ from backend.app.services.family_package_common import (
     FamilyPackageBundle,
     ManifestDataset,
 )
+from backend.app.services.family_package_fingerprint import package_fingerprint
 from backend.app.services.family_package_validation import load_validated_family_package
 from backend.tests._kept_manifest import kept_manifest
 
@@ -189,9 +190,13 @@ async def test_the_import_records_the_sha256_its_deliverys_check_computed(
     validation, bundle = load_validated_family_package(package, manifest_text=kept_manifest(package))
     assert validation.valid, validation.errors
     assert bundle is not None and bundle.package_fingerprint
+    # The delivery's fingerprint is the watcher's, of the folder alone: never the import's own,
+    # which also covers the manifest CoGA keeps.
+    as_checked = package_fingerprint(package, kept_manifest_sha256=None).sha256
+    assert as_checked != bundle.package_fingerprint
     bundle.delivery = {
         "id": _DELIVERY_ID,
-        "package_fingerprint": bundle.package_fingerprint if folder_as_checked else "0" * 64,
+        "package_fingerprint": as_checked if folder_as_checked else "0" * 64,
     }
     checked = {
         name: hashlib.sha256((package / name).read_bytes()).hexdigest()
@@ -215,7 +220,7 @@ async def test_the_import_records_the_sha256_its_deliverys_check_computed(
         _assert_recorded(session.rows, bundle, f"coverage_{sample_id}.txt", dataset="coverage", sample_id=sample_id)
         _assert_recorded(session.rows, bundle, f"{sample_id}.mutect2.vcf.gz", dataset="snv", sample_id=sample_id)
     if folder_as_checked:
-        assert session.checked_asked == [{"delivery_id": _DELIVERY_ID, "fingerprint": bundle.package_fingerprint}]
+        assert session.checked_asked == [{"delivery_id": _DELIVERY_ID, "fingerprint": as_checked}]
         assert hashed == []
     else:
         # A folder that is not as the check read it: the check is not asked, every file is hashed.

@@ -66,11 +66,11 @@ from .clinical_audit_service import audit_actor
 from .coga_package import CogaPackage, package_document, package_document_sha256
 from .family_package_common import _json_list, manifest_text_sha256
 from .import_delivery_review import (
-    DELIVERY_CHANGED,
     DELIVERY_NOT_FOUND,
     _delivery,
     _folder_fingerprint,
     _record,
+    delivery_changed,
 )
 from .import_watcher import DeliveryAssessment, assess_content, latest_revision
 
@@ -418,6 +418,7 @@ async def _package_out(session: AsyncSession, delivery: dict[str, Any]) -> Impor
         package_sha256=package_document_sha256(package) if package is not None else None,
         original=_json_object(delivery.get("marker")),
         proposed=[str(section) for section in check.get("proposed") or []],
+        proposed_files=[str(path) for path in check.get("proposed_files") or []],
         revisions=revisions,
         origin="manual" if delivery.get("origin") == "manual" else "watched",
         addable_members=addable_samples(delivery.get("issues")),
@@ -479,7 +480,7 @@ async def revise_delivery(
     if revision != current:
         raise HTTPException(status_code=409, detail=DELIVERY_REVISED)
     if await _folder_fingerprint(delivery["folder_path"]) != delivery["package_fingerprint"]:
-        raise HTTPException(status_code=409, detail=DELIVERY_CHANGED)
+        raise HTTPException(status_code=409, detail=delivery_changed(delivery.get("origin")))
 
     before = revised or base_document
     rule = MemberRule(
