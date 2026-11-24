@@ -646,8 +646,10 @@ async def _write_contribution(
             if net.get(generation.generation, 0) != expected:
                 raise
     finally:
+        # SYNC: without it the database keeps a dropped table's parts on disk for eight
+        # minutes, so writes failing on a full disk would keep it full.
         try:
-            await execute_clickhouse(f"DROP TABLE IF EXISTS {stage}", retry=False)
+            await execute_clickhouse(f"DROP TABLE IF EXISTS {stage} SYNC", retry=False)
         except Exception as exc:  # noqa: BLE001 - a staging table left over is dropped later
             logger.warning("Could not drop a carrier staging table: %s", describe_error(exc))
 
@@ -1002,7 +1004,7 @@ async def drop_stale_carrier_stages(now: float | None = None) -> int:
         match = _STAGE_NAME.match(str(name))
         if match is None or int(match.group("created")) > cutoff:
             continue
-        await execute_clickhouse(f"DROP TABLE IF EXISTS {settings.clickhouse_database}.`{name}`")
+        await execute_clickhouse(f"DROP TABLE IF EXISTS {settings.clickhouse_database}.`{name}` SYNC")
         dropped += 1
     return dropped
 
@@ -1024,10 +1026,22 @@ async def reconcile_all_variant_carriers(*, time_budget_seconds: float | None = 
 
 
 VARIANT_CARRIER_ROUND_SECONDS = 5.0
+# The longest wait after failed rounds in a row.
+VARIANT_CARRIER_MAX_WAIT_SECONDS = 300.0
+
+
+def _round_wait(failures: int) -> float:
+    """Seconds until the next round: the round interval, doubled for each failed round in a
+    row up to ``VARIANT_CARRIER_MAX_WAIT_SECONDS``, so a failure that repeats (a full disk,
+    ClickHouse down) is not tried again every few seconds."""
+    if failures <= 0:
+        return VARIANT_CARRIER_ROUND_SECONDS
+    return min(VARIANT_CARRIER_ROUND_SECONDS * 2 ** min(failures, 30), VARIANT_CARRIER_MAX_WAIT_SECONDS)
 
 
 async def variant_carrier_worker(stop: asyncio.Event) -> None:
-    """Reconcile the summary every few seconds until ``stop`` is set.
+    """Reconcile the summary every few seconds until ``stop`` is set, waiting longer after
+    each failed round in a row.
 
     Runs where the package-import workers run, as the ancestry worker does: in an import-worker
     process (``app.import_worker``), or in the API when it runs import workers itself. Several
@@ -1036,15 +1050,18 @@ async def variant_carrier_worker(stop: asyncio.Event) -> None:
         await drop_stale_carrier_stages()
     except Exception as exc:  # noqa: BLE001 - logged; the rounds go on
         logger.warning("Could not drop old carrier staging tables: %s", describe_error(exc))
+    failures = 0
     while not stop.is_set():
         try:
             await reconcile_all_variant_carriers(time_budget_seconds=60.0)
+            failures = 0
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - log only sanitized error details
+            failures += 1
             logger.warning("Variant carrier worker failed: %s", describe_error(exc))
         try:
-            await asyncio.wait_for(stop.wait(), timeout=VARIANT_CARRIER_ROUND_SECONDS)
+            await asyncio.wait_for(stop.wait(), timeout=_round_wait(failures))
         except asyncio.TimeoutError:
             pass
 

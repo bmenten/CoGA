@@ -151,6 +151,8 @@ resource "google_compute_instance" "clickhouse" {
       # The file Docker Compose mounts, so the VM's memory guards cannot drift from it.
       # chomp: the script's heredoc ends the file with its one line break.
       memory_guards_xml = chomp(file("${path.module}/../clickhouse/users.d/memory-guards.xml"))
+      # The same for the TTL of ClickHouse's own logs.
+      system_log_ttl_xml = chomp(file("${path.module}/../clickhouse/config.d/system-log-ttl.xml"))
     })
     shutdown-script = file("${path.module}/scripts/clickhouse-shutdown.sh")
     # Installed by the startup script and run by a daily systemd timer for cert rotation.

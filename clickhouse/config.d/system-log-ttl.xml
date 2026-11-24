@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!--
+  ClickHouse's own logs (the system.*_log tables) keep 30 days.
+
+  These are the database server's diagnostics: its queries, messages, metrics and merges.
+  CoGA's audit trail is in Postgres, not here. Without a TTL they grow for as long as the
+  server runs, on the same disk as the variants, and fastest when something fails
+  repeatedly (each error is written with its stack trace).
+
+  Only the logs the image turns on are listed: a section names a log, and naming one that
+  is off would turn it on. ClickHouse applies a changed TTL by renaming the existing table
+  (to query_log_0 and so on) and starting a new one; drop the renamed table by hand.
+-->
+<clickhouse>
+    <query_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </query_log>
+    <text_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </text_log>
+    <trace_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </trace_log>
+    <part_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </part_log>
+    <metric_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </metric_log>
+    <asynchronous_metric_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </asynchronous_metric_log>
+    <processors_profile_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </processors_profile_log>
+    <query_metric_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </query_metric_log>
+    <background_schedule_pool_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </background_schedule_pool_log>
+    <error_log>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </error_log>
+</clickhouse>

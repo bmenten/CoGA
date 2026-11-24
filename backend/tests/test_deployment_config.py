@@ -141,20 +141,22 @@ def _chomp(text: str) -> str:
     return re.sub(r"(?:\r\n?|\n)*\Z", "", text)
 
 
-def test_the_clickhouse_vm_gets_the_users_d_files_compose_mounts(tmp_path: Path) -> None:
-    # Compose mounts clickhouse/users.d/memory-guards.xml into ClickHouse: each query
-    # capped at 4 GB, GROUP BY and ORDER BY state spilled to disk past 2 GB. The Google Cloud
-    # VM's startup script writes each such file from the repository, as database.tf reads it,
-    # and mounts it where Compose does, read-only.
+@pytest.mark.parametrize(("folder", "directory"), [("users.d", "USERS_DIR"), ("config.d", "CONFIG_DIR")])
+def test_the_clickhouse_vm_gets_the_files_compose_mounts(tmp_path: Path, folder: str, directory: str) -> None:
+    # Compose mounts clickhouse/users.d/memory-guards.xml into ClickHouse (each query
+    # capped at 4 GB, GROUP BY and ORDER BY state spilled to disk past 2 GB) and
+    # clickhouse/config.d/system-log-ttl.xml (ClickHouse's own logs keep 30 days). The Google
+    # Cloud VM's startup script writes each such file from the repository, as database.tf
+    # reads it, and the container gets it where Compose mounts it, read-only.
     compose: dict[str, Path] = {}
     for volume in _compose()["services"]["clickhouse"]["volumes"]:
         host_path, container_path, *options = str(volume).split(":")
-        if container_path.startswith("/etc/clickhouse-server/users.d/"):
+        if container_path.startswith(f"/etc/clickhouse-server/{folder}/"):
             assert options == ["ro"], volume
             compose[container_path] = (REPO / host_path).resolve()
-    # The files ClickHouse reads from users.d: XML or YAML.
-    kept = {path.resolve() for path in (REPO / "clickhouse" / "users.d").iterdir() if path.suffix in {".xml", ".yaml", ".yml"}}
-    assert kept and set(compose.values()) == kept, "Compose mounts every file of clickhouse/users.d"
+    # The files ClickHouse reads from the folder: XML or YAML.
+    kept = {path.resolve() for path in (REPO / "clickhouse" / folder).iterdir() if path.suffix in {".xml", ".yaml", ".yml"}}
+    assert kept and set(compose.values()) == kept, f"Compose mounts every file of clickhouse/{folder}"
 
     call = re.search(
         r'startup-script = templatefile\("\$\{path\.module\}/scripts/clickhouse-startup\.sh\.tftpl", \{(.*?)\n    \}\)',
@@ -164,14 +166,18 @@ def test_the_clickhouse_vm_gets_the_users_d_files_compose_mounts(tmp_path: Path)
     assert call, "database.tf renders no ClickHouse startup script"
     arguments = _attributes(call.group(1))
     template = _terraform("scripts/clickhouse-startup.sh.tftpl")
-    assert re.search(r'^USERS_DIR="/etc/coga-clickhouse/users\.d"$', template, re.M)
-    assert re.search(r'^mkdir -p .*"\$\$\{USERS_DIR\}"', template, re.M)
-    # Never the folder: the image's entrypoint writes the user it creates into users.d.
-    assert ":/etc/clickhouse-server/users.d:" not in template
+    assert re.search(rf'^{directory}="/etc/coga-clickhouse/{re.escape(folder)}"$', template, re.M)
+    assert re.search(rf'^mkdir -p .*"\$\$\{{{directory}\}}"', template, re.M)
+    if folder == "users.d":
+        # Never the folder: the image's entrypoint writes the user it creates into users.d.
+        assert ":/etc/clickhouse-server/users.d:" not in template
+    else:
+        # The whole folder, which holds only what the script writes into it.
+        assert f'-v "$${{{directory}}}":/etc/clickhouse-server/{folder}:ro' in template
     for target, source in compose.items():
         name = Path(target).name
         heredoc = re.search(
-            rf"""^cat > "\$\$\{{USERS_DIR\}}/{re.escape(name)}" <<'(\w+)'\n\$\{{(\w+)\}}\n\1\n""", template, re.M
+            rf"""^cat > "\$\$\{{{directory}\}}/{re.escape(name)}" <<'(\w+)'\n\$\{{(\w+)\}}\n\1\n""", template, re.M
         )
         assert heredoc, f"the startup script writes no {name}"
         delimiter, variable = heredoc.groups()
@@ -186,13 +192,16 @@ def test_the_clickhouse_vm_gets_the_users_d_files_compose_mounts(tmp_path: Path)
         # it writes the very bytes Compose mounts.
         before, after = heredoc.group(0).split("${" + variable + "}")
         script = before.replace("$${", "${") + value + after.replace("$${", "${")
-        subprocess.run(["bash", "-c", script], env={"PATH": os.environ["PATH"], "USERS_DIR": str(tmp_path)}, check=True)
+        subprocess.run(["bash", "-c", script], env={"PATH": os.environ["PATH"], directory: str(tmp_path)}, check=True)
         assert (tmp_path / name).read_bytes() == source.read_bytes()
-        # As a file mount that Docker refuses when the file is missing, rather than making a
-        # folder of it: the VM's /etc does not outlive a reboot, and Docker can restart the
-        # container at boot before the script has written the file again.
-        mount = f'--mount type=bind,source="$${{USERS_DIR}}/{name}",target={target},readonly'
-        assert mount in template, f"the container does not get {name} where Compose mounts it"
+        if folder == "users.d":
+            # As a file mount that Docker refuses when the file is missing, rather than making
+            # a folder of it: the VM's /etc does not outlive a reboot, and Docker can restart
+            # the container at boot before the script has written the file again.
+            mount = f'--mount type=bind,source="$${{USERS_DIR}}/{name}",target={target},readonly'
+            assert mount in template, f"the container does not get {name} where Compose mounts it"
+        else:
+            assert target == f"/etc/clickhouse-server/{folder}/{name}"
 
 
 def test_terraform_mounts_reference_data_read_only_and_requires_modern_tls() -> None:
