@@ -71,6 +71,12 @@ cat > "$${CONFIG_DIR}/tls.xml" <<'XML'
 </clickhouse>
 XML
 
+# ClickHouse's own logs (system.*_log) keep 30 days, as in Docker Compose, from the same
+# file in the repository (clickhouse/config.d/system-log-ttl.xml).
+cat > "$${CONFIG_DIR}/system-log-ttl.xml" <<'XML'
+${system_log_ttl_xml}
+XML
+
 # The query memory guards Docker Compose mounts too, from the same file in the repository
 # (clickhouse/users.d/memory-guards.xml): a cap of 4 GB on each query, and GROUP BY
 # and ORDER BY state spilled to disk past 2 GB.

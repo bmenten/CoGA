@@ -45,6 +45,8 @@ services:
       # cap) so the Chromosome View's concurrent coverage/segment/SV query burst
       # degrades gracefully instead of hitting the server memory cap.
       - ./clickhouse/users.d/memory-guards.xml:/etc/clickhouse-server/users.d/memory-guards.xml:ro
+      # ClickHouse's own logs (system.*_log) keep 30 days, so they cannot fill the disk.
+      - ./clickhouse/config.d/system-log-ttl.xml:/etc/clickhouse-server/config.d/system-log-ttl.xml:ro
     # Loopback only, like Postgres.
     ports:
       - "127.0.0.1:8123:8123"

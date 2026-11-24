@@ -1566,8 +1566,10 @@ contribution is written to a staging table of the same structure
 FINAL`), checked to hold its marker once, and attached in one step (`ALTER TABLE … ATTACH
 PARTITION tuple() FROM`): the table holds a contribution with its marker, or neither. None of
 these statements is retried after a lost answer: a second run of an `INSERT … SELECT` could
-write its rows twice; a failed attach is read back from the markers. A staging table left by a
-stopped process is dropped after an hour.
+write its rows twice; a failed attach is read back from the markers. The staging table is
+dropped with `SYNC`, its parts removed at once rather than after the eight minutes ClickHouse
+otherwise keeps a dropped table's data, so writes failing on a full disk do not keep it full. A
+staging table left by a stopped process is dropped after an hour.
 
 A contribution is taken out by writing the same rows negated, its marker at -1: the sums net out
 whether or not the parts have merged, and merges drop the rows that sum to zero (a row of a
@@ -1600,7 +1602,9 @@ synchronously once the next one is in.
   the old one first, each under the family's write lock, which it only tries: a family a writer
   holds (an import in progress) waits for the next round. The variant-carrier worker runs it
   every 5 s where the package imports run (the API or the import-worker processes); several may
-  run, each family refreshed by one.
+  run, each family refreshed by one. After a failed round it waits twice as long for each failed
+  round in a row, up to 5 minutes, so a failure that repeats (a full disk, ClickHouse down) is
+  not tried again every few seconds.
 - Emptying (`TRUNCATE` of both tables) takes the summary's Postgres advisory lock
   (`variant-carriers:<assembly>`) exclusively and only when free; every change of a
   contribution holds it shared. The reconciler then adds every family again.

@@ -814,7 +814,8 @@ change, apply, and restart the VM.
   spills GROUP BY and ORDER BY state to disk past 2 GB. A larger machine therefore runs more
   such queries at once, not larger ones. The backend's `CLICKHOUSE_MAX_MEMORY_USAGE`, when set,
   overrides the cap for the app's queries. The startup script writes the file at each boot, so
-  a change to it reaches the VM at its next restart (12.4), after the apply.
+  a change to it reaches the VM at its next restart (12.4), after the apply. It writes
+  `clickhouse/config.d/system-log-ttl.xml` the same way: ClickHouse's own logs keep 30 days.
 
 ### 12.6 Logs & monitoring
 

@@ -163,6 +163,16 @@ def test_a_contribution_is_attached_in_one_part_with_its_marker(clickhouse: _Cli
     assert kinds == ["CREATE", "INSERT", "OPTIMIZE", "SELECT", "ALTER", "DROP"]
     assert "ATTACH PARTITION tuple() FROM" in clickhouse.statements[4]
     assert "carriers_stage/" in clickhouse.statements[0]
+    # At once: a dropped table's parts would otherwise stay on disk for eight minutes.
+    assert clickhouse.statements[-1].endswith(" SYNC")
+
+
+def test_a_staging_table_is_dropped_at_once_when_its_insert_fails(clickhouse: _ClickHouse) -> None:
+    clickhouse.fail = {"INSERT": RuntimeError("ClickHouse 243 NOT_ENOUGH_SPACE")}
+    with pytest.raises(RuntimeError):
+        asyncio.run(summary._write_contribution("GRCh38", "f1", _APPLIED, sign=1))
+    assert [statement.split()[0] for statement in clickhouse.statements] == ["CREATE", "INSERT", "DROP"]
+    assert clickhouse.statements[-1].endswith(" SYNC")
 
 
 @pytest.mark.parametrize(
@@ -551,7 +561,7 @@ def test_old_staging_tables_are_dropped(clickhouse: _ClickHouse) -> None:
         )
     ]
     assert asyncio.run(summary.drop_stale_carrier_stages(now=1000 + summary._STAGE_MAX_AGE_SECONDS + 1)) == 1
-    assert clickhouse.statements[-1].endswith("`GRCh38/SNV_INDEL/carriers_stage/1000-abcdef`")
+    assert clickhouse.statements[-1].endswith("`GRCh38/SNV_INDEL/carriers_stage/1000-abcdef` SYNC")
 
 
 def test_the_worker_reconciles_every_round_until_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -573,6 +583,38 @@ def test_the_worker_reconciles_every_round_until_stopped(monkeypatch: pytest.Mon
     asyncio.run(asyncio.wait_for(summary.variant_carrier_worker(stop), timeout=5))
     # A failed round is logged, and the next one runs.
     assert rounds == [60.0, 60.0]
+
+
+def test_the_worker_waits_longer_after_each_failed_round_in_a_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    outcomes = [False, False, False, True, False, True]
+    waits: list[int] = []
+
+    async def no_stages(now: float | None = None) -> int:
+        return 0
+
+    async def reconcile(*, time_budget_seconds: float | None = None) -> None:
+        if len(waits) == len(outcomes) - 1:
+            stop.set()
+        if not outcomes[len(waits)]:
+            raise RuntimeError("ClickHouse 243 NOT_ENOUGH_SPACE")
+
+    def wait(failures: int) -> float:
+        waits.append(failures)
+        return 0.0
+
+    stop = asyncio.Event()
+    monkeypatch.setattr(summary, "drop_stale_carrier_stages", no_stages)
+    monkeypatch.setattr(summary, "reconcile_all_variant_carriers", reconcile)
+    monkeypatch.setattr(summary, "_round_wait", wait)
+    asyncio.run(asyncio.wait_for(summary.variant_carrier_worker(stop), timeout=5))
+    # Failed rounds in a row are counted; a round that succeeds starts the count again.
+    assert waits == [1, 2, 3, 0, 1, 0]
+
+
+def test_the_wait_doubles_with_each_failed_round_up_to_five_minutes() -> None:
+    assert summary.VARIANT_CARRIER_ROUND_SECONDS == 5.0
+    assert [summary._round_wait(failures) for failures in range(8)] == [5, 10, 20, 40, 80, 160, 300, 300]
+    assert summary._round_wait(10_000) == summary.VARIANT_CARRIER_MAX_WAIT_SECONDS == 300
 
 
 # --- the writers' hook ---------------------------------------------------------------

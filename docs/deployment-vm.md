@@ -605,6 +605,7 @@ set, a Prometheus on the VM scrapes `http://127.0.0.1:8000/metrics`
 | `IMPORT_WORKER_REPLICAS` | parallel imports: the import-worker processes, each on a core of its own and holding one import's memory; leave cores for the API and ClickHouse, and watch the memory as you raise it |
 | `FAMILY_IMPORT_WORKER_COUNT` | the imports each import-worker process runs at once (1 by default, up to 8); they share the process's one core, so raise the replicas instead |
 | [`clickhouse/users.d/memory-guards.xml`](../clickhouse/users.d/memory-guards.xml) | when GROUP BY and ORDER BY spill to disk; a change applies after `docker compose restart clickhouse` |
+| [`clickhouse/config.d/system-log-ttl.xml`](../clickhouse/config.d/system-log-ttl.xml) | how long ClickHouse keeps its own logs (`system.*_log`, 30 days), on the disk of the variants; a change applies after `docker compose restart clickhouse`, which renames each existing log table (`query_log_0`, …) for you to drop |
 
 `docker stats` shows each container's memory and CPU while you test. When the backend or an
 import worker is killed for lack of memory, `docker compose ps` shows it restarting, and

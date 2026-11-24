@@ -24,7 +24,8 @@ configuration addresses are tracked in [TF-13 §3](../docs/regulatory/TF-13-cybe
   restarted (a daily timer re-fetches the certificate otherwise). Its startup script also
   writes the query memory guards Docker Compose mounts, from the same file
   (`clickhouse/users.d/memory-guards.xml`): each query capped at 4 GB, GROUP BY and ORDER BY
-  state spilled to disk past 2 GB.
+  state spilled to disk past 2 GB. It writes the TTL of ClickHouse's own logs the same way
+  (`clickhouse/config.d/system-log-ttl.xml`, 30 days).
 - **Secrets.** This configuration creates the Secret Manager containers; the values are
   added by hand ([deployment-gcp.md §5.5](../docs/deployment-gcp.md)), so application
   secrets never pass through Terraform variables. Cloud Run reads them by reference.
