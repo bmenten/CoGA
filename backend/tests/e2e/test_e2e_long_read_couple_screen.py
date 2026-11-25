@@ -10,8 +10,8 @@ per-sample SNV callsets. Here it goes through the front door end to end:
 * the two SNV files are one callset: a site both partners carry is one row with both
   calls, a partner's DeepVariant reference record is kept as their call where the other
   has a variant, and reference-only sites are left out;
-* the couple's carrier screen keeps the gene both partners carry a variant in and the
-  female partner's X-linked variant, and nothing else, ranked by phenotype priority or not;
+* the couple's carrier screen keeps the gene both partners carry a variant in and each
+  partner's X-linked variant, and nothing else, ranked by phenotype priority or not;
 * sample-integrity QC reads the couple as a couple, sexes both partners, and says that
   the call set was made one sample at a time.
 
@@ -110,7 +110,8 @@ def _write_package(root: Path, mother: str, father: str) -> None:
         _record("7", 117_600_200, "C", "T", "0/1", gene="GENE1", impact="MODERATE", consequence="missense_variant", max_af="0.002"),
         _record("2", 50_000_500, "A", "C", "0/0", filt="RefCall"),
         _record("3", 60_000_000, "G", "T", "./.", filt="NoCall"),
-        # GENEY on chrX: a male partner's hemizygous variant is no finding on its own.
+        # GENEY on chrX outside the PARs: the male partner's hemizygous variant alone is a
+        # finding too.
         _record("X", 40_000_100, "A", "G", "1/1", gene="GENEY", impact="HIGH", consequence="stop_gained", max_af="0.0001"),
         *_qc_background(rng, female=False),
     ]
@@ -310,20 +311,19 @@ def test_the_two_files_are_one_callset(run) -> None:
     assert snv["excluded_calls_kept"] == 1
 
 
-def test_the_carrier_screen_keeps_the_shared_gene_and_the_female_partners_x_linked_variant(run) -> None:
+def test_the_carrier_screen_keeps_the_shared_gene_and_each_partners_x_linked_variant(run) -> None:
     screen = run["screen"]
     assert screen["status"] == 200, screen["json"]
     found = sorted(
         f"{variant['chr']}-{variant['start']}-{variant['ref']}-{variant['alt']}" for variant in screen["json"]["variants"]
     )
-    assert found == ["7-117500100-G-A", "7-117600200-C-T", "X-31000100-T-C"]
+    assert found == ["7-117500100-G-A", "7-117600200-C-T", "X-31000100-T-C", "X-40000100-A-G"]
     assert not screen["json"].get("candidates_capped")
 
 
 def test_the_ranked_carrier_screen_keeps_the_same_findings(run) -> None:
-    # Phenotype prioritization orders the screen and keeps what it keeps. Ranked, the
-    # screen listed every variant either partner carries in a gene: the mother's two GENE2
-    # variants and the father's GENEY variant too.
+    # Phenotype prioritization orders the screen and keeps what it keeps: never the
+    # mother's two GENE2 variants, a gene only she carries a variant in.
     screen, ranked = run["screen"], run["screen_ranked"]
     assert ranked["status"] == 200, ranked["json"]
 
@@ -333,10 +333,10 @@ def test_the_ranked_carrier_screen_keeps_the_same_findings(run) -> None:
             for variant in page["json"]["variants"]
         )
 
-    assert found(ranked) == found(screen) == ["7-117500100-G-A", "7-117600200-C-T", "X-31000100-T-C"]
+    assert found(ranked) == found(screen) == ["7-117500100-G-A", "7-117600200-C-T", "X-31000100-T-C", "X-40000100-A-G"]
     assert ranked["json"]["variant_groups"] == []
-    assert ranked["json"]["total"] == screen["json"]["total"] == 3
-    assert sorted(variant["priority"]["rank"] for variant in ranked["json"]["variants"]) == [1, 2, 3]
+    assert ranked["json"]["total"] == screen["json"]["total"] == 4
+    assert sorted(variant["priority"]["rank"] for variant in ranked["json"]["variants"]) == [1, 2, 3, 4]
     assert not ranked["json"].get("candidates_capped")
     assert not ranked["json"].get("ranking_truncated")
 

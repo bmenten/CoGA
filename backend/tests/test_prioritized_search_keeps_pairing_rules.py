@@ -6,7 +6,7 @@ answers only after the rules the unranked search applies in Python have run: bef
 compound-het or recessive search would list every variant its SQL prefilter let through
 (heterozygous, or carrying the allele, in every affected member), not only the pairs and the
 homozygous and X-linked variants; and expanded carrier screening every variant either partner
-carries, not only the couple's at-risk genes and the female partner's X-linked variants
+carries, not only the couple's at-risk genes and each partner's X-linked variants
 (REQ-CARR-002).
 
 Each search is opened twice through ``get_family_small_variants_page``, unranked and ranked,

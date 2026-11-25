@@ -455,7 +455,7 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'expanded_carrier_screening',
     label: 'Expanded carrier screening',
     description:
-      'Couple-only screen for genes where both partners carry a rare high- or moderate-impact variant (ClinVar pathogenic overrides the frequency cut-off, ClinVar benign is left out), and for X-linked variants a female partner carries.',
+      'Couple-only screen for genes where both partners carry a rare high- or moderate-impact variant (ClinVar pathogenic overrides the frequency cut-off, ClinVar benign is left out), and for X-linked variants either partner carries.',
   },
   {
     value: 'compound_het',
@@ -1039,10 +1039,10 @@ const buildPresetState = (
     if (!couple) {
       return { filters, sampleFilters };
     }
-    // The genes both partners carry a rare, high- or moderate-impact variant in, and the
-    // female partner's X-linked variants, as the NIPT recessive screen reads a couple.
+    // The genes both partners carry a rare, high- or moderate-impact variant in, and each
+    // partner's X-linked variants, read with the NIPT recessive screen's filters.
     // Without an impact filter a long-read genome holds hundreds of thousands of rare
-    // variants: the search stopped at its candidate cap long before chrX. A ClinVar
+    // variants: the search would stop at its candidate cap long before chrX. A ClinVar
     // pathogenic or likely pathogenic call overrides the frequency cut-off, so a common
     // founder allele (CFTR p.Phe508del, above 1% in some populations) stays in. A ClinVar
     // benign or likely benign variant is no finding: it is left out, and cannot make a gene
