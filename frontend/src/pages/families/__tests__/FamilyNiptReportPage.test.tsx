@@ -15,19 +15,51 @@ const apiMock = vi.hoisted(() => ({
   // GET /version, the build the report footer names (TF-15 §1). Answered here for every
   // test, so each test's fake backend serves only the family.
   version: vi.fn(),
+  // GET /nipt/diagnostic-candidates, the locked candidates (REQ-NIPT-020): none, unless a test
+  // says otherwise.
+  diagnosticCandidates: vi.fn(),
 }));
 
 vi.mock('../../../lib/api', () => ({
   default: {
-    get: (...args: unknown[]) => (args[0] === '/version' ? apiMock.version() : apiMock.get(...args)),
+    get: (...args: unknown[]) =>
+      args[0] === '/version'
+        ? apiMock.version()
+        : String(args[0]).endsWith('/nipt/diagnostic-candidates')
+          ? apiMock.diagnosticCandidates(...args)
+          : apiMock.get(...args),
     post: (...args: unknown[]) => apiMock.post(...args),
   },
 }));
 
 const RUNNING_BUILD = { version: '0.2.0', git_sha: '0123456789abcdef' };
 
+const DIAGNOSTIC_CRITERIA = {
+  reference: 'R NIPT-M v0.7.3 diagnostic criteria (blinded analysis, step 15)',
+  rare_max_af_dominant: 0.001,
+  rare_max_af_recessive: 0.01,
+  effect_impacts: ['HIGH', 'MODERATE'],
+  min_spliceai: 0.2,
+  clinvar_max_af: 0.05,
+  cohort_common_min_samples: 3,
+  repeat_min_units: 3,
+};
+
+const NO_DIAGNOSTIC_CANDIDATES = {
+  family_id: 'NIPT001',
+  criteria: DIAGNOSTIC_CRITERIA,
+  capped: false,
+  de_novo: [],
+  paternal: [],
+  maternal: [],
+  recessive_genes: [],
+  recessive_variants: [],
+};
+
 beforeEach(() => {
   apiMock.version.mockResolvedValue({ data: RUNNING_BUILD });
+  apiMock.diagnosticCandidates.mockReset();
+  apiMock.diagnosticCandidates.mockResolvedValue({ data: NO_DIAGNOSTIC_CANDIDATES });
 });
 
 // Whether the project's assembly is validated for clinical use: a sign-out is refused off it.
@@ -108,6 +140,7 @@ describe('FamilyNiptReportPage', () => {
             family_id: 'NIPT001',
             fetal_fraction: {
               ff: 0.12,
+              ff_computed: 0.12,
               ci_low: 0.1,
               ci_high: 0.14,
               n_sites: 42,
@@ -152,31 +185,14 @@ describe('FamilyNiptReportPage', () => {
       if (url === '/panels/panel-1') {
         return Promise.resolve({ data: { _id: 'panel-1', name: 'Neurodevelopmental', version: 2 } });
       }
-      if (url === '/families/NIPT001/nipt/diagnostic-candidates') {
-        // The locked diagnostic candidates of the report's scope (REQ-NIPT-020).
-        return Promise.resolve({
-          data: {
-            family_id: 'NIPT001',
-            criteria: {
-              reference: 'R NIPT-M v0.7.3 diagnostic criteria (blinded analysis, step 15)',
-              rare_max_af_dominant: 0.001,
-              rare_max_af_recessive: 0.01,
-              effect_impacts: ['HIGH', 'MODERATE'],
-              min_spliceai: 0.2,
-              clinvar_max_af: 0.05,
-              cohort_common_min_samples: 3,
-              repeat_min_units: 3,
-            },
-            capped: false,
-            de_novo: [{ variant: niptVariant('v1', 'ARID1B', 1, 'De novo in fetus'), confidence: 'standard', flags: [] }],
-            paternal: [],
-            maternal: [],
-            recessive_genes: [],
-            recessive_variants: [],
-          },
-        });
-      }
       return Promise.resolve({ data: {} });
+    });
+    // The locked diagnostic candidates (REQ-NIPT-020).
+    apiMock.diagnosticCandidates.mockResolvedValue({
+      data: {
+        ...NO_DIAGNOSTIC_CANDIDATES,
+        de_novo: [{ variant: niptVariant('v1', 'ARID1B', 1, 'De novo in fetus'), confidence: 'standard', flags: [] }],
+      },
     });
 
     renderPage();
@@ -222,7 +238,8 @@ describe('FamilyNiptReportPage', () => {
   });
 
   it('states the quality checks and the coverage of the capture targets', async () => {
-    apiMock.get.mockImplementation((url: string) => {
+    let coverageParams: Record<string, string> = {};
+    apiMock.get.mockImplementation((url: string, config?: { params?: Record<string, string> }) => {
       if (url === '/families/NIPT001') {
         return Promise.resolve({
           data: {
@@ -273,6 +290,7 @@ describe('FamilyNiptReportPage', () => {
               },
               fetal_sex: {
                 call: 'female',
+                status: 'pass',
                 paternal_x: 'female',
                 x_transmitted: 30,
                 x_not_transmitted: 0,
@@ -284,7 +302,22 @@ describe('FamilyNiptReportPage', () => {
               },
               plasma_profile_status: 'pass',
               plasma_profile_message: 'Female plasma; no chrY signal.',
-              target_coverage: null,
+              // The depth the gate's fetal reads need at this FF: the report asks the coverage
+              // endpoint to count the targets below it.
+              target_coverage: {
+                targets: 60,
+                median_mean: 900,
+                q05_mean: 300,
+                below_critical: 1,
+                below_advisory: 40,
+                zero_mean: 0,
+                incomplete: 0,
+                critical_mean_depth: 300,
+                advisory_mean_depth: 1000,
+                genes: [],
+                fetal_read_depth: 800,
+                below_fetal_read_depth: 12,
+              },
               quality_failures: {},
               model: {
                 reference: 'R NIPT-M v0.5.1 validation',
@@ -304,6 +337,7 @@ describe('FamilyNiptReportPage', () => {
         });
       }
       if (url === '/families/NIPT001/nipt/coverage') {
+        coverageParams = config?.params ?? {};
         return Promise.resolve({
           data: {
             family_id: 'NIPT001',
@@ -324,10 +358,36 @@ describe('FamilyNiptReportPage', () => {
               critical_mean_depth: 300,
               advisory_mean_depth: 1000,
               genes: [
-                { gene: 'GENEA', targets: 4, weak_targets: 2, min_mean: 250, mean_of_means: 700, weak: [] },
-                { gene: 'GENEB', targets: 0, weak_targets: 0, min_mean: null, mean_of_means: null, weak: [] },
-                { gene: 'GENEC', targets: 8, weak_targets: 0, min_mean: 900, mean_of_means: 1100, weak: [] },
+                {
+                  gene: 'GENEA',
+                  targets: 4,
+                  weak_targets: 2,
+                  min_mean: 250,
+                  mean_of_means: 700,
+                  weak: [],
+                  below_fetal_read_depth: 3,
+                },
+                {
+                  gene: 'GENEB',
+                  targets: 0,
+                  weak_targets: 0,
+                  min_mean: null,
+                  mean_of_means: null,
+                  weak: [],
+                  below_fetal_read_depth: 0,
+                },
+                {
+                  gene: 'GENEC',
+                  targets: 8,
+                  weak_targets: 0,
+                  min_mean: 900,
+                  mean_of_means: 1100,
+                  weak: [],
+                  below_fetal_read_depth: 0,
+                },
               ],
+              fetal_read_depth: 800,
+              below_fetal_read_depth: 3,
             },
           },
         });
@@ -347,7 +407,7 @@ describe('FamilyNiptReportPage', () => {
     expect(screen.getByText(/the per-site median gives 19\.0%/)).toBeInTheDocument();
     // The tokens read as the screen's QC panel reads them, never raw ("female no chrY signal",
     // "(pass)").
-    expect(screen.getByText('Fetal sex: Female.')).toBeInTheDocument();
+    expect(screen.getByText('Fetal sex: Female (Pass).')).toBeInTheDocument();
     expect(screen.getByText(/30 seen, 0 absent \(female\); chrY coverage: no chrY signal/)).toBeInTheDocument();
     expect(screen.getByText('Paternity (Pass).')).toBeInTheDocument();
     expect(screen.getByText('The father is consistent with paternity.')).toBeInTheDocument();
@@ -361,6 +421,11 @@ describe('FamilyNiptReportPage', () => {
     // The coverage of the capture targets in scope, and the genes with a weak target.
     expect(screen.getByText(/The median depth of the 12 capture targets in scope is/)).toBeInTheDocument();
     expect(screen.getByText(/2 of 4 targets weak \(lowest mean 250x\)/)).toBeInTheDocument();
+    // The targets too thin for the gate's fetal reads at this FF: the summary's depth asked for,
+    // and the genes holding them named.
+    expect(coverageParams.fetal_read_depth).toBe('800');
+    expect(screen.getByText(/3 of 12 are below 800x, the depth that gives the QC gate/)).toBeInTheDocument();
+    expect(screen.getByText(/3 of 4 targets below 800x/)).toBeInTheDocument();
     expect(screen.getByText(/not a capture target/)).toBeInTheDocument();
     expect(screen.queryByText('GENEC')).not.toBeInTheDocument();
   });
@@ -420,6 +485,28 @@ describe('FamilyNiptReportPage', () => {
       expect(screen.queryByText(/No target regions were available/)).not.toBeInTheDocument();
       // The candidates that did load are still reported.
       expect(screen.getByText(/De novo in fetus \(1\)/)).toBeInTheDocument();
+    });
+
+    // The locked candidates are what the sign-out freezes: a printout without them is not complete.
+    it('says the diagnostic candidates could not be loaded, on screen and in print', async () => {
+      failing();
+      apiMock.diagnosticCandidates.mockRejectedValue(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+      renderPage();
+
+      const section = (await screen.findByText(/The diagnostic candidates could not be loaded/)).closest('section');
+      expect(section).toHaveTextContent('This is not a report without candidates.');
+      expect(section).not.toHaveClass('no-print');
+      expect(screen.getByText(/^Incomplete — the diagnostic candidates could not be loaded/)).toBeInTheDocument();
+    });
+
+    it('reads the diagnostic candidates over the diagnostic panel, not the list’s panel or gene', async () => {
+      failing();
+      renderPage();
+      await screen.findByRole('region', { name: 'Diagnostic candidates' });
+      const [, config] = apiMock.diagnosticCandidates.mock.calls[0] as [string, { params: Record<string, string> }];
+      // The default diagnostic-panel answer here names no panel: every variant, as the record reads it.
+      expect(config.params).not.toHaveProperty('panel_id');
+      expect(config.params).not.toHaveProperty('gene');
     });
 
     it('says the software version could not be loaded, on screen and in print, and retries it', async () => {

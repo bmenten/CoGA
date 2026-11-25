@@ -59,7 +59,9 @@ version show a note:
 > the analysis cannot tell which. This does not apply to a monozygotic twin, whose fetuses share one
 > genotype. The parents' carrier status is read as in a singleton pregnancy.
 
-CoGA is not told the zygosity, so the note appears for every multiple pregnancy.
+CoGA is not told the zygosity, so the note appears for every multiple pregnancy. In a multiple
+pregnancy chrX outside the pseudo-autosomal regions is left unclassified: one fetus's chrY signal or
+paternal X alleles say nothing of another's X (see *chrX and the fetal sex*).
 
 ### What the input must contain
 
@@ -245,7 +247,8 @@ X alleles and the plasma's chrY coverage), as the R validation (version 0.7.3) d
   (`paternal_x_allele_in_male_fetus`).
 - **A fetal sex that is not known** (indeterminate or discordant) leaves chrX outside the
   pseudo-autosomal regions unclassified (`sex_chromosome_unsupported`), as chrY and the mitochondrion
-  always are.
+  always are. So does a **multiple pregnancy**, whatever the call: one fetus's signals say nothing of
+  another's X. The quality checks still show the call.
 
 The pseudo-autosomal bounds are conservative, spanning GRCh37's and GRCh38's (PAR1 up to 2.8 Mb, PAR2
 from 154.9 Mb), the same bounds the fetal-sex check reads.
@@ -409,7 +412,12 @@ paternal allele), **carrier** (one of the two) and **unaffected** (neither).
 - For a maternal allele and a paternal allele at different sites, the two inheritances are independent:
   affected is their product, carrier the chance of exactly one.
 - For a site both parents carry, the probabilities are the fetal genotype's: homozygous, heterozygous
-  and reference.
+  and reference. With a homozygous mother the site is **undetermined**, as the R validation reads it:
+  the plasma cannot tell a heterozygous father's allele beside two of hers. Two homozygous parents make
+  the fetus homozygous.
+- A heterozygous father's allele that the mother carries too has no inheritance of its own across two
+  sites (the R validation's *maternal also carrier*): it is read at its 50% prior, so its pair is
+  undetermined.
 - For a son's X-linked gene, affected is the probability that he inherited his mother's allele. He is
   never a carrier.
 - The table highlights the pair. A carrier couple's prior is 25%.
@@ -551,7 +559,8 @@ versions as for every other analysis (*Admin → Gene panels*).
   before and after: its version and a digest of its gene list.
 - **The page and the report open on it.** Without one, the page opens on the Mendeliome. The panel
   filter still lets you look at other panels; the card offers to show the diagnostic panel's variants
-  again.
+  again. A report opened from the page reads the page's panel, and says when that is not the
+  diagnostic panel; its diagnostic candidates are always the diagnostic panel's.
 - **The sign-out freezes it:** the panel's name, version, source release and the digest of its gene
   list, and the **coverage of its capture targets**: how many targets its genes have, how many fall
   below 300×, each gene with a weak target, and each gene of the panel without a capture target. Such
@@ -569,20 +578,26 @@ targets of the genes they belong to.
 
 ## Diagnostic candidates (locked criteria)
 
-The NIPT report lists, for its scope, the variants the R validation's blinded diagnostic analysis
-(NIPT-M version 0.7.3) leaves for further investigation, by criteria that are fixed in CoGA and named
-with their version. The NIPT page's own filters stay adjustable, for exploring; the report and the
-sign-out use these.
+The NIPT report lists the variants the R validation's blinded diagnostic analysis (NIPT-M version
+0.7.3) leaves for further investigation, by criteria that are fixed in CoGA and named with their
+version, over the analysis's **diagnostic panel** (every variant without one): the list the sign-out
+freezes, whatever panel or gene the report's other sections read. The NIPT page's own filters stay
+adjustable, for exploring; the report and the sign-out use these.
 
 | View | A candidate |
 | --- | --- |
 | De novo in the fetus | A de novo candidate in the fetal window, at most 25%, that no other cfDNA sample of the assay carries (unless ClinVar calls it pathogenic), rare and protein-altering |
 | Paternal, inherited | The father's allele the fetus inherited (probability 50% or more), rare and protein-altering |
-| Maternal, inherited | The mother's allele the fetus inherited (probability 50% or more), rare and protein-altering |
+| Maternal | Each of the mother's alleles, rare and protein-altering, with the probability that the fetus inherited it: the maternal inference is the least certain, so it does not narrow the list |
 | Recessive | A gene in which both parents carry an allele that is rare at 1% and protein-altering (for a son, an X-linked gene in which his mother carries one), with the fetal status and its probabilities |
 
-- **Rare:** the highest population frequency CoGA holds for the allele (gnomAD, its exomes and
-  genomes, popmax, TopMed) is 0.1% or less (1% for the recessive pairing). An allele without a
+- **Technical filter**, as in the R validation: the de novo, paternal and maternal lists, and the
+  mother's alleles of the recessive pairing, hold only plasma calls that pass the cfDNA quality filter
+  inside a capture target. A father's allele stays in the recessive pairing, from his own genotype;
+  where its plasma call fails the filter, its inheritance is not told, so its pair is undetermined.
+- **Rare:** the highest population frequency CoGA holds for the allele (VEP's MAX_AF, which the R
+  validation reads, and gnomAD's own, its exomes and genomes, popmax, TopMed) is 0.1% or less (1% for
+  the recessive pairing). An allele without a
   population frequency is rare, unless it recurs in 3 cfDNA samples of the assay or more, this one
   included: then it is an unannotated common allele (a paralogue, a VNTR).
 - **Protein-altering:** a HIGH or MODERATE impact, or a SpliceAI score of 0.2 or more.
@@ -607,8 +622,10 @@ them, with the panel's version, and says that no other filter of the page applie
 the inheritance view, the confidence, the regions, or the frequency and consequence filters. With both
 a panel and a gene, a variant is listed when it matches both. Artifact-list sites are left out; sites
 that fail the quality filter are listed with the reason, as in the variant list. The report states the
-fetal fraction, the quality checks (fetal sex, paternity, the plasma sample) and the coverage of the
-targets in scope.
+fetal fraction, the quality checks (the expected fetal reads with its bound, fetal sex, paternity, the
+plasma sample) and the coverage of the targets in scope, with the targets too thin for the gate's fetal
+reads at this fetal fraction. Its **Diagnostic candidates** are always the diagnostic panel's, as the
+sign-out freezes them, and say so; a report that could not load them says so, on screen and in print.
 
 A report lists at most 500 candidates, the first ones in genomic order. When its scope holds more, or
 more variants match than the variant list classifies, the report says so on screen, above the list and
@@ -660,10 +677,11 @@ signed version shows them:
 Sign-out stops at the family's checks. Besides the Sample QC, a failed NIPT quality check stops it until
 you record a reason: no fetal-fraction estimate, too few expected fetal reads (or a gate on the
 provisional bound QA has not set), a fetal sex whose two signals disagree, male DNA given as the
-maternal plasma, or no diagnostic gene panel. Tag the variants you report before you sign out: a variant without the
+maternal plasma, no diagnostic gene panel, or NIPT results the record could not read (it would then
+verify none of these). Tag the variants you report before you sign out: a variant without the
 *report* tag is not frozen with its classification.
 
-**Show reported (N)**, in the page's *Sign-out* section, lists what a sign-out would freeze: the
+**Show reported (N)**, in the page's header, lists what a sign-out would freeze: the
 variants tagged *report*, with every other filter cleared (the inheritance view, the categories and the
 minimum confidence too), each as this analysis classifies it. N counts the variants tagged *report*.
 

@@ -8,6 +8,7 @@ import {
   coverageTrackCaller,
   describeAlleleReading,
   describeBreachedMetric,
+  describeSignedDiagnosticCandidate,
   describeSignedGate,
   describeSignedQcMetric,
   describeSignedRecessiveStatus,
@@ -2107,6 +2108,80 @@ describe('a NIPT family’s NIPT results', () => {
     inputs: { target_tables: [], artifact_list: null },
     model: {},
   };
+
+  // REQ-NIPT-020: the record freezes each candidate with what the criteria read of it; the
+  // signed view states it all, and the criteria in words, as the report words them.
+  it('reads the locked diagnostic candidates with everything the record froze of them', () => {
+    const candidate = {
+      variant_id: '7-500-G-GCAGCAG',
+      genes: ['GENEC'],
+      category: 1,
+      cf_vaf: 0.06,
+      cf_alt_reads: 30,
+      cf_depth: 500,
+      father_state: 'absent',
+      paternal_transmission_probability: null,
+      maternal_allele_probability: null,
+      max_population_af: null,
+      impact: 'HIGH',
+      spliceai_max: null,
+      clinvar_pathogenic: false,
+      other_cfdna_carriers: 0,
+      confidence: 'low',
+      flags: ['repeat_context'],
+    };
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      sample_qc: { ...SNAPSHOT.sample_qc, application: 'nipt' },
+      nipt: {
+        ...NIPT,
+        diagnostic_candidates: {
+          criteria: {
+            reference: 'R NIPT-M v0.7.3 diagnostic criteria (blinded analysis, step 15)',
+            rare_max_af_dominant: 0.001,
+            rare_max_af_recessive: 0.01,
+            effect_impacts: ['HIGH', 'MODERATE'],
+            min_spliceai: 0.2,
+            clinvar_max_af: 0.05,
+            cohort_common_min_samples: 3,
+            repeat_min_units: 3,
+          },
+          panel_id: 'panel-1',
+          capped: false,
+          de_novo: [candidate],
+          paternal: [],
+          maternal: [
+            {
+              ...candidate,
+              variant_id: '7-100-A-G',
+              genes: ['GENEA'],
+              category: 3,
+              cf_vaf: 0.49,
+              cf_alt_reads: 980,
+              cf_depth: 2000,
+              father_state: 'hom_ref',
+              maternal_allele_probability: 0.31,
+              max_population_af: 0.0002,
+              confidence: 'standard',
+              flags: [],
+            },
+          ],
+          recessive_genes: [],
+          recessive_variants: [],
+        },
+      },
+    })!;
+    expect(record.nipt.state).toBe('recorded');
+    if (record.nipt.state !== 'recorded') return;
+    const frozen = record.nipt.value.diagnosticCandidates!;
+    expect(frozen.criteriaText).toContain('rare at 0.1% or less (recessive alleles 1.0%');
+    expect(describeSignedDiagnosticCandidate(frozen.deNovo[0])).toBe(
+      'GENEC 7-500-G-GCAGCAG: category 1, plasma 6.0% (30 of 500 reads), father no call (reference), population AF none, HIGH impact; low confidence: indel in a repeat',
+    );
+    // A maternal candidate with a low inheritance probability: listed, with its probability.
+    expect(describeSignedDiagnosticCandidate(frozen.maternal[0])).toContain('maternal inherited 31.0%');
+    expect(frozen.recessiveVariants).toEqual([]);
+  });
 
   it('reads the section the record holds', () => {
     const record = parseSignedReport({

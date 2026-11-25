@@ -589,9 +589,10 @@ class NiptDiagnosticPanelStateOut(BaseModel):
 
 
 class NiptDiagnosticPanelUpdate(BaseModel):
-    """Set the analysis's diagnostic panel (a gene panel's id), or clear it (null)."""
+    """Set the analysis's diagnostic panel (a gene panel's id), or clear it (an explicit null):
+    the field is required, so an empty body clears nothing."""
 
-    panel_id: Optional[str] = Field(default=None, max_length=64)
+    panel_id: Optional[str] = Field(..., max_length=64)
 
 
 class NiptVariantOut(VariantOut):

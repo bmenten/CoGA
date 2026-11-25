@@ -336,7 +336,7 @@ def summarize_target_coverage(
                 targets=len(gene_targets),
                 weak_targets=len(weak),
                 min_mean=min(gene_means) if gene_means else None,
-                mean_of_means=sum(gene_means) / len(gene_means) if gene_means else None,
+                mean_of_means=math.fsum(gene_means) / len(gene_means) if gene_means else None,
                 weak=sorted(weak, key=lambda row: (row.mean if row.mean is not None else -1.0)),
                 below_fetal_read_depth=too_thin(gene_targets),
             )
@@ -422,9 +422,11 @@ def sex_chromosome_coverage(rows: Sequence[TargetCoverageRow]) -> SexChromosomeC
             y_values.append(row.mean)
         elif chrom.isdigit():
             autosomal.append(row.mean)
-    autosomal_mean = sum(autosomal) / len(autosomal) if autosomal else None
-    x_mean = sum(x_values) / len(x_values) if x_values else None
-    y_mean = sum(y_values) / len(y_values) if y_values else None
+    # math.fsum: the exact sum, whatever order the track reader returns tied targets in, so
+    # a rebuilt record matches the signed one to the last bit.
+    autosomal_mean = math.fsum(autosomal) / len(autosomal) if autosomal else None
+    x_mean = math.fsum(x_values) / len(x_values) if x_values else None
+    y_mean = math.fsum(y_values) / len(y_values) if y_values else None
     x_ratio = x_mean / autosomal_mean if x_mean is not None and autosomal_mean else None
     y_ratio = y_mean / autosomal_mean if y_mean is not None and autosomal_mean else None
     if y_ratio is None:

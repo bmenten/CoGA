@@ -10,7 +10,6 @@ from fastapi import HTTPException
 from backend.app.services import nipt_analysis, nipt_service
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import (
-    PanelFilterConstraints,
     SmallVariantCall,
     SmallVariantRecord,
 )
@@ -250,7 +249,7 @@ def test_triage_annotation() -> None:
 
 
 def test_triage_annotation_reads_the_parsers_population_frequencies() -> None:
-    # The CSQ parser lifts only gnomad_af to the top level; VEP MAX_AF stays nested.
+    # The CSQ parser lifts only gnomad_af to the top level; the other frequencies stay nested.
     record = _record(
         "7-1000-A-G",
         [],
@@ -263,6 +262,19 @@ def test_triage_annotation_reads_the_parsers_population_frequencies() -> None:
         ],
     )
     assert triage_annotation(record).max_population_af == 0.03
+
+
+def test_triage_annotation_reads_vep_max_af_as_the_r_validation_does() -> None:
+    # The R validation's rarity reads VEP's MAX_AF (every population VEP reads), which the
+    # parser keeps as max_af: it counts beside gnomAD's own.
+    record = _record(
+        "7-1000-A-G",
+        [],
+        annotations=[
+            {"impact": "MODERATE", "gnomad_af": 0.0001, "population_frequencies": {"gnomad_af": 0.0001, "max_af": 0.012}}
+        ],
+    )
+    assert triage_annotation(record).max_population_af == 0.012
 
 
 # --------------------------------------------------------------------------- #
@@ -461,9 +473,14 @@ def _annotated_gene_sites() -> list[SmallVariantRecord]:
 async def test_the_locked_criteria_leave_the_rare_protein_altering_candidates_of_each_view(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # REQ-NIPT-020: de novo, paternal and maternal alleles the fetus inherited, rare (0.1%) and
-    # protein-altering; the recessive genes whose parents both carry a qualifying allele.
-    _wire(monkeypatch, filtered=_annotated_gene_sites())
+    # REQ-NIPT-020: de novo and paternal alleles the fetus inherited, the mother's alleles, each
+    # rare (0.1%) and protein-altering; the recessive genes whose parents both carry a
+    # qualifying allele. The paternal allele (7-200) lies in a capture target here.
+    on_target = [
+        *_plasma_targets(),
+        TargetCoverageRow(chrom="7", start=150, end=250, gene="GENEA", attribute="GENEA", mean=1500.0, median=1500.0),
+    ]
+    _wire(monkeypatch, filtered=_annotated_gene_sites(), targets=on_target)
     candidates = await _diagnostic()
     assert [c.item.record.variant_id for c in candidates.de_novo] == ["7-500-G-A"]
     assert (candidates.de_novo[0].confidence, candidates.de_novo[0].flags) == ("standard", [])
@@ -473,9 +490,43 @@ async def test_the_locked_criteria_leave_the_rare_protein_altering_candidates_of
     # protein, so only the father carries one.
     assert [gene.gene for gene in candidates.recessive_genes] == ["GENEA"]
     assert candidates.criteria.reference.startswith("R NIPT-M v0.7.3")
+    # The R validation's technical filter: a paternal call outside every capture target is
+    # left out of the paternal list (the father's allele stays in the recessive pairing, its
+    # inheritance not told).
+    _wire(monkeypatch, filtered=_annotated_gene_sites())
+    off_target = await _diagnostic()
+    assert off_target.paternal == []
+    [genea] = [gene for gene in off_target.recessive_genes if gene.gene == "GENEA"]
+    assert (genea.status, genea.paternal[0].inherited_probability) == ("undetermined", None)
+    assert "technical filter" in (genea.paternal[0].note or "")
     # Without an annotation the paternal and maternal alleles change no protein: left out.
     bare = await _diagnostic_without_annotation(monkeypatch)
     assert (bare.paternal, bare.maternal, bare.recessive_genes) == ([], [], [])
+
+
+@pytest.mark.asyncio
+async def test_the_maternal_list_holds_every_rare_protein_altering_allele_of_the_mothers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The owner's decision of 2026-11-25, as the R validation's candidate table: the per-site
+    # maternal inference does not narrow the list; each allele carries its probability.
+    targets = [
+        *_plasma_targets(),
+        TargetCoverageRow(chrom="7", start=250, end=349, gene="GENEB", attribute="GENEB", mean=1500.0, median=1500.0),
+    ]
+    sites = _annotated_gene_sites()
+    sites[2].annotations = [{"impact": "HIGH", "gnomad_af": 0.0002}]  # 7-300: not inherited (VAF 0.39)
+    _wire(monkeypatch, filtered=sites, targets=targets)
+    maternal = {
+        candidate.item.record.variant_id: candidate.item.classification.maternal_allele_probability
+        for candidate in (await _diagnostic()).maternal
+    }
+    assert set(maternal) == {"7-100-A-G", "7-300-A-G"}
+    assert maternal["7-100-A-G"] >= 0.5 > maternal["7-300-A-G"]
+    # VEP's MAX_AF reads 7-300 as common: no longer rare, left out.
+    sites[2].annotations = [{"impact": "HIGH", "gnomad_af": 0.0002, "population_frequencies": {"max_af": 0.012}}]
+    _wire(monkeypatch, filtered=sites, targets=targets)
+    assert [candidate.item.record.variant_id for candidate in (await _diagnostic()).maternal] == ["7-100-A-G"]
 
 
 async def _diagnostic_without_annotation(monkeypatch: pytest.MonkeyPatch):
@@ -903,6 +954,23 @@ async def test_the_coverage_page_reads_every_gene_and_a_gene_s_targets(
         "GENEC": 0,
         "GENEZ": 0,
     }
+    # The page runs no analysis: it counts the targets below the fetal-read depth it is given
+    # (the summary's), here 1000x, which only GENEA's 250x target is below.
+    assert coverage.targets.fetal_read_depth is None
+    thin = await get_family_nipt_coverage(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPTFAM1",
+        user=None,  # type: ignore[arg-type]
+        all_genes=True,
+        thin_below=1000.0,
+    )
+    assert thin.targets is not None and thin.targets.fetal_read_depth == 1000.0
+    assert {gene.gene: gene.below_fetal_read_depth for gene in thin.targets.genes} == {
+        "GENEA": 1,
+        "GENEB": 0,
+        "GENEC": 0,
+        "GENEZ": 0,
+    }
 
     weak = await get_family_nipt_gene_targets(
         session=None,  # type: ignore[arg-type]
@@ -956,19 +1024,24 @@ async def test_the_coverage_of_a_panel_reads_the_targets_of_its_genes(monkeypatc
     async def record_use(_session, *, context, panel_id, user, search):
         recorded.append((panel_id, search))
 
-    async def panel_constraints(_session, panel_id, *, assembly_id):
-        return PanelFilterConstraints(genes=("GENEB",))
+    panel_id = "00000000-0000-4000-8000-00000000000b"
+    asked: list[str] = []
+
+    async def panel_symbols(_session, asked_id):
+        # The panel's genes by symbol, as the targets are named (an Ensembl id's symbol).
+        asked.append(asked_id)
+        return ("GENEB",)
 
     monkeypatch.setattr(nipt_service, "record_family_panel_use", record_use)
-    monkeypatch.setattr(nipt_service, "_fetch_panel_constraints", panel_constraints)
+    monkeypatch.setattr(nipt_service, "panel_gene_symbols", panel_symbols)
     coverage = await get_family_nipt_coverage(
         session=None,  # type: ignore[arg-type]
         family_id="NIPTFAM1",
         user=None,  # type: ignore[arg-type]
-        panel_id="panel-1",
+        panel_id=panel_id,
     )
 
     # On the family's clinical audit trail (REQ-CARR-003), and the panel's genes' targets only.
-    assert recorded == [("panel-1", "nipt_coverage")]
+    assert recorded == [(panel_id, "nipt_coverage")] and asked == [panel_id]
     assert coverage.targets is not None and coverage.targets.targets == 1
     assert [(gene.gene, gene.targets, gene.weak_targets) for gene in coverage.targets.genes] == [("GENEB", 1, 0)]

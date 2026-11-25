@@ -57,18 +57,22 @@ below) → passed **46**. The category-8 site (`1-8001-A-G`) has no plasma call 
 only the father carries the allele — so it is counted apart as **paternal-only 1**.
 
 **Recessive: both parents carriers** (view `recessive_at_risk`) — the genes where
-the mother and the father are each heterozygous for an allele, with the fetal risk:
+the mother and the father each carry an allele (heterozygous or homozygous), with
+the fetal status and the probabilities that the fetus is affected, a carrier or
+neither:
 
+- **GENE_MATHOM2** — both parents are homozygous for `1-6001-A-G` (cat 6): the
+  fetus is homozygous too. **Affected**, 100%.
 - **GENE_RECESS** — compound heterozygote: a transmitted paternal allele
   (`1-10000-A-G`, cat 7) + a transmitted maternal allele (`1-3001-A-G`, cat 3).
-  Risk ≈ **86%**: the paternal allele is plain to see, while 50% versus 44% plasma
-  VAF tells that the maternal allele was inherited with about 86% certainty at FF 12%.
+  **Affected**, 86%: the paternal allele is plain to see, while 50% versus 44%
+  plasma VAF tells that the maternal allele was inherited with about 86%
+  certainty at FF 12%.
 - **GENE_HOMRISK** — both parents carry `1-4001-A-G` and the fetus is homozygous
-  (cat 4). Risk ≈ **76%** (the probability of the homozygous fetal genotype).
+  (cat 4) with a probability of 76%: between 20% and 80%, so **undetermined**.
 
-GENE_MATHOM2 (`1-6001-A-G`, cat 6) is **not** listed: both parents are homozygous
-for it, which makes them affected (or the variant benign), not carriers. Nor is
-GENE_CARRIER (`1-10010-A-G`, a lone paternal cat-7 hit).
+GENE_CARRIER (`1-10010-A-G`, a lone paternal cat-7 hit) is not listed: only the
+father carries an allele of it.
 
 **Other views:**
 

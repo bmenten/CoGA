@@ -16,6 +16,7 @@ import {
   isMonogenicNipt as holdsMonogenicNipt,
   NIPT_INHERITANCE_GROUPS,
   depth,
+  describeNiptGateBound,
   lowCoverageDetail,
   niptChryProfileLabel,
   niptFetalSexLabel,
@@ -168,7 +169,8 @@ const DiagnosticPanelLine: React.FC<{
   diagnostic: NiptDiagnosticPanelStateOut['panel'];
   loadFailed: boolean;
   panelId?: string;
-}> = ({ diagnostic, loadFailed, panelId }) => {
+  gene?: string;
+}> = ({ diagnostic, loadFailed, panelId, gene }) => {
   if (loadFailed) {
     return (
       <p className="report-paragraph" role="alert">
@@ -189,7 +191,8 @@ const DiagnosticPanelLine: React.FC<{
     return (
       <p className="report-paragraph">
         This is the analysis&rsquo;s diagnostic panel, {describeDiagnosticPanel(diagnostic)}: the sign-out freezes it,
-        with the coverage of its capture targets.
+        with the coverage of its capture targets
+        {gene ? `, over all of its genes; this report reads it narrowed to ${gene}` : ''}.
       </p>
     );
   }
@@ -316,18 +319,23 @@ const FamilyNiptReportPage: React.FC = () => {
     },
   });
 
+  // The depth the QC gate's fetal reads need at the analysis's fetal fraction, from the summary:
+  // the coverage endpoint runs no analysis, so it counts the targets below the depth it is given.
+  const fetalReadDepth = summary?.qc?.target_coverage?.fetal_read_depth ?? null;
   const {
     data: coverage,
     isLoading: coverageLoading,
     isError: coverageFailed,
     refetch: refetchCoverage,
   } = useQuery<ApiNiptCoverageSummary>({
-    queryKey: ['family', familyId, 'nipt', 'coverage', niptAnalysis, panelId ?? null, gene ?? null],
-    enabled: scopeReady,
+    queryKey: ['family', familyId, 'nipt', 'coverage', niptAnalysis, panelId ?? null, gene ?? null, fetalReadDepth],
+    // After the summary, whose fetal-read depth it reads (without one if the summary failed).
+    enabled: scopeReady && !summaryLoading,
     queryFn: async () => {
       const params: Record<string, string> = { ...analysisParams };
       if (panelId) params.panel_id = panelId;
       if (gene) params.gene = gene;
+      if (fetalReadDepth != null) params.fetal_read_depth = String(fetalReadDepth);
       const res = await api.get(apiPath`/families/${familyId}/nipt/coverage`, { params });
       return res.data as ApiNiptCoverageSummary;
     },
@@ -350,19 +358,21 @@ const FamilyNiptReportPage: React.FC = () => {
     },
   });
 
-  // The locked diagnostic candidates of the report's scope (REQ-NIPT-020): what the sign-out
-  // freezes for the diagnostic panel.
+  // The locked diagnostic candidates (REQ-NIPT-020) over the analysis's diagnostic panel, as the
+  // sign-out freezes them: never the list's panel or gene, so the report states what is signed.
+  const diagnosticPanelId = diagnostic?.panel_id ?? null;
   const {
     data: diagnosticCandidates,
+    isLoading: diagnosticCandidatesLoading,
     isError: diagnosticCandidatesFailed,
     refetch: refetchDiagnosticCandidates,
   } = useQuery<NiptDiagnosticCandidatesOut>({
-    queryKey: ['family', familyId, 'nipt', 'diagnostic-candidates', niptAnalysis, panelId ?? null, gene ?? null],
-    enabled: scopeReady,
+    queryKey: ['family', familyId, 'nipt', 'diagnostic-candidates', niptAnalysis, diagnosticPanelId],
+    // After the summary: each runs the whole-callset analysis, so they do not run side by side.
+    enabled: queryReady && !diagnosticPanelLoading && !diagnosticPanelFailed && !summaryLoading,
     queryFn: async () => {
       const params: Record<string, string> = { ...analysisParams };
-      if (panelId) params.panel_id = panelId;
-      if (gene) params.gene = gene;
+      if (diagnosticPanelId) params.panel_id = diagnosticPanelId;
       const res = await api.get(apiPath`/families/${familyId}/nipt/diagnostic-candidates`, { params });
       return res.data as NiptDiagnosticCandidatesOut;
     },
@@ -477,7 +487,13 @@ const FamilyNiptReportPage: React.FC = () => {
 
   if (
     familyLoading ||
-    (queryReady && (variantsLoading || summaryLoading || coverageLoading || panelLoading)) ||
+    (queryReady &&
+      (variantsLoading ||
+        summaryLoading ||
+        coverageLoading ||
+        panelLoading ||
+        diagnosticPanelLoading ||
+        (!diagnosticPanelFailed && diagnosticCandidatesLoading))) ||
     referenceLoading
   ) {
     return (
@@ -544,6 +560,8 @@ const FamilyNiptReportPage: React.FC = () => {
 
   const ff = summary?.fetal_fraction;
   const qc = summary?.qc;
+  const candidatesUnread =
+    diagnosticCandidatesFailed || Boolean(diagnosticCandidates && !diagnosticCandidates.criteria);
   const lowCoverage = coverage?.low_coverage_regions ?? [];
   // The fetal fraction and the coverage QC are part of what the report states: when either
   // could not be loaded it is said in its place and heads every printed page, instead of
@@ -553,6 +571,8 @@ const FamilyNiptReportPage: React.FC = () => {
     coverageFailed ? 'the coverage QC' : null,
     // The scope names the panel: a printout that cannot name it is not complete.
     panelFailed ? 'the name of the gene panel' : null,
+    // The locked candidates are what the sign-out freezes: a printout without them is not complete.
+    diagnosticPanelFailed || candidatesUnread ? 'the diagnostic candidates' : null,
     // A printout that cannot name the build that produced it is not complete either.
     reportBuild.failed ? 'the software version' : null,
   ].filter((part): part is string => Boolean(part));
@@ -747,7 +767,7 @@ const FamilyNiptReportPage: React.FC = () => {
       <section className="surface-card report-section">
         <h2 className="section-title">Scope</h2>
         <p className="report-paragraph">{scopeLine({ panelId, panel, panelFailed, geneTerms })}</p>
-        <DiagnosticPanelLine diagnostic={diagnostic} loadFailed={diagnosticPanelFailed} panelId={panelId} />
+        <DiagnosticPanelLine diagnostic={diagnostic} loadFailed={diagnosticPanelFailed} panelId={panelId} gene={gene} />
         <p className="report-paragraph">
           The candidate list holds every variant in this scope with a call in the cfDNA sample or
           the father&apos;s, except the sites on the recurrent-artifact list of the assay. No other
@@ -761,9 +781,21 @@ const FamilyNiptReportPage: React.FC = () => {
         <h2 className="section-title">Fetal fraction</h2>
         {ff ? (
           <>
+            {ff.ff_computed == null ? (
+              <p className="report-paragraph report-disclaimer">
+                The fetal fraction was <strong>not estimated</strong>: {ff.n_sites} category-7 site
+                {ff.n_sites === 1 ? '' : 's'} are too few. Do not interpret the category calls without it.
+              </p>
+            ) : null}
             <p className="report-paragraph">
-              The estimated fetal fraction is <strong>{pct(ff.ff)}</strong>
-              {ff.ci_low != null && ff.ci_high != null
+              {ff.ff_computed == null ? (
+                'Without an estimate'
+              ) : (
+                <>
+                  The estimated fetal fraction is <strong>{pct(ff.ff_computed)}</strong>
+                </>
+              )}
+              {ff.ff_computed != null && ff.ci_low != null && ff.ci_high != null
                 ? ` (95% CI ${pct(ff.ci_low)}–${pct(ff.ci_high)})`
                 : ''}
               , derived from {ff.n_sites} category-7 site{ff.n_sites === 1 ? '' : 's'} using the{' '}
@@ -800,7 +832,7 @@ const FamilyNiptReportPage: React.FC = () => {
             }
           >
             <strong>Expected fetal reads ({QC_STATUS_LABEL[qc.expected_fetal_reads.status]}).</strong>{' '}
-            {qc.expected_fetal_reads.message}
+            {qc.expected_fetal_reads.message} {describeNiptGateBound(qc.expected_fetal_reads)}
             {qc.target_coverage?.fetal_read_depth != null && qc.target_coverage.below_fetal_read_depth != null
               ? ` ${qc.target_coverage.below_fetal_read_depth.toLocaleString()} of ${qc.target_coverage.targets.toLocaleString()} capture targets are below ${depth(
                   qc.target_coverage.fetal_read_depth,
@@ -809,7 +841,10 @@ const FamilyNiptReportPage: React.FC = () => {
           </p>
           <p className="report-paragraph">
             {/* The tokens read as the QC panel on screen reads them. */}
-            <strong>Fetal sex: {niptFetalSexLabel(qc.fetal_sex.call)}.</strong> The father&apos;s X alleles:{' '}
+            <strong>
+              Fetal sex: {niptFetalSexLabel(qc.fetal_sex.call)} ({QC_STATUS_LABEL[qc.fetal_sex.status as QcStatus]}).
+            </strong>{' '}
+            The father&apos;s X alleles:{' '}
             {qc.fetal_sex.x_transmitted} seen, {qc.fetal_sex.x_not_transmitted} absent (
             {qc.fetal_sex.paternal_x}); chrY coverage: {niptChryProfileLabel(qc.fetal_sex.chry_profile)}
             {qc.fetal_sex.y_ratio != null ? ` (chrY/autosomes ${qc.fetal_sex.y_ratio.toFixed(3)})` : ''}.
@@ -844,7 +879,6 @@ const FamilyNiptReportPage: React.FC = () => {
               <ul className="report-criteria-list">
                 {coverage.targets.genes
                   .filter((item) => item.weak_targets > 0 || item.targets === 0)
-                  .slice(0, 100)
                   .map((item) => (
                     <li key={item.gene} className="report-paragraph">
                       <strong>{item.gene}</strong> —{' '}
@@ -857,6 +891,28 @@ const FamilyNiptReportPage: React.FC = () => {
             ) : (
               <p className="report-paragraph">Every target in scope was adequately interrogated.</p>
             )}
+            {coverage.targets.fetal_read_depth != null && coverage.targets.below_fetal_read_depth != null ? (
+              <>
+                <p className="report-paragraph">
+                  {formatCount(coverage.targets.below_fetal_read_depth)} of {formatCount(coverage.targets.targets)}{' '}
+                  are below {depth(coverage.targets.fetal_read_depth)}, the depth that gives the QC gate&rsquo;s
+                  expected fetal reads at this fetal fraction: a fetal-specific allele there is less likely to be
+                  found.
+                </p>
+                {coverage.targets.genes.some((item) => (item.below_fetal_read_depth ?? 0) > 0) ? (
+                  <ul className="report-criteria-list">
+                    {coverage.targets.genes
+                      .filter((item) => (item.below_fetal_read_depth ?? 0) > 0)
+                      .map((item) => (
+                        <li key={`thin-${item.gene}`} className="report-paragraph">
+                          <strong>{item.gene}</strong> — {item.below_fetal_read_depth} of {item.targets} targets below{' '}
+                          {depth(coverage.targets?.fetal_read_depth)}
+                        </li>
+                      ))}
+                  </ul>
+                ) : null}
+              </>
+            ) : null}
           </>
         ) : coverage && coverage.target_region_count > 0 ? (
           <>
@@ -906,18 +962,30 @@ const FamilyNiptReportPage: React.FC = () => {
         )}
       </section>
 
-      {diagnosticCandidatesFailed || (diagnosticCandidates && !diagnosticCandidates.criteria) ? (
-        <section className="surface-card report-incomplete no-print" role="alert">
+      {diagnosticPanelFailed || candidatesUnread ? (
+        <section className="surface-card report-section report-incomplete" role="alert">
+          <h2 className="section-title">Diagnostic candidates</h2>
           <p className="report-paragraph">
-            The diagnostic candidates could not be loaded.{' '}
-            <button type="button" className="button-link" onClick={() => void refetchDiagnosticCandidates()}>
-              Try again
-            </button>
+            The diagnostic candidates could not be loaded. This is not a report without candidates.{' '}
+            {candidatesUnread ? (
+              <button
+                type="button"
+                className="button-link no-print"
+                onClick={() => void refetchDiagnosticCandidates()}
+              >
+                Try again
+              </button>
+            ) : null}
           </p>
         </section>
       ) : diagnosticCandidates ? (
         <NiptDiagnosticCandidatesSection
           data={diagnosticCandidates}
+          scope={
+            diagnostic
+              ? `the analysis’s diagnostic panel, ${describeDiagnosticPanel(diagnostic)}, as the sign-out freezes it, whatever the scope of the list below.`
+              : 'no diagnostic panel is set, so every variant of the analysis; the sign-out asks for a reason.'
+          }
           renderVariant={(candidate) => <ReportVariant variant={candidate.variant as unknown as SmallVariant} />}
         />
       ) : null}

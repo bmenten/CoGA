@@ -3952,10 +3952,6 @@ def test_an_acknowledged_nipt_check_is_frozen_and_audited(monkeypatch) -> None:
                 "plasma_sample": {"status": "unknown", "message": "No per-target coverage: no sex profile."},
             },
         },
-        # Results that could not be read: not captured (the record names them), not a QC fail.
-        {"unavailable": "The NIPT results could not be read."},
-        # The trio could not be resolved: the Sample QC's own NIPT check gates that.
-        {"unavailable": "The NIPT trio could not be resolved."},
     ],
 )
 def test_nipt_checks_that_did_not_fail_do_not_gate(monkeypatch, section) -> None:
@@ -4033,12 +4029,38 @@ def test_the_check_of_a_family_that_is_no_nipt_family_names_no_nipt_section(monk
     assert (out["matches"], out["changed_sections"]) == (True, [])
 
 
+@pytest.mark.parametrize(
+    "why", ["The NIPT results could not be read.", "The NIPT trio could not be resolved."]
+)
+def test_nipt_results_that_could_not_be_read_gate_the_sign_out(monkeypatch, why) -> None:
+    # Without its NIPT results the record verifies none of their checks: a fetal fraction not
+    # estimated or a failed QC gate would otherwise sign out unseen.
+    _patch_common(monkeypatch, drifted_count=0)
+    _with_sections(monkeypatch, nipt={"unavailable": why})
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    detail = excinfo.value.detail
+    assert excinfo.value.status_code == 409 and detail["gate"] == "sample_qc"
+    assert detail["nipt_failed_checks"] == [
+        f"NIPT results: {why[0].lower()}{why[1:-1]}. The record holds no NIPT result, so none of its quality checks "
+        "is verified."
+    ]
+
+
 def test_nipt_results_not_captured_are_named_by_the_check_and_the_audit(monkeypatch) -> None:
     unavailable = {"unavailable": "The NIPT results could not be read."}
     _patch_common(monkeypatch, drifted_count=0)
     _with_sections(monkeypatch, nipt=unavailable)
     captured = _capture_audit(monkeypatch)
-    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(
+        _through_the_dialogs(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_qc=True,
+            qc_acknowledgement_reason="The NIPT results are read again after the database is restored.",
+        )
+    )
     gap = {"section": "nipt", "item": "NIPT results", "reason": "The NIPT results could not be read."}
     assert gap in out["not_captured"]
     assert gap in captured["after"]["not_captured"]

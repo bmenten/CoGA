@@ -2,7 +2,7 @@ import React from 'react';
 import type { ApiNiptFetalFraction, QcStatus } from '../../lib/apiTypes';
 import type { NiptQcOut } from '../../lib/apiSchema.generated';
 import { QC_STATUS_CHIP, QC_STATUS_LABEL, worstIntegrityStatus } from '../../lib/qcStatus';
-import { depth, niptChryProfileLabel, niptFetalSexLabel, pct } from './niptClassification';
+import { depth, describeNiptGateBound, niptChryProfileLabel, niptFetalSexLabel, pct } from './niptClassification';
 
 // Why cfDNA calls failed the quality filter (nipt_analysis.quality_failures).
 export const NIPT_QUALITY_FAILURE_LABELS: Record<string, string> = {
@@ -30,14 +30,6 @@ const Row: React.FC<{ status?: QcStatus; title: React.ReactNode; children?: Reac
     </div>
   </div>
 );
-
-// The gate's bound as it applied: QA's (with its warning bound) or the provisional one.
-const describeGateBound = (gate: NiptQcOut['expected_fetal_reads']): string =>
-  `A fetal-specific allele has about median target depth × FF/2 reads. Bound: ${
-    gate.error_value == null ? 'no error bound set' : `at least ${gate.error_value}`
-  }${gate.warn_value != null ? `, warning below ${gate.warn_value}` : ''}${
-    gate.provisional ? ' (provisional: QA has not set it)' : ' (set by QA)'
-  }.`;
 
 const share = (part: number, whole: number): string =>
   whole ? `${((part / whole) * 100).toFixed(1)}%` : '—';
@@ -115,7 +107,7 @@ const NiptQcPanel: React.FC<NiptQcPanelProps> = ({ qc, fetalFraction: ff }) => {
           }
         >
           <p className="table-subtle">{gate.message}</p>
-          <p className="table-subtle">{describeGateBound(gate)}</p>
+          <p className="table-subtle">{describeNiptGateBound(gate)}</p>
         </Row>
         <Row status={sex.status} title={`Fetal sex: ${niptFetalSexLabel(sex.call)}`}>
           <p className="table-subtle">

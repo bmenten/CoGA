@@ -270,8 +270,10 @@ def test_a_site_both_parents_carry_is_read_off_the_fetal_hom_alt_probability() -
     [risk] = recessive_gene_risks([shared])
     assert risk.risk == pytest.approx(0.985)
     assert risk.maternal_variant_id == risk.paternal_variant_id == "shared"
-    # The paternal allele's inheritance: the hom-alt state, and half the het one.
-    assert risk.paternal[0].inherited_probability == pytest.approx(0.985 + 0.5 * 0.015)
+    # The father's allele, which the mother carries too, has no inheritance of its own (the R
+    # pairing's maternal_also_carrier): the site is paired on its fetal genotype.
+    assert risk.paternal[0].inherited_probability is None
+    assert risk.paternal[0].note == "the mother carries it too: its inheritance is not told"
     # Without the fetal genotype posterior, the hom-alt probability alone.
     no_posterior = _candidate(
         "shared",
@@ -279,7 +281,6 @@ def test_a_site_both_parents_carry_is_read_off_the_fetal_hom_alt_probability() -
         _classification(4, maternal_state="het", maternal_allele_probability=0.99, fetal_hom_alt_probability=0.9),
     )
     [risk] = recessive_gene_risks([no_posterior])
-    assert risk.paternal[0].inherited_probability == pytest.approx(0.9)
     assert risk.risk == pytest.approx(0.9)
 
 
@@ -306,11 +307,19 @@ def test_a_homozygous_parent_always_passes_the_allele() -> None:
     assert shared.maternal[0].note == "mother homozygous" and shared.paternal[0].note == "father homozygous"
     [pair] = recessive_gene_risks([maternal, father_hom])
     assert pair.risk == pytest.approx(0.99) and pair.status == "affected"
+    # Even where the plasma does not show his allele (category 8, P ~ 0): the R pairing reads a
+    # homozygous father as passing it; the missing allele is the category-8 signal.
+    unseen = _candidate(
+        "father_hom", "hom_alt", _classification(8, maternal_state="hom_ref", paternal_transmission_probability=0.01)
+    )
+    [pair] = recessive_gene_risks([maternal, unseen])
+    assert (pair.paternal[0].inherited_probability, pair.status) == (1.0, "affected")
 
 
 def test_the_fathers_allele_at_a_site_the_mother_is_homozygous_for() -> None:
-    # The mother always transmits the allele, so a heterozygous fetus has the father's
-    # reference allele: his allele was inherited only by a homozygous fetus.
+    # As the R pairing reads it: the plasma's allele fraction cannot tell a heterozygous
+    # father's allele beside two of the mother's, so that site is undetermined, and his allele
+    # has no inheritance of its own for a pair across two sites either.
     maternal = _candidate("mat", "absent", _classification(3, maternal_state="het", maternal_allele_probability=0.99))
     paternal = _candidate(
         "pat",
@@ -323,11 +332,15 @@ def test_the_fathers_allele_at_a_site_the_mother_is_homozygous_for() -> None:
         ),
     )
     [risk] = recessive_gene_risks([maternal, paternal])
-    assert risk.paternal[0].inherited_probability == pytest.approx(0.02)
-    # The shared site's genotype posterior is the likeliest affected pair (0.02 hom-alt, just
-    # above 0.99 x 0.02 across the two sites): a heterozygous fetus, a carrier.
-    assert risk.risk == pytest.approx(0.02)
-    assert (risk.status, risk.carrier_probability) == ("carrier", pytest.approx(0.98))
+    assert risk.paternal[0].inherited_probability is None
+    # The likeliest affected pair is the two sites, his inheritance at its ½ prior: the gene
+    # stays in the list, undetermined, rather than called a carrier.
+    assert (risk.maternal_variant_id, risk.paternal_variant_id) == ("mat", "pat")
+    assert risk.risk == pytest.approx(0.99 * 0.5)
+    assert (risk.status, risk.risk_uses_prior) == ("undetermined", True)
+    # The site alone: undetermined whatever its genotype posterior says.
+    [alone] = recessive_gene_risks([paternal])
+    assert alone.status == "undetermined"
 
 
 @pytest.mark.parametrize(

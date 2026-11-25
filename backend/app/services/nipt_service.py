@@ -30,6 +30,8 @@ from sqlalchemy import text
 
 from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
+from ..core.sql import require_uuid
+
 from .clickhouse_family_variants import (
     _fetch_gene_regions,
     _fetch_panel_constraints,
@@ -106,6 +108,7 @@ from .nipt_analysis import (
     infer_fetal_sex,
     is_genotyped_call,
     filter_sites_and_estimate_ff,
+    model_fetal_sex,
     run_nipt_analysis,
 )
 from .nipt_target_coverage import (
@@ -121,7 +124,12 @@ from .nipt_target_coverage import (
     target_row_from_track,
 )
 from .panel_use_audit import record_family_panel_use
-from .analysis_gene_panel import AnalysisGenePanel, load_analysis_gene_panel, set_analysis_gene_panel
+from .analysis_gene_panel import (
+    AnalysisGenePanel,
+    load_analysis_gene_panel,
+    panel_gene_symbols,
+    set_analysis_gene_panel,
+)
 from .nipt_diagnostic_filters import (
     DiagnosticAnnotation,
     NiptDiagnosticCriteria,
@@ -165,7 +173,16 @@ _DE_NOVO_PRIORITY_LABELS: dict[str, frozenset[str]] = {
 
 _AUTOSOMES = {str(index) for index in range(1, 23)}
 _IMPACT_RANK = {"HIGH": 4, "MODERATE": 3, "LOW": 2, "MODIFIER": 1}
-_POPULATION_AF_KEYS = ("gnomad_af", "gnomad_exomes_af", "gnomad_genomes_af", "gnomad_popmax_af", "topmed_af")
+# VEP's MAX_AF (``max_af``, its highest frequency over every population it reads) is the
+# frequency the R validation's rarity reads; gnomAD's own and TOPMed's are read beside it.
+_POPULATION_AF_KEYS = (
+    "max_af",
+    "gnomad_af",
+    "gnomad_exomes_af",
+    "gnomad_genomes_af",
+    "gnomad_popmax_af",
+    "topmed_af",
+)
 _SPLICEAI_KEYS = ("spliceai_ds_ag", "spliceai_ds_al", "spliceai_ds_dg", "spliceai_ds_dl")
 
 
@@ -836,7 +853,9 @@ class _FamilyData:
 async def _load_family_data(context: FamilyMetadataContext, trio: NiptTrio) -> _FamilyData:
     records, plasma_targets, father_targets = await asyncio.gather(
         _load_family_records(context),
-        _load_target_rows(context, trio, trio.cfdna_sample_id, with_metadata=False),
+        # With each target's covered share: a target with bases without coverage is weak, in
+        # the summary and the record as on the coverage page.
+        _load_target_rows(context, trio, trio.cfdna_sample_id, with_metadata=True),
         _load_target_rows(context, trio, trio.father_sample_id, with_metadata=False),
     )
     return _FamilyData(records=records, plasma_targets=plasma_targets, father_targets=father_targets)
@@ -1084,7 +1103,13 @@ def _analyse_family_sites(
         father_targets=data.father_targets,
         qc=qc,
     )
-    return run_nipt_analysis(sites, qc, artifact_lookup=artifact_lookup, chry_profile=_chry_profile(data))
+    return run_nipt_analysis(
+        sites,
+        qc,
+        artifact_lookup=artifact_lookup,
+        chry_profile=_chry_profile(data),
+        fetuses=len(trio.fetus_sample_ids),
+    )
 
 
 def _chry_profile(data: _FamilyData) -> str | None:
@@ -1099,9 +1124,9 @@ def _estimate_cohort_fetal_fraction(
     qc: NiptQualityThresholds,
     artifact_ids: set[str],
 ) -> tuple[FetalFractionEstimate, str]:
-    """The summary's fetal fraction and fetal sex (``combined_fetal_sex``), over the same
-    filtered sites, so the variant list reports -- and classifies against -- what the
-    summary shows."""
+    """The summary's fetal fraction and the fetal sex it classifies chrX with
+    (``combined_fetal_sex``, ``model_fetal_sex``), over the same filtered sites, so the variant
+    list reports -- and classifies against -- what the summary shows."""
     filtered = filter_sites_and_estimate_ff(
         _family_sites(
             data.records,
@@ -1116,7 +1141,7 @@ def _estimate_cohort_fetal_fraction(
     ff_estimate = filtered.fetal_fraction
     paternal_x = infer_fetal_sex(filtered.passed, ff_estimate, qc)
     sex_call = combined_fetal_sex(paternal_x.inferred, _chry_profile(data), ff_estimate.ff_computed or 0.0)
-    return ff_estimate, sex_call
+    return ff_estimate, model_fetal_sex(sex_call, len(trio.fetus_sample_ids))
 
 
 def _classify_candidates(
@@ -1285,8 +1310,17 @@ def _maternal_view(
     return kept
 
 
+def _technically_retained(item: NiptClassifiedVariant) -> bool:
+    """The R validation's technical filter: the site's plasma call passes the cfDNA quality
+    filter inside a capture target. A father's allele the plasma does not call has no call to
+    fail; whether the fetus inherited it is the classification's."""
+    if item.classification.quality_failures:
+        return False
+    return item.site is None or item.site.in_target is not False
+
+
 def _recessive_view(
-    classified: list[NiptClassifiedVariant], qc: NiptQualityThresholds
+    classified: list[NiptClassifiedVariant], qc: NiptQualityThresholds, *, technical: bool = False
 ) -> tuple[list[NiptClassifiedVariant], list[RecessiveGeneRisk]]:
     """The genes where both parents carry an allele, and the X-linked genes in which a son's
     mother carries one, each with the fetal status and its probabilities (nipt_triage), and
@@ -1295,7 +1329,8 @@ def _recessive_view(
     A variant marks the mother a carrier when her inferred genotype is het or hom (categories
     2-6), and the father when his genotype is het or hom-alt (a homozygous or hemizygous
     parent always passes the allele). Run the gene, consequence and frequency filters first
-    so the carriers are plausibly causal.
+    so the carriers are plausibly causal. ``technical`` applies the technical filter
+    (``_technically_retained``), as the locked diagnostic candidates do.
     """
     candidates: list[RecessiveCandidate] = []
     by_variant: dict[str, NiptClassifiedVariant] = {}
@@ -1312,6 +1347,7 @@ def _recessive_view(
                 classification=item.classification,
                 variant_class=item.site.variant_class if item.site is not None else "SNV",
                 has_population_af=triage_annotation(item.record).max_population_af is not None,
+                plasma_call_retained=not technical or _technically_retained(item),
             )
         )
         by_variant[item.record.variant_id] = item
@@ -1724,10 +1760,17 @@ async def diagnostic_candidates(
     * de novo: a candidate in the family's fetal window (at most the maternal boundary,
       0.25) that no other cfDNA sample of the assay carries (unless ClinVar calls it
       pathogenic), rare (0.1 %) and protein-altering; a repeat-context indel is low confidence;
-    * paternal and maternal: an allele the fetus inherited (probability 0.5 or more), rare
-      (0.1 %) and protein-altering;
+    * paternal: an allele the fetus inherited (probability 0.5 or more), rare (0.1 %) and
+      protein-altering;
+    * maternal: every allele of the mother's, rare (0.1 %) and protein-altering, with the
+      probability that the fetus inherited it, as the R validation's candidate table lists
+      them (the owner's decision of 2026-11-25: the per-site maternal inference is the least
+      certain, so it does not narrow the list);
     * recessive: the genes in which both parents carry a qualifying allele (rare at 1 %, or
-      ClinVar pathogenic up to 5 %, and protein-altering), with the fetal risk.
+      ClinVar pathogenic up to 5 %, and protein-altering), with the fetal status.
+
+    The paternal and maternal lists, and the mother's alleles of the recessive pairing, hold
+    only calls past the R validation's technical filter (``_technically_retained``).
     """
     criteria = criteria or NiptDiagnosticCriteria()
     await _attach_recurrence(classified, scope)
@@ -1773,10 +1816,11 @@ async def diagnostic_candidates(
                 kept.append(NiptDiagnosticCandidate(item=item, annotation=annotation, flags=flags_of(item, annotation)))
         return kept
 
-    paternal = dominant(_paternal_view(classified, qc, include_not_inherited=False))
-    maternal = dominant(_maternal_view(classified, include_not_inherited=False))
+    retained = [item for item in classified if _technically_retained(item)]
+    paternal = dominant(_paternal_view(retained, qc, include_not_inherited=False))
+    maternal = dominant(_maternal_view(retained, include_not_inherited=True))
     qualifying = [item for item in classified if not recessive_failures(annotations[item.record.variant_id], criteria)]
-    carriers, genes = _recessive_view(qualifying, qc)
+    carriers, genes = _recessive_view(qualifying, qc, technical=True)
     recessive = [
         NiptDiagnosticCandidate(
             item=item,
@@ -2281,6 +2325,7 @@ async def get_family_nipt_coverage(
     panel_id: str | None = None,
     min_depth: float = DEFAULT_MIN_DEPTH,
     all_genes: bool = False,
+    thin_below: float | None = None,
     analysis: str | None = None,
 ) -> NiptCoverageResult:
     family, trio, context = await _resolve_family_trio_context(
@@ -2295,13 +2340,15 @@ async def get_family_nipt_coverage(
         # The capture targets themselves: the panel's or the queried genes', else all.
         genes: list[str] = list(_split_gene_terms(gene)) if gene else []
         if panel_id:
-            constraints = await _fetch_panel_constraints(
-                session, panel_id, assembly_id=context.assembly_id
-            )
-            genes.extend(constraints.genes)
+            # By symbol, as the targets are named and the record reads the panel: an Ensembl
+            # gene id is never listed as a gene without a target beside its own symbol.
+            symbols = await panel_gene_symbols(session, require_uuid(panel_id, "Invalid panel id"))
+            genes.extend(symbols or ())
         return NiptCoverageResult(
             regions=NiptCoverageSummary(overall_median_on_target=None, target_region_count=0, min_depth=min_depth),
-            targets=summarize_target_coverage(target_rows, genes=genes or None, include_passing=all_genes),
+            targets=summarize_target_coverage(
+                target_rows, genes=genes or None, include_passing=all_genes, fetal_read_depth=thin_below
+            ),
         )
     target_regions = await _resolve_nipt_target_regions(
         session, family=family, context=context, gene=gene, panel_id=panel_id

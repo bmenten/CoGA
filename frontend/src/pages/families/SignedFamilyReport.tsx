@@ -51,8 +51,10 @@ import {
 import {
   ANALYTICAL_SIGN_OFF_STATEMENT,
   coverageTrackCaller,
+  describeSignedDiagnosticCandidate,
   describeSignedGate,
   describeSignedQcMetric,
+  describeSignedRecessivePair,
   describeSignedRecessiveStatus,
   describeCatalogue,
   describeCnvKnowledgebase,
@@ -775,37 +777,47 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
           ) : null}
           <li>
             Diagnostic candidates:{' '}
-            {nipt.diagnosticCandidates
-              ? `${nipt.diagnosticCandidates.criteriaReference ?? 'criteria not named'}${
-                  nipt.diagnosticCandidates.capped ? ' (the scope held more variants than the analysis classifies at once)' : ''
-                }; ${[
-                  ['de novo', nipt.diagnosticCandidates.deNovo],
-                  ['paternal', nipt.diagnosticCandidates.paternal],
-                  ['maternal', nipt.diagnosticCandidates.maternal],
-                ]
-                  .map(
-                    ([label, list]) =>
-                      `${label}: ${
-                        (list as SignedNiptDiagnosticCandidate[]).length
-                          ? (list as SignedNiptDiagnosticCandidate[])
-                              .map(
-                                (candidate) =>
-                                  `${candidate.genes.join('/') || '—'} ${candidate.variantId}${
-                                    candidate.confidence === 'low' ? ' (low confidence)' : ''
-                                  }`,
-                              )
-                              .join(', ')
-                          : 'none'
-                      }`,
-                  )
-                  .join('; ')}; recessive genes: ${
-                  nipt.diagnosticCandidates.recessiveGenes.length
-                    ? nipt.diagnosticCandidates.recessiveGenes
-                        .map((gene) => `${gene.gene ?? 'a gene'} (${describeSignedRecessiveStatus(gene)})`)
-                        .join(', ')
-                    : 'none'
-                }`
-              : 'not in the record'}
+            {nipt.diagnosticCandidates ? (
+              <>
+                {nipt.diagnosticCandidates.criteriaText ??
+                  nipt.diagnosticCandidates.criteriaReference ??
+                  'criteria not named'}
+                {nipt.diagnosticCandidates.capped
+                  ? ' The scope held more variants than the analysis classifies at once: the lists may be incomplete.'
+                  : ''}
+                <ul className="report-signed-list">
+                  {(
+                    [
+                      ['De novo', nipt.diagnosticCandidates.deNovo],
+                      ['Paternal', nipt.diagnosticCandidates.paternal],
+                      ['Maternal', nipt.diagnosticCandidates.maternal],
+                    ] as [string, SignedNiptDiagnosticCandidate[]][]
+                  ).map(([label, list]) => (
+                    <li key={label}>
+                      {label}: {list.length ? list.map(describeSignedDiagnosticCandidate).join('; ') : 'none'}
+                    </li>
+                  ))}
+                  <li>
+                    Recessive genes:{' '}
+                    {nipt.diagnosticCandidates.recessiveGenes.length
+                      ? nipt.diagnosticCandidates.recessiveGenes
+                          .map(
+                            (gene) =>
+                              `${gene.gene ?? 'a gene'} (${describeSignedRecessiveStatus(gene)})${describeSignedRecessivePair(gene)}`,
+                          )
+                          .join('; ')
+                      : 'none'}
+                    {nipt.diagnosticCandidates.recessiveVariants.length
+                      ? `; their qualifying alleles: ${nipt.diagnosticCandidates.recessiveVariants
+                          .map(describeSignedDiagnosticCandidate)
+                          .join('; ')}`
+                      : ''}
+                  </li>
+                </ul>
+              </>
+            ) : (
+              'not in the record'
+            )}
           </li>
           <NiptCoverageNotesLine nipt={nipt} />
           <li>
@@ -856,13 +868,7 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
               {nipt.recessiveGenes.map((gene, index) => (
                 <li key={`${gene.gene ?? 'gene'}-${index}`}>
                   <strong>{gene.gene ?? 'A gene'}</strong>: {describeSignedRecessiveStatus(gene)}
-                  {gene.maternalVariantId && gene.paternalVariantId
-                    ? gene.maternalVariantId === gene.paternalVariantId
-                      ? ` (${gene.maternalVariantId}, a site both parents carry)`
-                      : ` (maternal ${gene.maternalVariantId}, paternal ${gene.paternalVariantId})`
-                    : gene.maternalVariantId
-                      ? ` (maternal ${gene.maternalVariantId})`
-                      : ''}
+                  {describeSignedRecessivePair(gene)}
                   {gene.riskUsesPrior ? '; an inheritance the cfDNA did not tell is read at its Mendelian prior' : ''}
                 </li>
               ))}

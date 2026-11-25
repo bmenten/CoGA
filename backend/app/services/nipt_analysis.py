@@ -501,6 +501,14 @@ def chromosome_model(site: NiptSiteObservation, fetal_sex: str | None) -> str | 
     return None
 
 
+def model_fetal_sex(sex_call: str, fetuses: int) -> str:
+    """The fetal sex chrX outside the pseudo-autosomal regions is classified with: the call,
+    in a singleton pregnancy. In a multiple pregnancy one fetus's chrY signal or paternal X
+    alleles say nothing of another's X, so that chrX is left unclassified (``indeterminate``),
+    whatever the call; the quality checks still show the call."""
+    return sex_call if fetuses <= 1 else "indeterminate"
+
+
 def trusted_father_state(site: NiptSiteObservation, qc: NiptQualityThresholds) -> str:
     """The father's genotype as the candidates read it: ``hom_ref``, ``het``, ``hom_alt``,
     or ``missing`` when his call cannot be trusted.
@@ -1304,15 +1312,19 @@ def run_nipt_analysis(
     artifact_lookup: Callable[[str], bool] = lambda _variant_id: False,
     overdispersion: float = OVERDISPERSION,
     chry_profile: str | None = None,
+    fetuses: int = 1,
 ) -> NiptAnalysisResult:
     """Filter, estimate FF, read the fetal sex (the father's X alleles and the plasma's chrY
-    coverage, ``chry_profile``), classify, and tally."""
+    coverage, ``chry_profile``), classify, and tally. ``fetuses``: the pregnancy's, of which a
+    multiple pregnancy leaves chrX outside the pseudo-autosomal regions unclassified
+    (``model_fetal_sex``)."""
     filtered = filter_sites_and_estimate_ff(sites, qc, artifact_lookup=artifact_lookup)
     ff_estimate = filtered.fetal_fraction
     paternal_x = infer_fetal_sex(filtered.passed, ff_estimate, qc)
     sex_call = combined_fetal_sex(paternal_x.inferred, chry_profile, ff_estimate.ff_computed or 0.0)
+    model_sex = model_fetal_sex(sex_call, fetuses)
     classifications = [
-        classify_site(site, ff_estimate, qc, overdispersion=overdispersion, fetal_sex=sex_call)
+        classify_site(site, ff_estimate, qc, overdispersion=overdispersion, fetal_sex=model_sex)
         for site in filtered.passed
     ]
 

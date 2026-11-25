@@ -6,6 +6,13 @@ import { RECESSIVE_STATUS_LABELS, pct, recessiveProbabilitiesText } from './nipt
 export const DIAGNOSTIC_FLAG_LABELS: Record<string, string> = {
   repeat_context: 'indel in a repeat',
   clinvar_pathogenic: 'ClinVar pathogenic',
+  paternal_x_allele_in_male_fetus: "a son's X allele his father also calls (a son never inherits his father's X)",
+};
+
+/** How the report names a recessive gene's chrX reading. */
+export const RECESSIVE_MODE_LABELS: Record<string, string> = {
+  x_linked_son: 'X-linked, a son: his mother’s allele alone',
+  x_linked_daughter: 'X-linked, a daughter: paired as an autosome',
 };
 
 /** One line of the criteria the report and the signed record name. */
@@ -50,20 +57,39 @@ const View: React.FC<ViewProps> = ({ title, description, candidates, renderVaria
 
 interface NiptDiagnosticCandidatesSectionProps {
   data: NiptDiagnosticCandidatesOut;
+  /** What the lists are read over: the analysis's diagnostic panel, which the sign-out freezes. */
+  scope: string;
   renderVariant: (candidate: NiptDiagnosticCandidateOut) => React.ReactNode;
 }
+
+// The pair a recessive gene's status rests on.
+const recessivePair = (gene: NiptDiagnosticCandidatesOut['recessive_genes'][number]): string => {
+  if (gene.maternal_variant_id && gene.paternal_variant_id) {
+    return gene.maternal_variant_id === gene.paternal_variant_id
+      ? `; ${gene.maternal_variant_id}, a site both parents carry`
+      : `; maternal ${gene.maternal_variant_id}, paternal ${gene.paternal_variant_id}`;
+  }
+  return gene.maternal_variant_id ? `; maternal ${gene.maternal_variant_id}` : '';
+};
 
 /**
  * The locked diagnostic candidates of the report's scope (REQ-NIPT-020): per view, the variants
  * the R validation's criteria leave for further investigation. The sign-out freezes the criteria
  * and the candidates of the analysis's diagnostic panel.
  */
-const NiptDiagnosticCandidatesSection: React.FC<NiptDiagnosticCandidatesSectionProps> = ({ data, renderVariant }) => (
+const NiptDiagnosticCandidatesSection: React.FC<NiptDiagnosticCandidatesSectionProps> = ({
+  data,
+  scope,
+  renderVariant,
+}) => (
   <section className="surface-card report-section" aria-label="Diagnostic candidates">
     <h2 className="section-title">Diagnostic candidates</h2>
     <p className="report-paragraph">
       The variants left for further investigation by the locked criteria of the {describeDiagnosticCriteria(data.criteria)}{' '}
       Each needs orthogonal confirmation.
+    </p>
+    <p className="report-paragraph">
+      <strong>Scope:</strong> {scope}
     </p>
     {data.capped ? (
       <p className="report-paragraph report-incomplete-list">
@@ -84,8 +110,8 @@ const NiptDiagnosticCandidatesSection: React.FC<NiptDiagnosticCandidatesSectionP
       renderVariant={renderVariant}
     />
     <View
-      title="Maternal, inherited by the fetus"
-      description="The mother's allele, which the fetus inherited (probability 50% or more). The maternal inference rests on a small allele-fraction shift: read its probability."
+      title="Maternal"
+      description="Each of the mother's alleles, with the probability that the fetus inherited it (on each variant below). The maternal inference rests on a small allele-fraction shift, and is least certain at a low fetal fraction, so it does not narrow this list: read the probability."
       candidates={data.maternal}
       renderVariant={renderVariant}
     />
@@ -97,12 +123,14 @@ const NiptDiagnosticCandidatesSection: React.FC<NiptDiagnosticCandidatesSectionP
         80%).
       </p>
       {data.recessive_genes.length ? (
-        <ul className="report-list">
+        <ul className="report-signed-list">
           {data.recessive_genes.map((gene) => (
             <li key={gene.gene}>
               {gene.gene}
-              {gene.mode !== 'autosomal' ? ' (X-linked)' : ''}: {RECESSIVE_STATUS_LABELS[gene.status] ?? gene.status} (
-              {recessiveProbabilitiesText(gene.risk, gene.carrier_probability, gene.unaffected_probability, gene.mode === 'x_linked_son')})
+              {RECESSIVE_MODE_LABELS[gene.mode] ? ` (${RECESSIVE_MODE_LABELS[gene.mode]})` : ''}:{' '}
+              {RECESSIVE_STATUS_LABELS[gene.status] ?? gene.status} (
+              {recessiveProbabilitiesText(gene.risk, gene.carrier_probability, gene.unaffected_probability, gene.mode === 'x_linked_son')}
+              {recessivePair(gene)})
               {gene.risk_uses_prior ? ', an inheritance read at its Mendelian prior' : ''}
             </li>
           ))}
@@ -110,6 +138,14 @@ const NiptDiagnosticCandidatesSection: React.FC<NiptDiagnosticCandidatesSectionP
       ) : (
         <p className="report-paragraph report-empty">None.</p>
       )}
+      {data.recessive_variants.length ? (
+        <>
+          <p className="report-paragraph">The qualifying alleles of these genes:</p>
+          {data.recessive_variants.map((candidate) => (
+            <div key={candidate.variant._id}>{renderVariant(candidate)}</div>
+          ))}
+        </>
+      ) : null}
     </div>
   </section>
 );

@@ -183,8 +183,8 @@ it.
     sets it, `PROVISIONAL_EXPECTED_FETAL_READS` (error 40) applies, with `provisional` true.
   - The same bound gives `fetal_read_depth` (2 × bound / FF). The summary's and the record's target
     coverage count the targets below it (`below_fetal_read_depth`, overall, per gene and over the
-    panel). The coverage page and the report's coverage card, which run no analysis, keep the
-    fixed 300× weak rule.
+    panel). `GET /nipt/coverage`, which runs no analysis, counts them against the depth it is
+    given (`fetal_read_depth`): the report passes the summary's; the coverage page none.
   - The summary serves `qc.expected_fetal_reads`, and the record freezes
     `checks.expected_fetal_reads` with the bound it applied.
 - **Sign-out** — a NIPT family is signed out through the family sign-out, from the NIPT report or
@@ -195,8 +195,9 @@ it.
     check's notes over the coverage tracks (`coverage_notes`, from
     `nipt_service.nipt_coverage_notes`).
   - A failed fetal-fraction, QC-gate, fetal-sex or plasma check gates it under the Sample QC's
-    acknowledgement ([clinical-traceability.md](clinical-traceability.md#sign-out)), and so does a
-    QC gate on the provisional bound.
+    acknowledgement ([clinical-traceability.md](clinical-traceability.md#sign-out)), and so do a
+    QC gate on the provisional bound and a section that could not be read (`{"unavailable": …}`:
+    the record would verify none of the checks).
   - The sign-out runs the analysis once: its Sample QC and the section read the same run
     (`SharedNiptAnalysis`). The Sample QC runs its NIPT checks in a savepoint, so a database error
     there is noted and gated as a check that could not run, and the rest of the sign-out keeps
@@ -239,7 +240,9 @@ it.
   chrX gene is `x_linked_daughter`, paired as an autosome). The status (`_pair_status`) is R's:
   `undetermined` when an inheritance lies in `UNDETERMINED_BAND` (0.2–0.8) or was not told (then
   read at the ½ prior), else `affected`, `carrier` or `unaffected` by the inheritances of 0.8 or
-  more. Notes for a missing population frequency.
+  more. As R reads it, a homozygous father always passes his allele; a heterozygous father's allele
+  the mother carries too is not told (`maternal_also_carrier`); a shared site with a homozygous mother
+  is undetermined, unless the father is homozygous too. Notes for a missing population frequency.
 - **Target coverage** — `summarize_target_coverage` (weak: mean < 300× or uncovered bases; 1000×
   advisory). The NIPT page's card counts the genes with a weak target. The coverage page lists every
   gene in scope (`include_passing`) and reads one gene's targets on demand
@@ -348,7 +351,8 @@ and the variant list reads the same (`nipt_service._estimate_cohort_fetal_fracti
 the FF). `chromosome_model` picks the model: autosomal for an autosome and for chrX's
 pseudo-autosomal regions (`_is_nonpar_x`, the conservative bounds of the fetal-sex check); `x_female`
 and `x_male` for chrX outside them; none for chrX of a fetus whose sex is not known, chrY and the
-mitochondrion. A daughter's chrX is classified as an autosome, a het call of the father there read as
+mitochondrion; `model_fetal_sex` leaves chrX outside the PARs unclassified in a multiple pregnancy
+(the trio's `fetus_sample_ids`), whatever the call. A daughter's chrX is classified as an autosome, a het call of the father there read as
 no call (`father_het_call_on_x`). A son's uses `_MALE_X_PRIORS` (1, 2, 4, 6) and the hemizygous
 expected fractions (`_expected_vaf(..., hemizygous=True)`: `(1 - FF) / (2 - FF)`, `1 / (2 - FF)`,
 `FF / (2 - FF)`), the maternal probabilities of `_male_x_maternal_probabilities`, a paternal
@@ -367,8 +371,13 @@ its 5 % override for the recessive pairing alone, and the repeat-context indel.
 `nipt_service.diagnostic_candidates` applies them to classified variants (`diagnostic_annotation`
 reads `triage_annotation`, the strict ClinVar call and the recurrence's `carriers`): de novo
 candidates in the strict or loose window and at most `MATERNAL_ALLELE_VAF_BOUNDARY`, in no other
-cfDNA sample unless ClinVar overrides; the paternal and maternal views' inherited alleles; the
-recessive view over the qualifying alleles. `_scoped_diagnostic_candidates` loads a panel's or
+cfDNA sample unless ClinVar overrides; the paternal view's inherited alleles; every maternal allele
+(`include_not_inherited`, the owner's decision of 2026-11-25: R's candidate table, the per-site
+maternal inference not narrowing it); the recessive view over the qualifying alleles. As in R, the
+paternal and maternal lists and the mother's alleles of the recessive pairing hold only calls past the
+technical filter (`_technically_retained`: no quality failure, inside a capture target); the father's
+alleles stay in the pairing with their inheritance not told (`RecessiveCandidate.plasma_call_retained`).
+Rarity reads VEP's MAX_AF (`max_af`) beside gnomAD's and TOPMed's (`_POPULATION_AF_KEYS`). `_scoped_diagnostic_candidates` loads a panel's or
 gene's variants and classifies them as the variant list does; `GET
 /families/{id}/nipt/diagnostic-candidates` (the report, `NiptDiagnosticCandidates.tsx`) and
 `get_family_nipt_record` (the record's `diagnostic_candidates`, over the diagnostic panel) both use

@@ -86,6 +86,21 @@ export const niptGeneTerms = (gene?: string): string[] =>
 export const pct = (value?: number | null): string =>
   value == null ? '—' : `${(value * 100).toFixed(1)}%`;
 
+/**
+ * The QC gate's bound as it applied (REQ-NIPT-021): QA's, with its warning bound, or the
+ * provisional one, which the sign-out asks a reason for.
+ */
+export const describeNiptGateBound = (gate: {
+  error_value?: number | null;
+  warn_value?: number | null;
+  provisional: boolean;
+}): string =>
+  `A fetal-specific allele has about median target depth × FF/2 reads. Bound: ${
+    gate.error_value == null ? 'no error bound set' : `at least ${gate.error_value}`
+  }${gate.warn_value != null ? `, warning below ${gate.warn_value}` : ''}${
+    gate.provisional ? ' (provisional: QA has not set it)' : ' (set by QA)'
+  }.`;
+
 // The fetal status of a recessive gene (nipt_triage): affected, carrier, unaffected or
 // undetermined (an inheritance between 20% and 80%, or one the cfDNA did not tell).
 export const RECESSIVE_STATUS_LABELS: Record<string, string> = {

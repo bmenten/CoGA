@@ -984,12 +984,13 @@ changed, without the review's time), and the message says how many.
 - in a monogenic NIPT family, a NIPT quality check that failed in the record's `nipt` section, under
   the same acknowledgement: no fetal-fraction estimate, too few expected fetal reads or a QC gate
   that rests on the provisional bound QA has not set (REQ-NIPT-021), a fetal sex whose paternal-X
-  and chrY signals disagree, or male DNA given as the maternal plasma (REQ-NIPT-015; TF-06 H4). The 409
+  and chrY signals disagree, male DNA given as the maternal plasma (REQ-NIPT-015; TF-06 H4), no
+  diagnostic gene panel (REQ-NIPT-019), or a `nipt` section that could not be read (the record then
+  verifies none of these; as a conventional NIPT's record without a result). The 409
   lists each in `nipt_failed_checks` and in `qc_summary.messages`, the plasma's naming its sample
   ("Sample X (maternal plasma): male DNA …"); the audit event records them (`nipt_failed_checks`).
   Paternity is not among them: the Sample QC reads it from the same analysis and gates on it
-  already. NIPT results that could not be read are not captured (named in `not_captured`), not a QC
-  concern.
+  already. NIPT results that could not be read are also named in `not_captured`.
 
 The 409 lists every concern in its group: checks that failed (`failed_checks`), could not run
 (`unverifiable_checks`), NIPT quality checks that failed (`nipt_failed_checks`), the conventional
