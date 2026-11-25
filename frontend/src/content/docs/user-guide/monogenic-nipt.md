@@ -45,6 +45,12 @@ its data, reviews and sign-out are its own.
   *Quality-filtered*, *Artifact-filtered*, *Analysed*). As on every family page, it warns
   *Import incomplete* while a data import has left the family partly loaded or has not finished,
   and *Not validated for clinical use* for a family outside the validated scope.
+- **The diagnostic gene panel** says which gene panel the pregnancy's analysis is read and reported
+  within: the indication's panel, or the clinical exome's. Choose it in the card under the header
+  and change it when the indication changes; each change is on the family's audit trail. The page
+  and its report open on it (without one, on the Mendeliome), and the sign-out freezes its version,
+  its gene list and the coverage of its capture targets. A gene of the panel without a capture target
+  is not tested. Without a diagnostic panel the sign-out asks for a reason.
 - **Quality checks** come first: the fetal fraction (with the per-site median and the de novo window),
   the fetal sex from the father's X alleles and from the chrY coverage, **paternity**, the maternal
   plasma sample, the coverage of the capture targets and why cfDNA calls failed the quality filter. The

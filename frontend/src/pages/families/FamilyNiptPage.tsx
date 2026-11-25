@@ -65,6 +65,8 @@ import SmallVariantFilterForm from './SmallVariantFilterForm';
 import FilterCollapseToggle from './FilterCollapseToggle';
 import SmallVariantResults from './SmallVariantResults';
 import NiptQcPanel from './NiptQcPanel';
+import NiptDiagnosticPanel, { niptDiagnosticPanelKey } from './NiptDiagnosticPanel';
+import type { NiptDiagnosticPanelStateOut } from '../../lib/apiSchema.generated';
 import AnalysisSelect from './AnalysisSelect';
 import MultiplePregnancyNote from './MultiplePregnancyNote';
 import NiptRecessiveGenes from './NiptRecessiveGenes';
@@ -247,6 +249,32 @@ const FamilyNiptPage: React.FC = () => {
     [panels],
   );
 
+  // The pregnancy whose monogenic NIPT the page reads: a family holds one per pregnancy, each
+  // read on its own (the owner's decision of 2026-11-21); the URL names it, else the last imported.
+  const niptAnalyses = pregnancyAnalyses(family?.metadata, 'monogenic_nipt');
+  const niptAnalysis = pregnancyAnalysisOf(family?.metadata, 'monogenic_nipt', location.search);
+  // Named in a request of a family that holds several (backend nipt.nipt_analysis_of).
+  const namedNipt = niptAnalyses.length > 1 ? niptAnalysis : null;
+  const niptPregnancy = pregnancyOf(niptAnalysis);
+  const analysisParams: Record<string, string> = namedNipt ? { [ANALYSIS_PARAM]: namedNipt } : {};
+
+  // The analysis's diagnostic gene panel (REQ-NIPT-019): the panel it is read and reported
+  // within, which the page opens on (else the Mendeliome) and the sign-out freezes.
+  const {
+    data: diagnosticPanel,
+    isLoading: diagnosticPanelLoading,
+    isError: diagnosticPanelFailed,
+  } = useQuery<NiptDiagnosticPanelStateOut>({
+    queryKey: niptDiagnosticPanelKey(familyId, niptAnalysis),
+    enabled: Boolean(familyId && isMonogenicNipt),
+    queryFn: async () => {
+      const res = await api.get(apiPath`/families/${familyId}/nipt/diagnostic-panel`, { params: analysisParams });
+      return res.data as NiptDiagnosticPanelStateOut;
+    },
+  });
+  const diagnosticPanelId = diagnosticPanel?.panel?.panel_id;
+  const openingPanelId = diagnosticPanelId ?? mendeliomePanelId;
+
   // The shared small-variant filter state drives the reused SmallVariantFilterForm.
   const {
     activeFilterChips,
@@ -275,19 +303,20 @@ const FamilyNiptPage: React.FC = () => {
     locationSearch: location.search,
     navigate,
     resolvedProjectId: projectId,
-    mendeliomePanelId,
-    panelsLoaded: !panelsLoading,
-    // Opens on the De novo preset, on the Mendeliome: the small-variant page's Phenotype-priority default
-    // rests on genotype and phenotype filters that do not apply to cfDNA.
+    mendeliomePanelId: openingPanelId,
+    panelsLoaded: !panelsLoading && !diagnosticPanelLoading,
+    // Opens on the De novo preset, on the analysis's diagnostic panel, else the Mendeliome: the
+    // small-variant page's Phenotype-priority default rests on genotype and phenotype filters that
+    // do not apply to cfDNA.
     freshOpenPreset: 'nipt_de_novo',
   });
   // Chipped and counted: the filters the NIPT list applies. A saved search made on the
   // small-variant list, or a link, may carry others, such as a classification: the list does
   // not apply them, so they get no chip and are named once.
   const appliedFilterChips = useMemo(() => activeFilterChips.filter(niptAppliesFilterChip), [activeFilterChips]);
-  // Opened without a search in the URL, the page loads the De novo preset on the Mendeliome
-  // panel: the form names it as the active filter, marked default, as the small-variant page
-  // names its own.
+  // Opened without a search in the URL, the page loads the De novo preset on the diagnostic
+  // panel, else the Mendeliome: the form names it as the active filter, marked default, as the
+  // small-variant page names its own.
   const [openedOnDefault] = useState(() =>
     Array.from(new URLSearchParams(location.search).keys()).every(
       (key) => key === 'project_id' || key === 'page',
@@ -296,26 +325,19 @@ const FamilyNiptPage: React.FC = () => {
   const initialPreset = useMemo(() => {
     if (!openedOnDefault || !searchReady || !members.length) return null;
     const label = NIPT_BUILT_IN_PRESETS.find((preset) => preset.value === 'nipt_de_novo')?.label ?? 'De novo';
+    const panelName = diagnosticPanel?.panel ? `diagnostic panel ${diagnosticPanel.panel.name}` : 'Mendeliome panel';
     return {
       value: 'built-in:nipt_de_novo',
-      label: mendeliomePanelId ? `${label}, Mendeliome panel` : label,
-      overrides: { panel_id: mendeliomePanelId ?? '' },
+      label: openingPanelId ? `${label}, ${panelName}` : label,
+      overrides: { panel_id: openingPanelId ?? '' },
     };
-  }, [openedOnDefault, searchReady, members.length, mendeliomePanelId]);
+  }, [openedOnDefault, searchReady, members.length, openingPanelId, diagnosticPanel?.panel]);
   const unappliedFiltersNote = useMemo(
     () => describeUnappliedFilters('NIPT list', activeFilterChips.filter((chip) => !niptAppliesFilterChip(chip))),
     [activeFilterChips],
   );
 
 
-  // The pregnancy whose monogenic NIPT the page reads: a family holds one per pregnancy, each
-  // read on its own (the owner's decision of 2026-11-21); the URL names it, else the last imported.
-  const niptAnalyses = pregnancyAnalyses(family?.metadata, 'monogenic_nipt');
-  const niptAnalysis = pregnancyAnalysisOf(family?.metadata, 'monogenic_nipt', location.search);
-  // Named in a request of a family that holds several (backend nipt.nipt_analysis_of).
-  const namedNipt = niptAnalyses.length > 1 ? niptAnalysis : null;
-  const niptPregnancy = pregnancyOf(niptAnalysis);
-  const analysisParams: Record<string, string> = namedNipt ? { [ANALYSIS_PARAM]: namedNipt } : {};
 
   const {
     data: summary,
@@ -675,6 +697,17 @@ const FamilyNiptPage: React.FC = () => {
       />
 
       <MultiplePregnancyNote note={summary?.multiple_pregnancy_note} fetuses={summary?.fetuses} />
+      <NiptDiagnosticPanel
+        familyId={familyId ?? ''}
+        analysisParams={analysisParams}
+        analysisKey={niptAnalysis}
+        state={diagnosticPanel}
+        loadFailed={diagnosticPanelFailed}
+        panels={panels}
+        readOnly={Boolean(family?.read_only)}
+        listPanelId={filters.panel_id ?? ''}
+        onShowPanel={(panelId) => runSearch({ ...filters, panel_id: panelId })}
+      />
       {summary?.qc ? <NiptQcPanel qc={summary.qc} fetalFraction={summary.fetal_fraction} /> : null}
 
       {summaryFailed ? (

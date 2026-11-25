@@ -2780,6 +2780,31 @@ export interface NiptDeNovoWindowOut {
   loose_max: number;
 }
 
+/**
+ * A monogenic NIPT's diagnostic gene panel as it is now (REQ-NIPT-019): the panel, its local
+ * version and the release of its source, and when the analysis took it.
+ */
+export interface NiptDiagnosticPanelOut {
+  panel_id: string;
+  name: string;
+  version: number;
+  source: string | null;
+  gene_count: number;
+  external_version: string | null;
+  set_at: string | null;
+}
+
+/** The analysis (its key) and its diagnostic panel; ``panel`` is None when it has none. */
+export interface NiptDiagnosticPanelStateOut {
+  analysis: string;
+  panel: NiptDiagnosticPanelOut | null;
+}
+
+/** Set the analysis's diagnostic panel (a gene panel's id), or clear it (null). */
+export interface NiptDiagnosticPanelUpdate {
+  panel_id?: string | null;
+}
+
 /** Fetal-fraction estimate for a monogenic NIPT family. */
 export interface NiptFetalFractionOut {
   ff: number;

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from backend.app.services.nipt_analysis import (
+    OFF_TARGET_FLAG,
     is_genotyped_call,
     FetalFractionEstimate,
     NiptQualityThresholds,
@@ -206,6 +207,33 @@ def test_fetal_fraction_none_below_hard_floor() -> None:
     assert est.n_sites == 3
     assert est.ff_computed is None
     assert est.low_confidence
+
+
+def test_fetal_fraction_reads_only_sites_inside_a_capture_target() -> None:
+    # The R validation restricts every call to the capture target: a paternal allele outside
+    # every target of the plasma's coverage table (off-target reads) is no fetal-fraction site.
+    # Where there is no table (in_target None) a site counts as before.
+    qc = NiptQualityThresholds()
+    inside = [_site(f"in-{i}", father_state="het", dp=1000, alt=60) for i in range(40)]
+    outside = [_site(f"out-{i}", father_state="het", dp=1000, alt=150) for i in range(40)]
+    for site in inside:
+        site.in_target = True
+    for site in outside:
+        site.in_target = False
+    est = estimate_fetal_fraction([*inside, *outside], qc)
+    assert est.n_sites == 40 and est.ff_computed == pytest.approx(0.12)
+    unknown = [_site(f"no-table-{i}", father_state="het", dp=1000, alt=60) for i in range(40)]
+    assert estimate_fetal_fraction(unknown, qc).n_sites == 40
+
+
+def test_a_site_outside_every_capture_target_is_flagged() -> None:
+    qc = NiptQualityThresholds()
+    ff = estimate_fetal_fraction([_site(f"cat7-{i}", father_state="het", dp=1000, alt=60) for i in range(40)], qc)
+    site = _site("off", father_state="het", dp=1000, alt=60)
+    site.in_target = False
+    assert OFF_TARGET_FLAG in classify_site(site, ff, qc).flags
+    site.in_target = True
+    assert OFF_TARGET_FLAG not in classify_site(site, ff, qc).flags
 
 
 def test_fetal_fraction_excludes_father_hom_ref_and_high_vaf_sites() -> None:

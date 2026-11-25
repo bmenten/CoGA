@@ -3760,10 +3760,16 @@ _DISCORDANT = (
 _NO_FF = "Not estimated, from 3 category-7 sites (an estimate needs at least 5)."
 
 
-def _nipt_section(*, ff: str = "pass", fetal_sex: str = "pass", plasma: str = "pass") -> dict:
-    """A NIPT family's ``nipt`` section, each check with the verdict given."""
+def _nipt_section(*, ff: str = "pass", fetal_sex: str = "pass", plasma: str = "pass", panel: bool = True) -> dict:
+    """A NIPT family's ``nipt`` section, each check with the verdict given, and its diagnostic
+    gene panel (``panel``: False for none)."""
     return {
         "samples": {"father": "FATHER1", "maternal_plasma": "CFDNA1", "fetus": None},
+        "diagnostic_panel": (
+            {"panel_id": "0d1a2b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b", "name": "NIPT diagnostic", "version": 3}
+            if panel
+            else None
+        ),
         "fetal_fraction": {
             "ff": 0.12 if ff != "fail" else 0.0,
             "ff_computed": 0.12 if ff != "fail" else None,

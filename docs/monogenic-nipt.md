@@ -288,6 +288,36 @@ Endpoints (`routers/families_nipt.py`, under `/api`):
 
 The fetal fraction is always CoGA's own estimate; it takes no external value.
 
+## The diagnostic gene panel
+
+Each monogenic NIPT analysis (one per pregnancy) has a diagnostic gene panel (REQ-NIPT-019), stored in
+`family_analysis_gene_panels` (one row per family and analysis key; `nipt_service.nipt_analysis_key`,
+the analysis type for a Family Builder family that names no pregnancy). `analysis_gene_panel.py`
+reads it (`load_analysis_gene_panel`: the panel's `panel_use_audit.panel_identity`, its genes as
+stored and each gene's symbol) and writes it (`set_analysis_gene_panel`): under the family's
+audit-chain lock it upserts or deletes the row and records a `diagnostic_panel_set` clinical audit
+event with the panel before and after (`AnalysisGenePanel.frozen`: identity plus `genes_digest`);
+setting the panel the analysis already has records nothing. `GET`/`PUT
+/families/{id}/nipt/diagnostic-panel` (`families_nipt.py`) serve it; the family checkpoint refuses a
+reader's `PUT`. `panel_metadata_service.delete_panel_data` refuses (409) a panel that is a
+diagnostic panel; the foreign key is `RESTRICT`.
+
+The NIPT page (`NiptDiagnosticPanel.tsx`) sets it and opens on it (else the Mendeliome); the report
+uses it when its link names no panel and says whether its scope is it. The sign-out
+(`signed_record_nipt.nipt_results`) reads it again and freezes `diagnostic_panel` and
+`panel_target_coverage` (`_panel_target_coverage`: `summarize_target_coverage` over the panel's gene
+symbols, the plasma's per-target rows carried on `NiptFamilyRecord.plasma_targets`; only the genes
+with a weak target or without a target are listed). Without a per-target table the coverage notes
+run over the panel's regions (`nipt_panel_target_regions`). `nipt_signout_concerns` adds "NIPT
+diagnostic panel" when the section's `diagnostic_panel` is null.
+
+**Capture target.** `build_nipt_observations` sets `NiptSiteObservation.in_target` from the plasma's
+per-target coverage table (`_in_capture_target`: the record's REF span overlaps a target, the R
+pipeline's rule); None without a table or in a joint VCF. `_is_ff_site` and
+`nipt_triage.is_de_novo_candidate` skip `in_target is False`; `classify_site` flags it
+`off_target`. Paternity and the fetal sex already count no per-sample site without the plasma's
+target depth. The category counts and the funnel still count off-target sites.
+
 ## The artifact list
 
 The admin page *NIPT artefact list* (`AdminNiptArtifactsPage.tsx`, `/admin/variants/nipt-artifacts`,

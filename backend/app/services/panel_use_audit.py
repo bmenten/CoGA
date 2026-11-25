@@ -47,7 +47,7 @@ PANEL_SEARCHES: dict[str, str] = {
     "tracks": "the genome tracks",
 }
 
-_PANEL_SQL = text(
+PANEL_SQL = text(
     """
     SELECT gp.id::text AS panel_id,
            gp.name,
@@ -129,7 +129,7 @@ def panel_identity(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _describe(panel: Mapping[str, Any]) -> str:
+def describe_panel(panel: Mapping[str, Any]) -> str:
     name = panel.get("name") or panel.get("panel_id")
     described = f"Gene panel {name} version {panel.get('version')}"
     release = panel.get("external_version")
@@ -156,7 +156,7 @@ async def record_family_panel_use(
     panel_uuid = canonical_uuid(panel_id) if panel_id else None
     if panel_uuid is None:
         return
-    row = (await session.execute(_PANEL_SQL, {"panel_id": panel_uuid})).mappings().first()
+    row = (await session.execute(PANEL_SQL, {"panel_id": panel_uuid})).mappings().first()
     if row is None:
         return
     panel = panel_identity(dict(row))
@@ -187,7 +187,7 @@ async def record_family_panel_use(
         actor=audit_actor(user),
         actor_id=getattr(user, "id", None),
         action=PANEL_APPLIED_ACTION,
-        summary=f"{_describe(panel)} first applied to {label}",
+        summary=f"{describe_panel(panel)} first applied to {label}",
         before=None,
         after={**panel, "search": search},
     )

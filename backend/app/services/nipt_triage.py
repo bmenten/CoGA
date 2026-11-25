@@ -124,9 +124,10 @@ class DeNovoTriage:
 
 def is_de_novo_candidate(site: NiptSiteObservation, classification: NiptClassification) -> bool:
     """A cfDNA call of the site's own (not a coverage-only site, nor one read off another
-    representation) that passes the quality filter, where the father has no supported
-    call. The triage's window decides the rest."""
-    if not site.is_autosomal or not has_own_plasma_call(site):
+    representation), inside a capture target where the plasma has a coverage table, that
+    passes the quality filter, where the father has no supported call. The triage's window
+    decides the rest."""
+    if not site.is_autosomal or not has_own_plasma_call(site) or site.in_target is False:
         return False
     if classification.quality_failures:
         return False

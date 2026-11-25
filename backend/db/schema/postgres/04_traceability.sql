@@ -240,6 +240,24 @@ CREATE TABLE IF NOT EXISTS family_annotation_manifest (
 );
 
 -- ---------------------------------------------------------------------------
+-- family_analysis_gene_panels — the diagnostic gene panel of an analysis
+-- ---------------------------------------------------------------------------
+-- The gene panel a family's analysis is read and reported within: a monogenic NIPT's
+-- diagnostic scope (`analysis`: the analysis key, `monogenic_nipt:<pregnancy>`). One row per
+-- family and analysis, the current choice; who set it and every change are on the family's
+-- clinical audit trail (`diagnostic_panel_set`), and a sign-out freezes the panel's version
+-- and gene list. A panel that is an analysis's scope cannot be deleted (RESTRICT).
+CREATE TABLE IF NOT EXISTS family_analysis_gene_panels (
+    family_id   UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+    analysis    TEXT NOT NULL,
+    panel_id    UUID NOT NULL REFERENCES gene_panels(id) ON DELETE RESTRICT,
+    set_at      TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+    PRIMARY KEY (family_id, analysis)
+);
+
+CREATE INDEX IF NOT EXISTS idx_family_analysis_gene_panels_panel ON family_analysis_gene_panels (panel_id);
+
+-- ---------------------------------------------------------------------------
 -- clinical_audit_events — immutable, hash-chained clinical action log
 -- ---------------------------------------------------------------------------
 -- Phase 2 of clinical-grade traceability (see docs/clinical-traceability.md):

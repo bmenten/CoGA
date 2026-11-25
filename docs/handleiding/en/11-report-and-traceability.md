@@ -175,7 +175,8 @@ For a monogenic NIPT family, a failed NIPT quality check from the section `nipt`
 
 - no estimate of the fetal fraction;
 - a fetal sex on which the father's X alleles and the chrY coverage contradict each other;
-- male DNA as the mother's plasma (REQ-NIPT-015).
+- male DNA as the mother's plasma (REQ-NIPT-015);
+- no diagnostic gene panel for the analysis (REQ-NIPT-019).
 
 The `409` names them in `nipt_failed_checks` and in `qc_summary.messages` (the plasma one with its sample); the audit event records them (`nipt_failed_checks`). Paternity is not among them: the sample QC reads it from the same analysis and already blocks on it. NIPT results that could not be read are in `not_captured`; they do not block.
 

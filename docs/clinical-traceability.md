@@ -636,6 +636,14 @@ backend's code (`nipt_service`, `nipt_quality_checks`), never the browser:
   artifact list, no plasma call);
 - the recessive fetal risk of the genes the reported variants make both parents carriers in, as the
   recessive view computes it over them (`recessive_genes`);
+- the analysis's diagnostic gene panel (`diagnostic_panel`, REQ-NIPT-019): the panel's id, name,
+  version, source release and gene count, and a digest of its gene list (`genes_digest`); null when
+  the analysis had none, which stops the sign-out until a reason is recorded
+  (`nipt_signout_concerns`). And the coverage of its capture targets (`panel_target_coverage`): the
+  panel's gene count, the totals over its genes' targets, each gene with a weak target and each gene
+  without a target (not tested); null without a panel or without a per-target table. The record is
+  rebuilt from the saved panel and its current version, so a panel edited since the sign-out shows
+  as a change;
 - what the analysis ran with. `inputs`: the per-target coverage tables with their file, number of
   targets and load time, and the assay's artifact list with its scope, number of alleles, a SHA-256
   digest of its alleles with their recurrence counts, how many it left out of this analysis, and
@@ -645,9 +653,10 @@ backend's code (`nipt_service`, `nipt_quality_checks`), never the browser:
   rules.
 
 The coverage check depends on the gene or panel of the NIPT page's search, which the sign-out is
-not told. So the sign-out runs the page's own code (`nipt_service.nipt_coverage_notes`) as the page
-runs it without a gene or panel, over the family's region of interest (without one, no region and so
-no note), as `target_coverage` holds the check of every capture target. A family that is not a
+not told. So the sign-out runs the page's own code (`nipt_service.nipt_coverage_notes`) over the
+analysis's diagnostic panel's genes, or, without one, as the page runs it without a gene or panel,
+over the family's region of interest (without one, no region and so no note), as `target_coverage`
+holds the check of every capture target. A family that is not a
 monogenic NIPT family holds no `nipt` key. A trio that cannot be resolved (no active father, or no
 maternal plasma sample) is frozen as unavailable, with a sentence of its own.
 
