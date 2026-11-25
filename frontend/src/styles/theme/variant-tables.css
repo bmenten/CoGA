@@ -141,6 +141,17 @@
   border-left-color: rgba(53, 111, 83, 0.8);
 }
 
+/* A small variant's card (small variants, monogenic NIPT) also takes ClinVar's colour as its
+   background: light red for (likely) pathogenic, light green for (likely) benign. Every other
+   classification, and every other kind of finding, keeps the white card. */
+.small-variant-card.variant-card--clinvar-pathogenic {
+  background: var(--color-clinvar-pathogenic-surface);
+}
+
+.small-variant-card.variant-card--clinvar-benign {
+  background: var(--color-clinvar-benign-surface);
+}
+
 /* An excluded variant's card folds to its heading and the bar under it (ExcludedCardBar): its
    heading reads muted, the bar stays at full strength so its buttons are plain to see. */
 .variant-card--excluded > .variant-card-head {

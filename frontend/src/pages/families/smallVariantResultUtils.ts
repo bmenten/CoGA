@@ -1,4 +1,5 @@
 import { compareChromosomes, normalizeChrom } from '../../lib/chromosomes';
+import { clinvarClass } from '../../lib/clinvar';
 import { geneInfoHref } from '../../lib/geneInfo';
 import { omimGeneHref } from '../../lib/omim';
 import { humanAssemblyOf } from '../../lib/reference';
@@ -291,34 +292,17 @@ export const getImpactRank = (impact?: string | null) => {
   }
 };
 
-// A (lower-cased) ClinVar significance that reads as pathogenic or as benign, spelt with
-// spaces or underscores: the variant chips and the table rows colour by the same reading.
-const isPathogenicClinvar = (value: string) =>
-  value === 'pathogenic' ||
-  value.includes('pathogenic/likely pathogenic') ||
-  value.includes('likely pathogenic') ||
-  value.includes('likely_pathogenic');
-
-const isBenignClinvar = (value: string) =>
-  value === 'benign' ||
-  value.includes('likely benign') ||
-  value.includes('likely_benign') ||
-  value.includes('benign/likely benign');
-
+// The ClinVar chip, the card's rail and background, and the table row colour by the app's one
+// reading of ClinVar (clinvarClass): a conflicting record is neither pathogenic nor benign.
 export const getClinvarTone = (clinvar?: string) => {
-  const value = (clinvar || '').toLowerCase();
-  if (isPathogenicClinvar(value)) return 'critical';
-  if (value.includes('risk')) return 'warning';
-  if (isBenignClinvar(value)) return 'success';
+  const reading = clinvarClass(clinvar);
+  if (reading === 'pathogenic') return 'critical';
+  if ((clinvar || '').toLowerCase().includes('risk')) return 'warning';
+  if (reading === 'benign') return 'success';
   return 'neutral';
 };
 
-export const getClinvarHighlightTone = (clinvar?: string | null) => {
-  const value = (clinvar || '').toLowerCase();
-  if (isPathogenicClinvar(value)) return 'pathogenic';
-  if (isBenignClinvar(value)) return 'benign';
-  return 'neutral';
-};
+export const getClinvarHighlightTone = (clinvar?: string | null) => clinvarClass(clinvar) ?? 'neutral';
 
 export const getReviewClassificationTone = (classification?: string | null) => {
   const value = (classification || '').toLowerCase();

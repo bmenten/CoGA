@@ -835,10 +835,13 @@ export default function SmallVariantCards({
         const silicoRows = silicoCandidates.filter((item): item is PredictorReading => Boolean(item));
         const ic = variant.internal_cohort;
 
+        // ClinVar's classification sets the card's left rail and, on a small variant's card
+        // alone, its background: light red for (likely) pathogenic, light green for (likely)
+        // benign; every other classification keeps the white card.
         return (
           <article
             key={variant._id}
-            className={`variant-card finding-card variant-card--clinvar-${getClinvarHighlightTone(
+            className={`variant-card finding-card small-variant-card variant-card--clinvar-${getClinvarHighlightTone(
               variant.clinvar,
             )}${isExcluded ? ' variant-card--excluded' : ''}${folded ? ' variant-card--collapsed' : ''}`}
           >

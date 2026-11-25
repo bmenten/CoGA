@@ -1310,6 +1310,50 @@ describe('SmallVariantCards', () => {
     expect(within(annotations).queryByText(/genomes filter/i)).not.toBeInTheDocument();
   });
 
+  // The card's class sets its rail and, on a small variant's card alone, its background
+  // (clinvarCardTintRules.test.ts): red for (likely) pathogenic, green for (likely) benign.
+  it.each([
+    ['Pathogenic', 'pathogenic'],
+    ['Likely_pathogenic', 'pathogenic'],
+    ['Pathogenic,_low_penetrance', 'pathogenic'],
+    ['Benign', 'benign'],
+    ['Likely_benign', 'benign'],
+    ['Uncertain_significance', 'neutral'],
+    ['Conflicting_classifications_of_pathogenicity', 'neutral'],
+    ['risk_factor', 'neutral'],
+    [undefined, 'neutral'],
+  ])("marks the card of a variant ClinVar reads as %s as %s", (clinvar, tone) => {
+    const { container } = renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: 'tint-var',
+            chr: '1',
+            start: 100,
+            end: 100,
+            type: 'SNV',
+            ref: 'A',
+            alt: 'G',
+            gene: 'GENE1',
+            clinvar,
+            genotypes: [],
+          }),
+        ]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+    const card = container.querySelector('article.variant-card') as HTMLElement;
+    expect(card).toHaveClass('small-variant-card', `variant-card--clinvar-${tone}`);
+  });
+
   it.each([
     ['combined_score', /Priority 0.46/, ['Variant', '0.85']],
     ['variant_score', /Variant score 0.85/, ['Priority', '0.46']],

@@ -663,13 +663,19 @@ describe('review tag chips', () => {
   });
 });
 
-// The chip tone and the table-row highlight read ClinVar's significance the same way.
+// The chip tone and the card's and table row's highlight read ClinVar's significance as the
+// rest of the app does (clinvarClass).
 describe('ClinVar tones', () => {
   it.each([
     ['Pathogenic', 'critical', 'pathogenic'],
     ['Likely_pathogenic', 'critical', 'pathogenic'],
     ['Pathogenic/Likely_pathogenic', 'critical', 'pathogenic'],
     ['likely pathogenic, low penetrance', 'critical', 'pathogenic'],
+    ['Pathogenic,_low_penetrance', 'critical', 'pathogenic'],
+    ['Pathogenic|risk_factor', 'critical', 'pathogenic'],
+    ['pathogenic&likely_pathogenic', 'critical', 'pathogenic'],
+    ['benign&likely_benign', 'success', 'benign'],
+    ['Conflicting_classifications_of_pathogenicity|risk_factor', 'warning', 'neutral'],
     ['risk_factor', 'warning', 'neutral'],
     ['Benign', 'success', 'benign'],
     ['Likely_benign', 'success', 'benign'],
