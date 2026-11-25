@@ -53,6 +53,7 @@ a clinical report in the EPD reaches the version through its 1:1 reference to th
 ## 3. PMPF (post-market performance follow-up)
 - Continue periodic **concordance checks against the validated assays** beyond the initial validation cohorts, sampling routine cases per application (frequency/sample size **🔲 INPUT NEEDED**, e.g. quarterly N per application).
 - Monitor in particular the **safety-critical error modes** (missed at-risk/affected calls, missed causal variant) and the **uninformative/edge-case rates**.
+- For the monogenic NIPT: the **rate of samples that fail the QC gate** on the expected fetal reads and the fetal-fraction distribution; the confirmation outcome of each reported candidate; and each **fetal finding missed** in a sample that passed the gate, adjudicated against the gate's bound.
 - For the conventional NIPT: the **no-result and inconclusive rates**; and, per claimed target, the outcome of each **screen-positive** (confirmed or not by diagnostic testing) and each **discordant outcome of a reported low risk** (an aneuploidy of a claimed target found after it), adjudicated as in [TF-10 §3.7](TF-10-performance-evaluation-plan.md).
 - Reconfirm performance after any reference-data, panel, assay or algorithm change (TF-18).
 
