@@ -118,6 +118,7 @@ import {
   type SignedStructuralVariant,
   type SignedVariantDescriptions,
   packageSourceChangeWords,
+  type SignedNiptDiagnosticCandidate,
 } from './signedReportRecord';
 import MultiplePregnancyNote from './MultiplePregnancyNote';
 
@@ -746,6 +747,40 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
                 : ''}
             </li>
           ) : null}
+          <li>
+            Diagnostic candidates:{' '}
+            {nipt.diagnosticCandidates
+              ? `${nipt.diagnosticCandidates.criteriaReference ?? 'criteria not named'}${
+                  nipt.diagnosticCandidates.capped ? ' (the scope held more variants than the analysis classifies at once)' : ''
+                }; ${[
+                  ['de novo', nipt.diagnosticCandidates.deNovo],
+                  ['paternal', nipt.diagnosticCandidates.paternal],
+                  ['maternal', nipt.diagnosticCandidates.maternal],
+                ]
+                  .map(
+                    ([label, list]) =>
+                      `${label}: ${
+                        (list as SignedNiptDiagnosticCandidate[]).length
+                          ? (list as SignedNiptDiagnosticCandidate[])
+                              .map(
+                                (candidate) =>
+                                  `${candidate.genes.join('/') || '—'} ${candidate.variantId}${
+                                    candidate.confidence === 'low' ? ' (low confidence)' : ''
+                                  }`,
+                              )
+                              .join(', ')
+                          : 'none'
+                      }`,
+                  )
+                  .join('; ')}; recessive genes: ${
+                  nipt.diagnosticCandidates.recessiveGenes.length
+                    ? nipt.diagnosticCandidates.recessiveGenes
+                        .map((gene) => `${gene.gene ?? 'a gene'} (fetal risk ${pct(gene.risk)})`)
+                        .join(', ')
+                    : 'none'
+                }`
+              : 'not in the record'}
+          </li>
           <NiptCoverageNotesLine nipt={nipt} />
           <li>
             Filters: {describeNiptFunnel(nipt.filterCounts)}

@@ -32,7 +32,8 @@ from backend.app.services import sample_integrity_service
 from backend.app.services import signed_record_nipt as srn
 from backend.app.services import signed_record_sections as srs
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
-from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
+from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, SmallVariantCall, SmallVariantRecord
+from backend.app.services.nipt_diagnostic_filters import NiptDiagnosticCriteria
 from backend.app.services.coverage_read_depth import SampleCoverageTracks
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.hash_chain import canonical_hash
@@ -459,8 +460,9 @@ async def test_each_reported_variant_is_frozen_with_its_recurrence_as_the_list_s
     counts: list[list[str]] = []
     _wire(monkeypatch, recurrence=recurrence, recurrence_counts=counts)
     section = await _section(["7-100-A-G", "7-200-C-T", "7-500-G-A"])
-    # One count for every reported variant; the de novo triage reads it, and counts nothing more.
-    assert counts == [["7-100-A-G", "7-200-C-T", "7-500-G-A"]]
+    # One count for every reported variant, which the de novo triage reads; and one for the
+    # diagnostic candidates of the analysis's panel (REQ-NIPT-020), over the panel's variants.
+    assert len(counts) == 2 and counts[0] == ["7-100-A-G", "7-200-C-T", "7-500-G-A"]
     frozen = {entry["variant_id"]: entry["recurrence"] for entry in section["variants"]}
     assert frozen["7-500-G-A"] == {
         "carriers": 5,
@@ -930,6 +932,31 @@ async def test_without_a_diagnostic_panel_the_record_says_so_and_the_sign_out_as
         )
     ]
     assert srn.nipt_signout_concerns(_checked(panel=False)) == srn.nipt_signout_concerns(section)
+
+
+@pytest.mark.asyncio
+async def test_the_record_freezes_the_locked_criteria_and_the_diagnostic_candidates_of_the_panel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # REQ-NIPT-020: the candidates the NIPT report lists for the diagnostic panel, by the locked
+    # criteria, with the criteria and their version.
+    _wire(monkeypatch)
+
+    async def constraints(_session, panel_id, *, assembly_id=None):
+        assert panel_id == _PANEL_ID
+        return PanelFilterConstraints(genes=("GENEA", "GENEB", "GENEC"), regions=())
+
+    monkeypatch.setattr(nipt_service, "_fetch_panel_constraints", constraints)
+    section = await _section([])
+    frozen = section["diagnostic_candidates"]
+    assert frozen["criteria"] == NiptDiagnosticCriteria().frozen()
+    assert (frozen["panel_id"], frozen["capped"]) == (_PANEL_ID, False)
+    [de_novo] = frozen["de_novo"]
+    assert (de_novo["variant_id"], de_novo["impact"], de_novo["confidence"]) == ("7-500-G-A", "MODERATE", "standard")
+    assert de_novo["max_population_af"] is None and de_novo["clinvar_pathogenic"] is False
+    # JSON-safe, and the same when built again: the sign-out check compares it.
+    assert canonical_hash(json.loads(json.dumps(section, allow_nan=False))) == canonical_hash(section)
+    assert (await _section([]))["diagnostic_candidates"] == frozen
 
 
 def test_each_nipt_check_that_failed_gates_the_sign_out_naming_what_it_read() -> None:

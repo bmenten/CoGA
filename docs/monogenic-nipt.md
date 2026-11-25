@@ -318,6 +318,24 @@ pipeline's rule); None without a table or in a joint VCF. `_is_ff_site` and
 `off_target`. Paternity and the fetal sex already count no per-sample site without the plasma's
 target depth. The category counts and the funnel still count off-target sites.
 
+## The locked diagnostic candidates
+
+`nipt_diagnostic_filters.py` holds the R validation's blinded-analysis criteria (REQ-NIPT-020),
+frozen with their version (`NiptDiagnosticCriteria`, `NIPT_DIAGNOSTIC_CRITERIA_REFERENCE`): the
+rarity ceilings (0.1 % dominant, 1 % recessive; an allele without a frequency in 3 cfDNA samples
+or more is not rare), the protein effect, ClinVar read strictly (`clinvar_strictly_pathogenic`:
+P/LP with no benign or conflicting assertion, stricter than `clinvar_may_assert_pathogenic`) with
+its 5 % override for the recessive pairing alone, and the repeat-context indel.
+`nipt_service.diagnostic_candidates` applies them to classified variants (`diagnostic_annotation`
+reads `triage_annotation`, the strict ClinVar call and the recurrence's `carriers`): de novo
+candidates in the strict or loose window and at most `MATERNAL_ALLELE_VAF_BOUNDARY`, in no other
+cfDNA sample unless ClinVar overrides; the paternal and maternal views' inherited alleles; the
+recessive view over the qualifying alleles. `_scoped_diagnostic_candidates` loads a panel's or
+gene's variants and classifies them as the variant list does; `GET
+/families/{id}/nipt/diagnostic-candidates` (the report, `NiptDiagnosticCandidates.tsx`) and
+`get_family_nipt_record` (the record's `diagnostic_candidates`, over the diagnostic panel) both use
+it.
+
 ## The artifact list
 
 The admin page *NIPT artefact list* (`AdminNiptArtifactsPage.tsx`, `/admin/variants/nipt-artifacts`,

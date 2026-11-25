@@ -117,6 +117,15 @@ from .nipt_target_coverage import (
 )
 from .panel_use_audit import record_family_panel_use
 from .analysis_gene_panel import AnalysisGenePanel, load_analysis_gene_panel, set_analysis_gene_panel
+from .nipt_diagnostic_filters import (
+    DiagnosticAnnotation,
+    NiptDiagnosticCriteria,
+    clinvar_override,
+    clinvar_strictly_pathogenic,
+    dominant_failures,
+    is_repeat_context_indel,
+    recessive_failures,
+)
 from .nipt_triage import (
     DeNovoAnnotation,
     DeNovoTriage,
@@ -125,6 +134,7 @@ from .nipt_triage import (
     de_novo_window,
     is_de_novo_candidate,
     recessive_gene_risks,
+    repeat_units,
     triage_de_novo,
 )
 from .variant_prioritization import clinvar_may_assert_pathogenic
@@ -1602,6 +1612,246 @@ async def get_family_nipt_variants(
     )
 
 
+# --------------------------------------------------------------------------- #
+# The locked diagnostic candidates (REQ-NIPT-020)
+# --------------------------------------------------------------------------- #
+
+# The views of the diagnostic candidates, in the report's order.
+DIAGNOSTIC_VIEWS = ("de_novo", "paternal", "maternal", "recessive")
+REPEAT_CONTEXT_FLAG = "repeat_context"
+CLINVAR_PATHOGENIC_FLAG = "clinvar_pathogenic"
+
+
+@dataclass(slots=True)
+class NiptDiagnosticCandidate:
+    """A variant the locked criteria leave for further investigation in a view: its
+    classification, what the criteria read of it, its confidence (``low`` for a de novo indel
+    in a repeat) and its flags (``repeat_context``, ``clinvar_pathogenic``)."""
+
+    item: NiptClassifiedVariant
+    annotation: DiagnosticAnnotation
+    confidence: str = "standard"
+    flags: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class NiptDiagnosticCandidates:
+    """The diagnostic candidates of each view, by the locked criteria: de novo, paternal and
+    maternal alleles the fetus inherited, and the recessive genes with their qualifying alleles.
+    ``capped``: the scope held more variants than the analysis classifies at once."""
+
+    criteria: NiptDiagnosticCriteria
+    de_novo: list[NiptDiagnosticCandidate]
+    paternal: list[NiptDiagnosticCandidate]
+    maternal: list[NiptDiagnosticCandidate]
+    recessive_variants: list[NiptDiagnosticCandidate]
+    recessive_genes: list[RecessiveGeneRisk]
+    capped: bool = False
+
+    def all_items(self) -> list[NiptClassifiedVariant]:
+        seen: dict[str, NiptClassifiedVariant] = {}
+        for candidate in [*self.de_novo, *self.paternal, *self.maternal, *self.recessive_variants]:
+            seen.setdefault(candidate.item.record.variant_id, candidate.item)
+        return list(seen.values())
+
+
+def diagnostic_annotation(item: NiptClassifiedVariant) -> DiagnosticAnnotation:
+    """What the locked criteria read of a classified variant: its annotation
+    (``triage_annotation``), whether ClinVar strictly calls it pathogenic, and in how many other
+    cfDNA samples of the assay it is called (its recurrence, counted first)."""
+    base = triage_annotation(item.record)
+    return DiagnosticAnnotation(
+        max_population_af=base.max_population_af,
+        impact=base.impact,
+        spliceai_max=base.spliceai_max,
+        clinvar_pathogenic=clinvar_strictly_pathogenic(
+            _annotation_clinvar(annotation) for annotation in item.record.annotations or []
+        ),
+        other_cfdna_carriers=item.recurrence.counts.carriers if item.recurrence is not None else 0,
+    )
+
+
+async def diagnostic_candidates(
+    classified: list[NiptClassifiedVariant],
+    ff_estimate: FetalFractionEstimate,
+    qc: NiptQualityThresholds,
+    *,
+    scope: _RecurrenceScope,
+    criteria: NiptDiagnosticCriteria | None = None,
+) -> NiptDiagnosticCandidates:
+    """The locked diagnostic candidates among ``classified`` (``nipt_diagnostic_filters``):
+
+    * de novo: a candidate in the family's fetal window (at most the maternal boundary,
+      0.25) that no other cfDNA sample of the assay carries (unless ClinVar calls it
+      pathogenic), rare (0.1 %) and protein-altering; a repeat-context indel is low confidence;
+    * paternal and maternal: an allele the fetus inherited (probability 0.5 or more), rare
+      (0.1 %) and protein-altering;
+    * recessive: the genes in which both parents carry a qualifying allele (rare at 1 %, or
+      ClinVar pathogenic up to 5 %, and protein-altering), with the fetal risk.
+    """
+    criteria = criteria or NiptDiagnosticCriteria()
+    await _attach_recurrence(classified, scope)
+    annotations = {item.record.variant_id: diagnostic_annotation(item) for item in classified}
+
+    def flags_of(item: NiptClassifiedVariant, annotation: DiagnosticAnnotation) -> list[str]:
+        return [CLINVAR_PATHOGENIC_FLAG] if clinvar_override(annotation, criteria) else []
+
+    de_novo: list[NiptDiagnosticCandidate] = []
+    for item in await _triage_de_novo_candidates(list(classified), ff_estimate, scope=scope):
+        site = item.site
+        annotation = annotations[item.record.variant_id]
+        if item.de_novo is None or item.de_novo.window not in _FETAL_WINDOWS or site is None:
+            continue
+        if site.cf_vaf is not None and site.cf_vaf > MATERNAL_ALLELE_VAF_BOUNDARY:
+            continue
+        if annotation.other_cfdna_carriers > 0 and not clinvar_override(annotation, criteria):
+            continue
+        if dominant_failures(annotation, criteria):
+            continue
+        flags = flags_of(item, annotation)
+        if is_repeat_context_indel(item.record.ref, item.record.alt, repeat_units(site), criteria):
+            flags.insert(0, REPEAT_CONTEXT_FLAG)
+        de_novo.append(
+            NiptDiagnosticCandidate(
+                item=item,
+                annotation=annotation,
+                confidence="low" if REPEAT_CONTEXT_FLAG in flags else "standard",
+                flags=flags,
+            )
+        )
+
+    def dominant(items: list[NiptClassifiedVariant]) -> list[NiptDiagnosticCandidate]:
+        kept = []
+        for item in items:
+            annotation = annotations[item.record.variant_id]
+            if not dominant_failures(annotation, criteria):
+                kept.append(NiptDiagnosticCandidate(item=item, annotation=annotation, flags=flags_of(item, annotation)))
+        return kept
+
+    paternal = dominant(_paternal_view(classified, qc, include_not_inherited=False))
+    maternal = dominant(_maternal_view(classified, include_not_inherited=False))
+    qualifying = [item for item in classified if not recessive_failures(annotations[item.record.variant_id], criteria)]
+    carriers, genes = _recessive_view(qualifying, qc)
+    recessive = [
+        NiptDiagnosticCandidate(
+            item=item,
+            annotation=annotations[item.record.variant_id],
+            flags=flags_of(item, annotations[item.record.variant_id]),
+        )
+        for item in carriers
+    ]
+    return NiptDiagnosticCandidates(
+        criteria=criteria,
+        de_novo=de_novo,
+        paternal=paternal,
+        maternal=maternal,
+        recessive_variants=recessive,
+        recessive_genes=genes,
+    )
+
+
+async def _scoped_diagnostic_candidates(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    trio: NiptTrio,
+    assay_key: str,
+    qc: NiptQualityThresholds,
+    *,
+    data: _FamilyData,
+    listed: Mapping[str, int],
+    ff_estimate: FetalFractionEstimate,
+    panel_id: str | None,
+    gene: str | None,
+) -> tuple[NiptDiagnosticCandidates, SmallVariantQueryFilters]:
+    """The diagnostic candidates of the family's variants in a gene panel and/or gene (every
+    variant without either), classified against ``ff_estimate`` as the variant list classifies
+    them. The NIPT report's list and the signed record's both come from here."""
+    filters = _build_nipt_query_filters({"panel_id": panel_id or None, "gene": gene or None})
+    panel_constraints = PanelFilterConstraints()
+    if panel_id:
+        panel_constraints = await _fetch_panel_constraints(session, panel_id, assembly_id=context.assembly_id)
+        if not panel_constraints.genes and not panel_constraints.regions:
+            empty = await diagnostic_candidates([], ff_estimate, qc, scope=await _recurrence_scope(session, context, assay_key, qc))
+            return empty, filters
+    records = await _fetch_small_variant_rows(
+        context, filters, panel_constraints=panel_constraints, limit=NIPT_VARIANT_FETCH_LIMIT + 1
+    )
+    capped = len(records) > NIPT_VARIANT_FETCH_LIMIT
+    records = records[:NIPT_VARIANT_FETCH_LIMIT]
+    classified = await asyncio.to_thread(
+        _classify_candidates,
+        records,
+        trio,
+        listed,
+        ff_estimate,
+        qc,
+        None,
+        plasma_targets=data.plasma_targets,
+        father_targets=data.father_targets,
+        family_records=data.records,
+    )
+    scope = await _recurrence_scope(session, context, assay_key, qc)
+    candidates = await diagnostic_candidates(classified, ff_estimate, qc, scope=scope)
+    candidates.capped = capped
+    return candidates, filters
+
+
+@dataclass(slots=True)
+class NiptDiagnosticCandidatesResult:
+    """The diagnostic candidates of a NIPT report's scope, with the trio and the fetal fraction
+    they were read against."""
+
+    candidates: NiptDiagnosticCandidates
+    trio: NiptTrio
+    fetal_fraction: FetalFractionEstimate
+
+
+async def get_family_nipt_diagnostic_candidates(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+    project_id: str | None = None,
+    analysis: str | None = None,
+    panel_id: str | None = None,
+    gene: str | None = None,
+    qc: NiptQualityThresholds | None = None,
+) -> NiptDiagnosticCandidatesResult:
+    """The locked diagnostic candidates of the NIPT report's scope (REQ-NIPT-020), each
+    serialised as the variant list serialises a variant. A panel is recorded on the family's
+    clinical audit trail before it is applied, as every search records it."""
+    qc = qc or NiptQualityThresholds()
+    trio, context, assay_key = await _resolve_trio_and_context(
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
+    )
+    if panel_id:
+        await record_family_panel_use(
+            session, context=context, panel_id=panel_id, user=user, search="nipt_diagnostic_candidates"
+        )
+    listed = await _load_listed_artifacts(session, context, assay_key)
+    data = await _load_family_data(context, trio)
+    removed, _protected = _family_artifacts(data.records, listed, trio, qc)
+    ff_estimate = await asyncio.to_thread(_estimate_cohort_fetal_fraction, data, trio, qc, removed)
+    candidates, filters = await _scoped_diagnostic_candidates(
+        session,
+        context,
+        trio,
+        assay_key,
+        qc,
+        data=data,
+        listed=listed,
+        ff_estimate=ff_estimate,
+        panel_id=panel_id,
+        gene=gene,
+    )
+    items = candidates.all_items()
+    variant_outs = await _small_variant_outs(context, filters, [item.record for item in items])
+    await _hydrate_small_variant_outs(session, context=context, variants=variant_outs)
+    for item, variant_out in zip(items, variant_outs):
+        item.variant_out = variant_out
+    return NiptDiagnosticCandidatesResult(candidates=candidates, trio=trio, fetal_fraction=ff_estimate)
+
+
 @dataclass(slots=True)
 class NiptFamilyRecord:
     """What the signed analysis record freezes of a family's NIPT analysis
@@ -1627,6 +1877,9 @@ class NiptFamilyRecord:
     # The plasma's per-target coverage table ([] without one): the record reads the coverage
     # of the diagnostic panel's targets from it.
     plasma_targets: list[TargetCoverageRow] = field(default_factory=list)
+    # The locked diagnostic candidates of the analysis's diagnostic panel (every variant
+    # without one), as the NIPT report lists them (REQ-NIPT-020).
+    diagnostic_candidates: NiptDiagnosticCandidates | None = None
 
 
 # Why a reported variant, or one the variant list's review-tag filter selects, has no NIPT
@@ -1686,6 +1939,7 @@ async def get_family_nipt_record(
     variant_ids: Iterable[str],
     qc: NiptQualityThresholds | None = None,
     shared_nipt: SharedNiptAnalysis | None = None,
+    diagnostic_panel_id: str | None = None,
 ) -> NiptFamilyRecord:
     """The family's NIPT analysis as the NIPT page computes it, for the signed record: the
     summary (``get_family_nipt_summary``) and each of ``variant_ids`` classified as the
@@ -1733,6 +1987,18 @@ async def get_family_nipt_record(
             if item.de_novo is not None and item.de_novo.window not in _FETAL_WINDOWS:
                 item.de_novo = None
     _carriers, recessive_genes = _recessive_view(classified, qc)
+    diagnostic, _filters = await _scoped_diagnostic_candidates(
+        session,
+        context,
+        trio,
+        assay_key,
+        qc,
+        data=data,
+        listed=listed,
+        ff_estimate=summary.analysis.fetal_fraction,
+        panel_id=diagnostic_panel_id,
+        gene=None,
+    )
     return NiptFamilyRecord(
         summary=summary,
         listed_artifacts=listed,
@@ -1742,6 +2008,7 @@ async def get_family_nipt_record(
         unclassified=unclassified,
         recessive_genes=recessive_genes,
         plasma_targets=list(data.plasma_targets),
+        diagnostic_candidates=diagnostic,
     )
 
 

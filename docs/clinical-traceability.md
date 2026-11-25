@@ -644,6 +644,13 @@ backend's code (`nipt_service`, `nipt_quality_checks`), never the browser:
   without a target (not tested); null without a panel or without a per-target table. The record is
   rebuilt from the saved panel and its current version, so a panel edited since the sign-out shows
   as a change;
+- the locked diagnostic candidates of the diagnostic panel (`diagnostic_candidates`,
+  REQ-NIPT-020): the criteria with their version (`criteria`), the scope (`panel_id`, null: every
+  variant), whether the scope held more variants than the analysis classifies (`capped`), and each
+  view's candidates (de novo, paternal, maternal, the recessive genes and their alleles), each with
+  what the criteria read (frequency, impact, SpliceAI, a strict ClinVar call, its count in the
+  assay's other cfDNA samples), its confidence and its flags. A count that grows with the assay can
+  change the list, which the sign-out check then shows;
 - what the analysis ran with. `inputs`: the per-target coverage tables with their file, number of
   targets and load time, and the assay's artifact list with its scope, number of alleles, a SHA-256
   digest of its alleles with their recurrence counts, how many it left out of this analysis, and

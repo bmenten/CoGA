@@ -32,7 +32,8 @@ import {
 } from './smallVariantSearch';
 import { apiPath } from '../../lib/apiPath';
 import { describeDiagnosticPanel, niptDiagnosticPanelKey } from './NiptDiagnosticPanel';
-import type { NiptDiagnosticPanelStateOut } from '../../lib/apiSchema.generated';
+import type { NiptDiagnosticCandidatesOut, NiptDiagnosticPanelStateOut } from '../../lib/apiSchema.generated';
+import NiptDiagnosticCandidatesSection from './NiptDiagnosticCandidates';
 import { memberLabel } from '../../lib/familyMembers';
 import { formatCount, joinWithAnd } from '../../lib/format';
 import { signOutRefusal, useReportSignOut } from './reportSignOut';
@@ -346,6 +347,24 @@ const FamilyNiptReportPage: React.FC = () => {
       if (gene) params.gene = gene;
       const res = await api.get(apiPath`/families/${familyId}/nipt/variants`, { params });
       return res.data as NiptSmallVariantPage;
+    },
+  });
+
+  // The locked diagnostic candidates of the report's scope (REQ-NIPT-020): what the sign-out
+  // freezes for the diagnostic panel.
+  const {
+    data: diagnosticCandidates,
+    isError: diagnosticCandidatesFailed,
+    refetch: refetchDiagnosticCandidates,
+  } = useQuery<NiptDiagnosticCandidatesOut>({
+    queryKey: ['family', familyId, 'nipt', 'diagnostic-candidates', niptAnalysis, panelId ?? null, gene ?? null],
+    enabled: scopeReady,
+    queryFn: async () => {
+      const params: Record<string, string> = { ...analysisParams };
+      if (panelId) params.panel_id = panelId;
+      if (gene) params.gene = gene;
+      const res = await api.get(apiPath`/families/${familyId}/nipt/diagnostic-candidates`, { params });
+      return res.data as NiptDiagnosticCandidatesOut;
     },
   });
 
@@ -873,6 +892,22 @@ const FamilyNiptReportPage: React.FC = () => {
           </p>
         )}
       </section>
+
+      {diagnosticCandidatesFailed || (diagnosticCandidates && !diagnosticCandidates.criteria) ? (
+        <section className="surface-card report-incomplete no-print" role="alert">
+          <p className="report-paragraph">
+            The diagnostic candidates could not be loaded.{' '}
+            <button type="button" className="button-link" onClick={() => void refetchDiagnosticCandidates()}>
+              Try again
+            </button>
+          </p>
+        </section>
+      ) : diagnosticCandidates ? (
+        <NiptDiagnosticCandidatesSection
+          data={diagnosticCandidates}
+          renderVariant={(candidate) => <ReportVariant variant={candidate.variant as unknown as SmallVariant} />}
+        />
+      ) : null}
 
       <section className="surface-card report-section">
         <h2 className="section-title">Candidate variants by inheritance</h2>
