@@ -56,6 +56,9 @@
   --color-signature-red-soft: rgba(198, 31, 45, 0.08);
   --color-danger-surface: #fdeced;
   --color-danger-border: #efb6bb;
+  /* A small variant's card when ClinVar reads (likely) pathogenic or (likely) benign. */
+  --color-clinvar-pathogenic-surface: #fcebec;
+  --color-clinvar-benign-surface: #eaf5ee;
   --color-warning-strong: #92580a;
   --color-warning-surface: #fdf1d8;
   --color-warning-border: #e8c989;

@@ -129,6 +129,11 @@ screening*, *Compound het*, *Recessive hom*, *Recessive broad*, *Any affected* a
 preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous
 candidates are shown as pairs. Up to 100 matches show as cards, more as a table.
 
+A card takes its colour from ClinVar, here and on the monogenic NIPT page: light red when ClinVar calls
+the variant pathogenic or likely pathogenic, light green when it calls it benign or likely benign. A
+conflicting, uncertain or other ClinVar status, or none, leaves the card white. In the table a row is
+tinted the same way, more faintly.
+
 Under its heading, a card names up to three diseases its gene is linked to: Monarch's causal links,
 those more sources back first; else the gene's OMIM diseases; else Monarch's associations, marked *not
 causal*. Each name opens the disease in Monarch, or in OMIM for an OMIM disease. **+N more** opens

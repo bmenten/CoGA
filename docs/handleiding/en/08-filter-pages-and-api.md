@@ -154,7 +154,7 @@ For each page the rows are supplemented with:
 
 `candidate_limit` says after how many candidates the search stopped. The counter is then a lower bound, and the warning asks for the filters to be refined with a region, a gene panel or a gene. Compound heterozygous pairs are at the top as pair cards, also with prioritisation: a pair then takes the place of its best-ranked variant, and each variant shows its own rank. The table (`SmallVariantTable.tsx`) sorts in the browser by position, gene, impact and, with prioritisation, the score.
 
-A card, also on the NIPT page, names in a line under its header the gene's diseases with their source, and the gene's inheritance, ClinGen dosage curation and ACMG SF status (`VariantGeneDiseases.tsx`; chapter 13). *HGVS.g* is VEP's HGVSg; if the annotation has none, the card derives the change from the VCF record, not HGVS-normalised, and says so in the tooltip. The predictors get coloured dots at seqr's cut-offs (chapter 10).
+A card, also on the NIPT page, names in a line under its header the gene's diseases with their source, and the gene's inheritance, ClinGen dosage curation and ACMG SF status (`VariantGeneDiseases.tsx`; chapter 13). *HGVS.g* is VEP's HGVSg; if the annotation has none, the card derives the change from the VCF record, not HGVS-normalised, and says so in the tooltip. The predictors get coloured dots at seqr's cut-offs (chapter 10). The card's background follows ClinVar as `clinvarClass` reads it: light red for (likely) pathogenic, light green for (likely) benign; a conflicting, uncertain or other status leaves the card white (`getClinvarHighlightTone`, `.small-variant-card` in `variant-tables.css`).
 
 ### Compound heterozygous, second hit and carrier screening
 
