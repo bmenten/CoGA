@@ -90,8 +90,8 @@ its data, reviews and sign-out are its own.
   its targets and their depth. **Back to NIPT** returns to the NIPT page with your filters.
 
 The built-in presets **De novo**, **Paternal, inherited** and **Recessive (both parents carrier)** set a
-view with high or moderate impact and a gnomAD frequency of 1% or less (a ClinVar pathogenic record
-overrides the frequency); **De novo** also leaves out ClinVar benign and likely benign. The page opens
+view with high or moderate impact and a gnomAD frequency of 1% or less (a ClinVar pathogenic or likely
+pathogenic record overrides both); **De novo** also leaves out ClinVar benign and likely benign. The page opens
 on **De novo** on the **Mendeliome** panel, named under the presets as *Active filter: De novo,
 Mendeliome panel* (*default*), as on the small-variant page. Pick a narrower panel if you need one. A
 link with its own filters, such as **Back to NIPT**, opens on those.

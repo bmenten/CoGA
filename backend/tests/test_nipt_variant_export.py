@@ -79,7 +79,7 @@ _SEARCH: list[tuple[str, str]] = [
     ("effect", "missense_variant"),
     ("clinvar", "pathogenic"),
     ("exclude_clinvar", "benign"),
-    ("clinvar_overrides_frequency", "true"),
+    ("clinvar_pathogenic_override", "true"),
     ("sift", "deleterious"),
     ("polyphen", "probably_damaging"),
     ("max_gnomad_af", "0.01"),

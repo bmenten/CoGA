@@ -236,7 +236,7 @@ async def _exercise(base: Path, suffix: str) -> dict:
             ("impact", "MODERATE"),
             ("max_gnomad_af", "0.01"),
             ("max_gnomad_popmax_af", "0.01"),
-            ("clinvar_overrides_frequency", "true"),
+            ("clinvar_pathogenic_override", "true"),
             ("exclude_clinvar", "Benign"),
             ("exclude_clinvar", "Likely benign"),
             ("page_size", "100"),

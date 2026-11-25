@@ -31,7 +31,7 @@ De pagina `FamilySmallVariantsPage.tsx` laadt de familie en de genpanels; de zoe
 | *Pathogenicity* | de ClinVar-status |
 | *Annotations* | impact (HIGH, MODERATE, …), effecttermen, het SpliceAI-minimum, transcript, rsID, HGVS, alleen canonieke of MANE-transcripten, alleen loss-of-function |
 | *In silico* | CADD, REVEL, SIFT, PolyPhen; het SpliceAI-minimum telt ook als voorspeller |
-| *Frequency* | maximale frequentie in gnomAD (exomen, genomen), popmax (gnomADs eigen popmax, anders VEP's `MAX_AF`, de hoogste frequentie over de populaties van 1000 Genomes en gnomAD) en TOPMed; aantallen homo- en hemizygoten (gnomADs totaal: het gecombineerde aantal, anders exomen plus genomen); "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentiefilter" |
+| *Frequency* | maximale frequentie in gnomAD (exomen, genomen), popmax (gnomADs eigen popmax, anders VEP's `MAX_AF`, de hoogste frequentie over de populaties van 1000 Genomes en gnomAD) en TOPMed; aantallen homo- en hemizygoten (gnomADs totaal: het gecombineerde aantal, anders exomen plus genomen); "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentie-, het gevolg- en het in-silicofilter" |
 | *Call quality* | genotypekwaliteit, leesdiepte, allelfractie, alt-diepte, en *Pass variants only* (de FILTER van de caller) |
 | *Locations* | een genpanel (standaard het Mendeliome), genen, een lijst intervallen. Een locus (chromosoom, begin, einde) komt alleen via een link mee, bv. uit de genoombrowser |
 | *Exclude* | uit te sluiten ClinVar-statussen, reviewtags, genen en intervallen |
@@ -57,11 +57,11 @@ Opent de pagina zonder zoekopdracht in de URL, dan past ze binnen het Mendeliome
 - fenotypeprioritering;
 - impact HIGH of MODERATE;
 - in gnomAD (exomen, genomen, popmax) hoogstens 1% en hoogstens 10 homo- en hemizygoten;
-- een (waarschijnlijk) pathogene ClinVar-variant als uitzondering op de frequentiegrens;
+- een (waarschijnlijk) pathogene ClinVar-variant als uitzondering op de impact- en de frequentiegrens;
 - ClinVar (waarschijnlijk) benigne uitgesloten;
 - bij de aangedane leden Hom of Het, met een genotypekwaliteit van minstens 20, een diepte van minstens 10, een allelfractie van minstens 0,2 en minstens 4 alt-reads.
 
-**De annotatiefilters gelden per transcript.** Impact en gevolg, transcript, HGVS, *Canonical only*, *MANE only* en *LoF only*, de ClinVar-status, de frequenties en de voorspellers moeten samen gelden voor één transcript van de variant (één rij van de tabel `annotations`). Met *MANE only* en impact HIGH valt dus een variant weg waarvan het HIGH-transcript niet het MANE-transcript is. Van de voorspellers volstaat er één, en een SpliceAI-score vanaf de grens telt ook als treffer voor impact en gevolg. Het gen, het panel, de rsID en de uit te sluiten ClinVar-statussen gelden voor de variant als geheel.
+**De annotatiefilters gelden per transcript.** Impact en gevolg, transcript, HGVS, *Canonical only*, *MANE only* en *LoF only*, de ClinVar-status, de frequenties en de voorspellers moeten samen gelden voor één transcript van de variant (één rij van de tabel `annotations`). Met *MANE only* en impact HIGH valt dus een variant weg waarvan het HIGH-transcript niet het MANE-transcript is. Van de voorspellers volstaat er één, en een SpliceAI-score vanaf de grens telt ook als treffer voor impact en gevolg. Met de ClinVar-uitzondering aan (`clinvar_pathogenic_override`) haalt een transcript met een (waarschijnlijk) pathogene ClinVar-melding het gevolgfilter (impact, gevolg, SpliceAI), het in-silicofilter en het frequentiefilter, wat zijn waarden ook zijn: zo blijft een pathogene synonieme of splice-regionvariant staan bij impact HIGH of MODERATE of bij een CADD-minimum. Transcript, HGVS, *Canonical only*, *MANE only*, *LoF only* en de ClinVar-status gelden ook voor dat transcript. *Filters met on* noemt alleen een transcript waarvan impact, gevolg en scores zelf aan de filters voldoen. Het gen, het panel, de rsID en de uit te sluiten ClinVar-statussen gelden voor de variant als geheel.
 
 **Elke rij met haar eigen annotatie.** Een rij van `entries` wordt gelezen met de annotatie waarmee ze geïmporteerd werd: haar variantsleutel en haar annotatieset (`annotationSetHash`, de hash van haar annotatie), onder welke versie ook (de bron, bv. `vcf_info` of `vep_tsv`). Rijen van één sleutel en één set dragen dezelfde annotatie.
 
@@ -96,7 +96,7 @@ De weergave:
 
 `buildSmallVariantQueryParams` zet de keuzes om in een querystring. Drie details tellen voor de traceerbaarheid:
 
-- **Standaardwaarden gaan expliciet mee.** De fenotypeprioritering en de ClinVar-uitzondering op het frequentiefilter staan standaard aan. Ze gaan altijd mee als `true` of `false`, zodat een uitgezette keuze in de URL bewaard blijft.
+- **Standaardwaarden gaan expliciet mee.** De fenotypeprioritering en de ClinVar-uitzondering op het frequentie-, het gevolg- en het in-silicofilter staan standaard aan. Ze gaan altijd mee als `true` of `false`, zodat een uitgezette keuze in de URL bewaard blijft.
 - **Een filter per sample** gaat als één parameter mee: `sample_filter=<sample>:<genotypes>:<quality>:<depth>:<allele-fraction>:<alt-depth>`, bijvoorbeeld `child:0/1|1/1:20:10:0.2:5`.
 - **Wat de lijst niet toepast, gaat niet mee.** De small-variantpagina deelt de opgeslagen zoekopdrachten (van elke gebruiker, in elke familie) met de NIPT-pagina. Een zoekopdracht van de NIPT-pagina kan filters dragen die alleen de NIPT-lijst kent: een overervingsweergave (`de_novo`, `paternal_dominant`, `maternal_dominant`, `recessive_at_risk`), de categorieën, de minimale betrouwbaarheid, `include_not_inherited`, `de_novo_priority` en de terugkeerfilter `max_unexplained_recurrence`.
 
@@ -179,7 +179,7 @@ De uitleg bij de markering somt de SV's op, elk met haar fase. Een deletie is ee
 
 Een mitochondriale variant (chrM) telt niet mee: mtDNA erft alleen via de moeder, dus zegt een variant van beide partners in één chrM-gen niets over het risico van een kind.
 
-Het ingebouwde preset *Expanded carrier screening* zet de keuze aan, samen met zeldzaam (onder 1%, ook popmax), impact HIGH of MODERATE, en ClinVar pathogeen of waarschijnlijk pathogeen als uitzondering op de frequentiegrens. Zo blijft een frequente founder-variant (CFTR p.Phe508del) staan. ClinVar benigne en waarschijnlijk benigne laat het preset weg: zo'n variant maakt een gen nooit tot een gen waarin beide partners een variant dragen. Zonder impactfilter bevat een long-read-genoom honderdduizenden zeldzame varianten: de zoekopdracht stopt dan aan haar kandidatengrens lang vóór chrX, en de X-gebonden regel ziet de varianten van de partners nooit.
+Het ingebouwde preset *Expanded carrier screening* zet de keuze aan, samen met zeldzaam (onder 1%, ook popmax), impact HIGH of MODERATE, en ClinVar pathogeen of waarschijnlijk pathogeen als uitzondering op de impact- en de frequentiegrens. Zo blijft een frequente founder-variant (CFTR p.Phe508del) staan, net als een pathogene synonieme of splice-regionvariant. ClinVar benigne en waarschijnlijk benigne laat het preset weg: zo'n variant maakt een gen nooit tot een gen waarin beide partners een variant dragen. Zonder impactfilter bevat een long-read-genoom honderdduizenden zeldzame varianten: de zoekopdracht stopt dan aan haar kandidatengrens lang vóór chrX, en de X-gebonden regel ziet de varianten van de partners nooit.
 
 **Waar in de code:** de paren in `clickhouse_variant_queries.py` en `SmallVariantPairCards.tsx`; de faseregel via de ouders in `backend/app/services/compound_het_phase.py`; de SV-index in `backend/app/services/sv_gene_index_service.py`; de dragerscreening in `clickhouse_variant_queries.py` en `smallVariantSearch.ts`.
 

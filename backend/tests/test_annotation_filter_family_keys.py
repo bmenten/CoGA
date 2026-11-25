@@ -90,7 +90,7 @@ _EVERY_TRANSCRIPT_FILTER: dict[str, Any] = {
     "impact": ["HIGH"],
     "effect": ["missense_variant"],
     "clinvar": ["pathogenic"],
-    "clinvar_overrides_frequency": True,
+    "clinvar_pathogenic_override": True,
     "canonical_only": True,
     "mane_only": True,
     "lof_only": True,

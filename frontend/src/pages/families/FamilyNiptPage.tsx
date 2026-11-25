@@ -154,7 +154,7 @@ const buildSearchParams = (f: SmallFilterState): Record<string, unknown> => {
   listValues('exclude_clinvar', f.exclude_clinvar);
   listValues('review_tag', f.review_tags);
   listValues('exclude_review_tag', f.exclude_review_tags);
-  flag('clinvar_overrides_frequency', f.clinvar_overrides_frequency);
+  flag('clinvar_pathogenic_override', f.clinvar_pathogenic_override);
   numeric('max_gnomad_af', f.max_gnomad_af);
   numeric('max_gnomad_exomes_af', f.max_gnomad_exomes_af);
   numeric('max_gnomad_genomes_af', f.max_gnomad_genomes_af);

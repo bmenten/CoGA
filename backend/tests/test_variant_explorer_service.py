@@ -405,19 +405,19 @@ def test_clinvar_rescue_keeps_pathogenic_variants_past_the_frequency_ceilings() 
     # dropped although the page said it was kept. The rescue is the family search's,
     # on the transcript that meets the other annotation filters.
     clauses, params = _explorer_where(
-        max_gnomad_af=0.01, max_gnomad_hom_count=2, clinvar_overrides_frequency=True
+        max_gnomad_af=0.01, max_gnomad_hom_count=2, clinvar_pathogenic_override=True
     )
     [transcript] = _transcript_subqueries(clauses)
     assert (
         "((ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)"
         " AND ifNull(a.gnomad_hom_count, 0) <= %(detail_max_gnomad_hom_count)s)"
-        " OR hasAny(a.clinvar_terms, %(detail_clinvar_rescue_terms)s))"
+        " OR hasAny(a.clinvar_terms, %(detail_clinvar_override_terms)s))"
     ) in transcript
     # The frequency ceilings sit only inside the rescued block, not also on their own.
     assert transcript.count("a.gnomad_af") == 1
     assert not _index_subqueries(clauses)
     # The family search's terms.
-    assert params["detail_clinvar_rescue_terms"] == ["pathogenic", "likely pathogenic"]
+    assert params["detail_clinvar_override_terms"] == ["pathogenic", "likely pathogenic"]
     # The query binds (the terms are an array parameter).
     bind_query("SELECT 1 FROM t WHERE " + " AND ".join(clauses), params)
 
@@ -427,9 +427,9 @@ def test_frequency_ceilings_apply_to_every_variant_without_the_rescue() -> None:
     assert _transcript_subqueries(clauses) == [
         _transcript_subquery("(ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s))")
     ]
-    assert "detail_clinvar_rescue_terms" not in params
+    assert "detail_clinvar_override_terms" not in params
     # The rescue alone, with no ceiling to lift, adds nothing.
-    clauses, params = _explorer_where(clinvar_overrides_frequency=True)
+    clauses, params = _explorer_where(clinvar_pathogenic_override=True)
     assert not _transcript_subqueries(clauses) and not _index_subqueries(clauses)
     assert not [name for name in params if name.startswith(("detail_", "ann_"))]
 
@@ -479,7 +479,7 @@ def test_per_transcript_filters_hold_on_one_transcript_together(filters: dict[st
             },
             id="frequency",
         ),
-        pytest.param({"max_gnomad_af": 0.01, "clinvar_overrides_frequency": True}, id="frequency-rescue"),
+        pytest.param({"max_gnomad_af": 0.01, "clinvar_pathogenic_override": True}, id="frequency-rescue"),
         pytest.param({"min_cadd": 20.0}, id="cadd"),
         pytest.param({"min_revel": 0.5}, id="revel"),
         pytest.param({"min_spliceai": 0.2}, id="spliceai"),
@@ -496,7 +496,7 @@ def test_per_transcript_filters_hold_on_one_transcript_together(filters: dict[st
                 "max_gnomad_popmax_af": 0.01,
                 "max_gnomad_hom_count": 10,
                 "max_gnomad_hemi_count": 10,
-                "clinvar_overrides_frequency": True,
+                "clinvar_pathogenic_override": True,
                 "mane_only": True,
                 "min_cadd": 20.0,
             },

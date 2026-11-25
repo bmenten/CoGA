@@ -66,13 +66,13 @@ async def _collect_api_responses(root: Path) -> dict:
         r["freq_rescue_on"] = capture(
             await ac.get(
                 f"/api/families/{FAMILY}/small-variants",
-                params={**freq_ceiling, "clinvar_overrides_frequency": "true"},
+                params={**freq_ceiling, "clinvar_pathogenic_override": "true"},
             )
         )
         r["freq_rescue_off"] = capture(
             await ac.get(
                 f"/api/families/{FAMILY}/small-variants",
-                params={**freq_ceiling, "clinvar_overrides_frequency": "false"},
+                params={**freq_ceiling, "clinvar_pathogenic_override": "false"},
             )
         )
 

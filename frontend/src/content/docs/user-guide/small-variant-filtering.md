@@ -6,8 +6,9 @@ list; the *Phenotype priority* preset puts it in order.
 The page opens with the **Phenotype priority (Exomiser-style)** preset on the **Mendeliome** panel:
 
 - HIGH or MODERATE impact;
-- gnomAD exome, genome and popmax frequency 1% or below, and at most 10 homozygotes and 10 hemizygotes —
-  a ClinVar pathogenic or likely pathogenic record overrides these cut-offs;
+- gnomAD exome, genome and popmax frequency 1% or below, and at most 10 homozygotes and 10 hemizygotes;
+- a ClinVar pathogenic or likely pathogenic record overrides the impact and frequency cut-offs, so a
+  pathogenic synonymous or splice-region variant and a common founder variant stay in;
 - ClinVar benign and likely benign left out;
 - carried (het or hom) by each affected member, with genotype quality (GQ) 20, depth 10, allele
   balance 0.2 and 4 alt reads or more.
@@ -105,6 +106,11 @@ its MANE transcript is left out.
 - The gene, the rsID and the excluded ClinVar statuses apply to the variant as a whole. A gene keeps
   every variant annotated with it, including one VEP places just outside the gene (upstream or
   downstream), ranked or not.
+- *ClinVar pathogenic / likely pathogenic overrules the frequency, consequence and in-silico
+  filters*, under **Frequency** and on by default: a transcript with a ClinVar pathogenic or likely
+  pathogenic record passes the impact, consequence and SpliceAI filter, the in-silico filter and
+  every frequency and gnomAD count, whatever its values. The other filters still apply to it: the
+  transcript, HGVS, *Canonical only*, *MANE only*, *LoF only*, the ClinVar status, the genotypes.
 
 A card, a table row and a CSV row describe one transcript of the variant: MANE Select, else the
 canonical one, else the most severe. The filters may have held on another. For example, *deleterious*
@@ -118,7 +124,9 @@ In that case:
 - the card's transcript list marks that transcript *Filters met*;
 - the CSV gives it in its last columns, *Filter-matched transcript* to *Filter-matched PolyPhen*.
 
-The ranking and **ACMG classify** read the transcript the row describes.
+**Filters met on** names a transcript whose own impact, consequence and scores meet the filters: a
+variant that only the ClinVar override keeps names none. The ranking and **ACMG classify** read the
+transcript the row describes.
 
 > **MANE only needs GRCh38.** *MANE only* keeps a variant with a MANE Select or MANE Plus Clinical
 > transcript. VEP sets these flags on GRCh38 only, so on a GRCh37 or T2T family *MANE only* keeps
@@ -172,10 +180,11 @@ carries what either of their samples in the analysis you read carries. It keeps:
   a woman's carrier status alone puts a son at risk of an X-linked condition, and a man passes his X
   to every daughter.
 
-A ClinVar pathogenic or likely pathogenic call overrides the frequency cut-off, so a common founder
-variant stays in. A ClinVar benign or likely benign variant is left out, so it never makes a gene one
-both partners carry a variant in. The X-linked rule does not read the partners' recorded sex.
-Mitochondrial variants are not part of it, as mtDNA passes from the mother alone.
+A ClinVar pathogenic or likely pathogenic call overrides the frequency and impact cut-offs, so a common
+founder variant and a pathogenic synonymous or splice-region variant stay in. A ClinVar benign or
+likely benign variant is left out, so it never makes a gene one both partners carry a variant in. The
+X-linked rule does not read the partners' recorded sex. Mitochondrial variants are not part of it, as
+mtDNA passes from the mother alone.
 
 Your saved searches are shared with the monogenic NIPT page. A search saved there can carry filters
 that only the NIPT list applies: an inheritance view such as *De novo in the fetus*, the maternal/fetal

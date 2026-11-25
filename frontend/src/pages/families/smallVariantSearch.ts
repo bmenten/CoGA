@@ -231,7 +231,7 @@ export type SmallFilterState = {
   effect: string;
   clinvar: string;
   exclude_clinvar: string;
-  clinvar_overrides_frequency: string;
+  clinvar_pathogenic_override: string;
   exclude_review_tags: string;
   exclude_gene: string;
   exclude_intervals: string;
@@ -455,7 +455,7 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'expanded_carrier_screening',
     label: 'Expanded carrier screening',
     description:
-      'Couple-only screen for genes where both partners carry a rare high- or moderate-impact variant (ClinVar pathogenic overrides the frequency cut-off, ClinVar benign is left out), and for X-linked variants either partner carries.',
+      'Couple-only screen for genes where both partners carry a rare high- or moderate-impact variant (ClinVar P/LP overrides the frequency and impact cut-offs, ClinVar benign is left out), and for X-linked variants either partner carries.',
   },
   {
     value: 'compound_het',
@@ -496,19 +496,19 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
     value: 'nipt_de_novo',
     label: 'De novo',
     description:
-      'De novo candidates in the fetal window, triaged and ranked: high/moderate impact, gnomAD <1% (ClinVar P/LP overrides), ClinVar benign and likely benign excluded, no supported call in the father.',
+      'De novo candidates in the fetal window, triaged and ranked: high/moderate impact and gnomAD <1% (ClinVar P/LP overrides both), ClinVar benign and likely benign excluded, no supported call in the father.',
   },
   {
     value: 'nipt_paternal',
     label: 'Paternal, inherited',
     description:
-      "The father's rare, high/moderate alleles the fetus inherited (ClinVar P/LP overrides frequency), for a dominant paternal condition.",
+      "The father's rare, high/moderate alleles the fetus inherited (ClinVar P/LP overrides frequency and impact), for a dominant paternal condition.",
   },
   {
     value: 'nipt_recessive',
     label: 'Recessive (both parents carrier)',
     description:
-      'Genes where both parents carry a rare, high/moderate variant (ClinVar P/LP overrides frequency), with the probability that the fetus inherited each allele and both.',
+      'Genes where both parents carry a rare, high/moderate variant (ClinVar P/LP overrides frequency and impact), with the probability that the fetus inherited each allele and both.',
   },
 ];
 
@@ -673,7 +673,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   effect: 'Annotation',
   clinvar: 'Pathogenicity',
   exclude_clinvar: 'Exclude pathogenicity',
-  clinvar_overrides_frequency: 'ClinVar P/LP overrides frequency',
+  clinvar_pathogenic_override: 'ClinVar P/LP overrides frequency, consequence and in silico',
   exclude_review_tags: 'Exclude review tags',
   exclude_gene: 'Exclude gene list',
   exclude_intervals: 'Exclude intervals',
@@ -827,8 +827,8 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   effect: '',
   clinvar: '',
   exclude_clinvar: '',
-  // Standard on: ClinVar P/LP variants survive the gnomAD frequency filter.
-  clinvar_overrides_frequency: 'true',
+  // Standard on: ClinVar P/LP variants pass the consequence, in-silico and frequency filters.
+  clinvar_pathogenic_override: 'true',
   exclude_review_tags: '',
   exclude_gene: '',
   exclude_intervals: '',
@@ -1010,30 +1010,30 @@ const buildPresetState = (
   } else if (preset === 'nipt_de_novo') {
     // Monogenic NIPT: the de novo view (candidates in the fetal window without a
     // supported paternal call, triaged), high/moderate impact, rare in gnomAD, ClinVar
-    // P/LP overriding the frequency cut-off, ClinVar benign and likely benign excluded (as the
+    // P/LP overriding the impact and frequency cut-offs, ClinVar benign and likely benign excluded (as the
     // small-variant page's default). The page opens on it on the Mendeliome. No genotype filters (the fetal call is
     // inferred from the cfDNA VAF) and no category tick: a candidate whose father's call
     // is too weak to tell de novo from paternal is category 7 and still a candidate.
     filters.inheritance = 'de_novo';
     filters.impact = 'HIGH, MODERATE';
     setFrequencyCeiling('0.01');
-    filters.clinvar_overrides_frequency = 'true';
+    filters.clinvar_pathogenic_override = 'true';
     filters.exclude_clinvar = 'Benign, Likely benign';
   } else if (preset === 'nipt_paternal') {
     // Monogenic NIPT: the father's alleles the fetus inherited, rare and damaging.
     filters.inheritance = 'paternal_dominant';
     filters.impact = 'HIGH, MODERATE';
     setFrequencyCeiling('0.01');
-    filters.clinvar_overrides_frequency = 'true';
+    filters.clinvar_pathogenic_override = 'true';
   } else if (preset === 'nipt_recessive') {
     // Monogenic NIPT: genes where both parents carry a high/moderate, rare
     // variant; the backend recessive_at_risk grouping returns every carrier
     // variant in those genes so the analyst can read the fetal inheritance
-    // (none / one / both) off the categories. ClinVar P/LP overrides frequency.
+    // (none / one / both) off the categories. ClinVar P/LP overrides impact and frequency.
     filters.inheritance = 'recessive_at_risk';
     filters.impact = 'HIGH, MODERATE';
     setFrequencyCeiling('0.01');
-    filters.clinvar_overrides_frequency = 'true';
+    filters.clinvar_pathogenic_override = 'true';
   } else if (preset === 'expanded_carrier_screening') {
     const couple = resolveCarrierScreeningCoupleMembers(members);
     if (!couple) {
@@ -1043,18 +1043,19 @@ const buildPresetState = (
     // partner's X-linked variants, read with the NIPT recessive screen's filters.
     // Without an impact filter a long-read genome holds hundreds of thousands of rare
     // variants: the search would stop at its candidate cap long before chrX. A ClinVar
-    // pathogenic or likely pathogenic call overrides the frequency cut-off, so a common
-    // founder allele (CFTR p.Phe508del, above 1% in some populations) stays in. A ClinVar
+    // pathogenic or likely pathogenic call overrides the impact and frequency cut-offs, so a
+    // common founder allele (CFTR p.Phe508del, above 1% in some populations) stays in, and so
+    // does a pathogenic synonymous or splice-region variant. A ClinVar
     // benign or likely benign variant is no finding: it is left out, and cannot make a gene
     // one both partners carry a variant in.
     filters.expanded_carrier_screening = 'true';
     filters.impact = 'HIGH, MODERATE';
     setFrequencyCeiling('0.01');
-    filters.clinvar_overrides_frequency = 'true';
+    filters.clinvar_pathogenic_override = 'true';
     filters.exclude_clinvar = 'Benign, Likely benign';
   } else if (preset === 'phenotype_priority') {
     // Exomiser-style: rare candidate set ranked by gene-phenotype match. gnomAD
-    // <1% + H/H <=10, but ClinVar P/LP overrules the frequency cut-off; ClinVar
+    // <1% + H/H <=10, but ClinVar P/LP overrules the impact and frequency cut-offs; ClinVar
     // benign / likely benign excluded; affected individuals must carry the
     // variant (Hom or Het, not WT).
     filters.prioritize = 'true';
@@ -1064,7 +1065,7 @@ const buildPresetState = (
     filters.max_gnomad_popmax_af = '0.01';
     filters.max_gnomad_hom_count = '10';
     filters.max_gnomad_hemi_count = '10';
-    filters.clinvar_overrides_frequency = 'true';
+    filters.clinvar_pathogenic_override = 'true';
     filters.exclude_clinvar = 'Benign, Likely benign';
     // Standard proband QC: GQ/QUAL >= 20, DP >= 10, AF >= 0.2, AD alt >= 4.
     setAffectedGenotypes([...HOM_GT_GROUP, ...HET_GT_GROUP], {
@@ -1146,7 +1147,7 @@ const countActiveFilters = (
   const topLevel = Object.entries(filters).reduce((sum, [key, value]) => {
     if (!value.trim()) return sum;
     // Behaviour modifiers, not narrowing filters — don't inflate the count.
-    if (RANKING_MODE_KEYS.has(key) || key === 'clinvar_overrides_frequency') return sum;
+    if (RANKING_MODE_KEYS.has(key) || key === 'clinvar_pathogenic_override') return sum;
     if (MULTI_VALUE_FILTER_KEYS.has(key as keyof SmallFilterState)) {
       return sum + parseCommaSeparatedValues(value).length;
     }
@@ -1170,7 +1171,7 @@ const activeFilterKeys = (filters: SmallFilterState): string[] =>
   Object.entries(filters)
     .filter(
       ([key, value]) =>
-        value.trim() && !RANKING_MODE_KEYS.has(key) && key !== 'clinvar_overrides_frequency',
+        value.trim() && !RANKING_MODE_KEYS.has(key) && key !== 'clinvar_pathogenic_override',
     )
     .map(([key]) => key);
 
@@ -1282,8 +1283,8 @@ export const buildSmallVariantQueryParams = (
   // Standard on; emit explicitly so an off state survives the URL round-trip
   // (absence is treated as the default — on).
   params.set(
-    'clinvar_overrides_frequency',
-    currentFilters.clinvar_overrides_frequency === 'true' ? 'true' : 'false',
+    'clinvar_pathogenic_override',
+    currentFilters.clinvar_pathogenic_override === 'true' ? 'true' : 'false',
   );
   // Standard on: only an explicit "false" turns phenotype prioritization off.
   params.set('prioritize', currentFilters.prioritize === 'true' ? 'true' : 'false');
@@ -1376,7 +1377,7 @@ export const buildActiveFilterChips = (
     if (!value) return;
     if (skipDerivedLocusKeys?.has(key)) return;
     // Prioritization and its order are surfaced as their own controls (and the one chip above),
-    // not as removable chips of their own. (The ClinVar-overrides-frequency modifier does get a
+    // not as removable chips of their own. (The ClinVar P/LP override modifier does get a
     // chip when on.)
     if (RANKING_MODE_KEYS.has(key)) return;
     if (MULTI_VALUE_FILTER_KEYS.has(key)) {
@@ -1715,10 +1716,10 @@ export const useSmallVariantSearchState = ({
         initialFilters.rank_by = readRankBy(params.get('rank_by'));
         return;
       }
-      if (key === 'clinvar_overrides_frequency') {
+      if (key === 'clinvar_pathogenic_override') {
         // Standard on: only an explicit "false" turns it off; absence keeps the default.
-        initialFilters.clinvar_overrides_frequency =
-          params.get('clinvar_overrides_frequency') === 'false' ? '' : 'true';
+        initialFilters.clinvar_pathogenic_override =
+          params.get('clinvar_pathogenic_override') === 'false' ? '' : 'true';
         return;
       }
       const value = params.get(key);

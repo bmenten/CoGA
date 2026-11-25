@@ -228,9 +228,10 @@ def _normalized_status_term(value: Any) -> str:
     return " ".join(_casefold(value).replace("_", " ").split())
 
 
-# ClinVar significances that "rescue" a variant past the gnomAD frequency ceilings when
-# the caller opts in (``clinvar_overrides_frequency``), as the ClickHouse filter reads them.
-CLINVAR_FREQUENCY_RESCUE_TERMS: tuple[str, ...] = ("Pathogenic", "Likely_pathogenic")
+# The ClinVar significances that keep a variant past the consequence, in-silico and frequency
+# filters when the search asks for it (``clinvar_pathogenic_override``), as the ClickHouse filter
+# reads them (``clickhouse_variant_queries._small_annotation_filter_condition``).
+CLINVAR_OVERRIDE_TERMS: tuple[str, ...] = ("Pathogenic", "Likely_pathogenic")
 
 # The transcripts *MANE only* keeps: MANE Select and MANE Plus Clinical. Each flag is an
 # annotation key and a column of the ``annotations`` table; the ``annotation_index`` holds
@@ -257,8 +258,8 @@ def _status_terms(value: Any) -> set[str]:
     Multiple values are separated by ``,`` ``;`` ``&`` ``|`` or ``/``. The ``/`` is
     ClinVar's own aggregate form (``Pathogenic/Likely_pathogenic``,
     ``Benign/Likely_benign``) as carried in CLNSIG: without splitting it, such a variant
-    would match neither a "Pathogenic" / "Likely pathogenic" filter nor the frequency
-    rescue.
+    would match neither a "Pathogenic" / "Likely pathogenic" filter nor the ClinVar P/LP
+    override.
     """
     if isinstance(value, (list, tuple, set)):
         terms: set[str] = set()

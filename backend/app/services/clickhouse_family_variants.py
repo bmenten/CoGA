@@ -1719,11 +1719,18 @@ async def _filter_transcript_matches(
     the SQL decides it: the stored rows the search's own per-transcript condition keeps
     (``_small_annotation_filter_condition``), each by its hash (``annotationHash``), per
     annotation set. None when the search asks nothing of a transcript. The one definition
-    of the filters names the transcript a variant shows."""
+    of the filters names the transcript a variant shows.
+
+    The consequence and in-silico filters are read strictly here, without the ClinVar P/LP
+    override: a pathogenic variant of HIGH impact on a second transcript names that transcript
+    in a HIGH-impact search, and one the override alone keeps (a pathogenic synonymous
+    variant) names none and shows its primary transcript."""
     if filters is None or not context.assembly_name:
         return None
     condition_params: dict[str, Any] = {}
-    condition = _small_annotation_filter_condition(filters, params=condition_params)
+    condition = _small_annotation_filter_condition(
+        filters, params=condition_params, strict_transcript_filters=True
+    )
     if condition is None:
         return None
     identities = list(dict.fromkeys(i for record in records if (i := _annotation_set_identity(record)) is not None))
@@ -3845,7 +3852,7 @@ async def get_family_small_variants_page(
     effect: list[str] | None = None,
     clinvar: list[str] | None = None,
     exclude_clinvar: list[str] | None = None,
-    clinvar_overrides_frequency: bool = False,
+    clinvar_pathogenic_override: bool = False,
     exclude_gene: str | None = None,
     exclude_intervals: str | None = None,
     rsid: str | None = None,
@@ -3910,7 +3917,7 @@ async def get_family_small_variants_page(
         effect=effect or [],
         clinvar=clinvar or [],
         exclude_clinvar=exclude_clinvar or [],
-        clinvar_overrides_frequency=clinvar_overrides_frequency,
+        clinvar_pathogenic_override=clinvar_pathogenic_override,
         exclude_gene=exclude_gene,
         exclude_intervals=exclude_intervals,
         rsid=rsid,

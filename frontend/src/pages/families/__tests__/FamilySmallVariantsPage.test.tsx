@@ -912,9 +912,9 @@ describe('FamilySmallVariantsPage', () => {
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_genomes_af=0.01'));
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_hom_count=10'));
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_hemi_count=10'));
-      // ClinVar P/LP overrides frequency.
+      // ClinVar P/LP overrides consequence, in silico and frequency.
       expect(apiMock.get).toHaveBeenCalledWith(
-        expect.stringContaining('clinvar_overrides_frequency=true'),
+        expect.stringContaining('clinvar_pathogenic_override=true'),
       );
       // Exclude benign / likely benign.
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('exclude_clinvar=Benign'));
@@ -924,12 +924,12 @@ describe('FamilySmallVariantsPage', () => {
     });
   });
 
-  it('shows the ClinVar-overrides-frequency chip by default and clears it on click', async () => {
+  it('shows the ClinVar P/LP override chip by default and clears it on click', async () => {
     renderPage();
 
     await screen.findByRole('combobox', { name: /preset or saved search/i });
     const chip = await screen.findByRole('button', {
-      name: /clinvar p\/lp overrides frequency/i,
+      name: /clinvar p\/lp overrides frequency, consequence and in silico/i,
     });
     expect(chip).toBeInTheDocument();
 
@@ -937,7 +937,7 @@ describe('FamilySmallVariantsPage', () => {
 
     await waitFor(() => {
       expect(
-        screen.queryByRole('button', { name: /clinvar p\/lp overrides frequency/i }),
+        screen.queryByRole('button', { name: /clinvar p\/lp overrides frequency, consequence and in silico/i }),
       ).not.toBeInTheDocument();
     });
   });
@@ -1186,7 +1186,7 @@ describe('FamilySmallVariantsPage', () => {
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('impact=MODERATE'));
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_popmax_af=0.01'));
       expect(apiMock.get).toHaveBeenCalledWith(
-        expect.stringContaining('clinvar_overrides_frequency=true'),
+        expect.stringContaining('clinvar_pathogenic_override=true'),
       );
     });
   });
@@ -1539,7 +1539,7 @@ describe('FamilySmallVariantsPage', () => {
         inheritance: 'de_novo',
         impact: ['HIGH', 'MODERATE'],
         max_gnomad_af: '0.01',
-        clinvar_overrides_frequency: 'true',
+        clinvar_pathogenic_override: 'true',
         category: ['1'],
         min_confidence: '0.9',
         de_novo_priority: 'medium',

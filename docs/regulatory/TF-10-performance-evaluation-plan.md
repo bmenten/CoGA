@@ -209,7 +209,8 @@ pull request updates this list only when it adds clinical behaviour that no area
 - **Variant filtering and genotypes**
   - One genotype classification for every filter, inheritance check and count, haploid and
     multi-allelic calls included.
-  - Frequency presets that also bound popmax; the ClinVar P/LP frequency override.
+  - Frequency presets that also bound popmax; the ClinVar P/LP override of the frequency,
+    consequence and in-silico filters.
   - Unreadable filter values and location filters refused, not dropped.
   - Gene-panel regions per assembly.
   - A gene panel of any size, the Mendeliome included, keeps the variants in its regions as
@@ -225,8 +226,8 @@ pull request updates this list only when it adds clinical behaviour that no area
   - Expanded carrier screening keeps the genes in which both partners carry a variant and, on
     chrX outside the pseudo-autosomal regions, either partner's variant on its own (never a
     mitochondrial variant). Its preset reads rare high- or moderate-impact variants with the
-    ClinVar P/LP frequency override, so a long-read genome's screen reaches chrX within the
-    candidate window, and leaves out ClinVar benign and likely benign variants.
+    ClinVar P/LP override of frequency and impact, so a long-read genome's screen reaches chrX
+    within the candidate window, and leaves out ClinVar benign and likely benign variants.
 - **Structural variants, CNVs and repeats**
   - SV gene and panel filters before the candidate cap. A gene panel of any size, the
     Mendeliome included, keeps the SVs whose annotation names one of its genes as well as
