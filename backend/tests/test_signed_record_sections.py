@@ -42,6 +42,7 @@ from backend.app.services import report_signout_service as rss
 from backend.app.services import signed_record_sections as srs
 from backend.app.services.pgt_embryo_qc import QC_THRESHOLDS, embryo_qc_verdict
 from backend.app.services.signout_scope import WHOLE_FAMILY, SignoutScope
+from backend.tests import _paraphase_layouts
 from backend.tests._query_results import MappingRows as _Result
 
 
@@ -486,6 +487,26 @@ def test_each_paraphase_result_is_frozen_with_its_status_and_the_rule_behind_it(
     [result] = rccx["samples"]
     assert result["allele_reading"] == {"alleles": ["WT", "Q319X"], "phasing_success": True}
     assert out["catalogue"]["regions"] > 0 and len(out["catalogue"]["digest"]) == 64
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [_paraphase_layouts.paraphase_3_json(), _paraphase_layouts.paraphase_4_json()],
+    ids=["paraphase-3", "paraphase-4"],
+)
+def test_the_record_freezes_the_same_paraphase_calls_in_either_layout(payload) -> None:
+    # Paraphase 4 writes the region's own fields under region_specific_info: the record reads
+    # the imported results through the page, as the sign-out does.
+    session = _paraphase_layouts.StoredParaphaseSession(_paraphase_layouts.import_rows(payload))
+    out = asyncio.run(srs.paraphase_results(session, _paraphase_layouts.family_context()))
+
+    results = {gene["gene"]: gene["samples"][0] for gene in out["genes"]}
+    assert (results["gba"]["status"], results["gba"]["fusion_count"]) == ("review", 1)
+    assert (results["tnxb"]["status"], results["tnxb"]["gene_cn"]) == ("review", 1)
+    assert results["smn1"]["status"] == "carrier"
+    assert {"key": "smn1_cn", "label": "SMN1 CN", "value": 1.0} in results["smn1"]["copy_number"]
+    assert results["rccx"]["status"] == "none"
+    assert results["rccx"]["allele_reading"] == {"alleles": ["WT", "pseudogene_deletion"], "phasing_success": True}
 
 
 # --- The sections together, and what could not be read ------------------------------

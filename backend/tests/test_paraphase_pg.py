@@ -9,6 +9,8 @@ the sample's sex gives it (a man's single X is no loss; with no sex on a sex chr
 is called normal); and the clinical status a region's rule calls (SMN1, STRC and HBA by their
 copy number, each band at its boundary), or review for an allele-dependent region with a change,
 and for RCCX a label for a chromosome that is not a normal allele, or alleles it cannot read.
+The same calls in Paraphase 3's layout and Paraphase 4's (``region_specific_info``) read the same,
+from the import's rows to the page, and a result in neither layout is not read.
 All values are synthetic.
 """
 
@@ -17,6 +19,7 @@ import json
 import pytest
 
 from backend.app.services import paraphase_pg
+from backend.tests import _paraphase_layouts
 
 
 def test_paraphase_extracts_smn_metrics_and_copy_number_signal() -> None:
@@ -476,3 +479,102 @@ def test_a_configured_catalogue_is_read_and_an_unreadable_one_is_passed_over(mon
     paraphase_pg.load_paraphase_medical_regions.cache_clear()
     regions = paraphase_pg.load_paraphase_medical_regions()
     assert {"smn1_smn2", "hba", "strc"} <= {region["region_id"] for region in regions}
+
+
+# --- Paraphase 3's layout and Paraphase 4's ------------------------------------------------------
+# Paraphase 3 writes a region's own fields (gene_cn, fusions_called, SMN1's copy numbers, read
+# counts and haplotypes, RCCX's alleles) at a result's top level; Paraphase 4 under its
+# region_specific_info. The laboratory runs either: the same calls read the same in both.
+
+
+def test_a_paraphase_3_result_is_read_as_it_is() -> None:
+    result = {"total_cn": 4, "gene_cn": 1, "fusions_called": {}}
+    assert paraphase_pg.paraphase_result_fields(result) == result
+
+
+def test_a_paraphase_4_results_region_specific_fields_are_read_beside_its_top_level_ones() -> None:
+    result = {"total_cn": 4, "region_specific_info": {"gene_cn": 1, "fusions_called": {"hap2": {"type": "deletion"}}}}
+    assert paraphase_pg.paraphase_result_fields(result) == {
+        "total_cn": 4,
+        "gene_cn": 1,
+        "fusions_called": {"hap2": {"type": "deletion"}},
+    }
+    # A region without fields of its own: Paraphase 4 writes {}.
+    assert paraphase_pg.paraphase_result_fields({"total_cn": 4, "region_specific_info": {}}) == {"total_cn": 4}
+
+
+@pytest.mark.parametrize(
+    ("result", "reason"),
+    [
+        ({"total_cn": 4, "region_specific_info": None}, "region_specific_info is not an object"),
+        ({"total_cn": 4, "region_specific_info": [["gene_cn", 1]]}, "region_specific_info is not an object"),
+        (
+            {"total_cn": 4, "gene_cn": 2, "region_specific_info": {"gene_cn": 1}},
+            "gene_cn is both at the top level and under region_specific_info",
+        ),
+    ],
+    ids=["null", "a-list", "a-field-in-both"],
+)
+def test_a_result_in_neither_layout_is_not_read(result, reason: str) -> None:
+    # Which gene_cn Paraphase meant, or whether a fusion was called, cannot be told.
+    with pytest.raises(paraphase_pg.ParaphaseLayoutError) as refused:
+        paraphase_pg.paraphase_result_fields(result)
+    assert str(refused.value) == reason
+
+
+def _sample_call(table, gene: str):
+    return next(row for row in table.genes if row.gene_symbol == gene).samples[_paraphase_layouts.SAMPLE]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [_paraphase_layouts.paraphase_3_json(), _paraphase_layouts.paraphase_4_json()],
+    ids=["paraphase-3", "paraphase-4"],
+)
+@pytest.mark.asyncio
+async def test_the_page_reads_the_same_calls_in_either_layout(payload) -> None:
+    table = await _paraphase_layouts.paraphase_page(payload)
+
+    # GBA1's fusion is counted and reads review, at a normal total.
+    gba = _sample_call(table, "gba")
+    assert (gba.fusion_count, gba.copy_number_signal, gba.clinical_status) == (1, False, "review")
+    # TNXB's own copy number is stored in its column and read against its norm of two.
+    tnxb = _sample_call(table, "tnxb")
+    assert (tnxb.gene_cn, tnxb.copy_number_signal, tnxb.clinical_status) == (1, True, "review")
+    assert [(metric.key, metric.value) for metric in tnxb.copy_number_metrics] == [("total_cn", 4.0), ("gene_cn", 1.0)]
+    # SMN1's copy number calls a carrier; its copy numbers, reads and haplotypes are shown.
+    smn1 = _sample_call(table, "smn1")
+    assert smn1.clinical_status == "carrier"
+    assert [(metric.key, metric.value) for metric in smn1.copy_number_metrics] == [
+        ("total_cn", 3.0),
+        ("highest_total_cn", 3.0),
+        ("smn1_cn", 1.0),
+        ("smn2_cn", 2.0),
+        ("smn_del78_cn", 0.0),
+    ]
+    assert [(metric.key, metric.value) for metric in smn1.read_metrics] == [
+        ("smn1_read_number", 12.0),
+        ("smn2_read_number", 25.0),
+        ("smn_del78_read_number", 0.0),
+    ]
+    assert [(group.key, group.haplotypes) for group in smn1.haplotype_groups] == [
+        ("smn1_haplotypes", ["smn1_smn1hap1"]),
+        ("smn2_haplotypes", ["smn1_smn2hap1", "smn1_smn2hap2"]),
+    ]
+    # RCCX's normal alleles are read: no review. Extra info lists them, not region_specific_info.
+    rccx = _sample_call(table, "rccx")
+    assert rccx.clinical_status == "none"
+    assert [(field.key, field.value) for field in rccx.extra_fields] == [
+        ("annotated_alleles", ["WT", "pseudogene_deletion"]),
+        ("phasing_success", True),
+        ("alleles_final", [["rccx_hap1"], ["rccx_hap2"]]),
+    ]
+    cfc1 = _sample_call(table, "cfc1")
+    assert (cfc1.clinical_status, cfc1.extra_fields) == ("none", [])
+
+
+@pytest.mark.asyncio
+async def test_both_layouts_give_the_same_page() -> None:
+    paraphase_3 = await _paraphase_layouts.paraphase_page(_paraphase_layouts.paraphase_3_json())
+    paraphase_4 = await _paraphase_layouts.paraphase_page(_paraphase_layouts.paraphase_4_json())
+    assert paraphase_4 == paraphase_3

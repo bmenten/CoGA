@@ -8,6 +8,7 @@ from typing import Any, Sequence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import error_text
 from .clickhouse_column_bounds import INT32, UINT32, column_int
 from .clickhouse_variant_records import (
     StoredStructuralVariantRow,
@@ -21,6 +22,7 @@ from .family_metadata_context import (
     SampleMetadataContext,
 )
 from .genotypes import NO_CALL, classify_genotype
+from .paraphase_pg import ParaphaseLayoutError, paraphase_result_fields
 
 from .variant_annotation_parser import (
     AnnotationHeaderState,
@@ -617,29 +619,35 @@ def _paraphase_rows_for_sample(
     for gene_symbol, raw_result in sorted(payload.items()):
         if not isinstance(raw_result, dict):
             continue
+        # The columns read the result in either of Paraphase's layouts (a Paraphase 4 result's
+        # gene_cn is under its region_specific_info); the payload keeps it as Paraphase wrote it.
+        try:
+            fields = paraphase_result_fields(raw_result)
+        except ParaphaseLayoutError as exc:
+            raise ParaphaseLayoutError(f"{error_text(exc)} in the result of {visible(str(gene_symbol))}") from exc
         rows.append(
             {
                 "sample_id": sample_context.sample_uuid,
                 "family_id": sample_context.family_uuid,
                 "assembly_id": sample_context.assembly_id or "",
                 "gene_symbol": str(gene_symbol),
-                "total_cn": _paraphase_copy_number(raw_result, "total_cn", gene_symbol=str(gene_symbol)),
-                "gene_cn": _paraphase_copy_number(raw_result, "gene_cn", gene_symbol=str(gene_symbol)),
+                "total_cn": _paraphase_copy_number(fields, "total_cn", gene_symbol=str(gene_symbol)),
+                "gene_cn": _paraphase_copy_number(fields, "gene_cn", gene_symbol=str(gene_symbol)),
                 "highest_total_cn": _paraphase_copy_number(
-                    raw_result, "highest_total_cn", gene_symbol=str(gene_symbol)
+                    fields, "highest_total_cn", gene_symbol=str(gene_symbol)
                 ),
                 "sample_sex": (
                     None
-                    if _missing_scalar(raw_result.get("sample_sex"))
-                    else str(raw_result.get("sample_sex"))
+                    if _missing_scalar(fields.get("sample_sex"))
+                    else str(fields.get("sample_sex"))
                 ),
                 "phase_region": (
                     None
-                    if _missing_scalar(raw_result.get("phase_region"))
-                    else str(raw_result.get("phase_region"))
+                    if _missing_scalar(fields.get("phase_region"))
+                    else str(fields.get("phase_region"))
                 ),
-                "region_depth_json": json.dumps(_jsonb_safe(raw_result.get("region_depth") or {})),
-                "genome_depth": _coerce_finite_float(raw_result.get("genome_depth")),
+                "region_depth_json": json.dumps(_jsonb_safe(fields.get("region_depth") or {})),
+                "genome_depth": _coerce_finite_float(fields.get("genome_depth")),
                 "payload_json": json.dumps(_jsonb_safe(raw_result)),
                 "metadata_json": metadata_json,
             }
