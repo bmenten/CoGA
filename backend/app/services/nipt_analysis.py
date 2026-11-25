@@ -14,9 +14,9 @@ the father's call with the maternal-plasma (cfDNA) call, it:
   4. counts the categories, the filter funnel, the paternal-X fetal sex and the
      paternity evidence.
 
-The model's constants are those of the lab's R validation (NIPT-M v0.5.1, six families
+The model's constants are those of the lab's R validation (NIPT-M v0.7.3, 22 families
 with trio exomes), frozen here: the overdispersion and reference bias of the consensus
-allele fraction at maternal heterozygous sites, the selected cfDNA quality filter, and the
+allele fraction at maternal heterozygous sites, the fixed cfDNA quality filter, and the
 paternal genotype classes. ``NIPT_MODEL_REFERENCE`` names it; the API reports it.
 
 Pure Python (no numpy/scipy, no I/O). See docs/monogenic-nipt.md for the implementation
@@ -28,18 +28,19 @@ from __future__ import annotations
 import math
 import statistics
 from dataclasses import dataclass, field
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 
-NIPT_MODEL_REFERENCE = "R NIPT-M v0.5.1 validation (6 families with trio exomes)"
+NIPT_MODEL_REFERENCE = "R NIPT-M v0.7.3 validation (22 families with trio exomes)"
 
 _EPS = 1e-4
 
 # Overdispersion of the consensus allele fraction beyond binomial sampling, and its
 # reference bias at a maternal heterozygous site (the allele fraction of a het site sits
-# 1.1 points below its expectation): the leave-one-family-out medians of the R
-# validation's beta-binomial fits (rho 0.00355-0.00387, bias -0.0110 to -0.0115).
-OVERDISPERSION = 0.003721
-MATERNAL_HET_BIAS = -0.011230
+# 1.1 points below its expectation): the medians of the R validation's leave-one-family-out
+# beta-binomial fits over its 22 families (rho 0.00359-0.00374, bias -0.0108 to -0.0105),
+# the values its diagnostic analysis applies to a family.
+OVERDISPERSION = 0.003684
+MATERNAL_HET_BIAS = -0.010627
 # The alt fraction a site shows without the allele: consensus-read noise. A paternal allele
 # the fetus did not inherit is read against it.
 BACKGROUND_ERROR_RATE = 0.002
@@ -215,26 +216,46 @@ def variant_class(ref: str, alt: str) -> str:
 
 @dataclass(slots=True)
 class NiptQualityThresholds:
-    """The cfDNA quality filter and the paternal genotype classes (R NIPT-M v0.5.1).
+    """The cfDNA quality filter and the paternal genotype classes (R NIPT-M v0.7.3).
 
     A cfDNA call passes when its quality (Mutect2 TLOD, else QUAL) reaches ``min_qual``,
     it has ``min_cf_alt_reads`` alt reads and a VAF of ``min_vaf`` and of
     ``vaf_ff_fraction`` x FF/2, and its strand-bias score FS is at most ``max_fs``. A
     missing value passes, as in the R pipeline. ``min_cf_dp`` is the plasma depth from
     which an absent allele is read as absent.
+
+    The father's call needs ``min_father_dp`` reads and ``min_father_alt_reads`` alt reads.
+    A call its caller genotyped (``is_genotyped_call``: HaplotypeCaller, the lab's paternal
+    caller) is read from its GT and needs a QUAL of ``min_father_genotyped_qual`` and a GQ of
+    ``min_father_gq``; any other call is read from its allele fraction (``father_het_min_vaf``,
+    ``father_hom_alt_min_vaf``) and needs a quality (TLOD, else QUAL) of ``min_father_qual``.
     """
 
     min_cf_dp: int = 20
     min_cf_alt_reads: int = 5
-    min_qual: float = 20.0
+    min_qual: float = 15.0
     min_vaf: float = 0.01
     vaf_ff_fraction: float = 0.25
     max_fs: float = 20.0
     min_father_dp: int = 20
     min_father_alt_reads: int = 5
+    min_father_genotyped_qual: float = 50.0
+    min_father_gq: float = 20.0
     min_father_qual: float = 20.0
     father_het_min_vaf: float = 0.20
     father_hom_alt_min_vaf: float = 0.80
+
+
+def is_genotyped_call(gq: float | None, metrics: Mapping[str, float] | None) -> bool:
+    """Whether a call carries a germline genotype to read: a genotype quality (GQ) and no
+    Mutect2 TLOD.
+
+    HaplotypeCaller, the lab's caller of the father's gDNA, writes a GQ with every called
+    genotype, and its GT says het, hom-alt or (haploid, on a male's X) hemizygous. Mutect2
+    in tumour-only mode writes no GQ and a GT of 0/1 whatever the allele fraction (its
+    quality is TLOD); VarDict writes no GQ. Their calls are read from their allele depths.
+    """
+    return gq is not None and "TLOD" not in (metrics or {})
 
 
 @dataclass(slots=True)
@@ -521,8 +542,9 @@ def quality_failures(
     """Why a cfDNA call fails the quality filter; [] when it passes, or when the plasma
     has no call at the site (there is nothing to filter).
 
-    The R NIPT-M v0.5.1 setting: quality (TLOD) >= 20, >= 5 alt reads, VAF >= 0.01,
-    FS <= 20, and, once FF is known, VAF >= 0.25 x FF/2. A missing value passes.
+    The R NIPT-M v0.7.3 fixed setting: quality (TLOD) >= 15, >= 5 alt reads, VAF >= 0.01,
+    FS <= 20 (the strand-bias p-value 10^(-FS/10) >= 0.01), and, once FF is known,
+    VAF >= 0.25 x FF/2. A missing value passes.
     """
     if site.cf_depth_estimated or not site.cf_present:
         return []

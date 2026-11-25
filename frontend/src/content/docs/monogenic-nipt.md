@@ -7,7 +7,7 @@ allele fraction (VAF) moves away from the maternal values of 0%, 50% and 100%.
 
 How to set up a NIPT family and use the page: [user guide](/docs), section *Monogenic NIPT*. This page
 holds the model and the rules. The model's constants come from the lab's R validation of NIPT-M
-(version 0.5.1, six families with trio exomes); the page's quality panel names it.
+(version 0.7.3, 22 families with trio exomes); the page's quality panel names it.
 
 > **Screening, not diagnosis.** A NIPT call is decision support derived from cfDNA. Confirm it with an
 > invasive diagnostic test before clinical use.
@@ -66,7 +66,7 @@ CoGA is not told the zygosity, so the note appears for every multiple pregnancy.
 CoGA takes either input; the analysis is the same for both.
 
 - **Two single-sample VCFs**, as the NIPT-M pipeline writes them: the plasma's calls (Mutect2 in
-  tumour-only mode) and the father's. The package import finds a pair by the PED's sample names and
+  tumour-only mode) and the father's (GATK HaplotypeCaller on his gDNA). The package import finds a pair by the PED's sample names and
   imports the plasma first. Each call keeps its own FILTER values and the caller's metrics (TLOD, FS,
   mapping quality, mismatches, repeat units and so on), which the quality filter and the de novo triage
   read. Each file's sample column is read as the sample its manifest entry names, whatever the column
@@ -83,10 +83,10 @@ at the site, never the caller's modelled AF (used only when there is no AD). A r
 multi-allelic site keeps only its own allele's reads, so its depth is restored from all the site's
 alleles.
 
-The father's single-sample VCF holds over a million low-level calls, almost all noise. On import CoGA
-keeps a paternal record when one of its calls reaches 15% alt reads (below the 20% of a heterozygous
-call, so no genotype is lost), or when it lies on a position where the plasma has a call. It drops the
-rest and reports how many.
+The father's single-sample VCF can hold over a million low-level calls, almost all noise. On import
+CoGA keeps a paternal record when one of its calls reaches 15% alt reads (below the 20% of a
+heterozygous call, so no genotype is lost), when his caller genotyped the call as carrying the allele,
+or when it lies on a position where the plasma has a call. It drops the rest and reports how many.
 
 **The per-target coverage tables** (`coverage_<sample>.txt`, one row per capture target with its mean,
 median and covered share) belong with the VCFs.
@@ -102,16 +102,30 @@ plasma does not show cannot be read, so paternity cannot be checked.
 
 ### The father's genotype
 
-CoGA reads the father's genotype from his allele depths, as the R pipeline does. Mutect2 writes `0/1`
-for every call, so the GT is used only when a call has no AD.
+CoGA reads the father's genotype as the R pipeline does. The lab calls his gDNA with GATK
+HaplotypeCaller, which writes a genotype (GT) with a genotype quality (GQ) for every call: CoGA reads
+such a call from its GT.
 
-| Class | Rule |
+| Class | Rule for a HaplotypeCaller call (a GQ, no TLOD) |
+| --- | --- |
+| het | GT with one copy of the allele (`0/1`, `1/2`) |
+| hom-alt | GT with only this allele (`1/1`, or `1` on a man's X outside the pseudo-autosomal regions) |
+| too thin to class | fewer than 20 reads, fewer than 5 alt reads, a QUAL below 50, a GQ below 20, or no called genotype |
+| reference | GT `0/0`, at 20 reads or more |
+
+A call without a GQ (Mutect2, which writes `0/1` for every call, or VarDict) is read from its allele
+depths; the GT only when the call has no AD.
+
+| Class | Rule for any other call |
 | --- | --- |
 | het | 20% or more alt reads, below 80% |
 | hom-alt | 80% or more alt reads |
 | low-level signal | below 20% alt reads (noise, mosaicism, or an artefact both samples share) |
-| too thin to class | fewer than 20 reads, fewer than 5 alt reads, or a quality (TLOD) below 20 |
+| too thin to class | fewer than 20 reads, fewer than 5 alt reads, or a quality (TLOD, else QUAL) below 20 |
 | reference | no alt read, at 20 reads or more |
+
+| Either caller | Rule |
+| --- | --- |
 | no call | his single-sample VCF has no call at the site: read as reference, unless his coverage there is below 20× |
 | no data | a combined VCF's missing genotype |
 
@@ -137,9 +151,9 @@ An indel written differently in the two files (trimmed or aligned another way) i
 
 ## The quality filter
 
-A cfDNA call passes the quality filter (the R validation's selected setting) when it has:
+A cfDNA call passes the quality filter (the setting the R validation fixed) when it has:
 
-- a quality of 20 or more (Mutect2's TLOD; otherwise the call's QUAL; for a combined VCF the site's QUAL);
+- a quality of 15 or more (Mutect2's TLOD; otherwise the call's QUAL; for a combined VCF the site's QUAL);
 - at least 5 alt reads and an allele fraction of 1% or more;
 - a strand-bias score (FS) of 20 or less;
 - once the fetal fraction is known, an allele fraction of at least a quarter of `FF / 2`.
@@ -579,6 +593,13 @@ on the assembly; an allele no family carried then, or one added by hand, is list
 listed alleles again with its own annotation: one it marks common or ClinVar-pathogenic stays in,
 flagged `artifact_list_protected`.
 
+A listed allele **the family's father carries** stays in too, flagged the same way, when the plasma
+shows it at an allele fraction of at most 30% (or not at all) and the list records it in at most 3
+cfDNA samples. It is his allele (a founder allele in the lab's population), not an artefact: the R
+validation's diagnostic rule. An allele in more plasmas is a paralogue or an unannotated common
+variant, and stays filtered. His call must be het or hom-alt by the classes above. The signed record
+names why each allele stayed in (`clinvar`, `common`, `paternal_carrier`).
+
 **Review the list before use.** It can still hold real variants:
 
 - a site with no population or ClinVar annotation is not protected;
@@ -598,8 +619,8 @@ shown, never which family. A sample counts when its call has at least 5 alt read
 and each such call is read as one of three:
 
 - **maternal**: an allele fraction of 25% or more: that mother carries the allele;
-- **father's allele**: lower, and that family's father carries the allele (a het or hom-alt call of at
-  least 20 reads, 5 alt reads and 20% of the reads): the fetus inherited it;
+- **father's allele**: lower, and that family's father carries the allele (a het or hom-alt call by the
+  classes of *The father's genotype*): the fetus inherited it;
 - **unexplained low-VAF**: lower, and no parent explains it. This is the mark of a recurrent artefact,
   shown with the median allele fraction of these calls. A real polymorphism is almost never
   unexplained, however many pregnancies carry it.

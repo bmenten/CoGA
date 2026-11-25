@@ -74,7 +74,7 @@ async def _collect(root: Path, family_id: str) -> dict:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
         family = f"/api/families/{family_id}"
         mp = pytest.MonkeyPatch()
-        mp.setattr(nipt_service, "load_nipt_artifact_ids", _unreadable_artifact_list)
+        mp.setattr(nipt_service, "load_nipt_artifacts", _unreadable_artifact_list)
         try:
             r["qc"] = capture(await ac.get(f"{family}/qc/sample-integrity"))
             r["refused"] = capture(await ac.post(f"{family}/report/sign-out", json={}))

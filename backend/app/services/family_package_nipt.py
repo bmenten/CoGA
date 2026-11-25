@@ -40,14 +40,17 @@ from .data_scope import normalize_chromosome
 from .family_identifiers import visible
 from .family_package_common import FamilyPackageBundle, ManifestDataset, ParsedPed, _display_path, _issue, _package_path_or_none, package_path_within, package_text_handle, read_vcf_sample_columns, resolve_vcf_sample_id, unreadable_vcf_issue, UnreadableVcf
 from .family_package_manifest import _normalize_manifest_samples
+from .genotypes import genotype_has_alt
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_KEY
+from .nipt_analysis import is_genotyped_call
 
 if TYPE_CHECKING:
     from ..schemas import FamilyImportValidationIssue
     from .variant_upload_service import SmallVariantRecordFilter
 
-# A paternal call below this VAF is kept only at a plasma call position. It sits below the
-# 0.20 het floor of the paternal genotype classes, so no paternal genotype is lost.
+# A paternal call below this VAF is kept only at a plasma call position, unless its caller
+# genotyped it as carrying the allele. It sits below the 0.20 het floor of the
+# allele-fraction classes, so no paternal genotype is lost.
 NIPT_PATERNAL_KEEP_MIN_VAF = 0.15
 
 
@@ -94,15 +97,18 @@ def paternal_record_filter(
     *,
     min_vaf: float = NIPT_PATERNAL_KEEP_MIN_VAF,
 ) -> SmallVariantRecordFilter:
-    """Keep a paternal record over a plasma call position (an MNV over any of its bases), or
-    when a call of it reaches ``min_vaf``."""
+    """Keep a paternal record over a plasma call position (an MNV over any of its bases),
+    when a call of it reaches ``min_vaf``, or when its caller genotyped a call of it as
+    carrying the allele (``nipt_analysis.is_genotyped_call``: the analysis reads such a
+    call from its GT, whatever its allele fraction)."""
 
     def keep(chrom: str, start: int, end: int, calls: Sequence[SmallVariantCall]) -> bool:
         if any((chrom, position) in plasma_positions for position in range(start, max(start, end) + 1)):
             return True
         return any(
-            fraction is not None and fraction >= min_vaf
-            for fraction in (call_alt_fraction(call) for call in calls)
+            (is_genotyped_call(call.gq, call.metrics) and genotype_has_alt(call.gt))
+            or ((fraction := call_alt_fraction(call)) is not None and fraction >= min_vaf)
+            for call in calls
         )
 
     return keep

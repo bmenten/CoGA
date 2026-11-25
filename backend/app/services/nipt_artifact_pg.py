@@ -4,9 +4,10 @@ Artifacts are scoped per ``(assembly_id, assay_key)`` -- recurrent artifacts are
 capture/chemistry-specific, so a new panel starts with a clean list. The list is
 curated on the admin page *NIPT artefact list* through the admin API, where ``auto-seed``
 lists the alleles that recur as an unexplained low-VAF call in the assay's own cfDNA samples
-(its preview reads them without writing); ``load_nipt_artifact_ids`` provides the fast
-membership set the analysis uses to exclude (and count) artifacts. Every change to the list
-is recorded in the clinical audit trail (``NIPT_ARTIFACT_AUDIT_CHAIN``).
+(its preview reads them without writing); ``load_nipt_artifacts`` gives the analysis each
+listed allele with its recurrence, to exclude (and count) artifacts and to keep a listed
+allele the family's father carries. Every change to the list is recorded in the clinical
+audit trail (``NIPT_ARTIFACT_AUDIT_CHAIN``).
 
 See docs/monogenic-nipt.md.
 """
@@ -127,19 +128,20 @@ async def _require_assembly(session: AsyncSession, assembly_id: str) -> tuple[st
     return assembly_uuid, assembly_name
 
 
-async def load_nipt_artifact_ids(
+async def load_nipt_artifacts(
     session: AsyncSession,
     *,
     assembly_id: str | None,
     assay_key: str,
-) -> set[str]:
-    """Return the set of artifact ``variant_id``s for a scope (for fast lookup)."""
+) -> dict[str, int]:
+    """A scope's listed alleles, each ``variant_id`` with its ``recurrence_count`` (the
+    cfDNA samples the list records it in), for the analysis to look up."""
     if not assembly_id:
-        return set()
+        return {}
     result = await session.execute(
         text(
             """
-            SELECT variant_id
+            SELECT variant_id, recurrence_count
             FROM nipt_artifact_variants
             WHERE assembly_id = CAST(:assembly_id AS uuid)
               AND assay_key = :assay_key
@@ -147,7 +149,7 @@ async def load_nipt_artifact_ids(
         ),
         {"assembly_id": assembly_id, "assay_key": assay_key},
     )
-    return {row[0] for row in result.all()}
+    return {str(row[0]): int(row[1]) for row in result.all()}
 
 
 async def list_nipt_artifacts(
@@ -438,6 +440,8 @@ def recurrence_rules(qc: NiptQualityThresholds) -> CfdnaRecurrenceRules:
         father_min_alt_reads=qc.min_father_alt_reads,
         father_min_quality=qc.min_father_qual,
         father_min_vaf=qc.father_het_min_vaf,
+        father_min_genotyped_quality=qc.min_father_genotyped_qual,
+        father_min_gq=qc.min_father_gq,
     )
 
 
@@ -704,8 +708,9 @@ async def import_nipt_artifact_table(
     added. An allele no family on the assembly carries has no annotation to check; it is
     added, and each family's analysis checks it again with the family's own annotation
     (``nipt_service.family_artifact_ids``: a listed allele the family's annotation marks
-    common or ClinVar-pathogenic stays in that family's analysis, flagged). An entry
-    already on the list keeps its source and label and takes the table's recurrence count.
+    common or ClinVar-pathogenic, or that the family's father carries, stays in that
+    family's analysis, flagged). An entry already on the list keeps its source and label and
+    takes the table's recurrence count.
     """
     assembly_uuid, assembly_name = await _require_assembly(session, assembly_id)
     table = parse_artifact_table(text_value)

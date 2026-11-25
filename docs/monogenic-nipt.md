@@ -8,7 +8,7 @@ novo, paternal, maternal, recessive) and a quality panel. The in-app reference
 at `/docs/reference/monogenic-nipt`) documents the model, the rules and their limits for lab users.
 That page is the canonical home; keep it in step with the code. This note covers the implementation.
 
-The model is the lab's R pipeline NIPT-M, version 0.5.1, validated on six families with trio exomes
+The model is the lab's R pipeline NIPT-M, version 0.7.3, validated on 22 families with trio exomes
 (`NIPT_MODEL_REFERENCE`). CoGA reimplements its frozen constants and rules, not its validation: the
 validation against invasive exomes stays in the R project.
 
@@ -60,14 +60,14 @@ NIPT an analysis of its own (the owner's decision of 2026-11-21).
 Two inputs, one model:
 
 - **The pair** (the NIPT-M pipeline's output): a single-sample VCF of the plasma (Mutect2 tumour-only)
-  and one of the father, each with a per-target coverage table.
+  and one of the father's gDNA (GATK HaplotypeCaller), each with a per-target coverage table.
   - `family_package_nipt.py` discovers the pair (`discover_nipt_package_files`), and
     `family_package_datasets.py` imports each VCF into the pregnancy's per-sample small-variant
     callset (`nipt` with the pregnancy's suffix, `NIPT_SMALL_VARIANT_SOURCE`, merged per sample as
     the mtDNA callset is).
   - The plasma goes first, then the father's file through `paternal_record_filter`, which keeps a
-    record whose call reaches 15% alt reads or that lies over a plasma call position (an MNV over
-    any of its bases).
+    record whose call reaches 15% alt reads, whose caller genotyped it as carrying the allele
+    (`is_genotyped_call`), or that lies over a plasma call position (an MNV over any of its bases).
   - A one-sample VCF's FILTER and caller metrics go with the call (`calls.filters`, `calls.metrics`;
     `vcf_call_metrics.py`).
   - The coverage tables become `target_coverage` interval tracks (`nipt_target_coverage.py`:
@@ -89,9 +89,13 @@ allele:
 - Reads: alt reads = `AD[1]`; depth = the sum of the AD (DP without it), restored over the siblings
   of a record split from a multi-allelic one (`restored_site_depths`); VAF = alt reads ÷ depth, AF
   only without AD.
-- The father's class (`derive_father_state`) is read off his allele depths, as in the R pipeline's
-  paternal classes: `low_support`, `hom_alt`, `het`, `low_vaf`, `hom_ref`; `absent` for no call in a
-  per-sample callset, `missing` for a joint VCF's no-call; the GT only without AD.
+- The father's class (`derive_father_state`) follows the R pipeline's paternal classes. A call its
+  caller genotyped (`is_genotyped_call`: a GQ and no TLOD, as HaplotypeCaller writes) is read from
+  its GT: `het`, `hom_alt` (a haploid `1` too), `hom_ref`, or `low_support` below 20 reads, 5 alt
+  reads, a QUAL of 50 or a GQ of 20, or without a called genotype. Any other call (Mutect2,
+  VarDict) is read off his allele depths: `low_support`, `hom_alt`, `het`, `low_vaf`, `hom_ref`;
+  the GT only without AD. `absent` is no call in a per-sample callset, `missing` a joint VCF's
+  no-call.
   `trusted_father_state` (`nipt_analysis.py`) maps them onto what the candidates read: `absent` is
   `hom_ref` unless his depth there is below `min_father_dp`; `low_vaf`, `low_support` and a thin
   call are `missing`.
@@ -121,14 +125,15 @@ allele:
 
 | Setting | Default | Used for |
 | --- | --- | --- |
-| `min_qual`, `min_cf_alt_reads`, `min_vaf`, `max_fs` | 20, 5, 0.01, 20 | quality filter (TLOD, else call QUAL, else site QUAL); presence in the cfDNA (5 alt reads) |
+| `min_qual`, `min_cf_alt_reads`, `min_vaf`, `max_fs` | 15, 5, 0.01, 20 | quality filter (TLOD, else call QUAL, else site QUAL); presence in the cfDNA (5 alt reads) |
 | `vaf_ff_fraction` | 0.25 | quality filter once FF is known: VAF ≥ 0.25 × FF/2 |
 | `min_cf_dp` | 20 | FF sites, `low_depth`, `low_depth_dropout` |
-| `min_father_dp`, `min_father_alt_reads`, `min_father_qual` | 20, 5, 20 | the father's classes and a usable call |
-| `father_het_min_vaf`, `father_hom_alt_min_vaf` | 0.20, 0.80 | the father's classes |
+| `min_father_dp`, `min_father_alt_reads` | 20, 5 | the father's classes and a usable call |
+| `min_father_genotyped_qual`, `min_father_gq` | 50, 20 | a genotyped (HaplotypeCaller) father call, read from its GT |
+| `min_father_qual`, `father_het_min_vaf`, `father_hom_alt_min_vaf` | 20, 0.20, 0.80 | any other father call, read from its allele fraction |
 | `MATERNAL_ALLELE_VAF_BOUNDARY` | 0.25 | FF-site ceiling, paternity, the paternal view (midway between FF/2 and 0.5 − FF/2; the R pipeline's 0.35 let shared sites into the FF at a high FF) |
 | `min_sites` / `hard_floor` / `max_ci_halfwidth` | 30 / 5 / 0.03 | low-confidence FF / no estimate |
-| `OVERDISPERSION`, `MATERNAL_HET_BIAS` | 0.003721, −0.011230 | beta-binomial likelihood; the maternal-het band (categories 2–4) |
+| `OVERDISPERSION`, `MATERNAL_HET_BIAS` | 0.003684, −0.010627 | beta-binomial likelihood; the maternal-het band (categories 2–4) |
 | `BACKGROUND_ERROR_RATE` | 0.002 | an untransmitted paternal allele's noise level |
 | de novo prior weight, hom-alt transmission prior | 0.02, 0.99 | category 1; `paternal_transmission_probability` |
 | `ALLELE_BALANCE_OUTLIER_Z` | 4 | `allele_balance_outlier` |
@@ -345,8 +350,19 @@ every annotation of the allele on the assembly, whichever family's import wrote 
 `annotation_index` at the allele's chromosome and position (the index's sort key). So an allele no
 family carried is listed unchecked.
 Each family's analysis therefore checks its listed alleles again with its own annotation
-(`nipt_service.artifact_protection`, `family_artifact_ids`; the variant list judges each listed
-record in `_classify_candidates`) and keeps a protected one, flagged `artifact_list_protected`.
+(`nipt_service.artifact_protection`: `clinvar`, `common`) and keeps a protected one, flagged
+`artifact_list_protected`.
+
+It also keeps a listed allele the family's father carries (`paternal_carrier_protection`, reason
+`paternal_carrier`; the R pipeline's v0.7.3 diagnostic rule): his call of it is het or hom-alt by
+`derive_father_state`, the plasma has no call of it or one at an allele fraction of at most 0.30
+(`PATERNAL_CARRIER_PROTECTION_MAX_VAF`), and the list records it in at most 3 cfDNA samples
+(`recurrence_count`, `PATERNAL_CARRIER_PROTECTION_MAX_RECURRENCE`). Such an allele is a founder
+allele of his; one in many plasmas is a paralogue or an unannotated common variant and stays an
+artefact. `load_nipt_artifacts` reads each listed allele with its count;
+`listed_artifact_protection` gives the reason; `family_artifact_ids` judges the family's records,
+and the variant list each record it classifies (`_classify_candidates`). The signed record's
+`artifact_list.digest` covers each allele with its count, and `kept` names each reason.
 
 ## Recurrence in other cfDNA samples
 
@@ -361,8 +377,9 @@ recurrence in the other cfDNA samples of the family's assay, every project's
 - `maternal`: those at an allele fraction of 0.25 or more (`MATERNAL_ALLELE_VAF_BOUNDARY`): that
   mother carries the allele;
 - `paternal_low_vaf`: those lower where another sample of that family's row, the father, calls it
-  het or hom-alt by `derive_father_state`'s classes (20 reads, 5 alt reads, 20% of the reads, a
-  TLOD, else QUAL, of 20): the fetus's paternal allele;
+  het or hom-alt by `derive_father_state`'s classes (20 reads and 5 alt reads; a genotyped call by
+  its GT with a QUAL of 50 and a GQ of 20, any other with 20% of the reads and a TLOD, else QUAL,
+  of 20): the fetus's paternal allele;
 - `unexplained_low_vaf`: those lower that no parent explains, with their median fraction: the mark
   of a recurrent artefact. A polymorphism scores about 0 here, however many pregnancies carry it;
 - `other_samples` (`count_other_cfdna_samples`): the cfDNA samples of the assay outside the family
@@ -385,7 +402,8 @@ reported variant once; the de novo triage reads that count.
 
 ## Known limits
 
-- The model constants were fitted on six families; the maternal model is weaker on indels (flagged).
+- The model constants were fitted on the 22 families the R pipeline also chose its filter on (an
+  in-sample validation); the maternal model is weaker on indels (flagged).
 - An indel written differently in the two VCFs (trimming, alignment) is not matched; an MNV is
   matched base by base.
 - The frequency filters let a variant without a population frequency through (CoGA-wide); an MNV

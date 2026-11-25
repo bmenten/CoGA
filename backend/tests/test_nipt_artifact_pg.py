@@ -8,7 +8,7 @@ from backend.app.services.nipt_analysis import NiptQualityThresholds
 from backend.app.services.nipt_artifact_pg import (
     auto_seed_nipt_artifacts,
     bulk_upsert_nipt_artifacts,
-    load_nipt_artifact_ids,
+    load_nipt_artifacts,
     recurrence_rules,
 )
 
@@ -47,14 +47,14 @@ class _FakeSession:
 
 
 @pytest.mark.asyncio
-async def test_load_nipt_artifact_ids_returns_variant_id_set() -> None:
-    session = _FakeSession([("1-100-A-G",), ("2-200-C-T",)])
-    ids = await load_nipt_artifact_ids(
+async def test_load_nipt_artifacts_returns_each_allele_with_its_recurrence() -> None:
+    session = _FakeSession([("1-100-A-G", 4), ("2-200-C-T", 0)])
+    listed = await load_nipt_artifacts(
         session,  # type: ignore[arg-type]
         assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="nipt_cfdna",
     )
-    assert ids == {"1-100-A-G", "2-200-C-T"}
+    assert listed == {"1-100-A-G": 4, "2-200-C-T": 0}
     # One query, scoped to the assembly and the assay.
     [(statement, params)] = session.executed
     assert "FROM nipt_artifact_variants" in statement
@@ -62,14 +62,14 @@ async def test_load_nipt_artifact_ids_returns_variant_id_set() -> None:
 
 
 @pytest.mark.asyncio
-async def test_load_nipt_artifact_ids_short_circuits_without_assembly() -> None:
-    session = _FakeSession([("1-100-A-G",)])
-    ids = await load_nipt_artifact_ids(
+async def test_load_nipt_artifacts_short_circuits_without_assembly() -> None:
+    session = _FakeSession([("1-100-A-G", 4)])
+    listed = await load_nipt_artifacts(
         session,  # type: ignore[arg-type]
         assembly_id=None,
         assay_key="nipt_cfdna",
     )
-    assert ids == set()
+    assert listed == {}
     assert session.executed == []
 
 
@@ -82,6 +82,9 @@ def test_recurrence_rules_read_calls_by_the_quality_filter_and_the_fathers_class
         20.0,
         0.20,
     )
+    # A call the father's caller genotyped (HaplotypeCaller) is read from its GT, with the
+    # R pipeline's QUAL and GQ floors.
+    assert (_RULES.father_min_genotyped_quality, _RULES.father_min_gq) == (50.0, 20.0)
 
 
 async def _candidates(**kwargs):
@@ -293,6 +296,8 @@ async def test_auto_seed_nipt_artifacts_upserts_the_unexplained_recurrent_allele
         "father_min_alt_reads": 5,
         "father_min_quality": 20.0,
         "father_min_vaf": 0.2,
+        "father_min_genotyped_quality": 50.0,
+        "father_min_gq": 20.0,
     }
     assert session.commits == 1
 

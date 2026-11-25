@@ -24,6 +24,20 @@ from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import SmallVariantRecord
 
 
+# The recurrence a fake artifact list records for an allele given by id alone: a typical
+# listed artefact, seen in more cfDNA samples than a father's allele may be
+# (nipt_service.PATERNAL_CARRIER_PROTECTION_MAX_RECURRENCE).
+LISTED_ARTIFACT_RECURRENCE = 10
+
+
+def listed_artifact_recurrence(artifacts: set[str] | dict[str, int] | None) -> dict[str, int]:
+    """The artifact list ``load_nipt_artifacts`` answers: each listed allele with its
+    recurrence, ``LISTED_ARTIFACT_RECURRENCE`` for an allele given by id alone."""
+    if isinstance(artifacts, dict):
+        return dict(artifacts)
+    return {variant_id: LISTED_ARTIFACT_RECURRENCE for variant_id in artifacts or ()}
+
+
 def nipt_family(
     *, family_id: str, father: str, plasma: str, roi: FamilyRegionOfInterestOut | None = None
 ) -> FamilyOut:
@@ -47,7 +61,7 @@ def wire_nipt_reads(
     family: FamilyOut,
     cohort: list[SmallVariantRecord],
     filtered: list[SmallVariantRecord],
-    artifacts: set[str] | None = None,
+    artifacts: set[str] | dict[str, int] | None = None,
     sample_name_to_uuid: dict[str, str] | None = None,
     carrier_samples: list[str] | None = None,
     recurrence: dict[str, CfdnaRecurrence] | None = None,
@@ -80,8 +94,8 @@ def wire_nipt_reads(
             return cohort
         return filtered if limit is None else filtered[:limit]
 
-    async def listed_artifacts(_session: Any, *, assembly_id: str, assay_key: str) -> set[str]:
-        return set(artifacts or ())
+    async def listed_artifacts(_session: Any, *, assembly_id: str, assay_key: str) -> dict[str, int]:
+        return listed_artifact_recurrence(artifacts)
 
     async def no_hydration(_session: Any, *, context: Any, variants: Any) -> None:
         return None
@@ -92,7 +106,7 @@ def wire_nipt_reads(
     monkeypatch.setattr(nipt_service, "get_family_record", family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", metadata_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fetch)
-    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", listed_artifacts)
+    monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
     monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", assay_carriers)
     counts: list[list[str]] = []

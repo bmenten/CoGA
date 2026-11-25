@@ -33,7 +33,7 @@ export const NIPT_PLASMA_ROLE = 'plasma (cfDNA)';
  */
 export const NIPT_PLASMA_CALL = 'mixture';
 
-// The father's genotype class, read from his allele depths, as a genotype's tone.
+// The father's genotype class (his caller's genotype, or his allele depths), as a genotype's tone.
 const FATHER_STATE_TONE: Record<string, GenotypeTone> = {
   hom_alt: 'alert',
   het: 'warn',
@@ -84,7 +84,7 @@ const plasmaRow = (member: FamilyMember, nipt: NiptClassification): GenotypeRow 
   };
 };
 
-/** The father's row: his genotype class from his allele depths, not his caller's GT. */
+/** The father's row: his genotype class as the analysis reads it (nipt_service.derive_father_state). */
 const fatherRow = (member: FamilyMember, nipt: NiptClassification): GenotypeRow => {
   const state = nipt.father_state ?? 'missing';
   let detail: string | undefined;

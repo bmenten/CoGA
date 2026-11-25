@@ -638,9 +638,11 @@ backend's code (`nipt_service`, `nipt_quality_checks`), never the browser:
   recessive view computes it over them (`recessive_genes`);
 - what the analysis ran with. `inputs`: the per-target coverage tables with their file, number of
   targets and load time, and the assay's artifact list with its scope, number of alleles, a SHA-256
-  digest of them, how many it left out of this analysis and which the family's annotation kept in.
-  `model`: the R NIPT-M v0.5.1 validation, its constants, the cfDNA quality filter and the
-  fetal-fraction rules.
+  digest of its alleles with their recurrence counts, how many it left out of this analysis, and
+  which stayed in and why (`clinvar` or `common` by the family's annotation, `paternal_carrier`
+  when the family's father carries the allele). `model`: the R NIPT-M v0.7.3 validation, its
+  constants, the cfDNA quality filter and the father's genotype classes, and the fetal-fraction
+  rules.
 
 The coverage check depends on the gene or panel of the NIPT page's search, which the sign-out is
 not told. So the sign-out runs the page's own code (`nipt_service.nipt_coverage_notes`) as the page

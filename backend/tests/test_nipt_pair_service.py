@@ -19,6 +19,7 @@ from backend.app.services.nipt_service import (
     build_nipt_observations,
     derive_father_state,
     family_artifact_ids,
+    listed_artifact_protection,
     get_family_nipt_coverage,
     get_family_nipt_gene_targets,
     get_family_nipt_summary,
@@ -26,6 +27,7 @@ from backend.app.services.nipt_service import (
     restored_site_depths,
     triage_annotation,
 )
+from backend.app.services.nipt_analysis import NiptQualityThresholds
 from backend.app.services.nipt_target_coverage import TargetCoverageRow, TargetDepthLookup
 from backend.tests._nipt_service_fakes import nipt_family, wire_nipt_reads
 
@@ -75,6 +77,29 @@ def _record(variant_id: str, calls: list[SmallVariantCall], *, genes: list[str] 
 )
 def test_father_class_from_his_allele_depths(ad: list[int], tlod: float | None, expected: str) -> None:
     assert derive_father_state(_call(FATHER, ad, tlod=tlod)) == expected
+
+
+@pytest.mark.parametrize(
+    ("gt", "ad", "qual", "gq", "expected"),
+    [
+        ("0/1", [30, 28], 812.0, 99.0, "het"),
+        ("0/1", [52, 6], 61.0, 25.0, "het"),  # 10% of the reads: GT decides, not the fraction
+        ("1/1", [0, 41], 1500.0, 99.0, "hom_alt"),
+        ("1", [0, 22], 900.0, 66.0, "hom_alt"),  # haploid: a man's X outside the PARs
+        ("1/2", [2, 20, 18], 900.0, 99.0, "het"),  # one copy of this allele
+        ("0/1", [30, 28], 49.0, 99.0, "low_support"),  # QUAL below 50
+        ("0/1", [30, 28], 812.0, 19.0, "low_support"),  # GQ below 20
+        ("0/1", [12, 6], 210.0, 99.0, "low_support"),  # 18 reads
+        ("0/1", [40, 4], 70.0, 30.0, "low_support"),  # 4 alt reads
+        ("./.", [30, 28], 812.0, 0.0, "low_support"),  # no called genotype
+        ("0/0", [45, 0], 0.0, 99.0, "hom_ref"),
+        ("0/0", [9, 0], 0.0, 27.0, "low_support"),
+    ],
+)
+def test_father_class_from_his_haplotypecaller_genotype(
+    gt: str, ad: list[int], qual: float, gq: float, expected: str
+) -> None:
+    assert derive_father_state(_hc_call(FATHER, ad, gt=gt, qual=qual, gq=gq)) == expected
 
 
 def test_no_father_call_is_absent_in_a_per_sample_callset() -> None:
@@ -545,9 +570,47 @@ def test_what_protects_a_listed_artefact() -> None:
             _record("7-2-A-G", []),
             _record("7-3-A-G", []),
         ],
-        {"7-1-A-G", "7-2-A-G", "7-9-A-G"},
+        {"7-1-A-G": 10, "7-2-A-G": 10, "7-9-A-G": 10},
+        father_sample_id=FATHER,
+        cfdna_sample_id=PLASMA,
+        qc=NiptQualityThresholds(),
     )
     assert (removed, protected) == ({"7-2-A-G"}, {"7-1-A-G": "clinvar"})
+
+
+def _hc_call(sample: str, ad: list[int], *, gt: str = "0/1", qual: float = 812.0, gq: float = 99.0) -> SmallVariantCall:
+    """A HaplotypeCaller call: a GT, a GQ and the record's QUAL, no TLOD."""
+    return SmallVariantCall(
+        sample=sample, gt=gt, gq=gq, dp=sum(ad), af=[], ad=ad, ps=None, filters=["PASS"], metrics={"QUAL": qual},
+    )
+
+
+def test_a_listed_allele_the_father_carries_stays_in_when_it_recurs_in_few_plasmas() -> None:
+    # The R NIPT-M v0.7.3 rule: a call the father carries, at a fetal-like allele fraction
+    # (at most 0.30) and in at most 3 cfDNA samples, is his allele (a founder allele), not
+    # a recurrent artefact.
+    qc = NiptQualityThresholds()
+    father_het = _hc_call(FATHER, [30, 28])
+    records = [
+        _record("7-1-A-G", [_call(PLASMA, [1350, 150]), father_het]),  # fetal window, 3 samples
+        _record("7-2-A-G", [_call(PLASMA, [1350, 150]), father_het]),  # 4 samples: an artefact
+        _record("7-3-A-G", [_call(PLASMA, [980, 520]), father_het]),  # 0.35: a maternal fraction
+        _record("7-4-A-G", [father_het]),  # no plasma call: his allele, not transmitted
+        _record("7-5-A-G", [_call(PLASMA, [1350, 150]), _hc_call(FATHER, [30, 28], qual=31.0)]),  # QUAL < 50
+        _record("7-6-A-G", [_call(PLASMA, [1350, 150]), _call(FATHER, [150, 150])]),  # Mutect2 het father
+        _record("7-7-A-G", [_call(PLASMA, [1350, 150]), _call(FATHER, [255, 45])]),  # 15%: low_vaf
+        _record("7-8-A-G", [_call(PLASMA, [1350, 150])]),  # no father call
+    ]
+    listed = {"7-1-A-G": 3, "7-2-A-G": 4, "7-3-A-G": 1, "7-4-A-G": 0, "7-5-A-G": 1, "7-6-A-G": 2,
+              "7-7-A-G": 1, "7-8-A-G": 1}
+    removed, protected = family_artifact_ids(
+        records, listed, father_sample_id=FATHER, cfdna_sample_id=PLASMA, qc=qc
+    )
+    assert protected == {"7-1-A-G": "paternal_carrier", "7-4-A-G": "paternal_carrier", "7-6-A-G": "paternal_carrier"}
+    assert removed == {"7-2-A-G", "7-3-A-G", "7-5-A-G", "7-7-A-G", "7-8-A-G"}
+    # The family's annotation comes first: a ClinVar record names its own reason.
+    clinvar = _record("7-9-A-G", [_call(PLASMA, [1350, 150]), father_het], annotations=[{"clinvar": "Pathogenic"}])
+    assert listed_artifact_protection(clinvar, 1, father_sample_id=FATHER, cfdna_sample_id=PLASMA, qc=qc) == "clinvar"
 
 
 @pytest.mark.asyncio
@@ -610,7 +673,7 @@ async def test_the_quality_checks_payload(monkeypatch: pytest.MonkeyPatch) -> No
     # them.
     assert (qc.fetal_fraction_status, qc.fetal_sex.status) == ("pass", "pass")
     assert qc.de_novo_window is not None and qc.target_coverage is not None
-    assert qc.model.reference.startswith("R NIPT-M v0.5.1")
+    assert qc.model.reference.startswith("R NIPT-M v0.7.3")
     # chrY at the autosomal level and a low chrX: male DNA, not maternal plasma.
     male_targets = [
         TargetCoverageRow(chrom="X", start=0, end=100, gene="GENEX", attribute="GENEX", mean=500.0, median=500.0),

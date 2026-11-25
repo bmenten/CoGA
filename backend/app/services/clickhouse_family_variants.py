@@ -601,6 +601,10 @@ class CfdnaRecurrenceRules:
     father_min_alt_reads: int
     father_min_quality: float
     father_min_vaf: float
+    # A call its caller genotyped (``nipt_analysis.is_genotyped_call``) is read from its GT,
+    # with these QUAL and GQ floors instead of the allele-fraction rule.
+    father_min_genotyped_quality: float
+    father_min_gq: float
 
 
 @dataclass(slots=True, frozen=True)
@@ -649,9 +653,10 @@ def _cfdna_sample_calls(
     - ``sample_vaf``: the call's alt reads over all its reads; NULL without allele depths;
     - ``explained``: whether the father of the call's family explains it. He is any sample
       of the family's row outside ``carrier_ids``, and explains the call when his own call
-      of the allele is het or hom-alt by ``rules`` (``nipt_service.derive_father_state``).
-      His call in another representation of the allele (an MNV over it, or its SNVs) is not
-      looked up.
+      of the allele is het or hom-alt by ``rules`` (``nipt_service.derive_father_state``):
+      a call his caller genotyped (a GQ and no TLOD) by its GT, its reads, QUAL and GQ;
+      any other by its allele depths and quality. His call in another representation of
+      the allele (an MNV over it, or its SNVs) is not looked up.
 
     A family stored under more than one project gives one row.
     """
@@ -664,12 +669,19 @@ def _cfdna_sample_calls(
             "father_min_alt_reads": int(rules.father_min_alt_reads),
             "father_min_quality": float(rules.father_min_quality),
             "father_min_vaf": float(rules.father_min_vaf),
+            "father_min_genotyped_quality": float(rules.father_min_genotyped_quality),
+            "father_min_gq": float(rules.father_min_gq),
         }
     )
     has_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
     father_has_alt = clickhouse_genotype_condition("g", ALT_CLASSES, param="father_gt_alt", params=params)
     # The father's quality is his TLOD, else his QUAL (nipt_service._call_quality).
     father_quality = "if(mapContains(m, 'TLOD'), m['TLOD'], if(mapContains(m, 'QUAL'), m['QUAL'], NULL))"
+    # A call his caller genotyped: a GQ and no TLOD (nipt_analysis.is_genotyped_call). Its
+    # reads are its allele depths' sum, else its DP (nipt_service._ad_depth); a missing
+    # read count, alt-read count, QUAL or GQ passes.
+    father_genotyped = "(isNotNull(q) AND NOT mapContains(m, 'TLOD'))"
+    father_reads = f"if({_READS.format('a')} > 0, {_READS.format('a')}, ifNull(d, %(father_min_depth)s))"
     call_vaf = (
         f"if(length(ad) >= 2 AND {_READS.format('ad')} > 0, "
         f"ifNull(ad[2], 0) / {_READS.format('ad')}, NULL)"
@@ -683,7 +695,14 @@ def _cfdna_sample_calls(
                 `calls.gt` AS row_gts,
                 `calls.ad` AS row_ads,
                 arrayExists(
-                    (s, g, a, m) -> s NOT IN %(carrier_ids)s AND (
+                    (s, g, a, m, q, d) -> s NOT IN %(carrier_ids)s AND if(
+                        {father_genotyped},
+                        {father_has_alt}
+                        AND {father_reads} >= %(father_min_depth)s
+                        AND (length(a) < 2 OR ifNull(a[2], %(father_min_alt_reads)s) >= %(father_min_alt_reads)s)
+                        AND if(mapContains(m, 'QUAL'), m['QUAL'], %(father_min_genotyped_quality)s)
+                            >= %(father_min_genotyped_quality)s
+                        AND ifNull(q, %(father_min_gq)s) >= %(father_min_gq)s,
                         (
                             length(a) >= 2
                             AND ifNull(a[2], 0) >= %(father_min_alt_reads)s
@@ -693,7 +712,7 @@ def _cfdna_sample_calls(
                         )
                         OR (length(a) < 2 AND {father_has_alt})
                     ),
-                    `calls.sampleId`, `calls.gt`, `calls.ad`, `calls.metrics`
+                    `calls.sampleId`, `calls.gt`, `calls.ad`, `calls.metrics`, `calls.gq`, `calls.dp`
                 ) AS father_explains
             FROM {entries_table}
             WHERE sign = 1 AND {row_filter}

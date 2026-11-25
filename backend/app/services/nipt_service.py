@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import text
 
-from typing import TYPE_CHECKING, Any, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
 from .clickhouse_family_variants import (
     _fetch_gene_regions,
@@ -78,7 +78,7 @@ from .nipt import (
     nipt_assay_key,
     resolve_nipt_trio,
 )
-from .nipt_artifact_pg import assay_cfdna_carrier_samples, load_nipt_artifact_ids, recurrence_rules
+from .nipt_artifact_pg import assay_cfdna_carrier_samples, load_nipt_artifacts, recurrence_rules
 from .nipt_coverage import (
     DEFAULT_MIN_DEPTH,
     CoverageInterval,
@@ -99,6 +99,7 @@ from .nipt_analysis import (
     NiptSiteObservation,
     trusted_father_state,
     classify_site,
+    is_genotyped_call,
     filter_sites_and_estimate_ff,
     run_nipt_analysis,
 )
@@ -203,11 +204,18 @@ def derive_father_state(
     depth: int | None = None,
     uncalled: str = "missing",
 ) -> str:
-    """The father's genotype class (``nipt_analysis.FATHER_STATES``).
+    """The father's genotype class (``nipt_analysis.FATHER_STATES``), as the R NIPT-M
+    paternal classes read a paternal sample.
 
-    From his allele depths, as the R NIPT-M paternal classes read a paternal sample: a call
-    with fewer than 20 reads, fewer than 5 alt reads or a quality (TLOD, else QUAL) below 20
-    is ``low_support``; then a VAF of 0.80 or more is ``hom_alt``, 0.20 or more ``het``,
+    A call its caller genotyped (``is_genotyped_call``: HaplotypeCaller, the lab's paternal
+    caller) is read from its GT: ``het`` (one copy of the allele), ``hom_alt`` (every copy,
+    a haploid ``1`` on a male's X too) or ``hom_ref`` (at 20 reads or more); ``low_support``
+    when it has fewer than 20 reads, fewer than 5 alt reads, a QUAL below 50 or a GQ below
+    20, or no called genotype.
+
+    Any other call (Mutect2, VarDict) is read from its allele depths: a call with fewer
+    than 20 reads, fewer than 5 alt reads or a quality (TLOD, else QUAL) below 20 is
+    ``low_support``; then a VAF of 0.80 or more is ``hom_alt``, 0.20 or more ``het``,
     less ``low_vaf``. A call without an alt read is ``hom_ref`` at 20 reads or more. A call
     without allele depths falls back on its GT (the shared genotype classes: a haploid
     ``1`` is ``hom_alt``, ``./0`` no call). No call is ``uncalled``: ``missing`` in a joint
@@ -220,6 +228,8 @@ def derive_father_state(
         return uncalled
     qc = qc or NiptQualityThresholds()
     reads = depth if depth is not None else _ad_depth(call)
+    if is_genotyped_call(call.gq, call.metrics):
+        return _genotyped_father_state(call, reads, qc)
     vaf = _call_vaf(call, reads)
     if vaf is None or not call.ad:
         genotype_class = classify_genotype(call.gt)
@@ -239,6 +249,26 @@ def derive_father_state(
     if vaf >= qc.father_het_min_vaf:
         return "het"
     return "low_vaf"
+
+
+def _genotyped_father_state(call: SmallVariantCall, reads: int | None, qc: NiptQualityThresholds) -> str:
+    """The father's class from the genotype his caller called (``derive_father_state``). A
+    missing read count, alt-read count, QUAL or GQ passes, as in the R pipeline."""
+    genotype_class = classify_genotype(call.gt)
+    if genotype_class == "no_call":
+        return "low_support"
+    if genotype_class == "hom_ref":
+        return "hom_ref" if (reads or 0) >= qc.min_father_dp else "low_support"
+    alt = _alt_reads(call)
+    quality = (call.metrics or {}).get("QUAL")
+    if (
+        (reads is not None and reads < qc.min_father_dp)
+        or (alt is not None and alt < qc.min_father_alt_reads)
+        or (quality is not None and quality < qc.min_father_genotyped_qual)
+        or (call.gq is not None and call.gq < qc.min_father_gq)
+    ):
+        return "low_support"
+    return genotype_class
 
 
 def restored_site_depths(records: Iterable[SmallVariantRecord], sample_id: str) -> dict[str, int]:
@@ -502,6 +532,12 @@ def triage_annotation(record: SmallVariantRecord) -> DeNovoAnnotation:
 # its listed alleles again with its own annotation.
 ARTIFACT_PROTECTION_COMMON_AF = 0.05
 ARTIFACT_LIST_PROTECTED_FLAG = "artifact_list_protected"
+# A listed allele the family's father carries is his allele, not an artefact, when the
+# plasma shows it at most at a fetal-like allele fraction and it recurs in few cfDNA
+# samples (the R NIPT-M v0.7.3 diagnostic rule: a founder allele, where an allele in many
+# plasmas is a paralogue or an unannotated common variant and stays an artefact).
+PATERNAL_CARRIER_PROTECTION_MAX_VAF = 0.30
+PATERNAL_CARRIER_PROTECTION_MAX_RECURRENCE = 3
 
 
 def artifact_protection(record: SmallVariantRecord) -> str | None:
@@ -515,24 +551,86 @@ def artifact_protection(record: SmallVariantRecord) -> str | None:
     return None
 
 
+def paternal_carrier_protection(
+    record: SmallVariantRecord,
+    recurrence: int,
+    *,
+    father_sample_id: str,
+    cfdna_sample_id: str,
+    qc: NiptQualityThresholds,
+) -> bool:
+    """Whether a listed allele is the family's father's own: his call of it is het or
+    hom-alt (``derive_father_state``), the plasma has no call of it or one at an allele
+    fraction of at most ``PATERNAL_CARRIER_PROTECTION_MAX_VAF``, and the list records it in
+    at most ``PATERNAL_CARRIER_PROTECTION_MAX_RECURRENCE`` cfDNA samples (``recurrence``)."""
+    if recurrence > PATERNAL_CARRIER_PROTECTION_MAX_RECURRENCE:
+        return False
+    calls = {call.sample: call for call in record.calls}
+    if derive_father_state(calls.get(father_sample_id), qc) not in ("het", "hom_alt"):
+        return False
+    plasma = calls.get(cfdna_sample_id)
+    if plasma is None or not _alt_reads(plasma):
+        return True
+    vaf = _call_vaf(plasma, _ad_depth(plasma))
+    return vaf is not None and vaf <= PATERNAL_CARRIER_PROTECTION_MAX_VAF
+
+
 def family_artifact_ids(
-    records: Iterable[SmallVariantRecord], listed: set[str]
+    records: Iterable[SmallVariantRecord],
+    listed: Mapping[str, int],
+    *,
+    father_sample_id: str,
+    cfdna_sample_id: str,
+    qc: NiptQualityThresholds,
 ) -> tuple[set[str], dict[str, str]]:
-    """The listed artefacts of the family's records its analysis removes, and those the
-    family's own annotation protects (``variant_id -> reason``), which stay in."""
+    """The listed artefacts of the family's records its analysis removes, and those that
+    stay in (``variant_id -> reason``): the family's own annotation protects them
+    (``artifact_protection``: ``clinvar``, ``common``), or the family's father carries them
+    (``paternal_carrier_protection``: ``paternal_carrier``). ``listed`` maps each listed
+    allele to the number of cfDNA samples the list records it in."""
     removed: set[str] = set()
     protected: dict[str, str] = {}
     if not listed:
         return removed, protected
     for record in records:
-        if record.variant_id not in listed:
+        recurrence = listed.get(record.variant_id)
+        if recurrence is None:
             continue
-        reason = artifact_protection(record)
+        reason = listed_artifact_protection(
+            record, recurrence, father_sample_id=father_sample_id, cfdna_sample_id=cfdna_sample_id, qc=qc
+        )
         if reason is None:
             removed.add(record.variant_id)
         else:
             protected[record.variant_id] = reason
     return removed, protected
+
+
+def listed_artifact_protection(
+    record: SmallVariantRecord,
+    recurrence: int,
+    *,
+    father_sample_id: str,
+    cfdna_sample_id: str,
+    qc: NiptQualityThresholds,
+) -> str | None:
+    """Why a listed allele stays in the family's analysis: ``clinvar`` or ``common``
+    (``artifact_protection``), or ``paternal_carrier`` (``paternal_carrier_protection``);
+    None when the list removes it."""
+    reason = artifact_protection(record)
+    if reason is None and paternal_carrier_protection(
+        record, recurrence, father_sample_id=father_sample_id, cfdna_sample_id=cfdna_sample_id, qc=qc
+    ):
+        reason = "paternal_carrier"
+    return reason
+
+
+def _family_artifacts(
+    records: Iterable[SmallVariantRecord], listed: Mapping[str, int], trio: NiptTrio, qc: NiptQualityThresholds
+) -> tuple[set[str], dict[str, str]]:
+    return family_artifact_ids(
+        records, listed, father_sample_id=trio.father_sample_id, cfdna_sample_id=trio.cfdna_sample_id, qc=qc
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -657,8 +755,8 @@ async def _resolve_trio_and_context(
 
 async def _load_listed_artifacts(
     session: AsyncSession, context: FamilyMetadataContext, assay_key: str
-) -> set[str]:
-    return await load_nipt_artifact_ids(
+) -> dict[str, int]:
+    return await load_nipt_artifacts(
         session, assembly_id=context.assembly_id, assay_key=assay_key
     )
 
@@ -733,11 +831,11 @@ def _family_sites(
 
 @dataclass(slots=True)
 class _FamilyAnalysis:
-    """A family's NIPT callset loaded and analysed: the assay's artifact list, the family's
-    data, what the list removed from the analysis and what the family's annotation kept in
-    (variant id -> reason), and the summary."""
+    """A family's NIPT callset loaded and analysed: the assay's artifact list (each allele's
+    recurrence on it), the family's data, what the list removed from the analysis and what
+    stayed in (variant id -> reason), and the summary."""
 
-    listed: set[str]
+    listed: dict[str, int]
     data: _FamilyData
     removed: set[str]
     protected: dict[str, str]
@@ -753,7 +851,7 @@ async def _analyse_family(
 ) -> _FamilyAnalysis:
     listed = await _load_listed_artifacts(session, context, assay_key)
     data = await _load_family_data(context, trio)
-    removed, protected = family_artifact_ids(data.records, listed)
+    removed, protected = _family_artifacts(data.records, listed, trio, qc)
     summary = await _summarize_family(data, trio, qc, removed)
     return _FamilyAnalysis(
         listed=listed, data=data, removed=removed, protected=protected, summary=summary
@@ -963,7 +1061,7 @@ def _estimate_cohort_fetal_fraction(
 def _classify_candidates(
     records: list[SmallVariantRecord],
     trio: NiptTrio,
-    listed_artifacts: set[str],
+    listed_artifacts: Mapping[str, int],
     ff_estimate: FetalFractionEstimate,
     qc: NiptQualityThresholds,
     min_confidence: float | None,
@@ -987,15 +1085,26 @@ def _classify_candidates(
     }
     classified: list[NiptClassifiedVariant] = []
     for record in records:
-        protection = artifact_protection(record) if record.variant_id in listed_artifacts else None
-        if record.variant_id in listed_artifacts and protection is None:
+        recurrence = listed_artifacts.get(record.variant_id)
+        protection = (
+            listed_artifact_protection(
+                record,
+                recurrence,
+                father_sample_id=trio.father_sample_id,
+                cfdna_sample_id=trio.cfdna_sample_id,
+                qc=qc,
+            )
+            if recurrence is not None
+            else None
+        )
+        if recurrence is not None and protection is None:
             continue
         observation = observations.get(record.variant_id)
         if observation is None:
             continue
         classification = classify_site(observation, ff_estimate, qc)
         if protection is not None:
-            # Listed, but the family's annotation says it is no artefact.
+            # Listed, but the family's annotation or father says it is no artefact.
             classification.flags.append(ARTIFACT_LIST_PROTECTED_FLAG)
         if min_confidence is not None and (
             classification.category is None or classification.confidence < min_confidence
@@ -1360,7 +1469,7 @@ async def get_family_nipt_variants(
     # the filtered subset is classified against that FF. Both steps are CPU work over
     # many sites, so they run in a worker thread.
     data = await _load_family_data(context, trio)
-    removed, _protected = family_artifact_ids(data.records, listed)
+    removed, _protected = _family_artifacts(data.records, listed, trio, qc)
     ff_estimate = await asyncio.to_thread(
         _estimate_cohort_fetal_fraction, data, trio, qc, removed
     )
@@ -1484,9 +1593,10 @@ class NiptFamilyRecord:
     with, and each reported variant as the NIPT variant list classifies it."""
 
     summary: NiptFamilySummary
-    # The assay's artifact list (its allele ids), and what it removed from the family's
-    # analysis and what the family's own annotation kept in (variant id -> reason).
-    listed_artifacts: set[str]
+    # The assay's artifact list (each allele id with its recurrence on the list), what it
+    # removed from the family's analysis, and what stayed in (variant id -> reason: the
+    # family's own annotation, or its father carrying the allele).
+    listed_artifacts: dict[str, int]
     removed_artifacts: set[str]
     protected_artifacts: dict[str, str]
     # Each reported variant the analysis classifies, with its de novo triage when it is a
@@ -1513,7 +1623,7 @@ def _classify_selected(
     wanted: set[str],
     data: _FamilyData,
     trio: NiptTrio,
-    listed: set[str],
+    listed: Mapping[str, int],
     removed: set[str],
     ff_estimate: FetalFractionEstimate,
     qc: NiptQualityThresholds,
