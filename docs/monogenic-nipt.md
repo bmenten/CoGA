@@ -173,6 +173,20 @@ it.
   when the two signals disagree, `warn` when neither tells), paternity and the plasma sample's sex
   profile. The summary endpoint serves them (`fetal_fraction_status`, `fetal_sex.status`), and the
   signed record freezes them.
+- **The QC gate** — `nipt_qc_gate.py` (REQ-NIPT-021), the R v0.7.3 review's per-sample rule:
+  - The expected fetal reads, median target depth (`target_coverage.median_mean`) × `ff_computed`
+    / 2, must reach the error bound. Below it the check `fail`s, and so it does without an estimate,
+    a per-target table or an error bound; below a warning bound it `warn`s.
+  - The bound is QA's, metric `mnipt.expected_fetal_reads` (source `mnipt`) in the profile
+    `nipt_monogenic` (`qc_threshold_service`). `_analyse_family` reads it once per analysis
+    (`load_nipt_gate_bound`), and the summary carries it (`NiptFamilySummary.gate_bound`). Until QA
+    sets it, `PROVISIONAL_EXPECTED_FETAL_READS` (error 40) applies, with `provisional` true.
+  - The same bound gives `fetal_read_depth` (2 × bound / FF). The summary's and the record's target
+    coverage count the targets below it (`below_fetal_read_depth`, overall, per gene and over the
+    panel). The coverage page and the report's coverage card, which run no analysis, keep the
+    fixed 300× weak rule.
+  - The summary serves `qc.expected_fetal_reads`, and the record freezes
+    `checks.expected_fetal_reads` with the bound it applied.
 - **Sign-out** — a NIPT family is signed out through the family sign-out, from the NIPT report or
   the family report page (the NIPT page has none).
   - Its record holds the section `nipt` (`signed_record_nipt.py`): the summary, the checks, each
@@ -180,8 +194,9 @@ it.
     the recessive fetal status over them, the inputs, and, without a per-target table, the coverage
     check's notes over the coverage tracks (`coverage_notes`, from
     `nipt_service.nipt_coverage_notes`).
-  - A failed fetal-fraction, fetal-sex or plasma check gates it under the Sample QC's
-    acknowledgement ([clinical-traceability.md](clinical-traceability.md#sign-out)).
+  - A failed fetal-fraction, QC-gate, fetal-sex or plasma check gates it under the Sample QC's
+    acknowledgement ([clinical-traceability.md](clinical-traceability.md#sign-out)), and so does a
+    QC gate on the provisional bound.
   - The sign-out runs the analysis once: its Sample QC and the section read the same run
     (`SharedNiptAnalysis`). The Sample QC runs its NIPT checks in a savepoint, so a database error
     there is noted and gated as a check that could not run, and the rest of the sign-out keeps
@@ -493,7 +508,7 @@ The in-app reference describes these for lab users.
 - Backend: `backend/app/services/nipt.py` (tags, trio), `nipt_analysis.py` (the model, pure),
   `nipt_triage.py` (de novo triage, recessive risk, pure), `nipt_target_coverage.py` (coverage
   tables, pure), `nipt_service.py` (wiring to family data, the views), `nipt_quality_checks.py` (the
-  checks' verdicts, pure), `signed_record_nipt.py` (the signed record's NIPT section),
+  checks' verdicts, pure), `nipt_qc_gate.py` (the QC gate and its bound), `signed_record_nipt.py` (the signed record's NIPT section),
   `family_package_nipt.py` (the pair import), `vcf_call_metrics.py`, `nipt_artifact_pg.py`,
   `nipt_coverage.py` (the ROI fallback), `coverage_read_depth.py` (the coverage track the fallback
   reads as depth), `nipt_variant_statistics.py` (the variant summary's NIPT-M tab, pure),

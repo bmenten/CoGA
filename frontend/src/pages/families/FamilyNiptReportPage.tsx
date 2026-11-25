@@ -794,6 +794,19 @@ const FamilyNiptReportPage: React.FC = () => {
       {qc ? (
         <section className="surface-card report-section">
           <h2 className="section-title">Quality checks</h2>
+          <p
+            className={
+              qc.expected_fetal_reads.status === 'fail' ? 'report-paragraph report-disclaimer' : 'report-paragraph'
+            }
+          >
+            <strong>Expected fetal reads ({QC_STATUS_LABEL[qc.expected_fetal_reads.status]}).</strong>{' '}
+            {qc.expected_fetal_reads.message}
+            {qc.target_coverage?.fetal_read_depth != null && qc.target_coverage.below_fetal_read_depth != null
+              ? ` ${qc.target_coverage.below_fetal_read_depth.toLocaleString()} of ${qc.target_coverage.targets.toLocaleString()} capture targets are below ${depth(
+                  qc.target_coverage.fetal_read_depth,
+                )}, too thin for it at this fetal fraction.`
+              : ''}
+          </p>
           <p className="report-paragraph">
             {/* The tokens read as the QC panel on screen reads them. */}
             <strong>Fetal sex: {niptFetalSexLabel(qc.fetal_sex.call)}.</strong> The father&apos;s X alleles:{' '}

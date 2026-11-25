@@ -1,6 +1,6 @@
 // The NIPT quality checks a reader confirms before reading any variant (REQ-UI-001,
-// risks H4/H6): the fetal fraction, the fetal sex from two signals, paternity, the plasma
-// sample and the target coverage.
+// risks H4/H6): the fetal fraction, the QC gate on the expected fetal reads, the fetal sex from
+// two signals, paternity, the plasma sample and the target coverage.
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -21,6 +21,16 @@ const qc: NiptQcOut = {
     message: 'Paternity supported.',
   },
   fetal_fraction_status: 'pass',
+  expected_fetal_reads: {
+    status: 'pass',
+    message: '72 expected fetal reads (median target depth 800x times half the fetal fraction of 18.0%), at least 40.',
+    expected_reads: 72,
+    median_depth: 800,
+    fetal_fraction: 0.18,
+    warn_value: null,
+    error_value: 40,
+    provisional: false,
+  },
   fetal_sex: {
     call: 'female',
     status: 'pass',
@@ -46,6 +56,8 @@ const qc: NiptQcOut = {
     critical_mean_depth: 300,
     advisory_mean_depth: 1000,
     genes: [],
+    fetal_read_depth: 444.4,
+    below_fetal_read_depth: 2500,
   },
   quality_failures: { low_quality: 1200, few_alt_reads: 900 },
   model: {
@@ -92,6 +104,11 @@ describe('NiptQcPanel', () => {
   it.each([
     ['Fail as soon as one check failed', { paternity: { ...qc.paternity, status: 'fail' } }, 'Fail'],
     ['Warning on a warning', { fetal_fraction_status: 'warn' }, 'Warning'],
+    [
+      'Fail on too few expected fetal reads',
+      { expected_fetal_reads: { ...qc.expected_fetal_reads, status: 'fail' } },
+      'Fail',
+    ],
     // A check that could not run confirmed nothing: never Pass beside the others.
     ['Warning when a check could not run', { plasma_profile_status: 'unknown' }, 'Warning'],
   ])('rolls the checks up: %s', (_case, change, verdict) => {
@@ -109,7 +126,13 @@ describe('NiptQcPanel', () => {
     expect(screen.getByText(/Het paternal alleles seen 1000 of 2000 \(50.0%; half expected\)/)).toBeInTheDocument();
     expect(screen.getByText('Target coverage: median 800x over 60,000 targets')).toBeInTheDocument();
     expect(screen.getByText(/1,200 quality \(TLOD\) below the minimum; 900 too few alt reads/)).toBeInTheDocument();
-    expect(details().getAllByText('Pass').length).toBe(4);
+    // The QC gate, with the bound it applied, and the targets too thin for it.
+    expect(screen.getByText('Expected fetal reads: 72')).toBeInTheDocument();
+    expect(screen.getByText(/Bound: at least 40 \(set by QA\)\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2,500 \(4.2%\) below 444x, too thin at this fetal fraction for the gate's expected fetal reads/),
+    ).toBeInTheDocument();
+    expect(details().getAllByText('Pass').length).toBe(5);
   });
 
   it('fails a discordant fetal sex and a failed paternity', () => {
@@ -126,6 +149,30 @@ describe('NiptQcPanel', () => {
     expect(screen.getByText('Fetal sex: Discordant')).toBeInTheDocument();
     expect(screen.getByText(/The two signals disagree/)).toBeInTheDocument();
     expect(details().getAllByText('Fail').length).toBe(2);
+  });
+
+  it('fails a gate it could not assess and says a provisional bound is provisional', () => {
+    render(
+      <NiptQcPanel
+        qc={{
+          ...qc,
+          expected_fetal_reads: {
+            ...qc.expected_fetal_reads,
+            status: 'fail',
+            expected_reads: null,
+            median_depth: null,
+            message: 'Not assessed: the plasma has no per-target coverage table.',
+            provisional: true,
+          },
+        }}
+        fetalFraction={ff}
+      />,
+    );
+    expect(screen.getByText('Expected fetal reads: not assessed')).toBeInTheDocument();
+    expect(screen.getByText(/Not assessed: the plasma has no per-target coverage table/)).toBeInTheDocument();
+    expect(screen.getByText(/Bound: at least 40 \(provisional: QA has not set it\)\./)).toBeInTheDocument();
+    expect(details().getByText('Fail')).toBeInTheDocument();
+    expect(overall()).toHaveTextContent('Fail');
   });
 
   it('warns on a low-confidence fetal fraction', () => {

@@ -782,7 +782,9 @@ whether a structure update kept the imported data; see
   `nipt_monogenic`, `nipt_conventional`, `pgt`) are empty, because the laboratory agrees the
   cut-offs. The conventional NIPT's result rule reads the bounds `cnipt.*` from
   `nipt_conventional` and applies a provisional value of its own, marked so in the result, to a
-  bound QA has not set ([conventional-nipt.md](conventional-nipt.md#the-result)). A new profile
+  bound QA has not set ([conventional-nipt.md](conventional-nipt.md#the-result)). The monogenic
+  NIPT's QC gate reads `mnipt.expected_fetal_reads` from `nipt_monogenic` the same way, with a
+  provisional error bound of 40 ([monogenic-nipt.md](monogenic-nipt.md)). A new profile
   (`POST /admin/qc-thresholds/profiles`) inherits none. Its key comes from the label and never
   changes, since families refer to it.
 - Code defines which metrics exist and whether a low or a high value fails

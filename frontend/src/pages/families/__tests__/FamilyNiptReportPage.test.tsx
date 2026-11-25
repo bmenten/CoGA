@@ -260,6 +260,17 @@ describe('FamilyNiptReportPage', () => {
                 status: 'pass',
                 message: 'The father is consistent with paternity.',
               },
+              expected_fetal_reads: {
+                status: 'fail',
+                message:
+                  '30 expected fetal reads (median target depth 600x times half the fetal fraction of 10.0%), below 40: a fetal-specific allele may be missed, so a result without one is not reliable. Consider a redraw.',
+                expected_reads: 30,
+                median_depth: 600,
+                fetal_fraction: 0.1,
+                warn_value: null,
+                error_value: 40,
+                provisional: false,
+              },
               fetal_sex: {
                 call: 'female',
                 paternal_x: 'female',
@@ -340,6 +351,11 @@ describe('FamilyNiptReportPage', () => {
     expect(screen.getByText(/30 seen, 0 absent \(female\); chrY coverage: no chrY signal/)).toBeInTheDocument();
     expect(screen.getByText('Paternity (Pass).')).toBeInTheDocument();
     expect(screen.getByText('The father is consistent with paternity.')).toBeInTheDocument();
+    // The QC gate failed: the report says a result without a fetal-specific allele is not
+    // reliable, set apart as a disclaimer.
+    const gate = screen.getByText('Expected fetal reads (Fail).').closest('p');
+    expect(gate).toHaveClass('report-disclaimer');
+    expect(gate).toHaveTextContent(/so a result without one is not reliable\. Consider a redraw\./);
     expect(screen.getByText('Maternal plasma sample (Pass).')).toBeInTheDocument();
     expect(screen.getByText('Model: R NIPT-M v0.5.1 validation.')).toBeInTheDocument();
     // The coverage of the capture targets in scope, and the genes with a weak target.

@@ -56,12 +56,16 @@ its data, reviews and sign-out are its own.
   paternal and maternal alleles and the recessive genes left for further investigation. The sign-out
   freezes them with the criteria's version. The page's filters stay adjustable, for exploring.
 - **Quality checks** come first: the fetal fraction (with the per-site median and the de novo window),
-  the fetal sex from the father's X alleles and from the chrY coverage, **paternity**, the maternal
-  plasma sample, the coverage of the capture targets and why cfDNA calls failed the quality filter. The
-  section opens folded, with one verdict: **Pass** when every check passed, **Fail** as soon as one
-  failed, **Warning** otherwise (a check that could not run counts as a warning). Click it for the
-  details. A failed paternity check means another father, a sample mix-up, the father's own DNA in the
-  plasma or more than one fetus (its message says which): do not read the variants.
+  the **expected fetal reads**, the fetal sex from the father's X alleles and from the chrY coverage,
+  **paternity**, the maternal plasma sample, the coverage of the capture targets and why cfDNA calls
+  failed the quality filter. The section opens folded, with one verdict: **Pass** when every check
+  passed, **Fail** as soon as one failed, **Warning** otherwise (a check that could not run counts as a
+  warning). Click it for the details. A failed paternity check means another father, a sample mix-up,
+  the father's own DNA in the plasma or more than one fetus (its message says which): do not read the
+  variants.
+- **Expected fetal reads** is the QC gate: median target depth × FF/2, at least 40 (QA's bound, or the
+  provisional 40 until QA sets it). Below it a fetal-specific allele may be missed, so a result without
+  one is not reliable: consider a redraw. The sign-out then asks for a reason.
 - **The filters** sit under **Advanced filters**, closed when the page opens, as on the small-variant
   page. They are the small-variant page's *Pathogenicity*, *Annotations*, *In silico*, *Frequency*,
   *Locations* and *Exclude* filters and its review tags (*Review and curation*: the tags, not the

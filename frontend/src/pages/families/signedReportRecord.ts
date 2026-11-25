@@ -955,6 +955,19 @@ export interface SignedNiptFetalFraction extends SignedNiptCheck {
   lowConfidence: boolean;
 }
 
+/**
+ * The QC gate as frozen (`nipt_qc_gate`, REQ-NIPT-021): the plasma's median target depth times
+ * half its fetal fraction, against the bound it applied, QA's or provisional.
+ */
+export interface SignedNiptExpectedFetalReads extends SignedNiptCheck {
+  expectedReads: number | null;
+  medianDepth: number | null;
+  fetalFraction: number | null;
+  warnValue: number | null;
+  errorValue: number | null;
+  provisional: boolean;
+}
+
 export interface SignedNiptFetalSex extends SignedNiptCheck {
   call: string | null;
   /** What the father's X alleles read, and what the plasma's chrY coverage reads. */
@@ -969,6 +982,9 @@ export interface SignedNiptTargetCoverage {
   belowAdvisory: number | null;
   incomplete: number | null;
   criticalMeanDepth: number | null;
+  /** The depth at which a fetal-specific allele expects the QC gate's reads, and the targets below it. */
+  fetalReadDepth: number | null;
+  belowFetalReadDepth: number | null;
   /** Each gene with a weak target. */
   weakGenes: { gene: string; targets: number | null; weakTargets: number | null; minMean: number | null }[];
 }
@@ -1157,9 +1173,13 @@ export interface SignedNiptPanelTargetCoverage {
   medianMean: number | null;
   belowCritical: number | null;
   criticalMeanDepth: number | null;
+  fetalReadDepth: number | null;
+  belowFetalReadDepth: number | null;
   /** The panel's genes without a capture target: not tested. */
   genesWithoutTarget: string[];
   genesWithWeakTarget: { gene: string; targets: number | null; weakTargets: number | null; minMean: number | null }[];
+  /** The panel's genes with a target too thin for the QC gate's fetal reads. */
+  genesBelowFetalReadDepth: { gene: string; targets: number | null; belowFetalReadDepth: number | null }[];
 }
 
 /**
@@ -1179,6 +1199,8 @@ export interface SignedNipt {
   /** [reason, count]: why cfDNA calls failed the quality filter. */
   qualityFailures: [string, number][];
   paternity: SignedNiptCheck | null;
+  /** The QC gate on the expected fetal reads (REQ-NIPT-021). */
+  expectedFetalReads: SignedNiptExpectedFetalReads | null;
   fetalSex: SignedNiptFetalSex | null;
   plasmaSample: SignedNiptCheck | null;
   targetCoverage: SignedNiptTargetCoverage | null;
@@ -2357,6 +2379,7 @@ const parseNipt = (value: Json): SignedNipt => {
   const ff = isObject(value.fetal_fraction) ? value.fetal_fraction : null;
   const checks = isObject(value.checks) ? value.checks : {};
   const sex = isObject(checks.fetal_sex) ? checks.fetal_sex : null;
+  const gate = isObject(checks.expected_fetal_reads) ? checks.expected_fetal_reads : null;
   const window = isObject(value.de_novo_window) ? value.de_novo_window : null;
   const coverage = isObject(value.target_coverage) ? value.target_coverage : null;
   const panel = isObject(value.diagnostic_panel) ? value.diagnostic_panel : null;
@@ -2402,6 +2425,17 @@ const parseNipt = (value: Json): SignedNipt => {
     filterCounts,
     qualityFailures: countEntries(value.quality_failures),
     paternity: niptCheck(checks.paternity),
+    expectedFetalReads: gate
+      ? {
+          ...(niptCheck(gate) as SignedNiptCheck),
+          expectedReads: number(gate.expected_reads),
+          medianDepth: number(gate.median_depth),
+          fetalFraction: number(gate.fetal_fraction),
+          warnValue: number(gate.warn_value),
+          errorValue: number(gate.error_value),
+          provisional: gate.provisional === true,
+        }
+      : null,
     fetalSex: sex
       ? { ...(niptCheck(sex) as SignedNiptCheck), call: text(sex.call), paternalX: text(sex.paternal_x), chry: text(sex.chry) }
       : null,
@@ -2414,6 +2448,8 @@ const parseNipt = (value: Json): SignedNipt => {
           belowAdvisory: number(coverage.below_advisory),
           incomplete: number(coverage.incomplete),
           criticalMeanDepth: number(coverage.critical_mean_depth),
+          fetalReadDepth: number(coverage.fetal_read_depth),
+          belowFetalReadDepth: number(coverage.below_fetal_read_depth),
           weakGenes: objects(coverage.genes).map((gene) => ({
             gene: text(gene.gene) ?? 'a gene',
             targets: number(gene.targets),
@@ -2440,12 +2476,19 @@ const parseNipt = (value: Json): SignedNipt => {
           medianMean: number(panelCoverage.median_mean),
           belowCritical: number(panelCoverage.below_critical),
           criticalMeanDepth: number(panelCoverage.critical_mean_depth),
+          fetalReadDepth: number(panelCoverage.fetal_read_depth),
+          belowFetalReadDepth: number(panelCoverage.below_fetal_read_depth),
           genesWithoutTarget: strings(panelCoverage.genes_without_target),
           genesWithWeakTarget: objects(panelCoverage.genes_with_weak_target).map((gene) => ({
             gene: text(gene.gene) ?? 'a gene',
             targets: number(gene.targets),
             weakTargets: number(gene.weak_targets),
             minMean: number(gene.min_mean),
+          })),
+          genesBelowFetalReadDepth: objects(panelCoverage.genes_below_fetal_read_depth).map((gene) => ({
+            gene: text(gene.gene) ?? 'a gene',
+            targets: number(gene.targets),
+            belowFetalReadDepth: number(gene.below_fetal_read_depth),
           })),
         }
       : null,
@@ -3054,6 +3097,17 @@ export const describeNiptCoverageNotes = (coverage: SignedNiptCoverageNotes): st
       : 'without a gene or panel, over no region: the family had no region of interest';
   return `${coverage.notes.length ? coverage.notes.join(' ') : 'none.'} The coverage check ran ${ranFor}.`;
 };
+
+/**
+ * The QC gate as signed: its sentence, then the bound it applied, QA's or provisional, as the
+ * NIPT page words it.
+ */
+export const describeSignedGate = (gate: SignedNiptExpectedFetalReads): string =>
+  `${gate.message ?? 'no sentence in the record.'} Bound: ${
+    gate.errorValue === null ? 'no error bound set' : `at least ${gate.errorValue}`
+  }${gate.warnValue !== null ? `, warning below ${gate.warnValue}` : ''} (${
+    gate.provisional ? 'provisional: QA had not set it' : 'set by QA'
+  }).`;
 
 /**
  * A recessive gene's fetal status as signed, worded as the NIPT page words it:

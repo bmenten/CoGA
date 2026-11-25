@@ -346,8 +346,9 @@ def _warning_qc_checks(qc: Mapping[str, Any], unverifiable: list[str]) -> list[s
 
 def _nipt_failed_checks(snapshot: Mapping[str, Any]) -> list[str]:
     """The NIPT quality checks of a NIPT family's record that failed (no fetal-fraction
-    estimate, fetal-sex signals that disagree, male DNA given as the maternal plasma), each as
-    the gate lists it. A NIPT family is signed out with its NIPT results, and a check that
+    estimate, too few expected fetal reads or a QC gate on the provisional bound, fetal-sex
+    signals that disagree, male DNA given as the maternal plasma, no diagnostic gene panel),
+    each as the gate lists it. A NIPT family is signed out with its NIPT results, and a check that
     failed gates the sign-out like a failed Sample QC check; [] for any other family."""
     return [
         _named(subject, message)

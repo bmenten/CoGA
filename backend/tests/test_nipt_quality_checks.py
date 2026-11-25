@@ -28,6 +28,7 @@ from backend.app.services.nipt_quality_checks import (
     plasma_sample_verdict,
 )
 from backend.app.services.nipt import NiptTrio
+from backend.app.services.nipt_qc_gate import expected_fetal_reads_verdict, resolve_nipt_gate_bound
 from backend.app.services.nipt_service import NiptFamilySummary
 from backend.app.services.nipt_target_coverage import SexChromosomeCoverage, TargetCoverageSummary
 from backend.app.services.sample_integrity_qc import evaluate_paternity
@@ -186,11 +187,19 @@ def test_every_check_of_a_familys_analysis_with_its_verdict() -> None:
         incomplete=0, critical_mean_depth=300.0, advisory_mean_depth=1000.0,
     )
     trio = NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="CFDNA1")
+    bound = resolve_nipt_gate_bound({})
     summary = NiptFamilySummary(
-        analysis=analysis, trio=trio, target_coverage=coverage, sex_chromosomes=_sex("female_with_male_fetal_signal")
+        analysis=analysis,
+        trio=trio,
+        gate_bound=bound,
+        target_coverage=coverage,
+        sex_chromosomes=_sex("female_with_male_fetal_signal"),
     )
     checks = nipt_quality_checks(summary, father="FATHER1")
     assert checks.fetal_fraction_check.status == "pass"
+    # The QC gate: the median target depth (1500x) times half the fetal fraction.
+    assert checks.expected_fetal_reads == expected_fetal_reads_verdict(1500.0, _ff().ff_computed, bound)
+    assert checks.expected_fetal_reads.status == "pass"
     assert checks.de_novo_window is not None and checks.de_novo_window.strict_min == 0.04
     assert (checks.paternity.father, checks.paternity.status) == ("FATHER1", "pass")
     # The father's X alleles read female, the chrY coverage male: the check fails.
@@ -199,5 +208,7 @@ def test_every_check_of_a_familys_analysis_with_its_verdict() -> None:
     assert checks.target_coverage is coverage
     assert checks.quality_failures == {"low_quality": 1}
     # Without per-target coverage: no sex profile, read from the father's X alone.
-    bare = nipt_quality_checks(NiptFamilySummary(analysis=analysis, trio=trio))
+    bare = nipt_quality_checks(NiptFamilySummary(analysis=analysis, trio=trio, gate_bound=bound))
     assert (bare.plasma_sample.status, bare.fetal_sex.call, bare.paternity.father) == ("unknown", "female", "father")
+    # Nor a median target depth: the gate cannot pass.
+    assert (bare.expected_fetal_reads.status, bare.expected_fetal_reads.median_depth) == ("fail", None)

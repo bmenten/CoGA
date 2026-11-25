@@ -2171,6 +2171,17 @@ describe('FamilyReportPage', () => {
       filter_counts: { total_in: 48, failed_quality: 1, failed_artifact: 1, passed: 46, paternal_only: 1 },
       quality_failures: { low_quality: 1 },
       checks: {
+        expected_fetal_reads: {
+          status: 'pass',
+          message: '90 expected fetal reads (median target depth 1500x times half the fetal fraction of 12.0%), at least 40.',
+          expected_reads: 90,
+          median_depth: 1500,
+          fetal_fraction: 0.12,
+          metric: 'mnipt.expected_fetal_reads',
+          warn_value: null,
+          error_value: 40,
+          provisional: false,
+        },
         paternity: { status: 'pass', message: 'Paternity supported (36 of 40 (90%) of his homozygous alleles seen).' },
         fetal_sex: {
           call: 'discordant',
@@ -2192,6 +2203,8 @@ describe('FamilyReportPage', () => {
         incomplete: 0,
         critical_mean_depth: 300,
         advisory_mean_depth: 1000,
+        fetal_read_depth: 666.7,
+        below_fetal_read_depth: 1,
         genes: [{ gene: 'GENEA', targets: 1, weak_targets: 1, min_mean: 250, mean_of_means: 250 }],
       },
       // With a per-target table the coverage check reads its targets: no notes.
@@ -2259,13 +2272,16 @@ describe('FamilyReportPage', () => {
       expect(nipt).toHaveTextContent(
         'Fetal fraction: 12.0% (95% CI 10.9%–13.1%) from 40 category-7 sites; per-site median 11.8% — Pass; fetal window for de novo alleles 4.0%–8.0%',
       );
+      expect(nipt).toHaveTextContent(
+        'Expected fetal reads: Pass — 90 expected fetal reads (median target depth 1500x times half the fetal fraction of 12.0%), at least 40. Bound: at least 40 (set by QA).',
+      );
       expect(nipt).toHaveTextContent('Paternity: Pass — Paternity supported');
       expect(nipt).toHaveTextContent(
         "Fetal sex: Discordant (the father's X alleles read female; the plasma's chrY coverage reads male) — Fail — The father's X alleles read female",
       );
       expect(nipt).toHaveTextContent('Maternal plasma sample: Not run — The panel has no chrY target: no sex profile.');
       expect(nipt).toHaveTextContent(
-        'Target coverage: median 1500x over 3 targets; 1 below 300x, 0 with uncovered bases; genes with a weak target: GENEA (1 of 1, lowest mean 250x)',
+        'Target coverage: median 1500x over 3 targets; 1 below 300x, 0 with uncovered bases; 1 below 667x, too thin for the expected fetal reads; genes with a weak target: GENEA (1 of 1, lowest mean 250x)',
       );
       expect(nipt).toHaveTextContent(
         'Filters: 48 cfDNA calls: 1 quality-filtered, 1 artifact-filtered, 46 analysed; 1 paternal allele without a plasma call of its own; quality-filter failures: 1 quality (TLOD) below the minimum',

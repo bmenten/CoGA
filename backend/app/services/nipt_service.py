@@ -79,6 +79,7 @@ from .nipt import (
     resolve_nipt_trio,
 )
 from .nipt_artifact_pg import assay_cfdna_carrier_samples, load_nipt_artifacts, recurrence_rules
+from .nipt_qc_gate import NiptGateBound, fetal_read_depth, load_nipt_gate_bound
 from .nipt_coverage import (
     DEFAULT_MIN_DEPTH,
     CoverageInterval,
@@ -718,12 +719,14 @@ class NiptVariantsResult:
 
 @dataclass(slots=True)
 class NiptFamilySummary:
-    """The NIPT summary: the analysis, and the plasma's coverage QC and sex profile from its
-    per-target coverage (None without one)."""
+    """The NIPT summary: the analysis, the QC gate's bound, and the plasma's coverage QC and
+    sex profile from its per-target coverage (None without one)."""
 
     analysis: NiptAnalysisResult
     # The trio of the pregnancy the analysis is of: its monogenic NIPT, samples and fetuses.
     trio: NiptTrio
+    # The bound of the QC gate on the expected fetal reads (nipt_qc_gate): QA's or provisional.
+    gate_bound: NiptGateBound
     target_coverage: TargetCoverageSummary | None = None
     sex_chromosomes: SexChromosomeCoverage | None = None
 
@@ -880,9 +883,10 @@ async def _analyse_family(
     qc: NiptQualityThresholds,
 ) -> _FamilyAnalysis:
     listed = await _load_listed_artifacts(session, context, assay_key)
+    gate_bound = await load_nipt_gate_bound(session)
     data = await _load_family_data(context, trio)
     removed, protected = _family_artifacts(data.records, listed, trio, qc)
-    summary = await _summarize_family(data, trio, qc, removed)
+    summary = await _summarize_family(data, trio, qc, removed, gate_bound)
     return _FamilyAnalysis(
         listed=listed, data=data, removed=removed, protected=protected, summary=summary
     )
@@ -1035,18 +1039,35 @@ async def get_family_nipt_summary_with_artifacts(
 
 
 async def _summarize_family(
-    data: _FamilyData, trio: NiptTrio, qc: NiptQualityThresholds, removed: set[str]
+    data: _FamilyData,
+    trio: NiptTrio,
+    qc: NiptQualityThresholds,
+    removed: set[str],
+    gate_bound: NiptGateBound,
 ) -> NiptFamilySummary:
-    """The summary of the family's analysis, the NIPT page's and the signed record's."""
+    """The summary of the family's analysis, the NIPT page's and the signed record's. The
+    coverage QC counts the targets too thin for the QC gate's fetal reads at the estimated
+    fetal fraction."""
     # The whole family callset goes through the analysis: pure CPU work, so it runs in a
     # worker thread and other requests are served meanwhile.
     analysis = await asyncio.to_thread(
         _analyse_family_sites, data, trio, qc, removed.__contains__
     )
-    target_coverage = summarize_target_coverage(data.plasma_targets) if data.plasma_targets else None
+    target_coverage = (
+        summarize_target_coverage(
+            data.plasma_targets,
+            fetal_read_depth=fetal_read_depth(analysis.fetal_fraction.ff_computed, gate_bound),
+        )
+        if data.plasma_targets
+        else None
+    )
     sex_chromosomes = sex_chromosome_coverage(data.plasma_targets) if data.plasma_targets else None
     return NiptFamilySummary(
-        analysis=analysis, trio=trio, target_coverage=target_coverage, sex_chromosomes=sex_chromosomes
+        analysis=analysis,
+        trio=trio,
+        gate_bound=gate_bound,
+        target_coverage=target_coverage,
+        sex_chromosomes=sex_chromosomes,
     )
 
 
