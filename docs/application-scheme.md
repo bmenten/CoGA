@@ -102,8 +102,9 @@ caller. The sort keys and how storage keys are built are in
      report from the package folder the import read.
    - The import watcher looks into the watched import folders (`FAMILY_IMPORT_WATCH_ROOTS`,
      `<watched folder>/<project>/<package>`) every `FAMILY_IMPORT_WATCH_INTERVAL_SECONDS` for
-     packages a pipeline delivered with their package file `coga-package.json`. It lists each as
-     a delivery and imports nothing until a person approves it
+     packages a pipeline delivered with their package file `coga-package.json`. It checks each new
+     one beside its rounds (`FAMILY_IMPORT_WATCH_CHECKS` at a time, the smallest first), lists it
+     as a delivery and imports nothing until a person approves it
      ([data-import.md](data-import.md#watched-import-folders)).
    - Writes of one family's variants (uploads, package imports, and the admin, PED and
      structure-change deletes) run one at a time. Each holds the family's write lock in

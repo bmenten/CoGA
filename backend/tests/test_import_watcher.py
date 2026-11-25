@@ -678,7 +678,7 @@ async def test_a_round_counts_the_deliveries_superseded_by_a_run(tmp_path: Path,
     async def no_jobs(_factory: Any) -> int:
         return 0
 
-    async def look(*_args: Any) -> tuple[str, str]:
+    async def look(*_args: Any, **_kwargs: Any) -> tuple[str, str]:
         return next(looks)
 
     async def mark_missing(*_args: Any, **_kwargs: Any) -> int:
@@ -694,6 +694,255 @@ async def test_a_round_counts_the_deliveries_superseded_by_a_run(tmp_path: Path,
 
     assert (done.superseded_for_run, done.deliveries, done.checked_again) == (2, {"ready": 1}, {})
 
+
+
+# --- the checks of new deliveries, beside the rounds -----------------------------------------
+
+
+def _new(root: Path, name: str, size: int, fingerprint: str | None = None) -> watcher.NewDelivery:
+    """A new delivery as a round found it: a folder whose files hold ``size`` bytes."""
+    sha256 = fingerprint or hashlib.sha256(name.encode()).hexdigest()
+    entries: dict[str, list[object]] = {"reads.cram": ["file", size, 0], "linked": ["link", "elsewhere"]}
+    listing = PackageListing(PackageFingerprint(sha256=sha256, files=1), entries)
+    return watcher.NewDelivery(root=root, folder=root / name, read=SimpleNamespace(), listing=listing)  # type: ignore[arg-type]
+
+
+async def _settle() -> None:
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+
+def test_a_new_delivery_is_as_large_as_the_files_its_listing_names() -> None:
+    new = _new(Path("/x"), "FAM1", 1234)
+    assert new.size == 1234
+    new.listing = PackageListing(new.listing.fingerprint, None)
+    assert new.size == float("inf")
+
+
+@pytest.mark.asyncio
+async def test_new_deliveries_are_checked_the_smallest_first_a_few_at_a_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The VM case: a genome's package, whose VCF a check reads whole for most of an hour, holds
+    # neither the small packages behind it nor the round.
+    news = {name: _new(tmp_path, name, size) for name, size in (("BIG", 300), ("MID", 200), ("SMALL", 100), ("TINY", 10))}
+    release = {name: asyncio.Event() for name in news}
+    started: list[str] = []
+
+    async def fingerprint(folder: Path) -> str:
+        return news[folder.name].fingerprint
+
+    async def check(_factory: Any, new: watcher.NewDelivery) -> str:
+        started.append(new.folder.name)
+        await release[new.folder.name].wait()
+        return "ready"
+
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "check_new_delivery", check)
+    checks = watcher.DeliveryChecks(None, limit=2)  # type: ignore[arg-type]
+    for name in news:
+        checks.submit(news[name])
+    await _settle()
+    # The first two start at once, while checks are free; the others wait.
+    assert started == ["BIG", "MID"]
+    assert (checks.running, checks.waiting) == (2, 2)
+
+    release["MID"].set()
+    await _settle()
+    assert started == ["BIG", "MID", "TINY"]
+    release["TINY"].set()
+    await _settle()
+    assert started == ["BIG", "MID", "TINY", "SMALL"]
+
+    release["BIG"].set()
+    release["SMALL"].set()
+    await checks.drain()
+    assert checks.taken() == {"ready": 4}
+    assert checks.taken() == {}
+    assert (checks.running, checks.waiting) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_a_folder_is_checked_once_at_a_time_and_as_it_is_now(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    now = {"fingerprint": "a" * 64}
+    release = asyncio.Event()
+    checked: list[str] = []
+
+    async def fingerprint(_folder: Path) -> str:
+        return now["fingerprint"]
+
+    async def check(_factory: Any, new: watcher.NewDelivery) -> str | None:
+        checked.append(new.fingerprint)
+        await release.wait()
+        # A folder that changed while it was checked is not stored (check_new_delivery).
+        return "ready" if new.fingerprint == now["fingerprint"] else None
+
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "check_new_delivery", check)
+    checks = watcher.DeliveryChecks(None, limit=2)  # type: ignore[arg-type]
+    checks.submit(_new(tmp_path, "FAM1", 10, "a" * 64))
+    await _settle()
+    # The next round finds it again, as it is being checked: it is not checked twice.
+    checks.submit(_new(tmp_path, "FAM1", 10, "a" * 64))
+    await _settle()
+    assert checked == ["a" * 64]
+    assert (checks.running, checks.waiting) == (1, 0)
+
+    # Changed since: it waits for the check of the folder as it was, though a check is free.
+    now["fingerprint"] = "b" * 64
+    checks.submit(_new(tmp_path, "FAM1", 10, "b" * 64))
+    await _settle()
+    assert checked == ["a" * 64]
+    assert (checks.running, checks.waiting) == (1, 1)
+
+    release.set()
+    await checks.drain()
+    assert checked == ["a" * 64, "b" * 64]
+    assert checks.taken() == {"ready": 1}
+
+
+@pytest.mark.asyncio
+async def test_a_check_that_waited_leaves_a_folder_changed_or_gone_since_to_the_next_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now: dict[str, str | None] = {"CHANGED": "c" * 64, "GONE": None}
+    checked: list[str] = []
+
+    async def fingerprint(folder: Path) -> str | None:
+        return now[folder.name]
+
+    async def check(_factory: Any, new: watcher.NewDelivery) -> str:
+        checked.append(new.folder.name)
+        return "ready"
+
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "check_new_delivery", check)
+    checks = watcher.DeliveryChecks(None)  # type: ignore[arg-type]
+    checks.submit(_new(tmp_path, "CHANGED", 10, "a" * 64))
+    checks.submit(_new(tmp_path, "GONE", 10, "a" * 64))
+    await checks.drain()
+
+    assert checked == []
+    assert checks.taken() == {}
+
+
+@pytest.mark.asyncio
+async def test_a_check_that_fails_stops_no_other_and_is_logged_without_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    news = [_new(tmp_path, "BAD", 10), _new(tmp_path, "FAM1", 20)]
+
+    async def fingerprint(folder: Path) -> str:
+        return next(new.fingerprint for new in news if new.folder == folder)
+
+    async def check(_factory: Any, new: watcher.NewDelivery) -> str:
+        if new.folder.name == "BAD":
+            raise RuntimeError(f"a value of {new.folder}")
+        return "ready"
+
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "check_new_delivery", check)
+    caplog.set_level(logging.WARNING, logger=watcher.logger.name)
+    checks = watcher.DeliveryChecks(None, limit=1)  # type: ignore[arg-type]
+    for new in news:
+        checks.submit(new)
+    await checks.drain()
+
+    assert checks.taken() == {"ready": 1}
+    assert "Import watcher could not check a delivery: RuntimeError" in caplog.text
+    assert str(tmp_path) not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stopping_the_checks_drops_the_waiting_and_cancels_the_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    news = [_new(tmp_path, "FAM1", 10), _new(tmp_path, "FAM2", 20)]
+    started: list[str] = []
+    cancelled: list[str] = []
+
+    async def fingerprint(folder: Path) -> str:
+        return next(new.fingerprint for new in news if new.folder == folder)
+
+    async def check(_factory: Any, new: watcher.NewDelivery) -> str:
+        started.append(new.folder.name)
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.append(new.folder.name)
+            raise
+        return "ready"
+
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "check_new_delivery", check)
+    checks = watcher.DeliveryChecks(None, limit=1)  # type: ignore[arg-type]
+    for new in news:
+        checks.submit(new)
+    await _settle()
+    await checks.stop()
+    await _settle()
+
+    assert started == cancelled == ["FAM1"]
+    assert (checks.running, checks.waiting) == (0, 0)
+    assert checks.taken() == {}
+
+
+@pytest.mark.asyncio
+async def test_a_round_hands_its_new_deliveries_to_the_watchers_checks_and_does_not_wait(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from backend.app.services import import_delivery_review
+
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+    _package(tmp_path, "FAM1")
+    release = asyncio.Event()
+
+    async def no_jobs(_factory: Any) -> int:
+        return 0
+
+    async def mark_missing(*_args: Any, **_kwargs: Any) -> int:
+        return 0
+
+    stored: list[str] = []
+
+    async def look(_factory: Any, root: Path, folder: Path, _seen: Any = None, *, checks: Any = None) -> None:
+        # A delivery stored is seen again, not new (look_at_folder).
+        if folder.name not in stored:
+            checks.submit(_new(root, folder.name, 10))
+
+    async def fingerprint(folder: Path) -> str:
+        return _new(tmp_path, folder.name, 10).fingerprint
+
+    async def check(_factory: Any, new: watcher.NewDelivery) -> str:
+        await release.wait()
+        stored.append(new.folder.name)
+        return "ready"
+
+    monkeypatch.setattr(import_delivery_review, "sync_delivery_jobs", no_jobs)
+    monkeypatch.setattr(import_delivery_review, "offer_failed_deliveries_again", _nothing_failed)
+    monkeypatch.setattr(watcher, "look_at_folder", look)
+    monkeypatch.setattr(watcher, "mark_missing", mark_missing)
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "check_new_delivery", check)
+    monkeypatch.setattr(package_changed_after_import, "follow_imported_deliveries", _follow_nothing)
+    checks = watcher.DeliveryChecks(None)  # type: ignore[arg-type]
+
+    done = await watcher.run_watch_round(None, [tmp_path], checks=checks)  # type: ignore[arg-type]
+    await _settle()
+    assert (done.deliveries, done.checks_waiting, done.checks_running) == ({}, 0, 1)
+    assert checks.running == 1
+
+    # The next round counts it once its check is done.
+    release.set()
+    await _settle()
+    done = await watcher.run_watch_round(None, [tmp_path], checks=checks)  # type: ignore[arg-type]
+    await checks.drain()
+    assert done.deliveries == {"ready": 1}
+
+    # Without the watcher's checks, a round checks its new deliveries itself and waits for them.
+    stored.clear()
+    done = await watcher.run_watch_round(None, [tmp_path])  # type: ignore[arg-type]
+    assert (done.deliveries, done.checks_waiting, done.checks_running) == ({"ready": 1}, 0, 0)
 
 
 # --- checking an open delivery again ----------------------------------------------------------
@@ -1020,7 +1269,7 @@ async def test_with_nothing_watched_the_watcher_still_runs_its_rounds(monkeypatc
     stop = asyncio.Event()
     rounds: list[list[Path]] = []
 
-    async def round_(_factory: Any, roots: list[Path]) -> watcher.WatchRound:
+    async def round_(_factory: Any, roots: list[Path], **_kwargs: Any) -> watcher.WatchRound:
         rounds.append(roots)
         stop.set()
         return watcher.WatchRound(jobs_ended=1, offered_again={"ready": 1})
@@ -1056,26 +1305,41 @@ async def test_the_watcher_looks_only_while_it_leads_and_logs_a_failed_round_wit
     monkeypatch.setattr(watcher, "WatcherLeadership", lambda: leadership)
     monkeypatch.setattr(watcher, "get_postgres_sessionmaker", lambda: None)
     stop = asyncio.Event()
-    rounds: list[str] = []
+    rounds: list[Any] = []
+    made: list[Any] = []
 
-    async def round_(_factory: Any, roots: list[Path]) -> watcher.WatchRound:
-        rounds.append("round")
+    class _Checks:
+        def __init__(self, _factory: Any) -> None:
+            self.stopped = 0
+            made.append(self)
+
+        async def stop(self) -> None:
+            self.stopped += 1
+
+    async def round_(_factory: Any, roots: list[Path], *, checks: Any) -> watcher.WatchRound:
+        rounds.append(checks)
         if len(rounds) == 1:
             raise RuntimeError(f"a value of {roots[0]}")
         if len(rounds) == 3:
             stop.set()
-        return watcher.WatchRound(roots_watched=1, deliveries={"ready": 1})
+        return watcher.WatchRound(roots_watched=1, deliveries={"ready": 1}, checks_waiting=2, checks_running=1)
 
+    monkeypatch.setattr(watcher, "DeliveryChecks", _Checks)
     monkeypatch.setattr(watcher, "run_watch_round", round_)
     caplog.set_level(logging.INFO, logger=watcher.logger.name)
 
     await asyncio.wait_for(watcher.import_watcher(stop), timeout=5)
 
-    assert rounds == ["round", "round", "round"]
+    assert len(rounds) == 3
     assert leadership.released == 1
     assert "Import watch round failed: RuntimeError" in caplog.text
     assert str(tmp_path) not in caplog.text
     assert "new deliveries {'ready': 1}" in caplog.text
+    assert "2 new delivery(ies) waiting for their check, 1 being checked" in caplog.text
+    # The checks are kept from round to round while the watcher leads; when it no longer leads,
+    # they are dropped (another watcher finds their folders again), and so when it stops.
+    assert rounds[0] is not rounds[1] and rounds[1] is rounds[2]
+    assert [checks.stopped for checks in made] == [1, 1]
 
 
 @pytest.mark.asyncio
