@@ -541,6 +541,32 @@ class NiptArtifactImportOut(BaseModel):
     protected_clinvar: int
 
 
+class NiptDiagnosticPanelOut(BaseModel):
+    """A monogenic NIPT's diagnostic gene panel as it is now (REQ-NIPT-019): the panel, its local
+    version and the release of its source, and when the analysis took it."""
+
+    panel_id: str
+    name: str
+    version: int
+    source: Optional[str] = None
+    gene_count: int
+    external_version: Optional[str] = None
+    set_at: Optional[datetime] = None
+
+
+class NiptDiagnosticPanelStateOut(BaseModel):
+    """The analysis (its key) and its diagnostic panel; ``panel`` is None when it has none."""
+
+    analysis: str
+    panel: Optional[NiptDiagnosticPanelOut] = None
+
+
+class NiptDiagnosticPanelUpdate(BaseModel):
+    """Set the analysis's diagnostic panel (a gene panel's id), or clear it (null)."""
+
+    panel_id: Optional[str] = Field(default=None, max_length=64)
+
+
 class NiptVariantOut(VariantOut):
     """A classified cfDNA variant: the full small-variant payload plus the NIPT
     classification block. Defined here so it can extend ``VariantOut`` (declared

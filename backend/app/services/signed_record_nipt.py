@@ -83,11 +83,14 @@ from .nipt_service import (
     NiptFamilyRecord,
     SharedNiptAnalysis,
     get_family_nipt_record,
+    nipt_analysis_key,
     nipt_coverage_notes,
     nipt_coverage_source,
+    nipt_panel_target_regions,
     roi_target_region,
 )
-from .nipt_target_coverage import TARGET_COVERAGE_TRACK_TYPE, TargetCoverageSummary
+from .analysis_gene_panel import AnalysisGenePanel, load_analysis_gene_panel
+from .nipt_target_coverage import TARGET_COVERAGE_TRACK_TYPE, TargetCoverageSummary, summarize_target_coverage
 from .nipt_triage import RecessiveAllele, RecessiveGeneRisk
 
 # The notes of the coverage check over the coverage tracks, in the section.
@@ -255,20 +258,30 @@ async def _family_roi_region(session: AsyncSession, context: FamilyMetadataConte
 
 
 async def _coverage_notes(
-    session: AsyncSession, context: FamilyMetadataContext, trio: NiptTrio, analysis: NiptFamilyRecord
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    trio: NiptTrio,
+    analysis: NiptFamilyRecord,
+    panel: AnalysisGenePanel | None,
 ) -> dict[str, Any] | None:
     """The notes of the coverage check over the plasma's coverage tracks, as the NIPT page shows
-    them for no gene and no panel: over the family's region of interest, none without one. None
-    when the plasma has a per-target coverage table: the check reads its targets instead."""
+    them for the analysis's diagnostic panel, or, without one (or with one whose genes have no
+    loci on the assembly), for no gene and no panel: over the family's region of interest, none
+    without one. None when the plasma has a per-target coverage table: the check reads its
+    targets instead."""
     if analysis.summary.target_coverage is not None:
         return None
-    roi = await _family_roi_region(session, context)
-    regions = [roi] if roi is not None else []
+    # As the page reads a panel (nipt_service._resolve_nipt_target_regions): its genes' loci and
+    # regions, else, when they give none, the family's region of interest.
+    regions = await nipt_panel_target_regions(session, context, panel.panel_id) if panel is not None else []
+    if not regions:
+        roi = await _family_roi_region(session, context)
+        regions = [roi] if roi is not None else []
     return {
-        # What the check ran for: no gene and no panel (the sign-out is not told the NIPT page's
-        # search), so the family's region of interest.
+        # What the check ran for: the analysis's diagnostic panel, else the family's region of
+        # interest.
         "gene": None,
-        "panel": None,
+        "panel": panel.panel_id if panel is not None else None,
         "regions": [
             {"label": region.label, "chrom": region.chrom, "start": region.start, "end": region.end}
             for region in regions
@@ -359,6 +372,26 @@ def _target_coverage(summary: TargetCoverageSummary | None) -> dict[str, Any] | 
             }
             for gene in summary.genes
         ],
+    }
+
+
+def _panel_target_coverage(
+    panel: AnalysisGenePanel | None, analysis: NiptFamilyRecord
+) -> dict[str, Any] | None:
+    """The coverage QC of the diagnostic panel's capture targets (REQ-NIPT-006, REQ-NIPT-019):
+    the panel's genes with a target and without one, the totals over their targets, and each
+    gene with a weak target or with no target at all (a gene the assay does not capture is not
+    tested). None without a panel or without a per-target coverage table."""
+    if panel is None or not analysis.plasma_targets:
+        return None
+    summary = summarize_target_coverage(analysis.plasma_targets, genes=panel.gene_symbols)
+    frozen = _target_coverage(summary) or {}
+    genes = frozen.pop("genes", [])
+    return {
+        **frozen,
+        "panel_genes": len(panel.gene_symbols),
+        "genes_without_target": sorted(str(gene["gene"]) for gene in genes if not gene["targets"]),
+        "genes_with_weak_target": [gene for gene in genes if gene["targets"] and gene["weak_targets"]],
     }
 
 
@@ -487,9 +520,11 @@ def nipt_section(
     target_tables: list[dict[str, Any]],
     coverage_notes: dict[str, Any] | None,
     qc: NiptQualityThresholds,
+    panel: AnalysisGenePanel | None = None,
 ) -> dict[str, Any]:
-    """The ``nipt`` section from the family's NIPT analysis (``nipt_service``), with the notes
-    of the coverage check over the coverage tracks (``_coverage_notes``)."""
+    """The ``nipt`` section from the family's NIPT analysis (``nipt_service``), with its
+    diagnostic gene panel and the coverage of that panel's targets, and the notes of the
+    coverage check over the coverage tracks (``_coverage_notes``)."""
     summary = analysis.summary
     checks = nipt_quality_checks(summary, father=trio.father_sample_id)
     result = summary.analysis
@@ -520,6 +555,10 @@ def nipt_section(
         "quality_failures": {key: checks.quality_failures[key] for key in sorted(checks.quality_failures)},
         "checks": _checks(checks),
         "target_coverage": _target_coverage(checks.target_coverage),
+        # The analysis's diagnostic gene panel (REQ-NIPT-019): its version and gene list's
+        # digest, null when it has none (a sign-out concern), and its targets' coverage.
+        "diagnostic_panel": panel.frozen() if panel is not None else None,
+        "panel_target_coverage": _panel_target_coverage(panel, analysis),
         COVERAGE_NOTES_KEY: coverage_notes,
         "variants": variants,
         "not_classified": [
@@ -575,8 +614,11 @@ async def nipt_results(
         qc=qc,
         shared_nipt=shared_nipt,
     )
+    panel = await load_analysis_gene_panel(
+        session, family_uuid=context.family_uuid, analysis=nipt_analysis_key(trio)
+    )
     target_tables = await _target_tables(session, context, trio)
-    coverage_notes = await _coverage_notes(session, context, trio, analysis)
+    coverage_notes = await _coverage_notes(session, context, trio, analysis, panel)
     return nipt_section(
         trio=trio,
         assay_key=assay_key,
@@ -584,6 +626,7 @@ async def nipt_results(
         target_tables=target_tables,
         coverage_notes=coverage_notes,
         qc=qc,
+        panel=panel,
     )
 
 
@@ -594,8 +637,9 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 def nipt_signout_concerns(section: Any) -> list[tuple[str | None, str]]:
     """The NIPT quality checks of a record's ``nipt`` section that failed, each as (what it
     is about, why): no fetal-fraction estimate, fetal-sex signals that disagree, male DNA
-    given as the maternal plasma. They gate the sign-out like a failed Sample QC check.
-    [] for a section that holds no checks (none, or one that could not be read).
+    given as the maternal plasma, no diagnostic gene panel (the analysis states no scope).
+    They gate the sign-out like a failed Sample QC check. [] for a section that holds no
+    checks (none, or one that could not be read).
 
     Paternity is not among them: the Sample QC reads it from the same analysis, and its gate
     already acts on it (``sample_qc.paternity_check``).
@@ -611,6 +655,13 @@ def nipt_signout_concerns(section: Any) -> list[tuple[str | None, str]]:
     if isinstance(fetal_sex, Mapping) and fetal_sex.get("status") == "fail":
         concerns.append(
             ("NIPT fetal sex", str(fetal_sex.get("message") or "the two signals disagree."))
+        )
+    if section.get("diagnostic_panel") is None:
+        concerns.append(
+            (
+                "NIPT diagnostic panel",
+                "no diagnostic gene panel is set: the analysis states no scope. Set one on the NIPT page.",
+            )
         )
     plasma = checks.get("plasma_sample")
     if isinstance(plasma, Mapping) and plasma.get("status") == "fail":

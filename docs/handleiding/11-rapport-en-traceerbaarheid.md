@@ -175,7 +175,8 @@ Bij een monogene NIPT-familie telt ook een gefaalde NIPT-kwaliteitscontrole uit 
 
 - geen schatting van de foetale fractie;
 - een foetaal geslacht waarover de X-allelen van de vader en de chrY-dekking elkaar tegenspreken;
-- mannelijk DNA als plasma van de moeder (REQ-NIPT-015).
+- mannelijk DNA als plasma van de moeder (REQ-NIPT-015);
+- geen diagnostisch genpanel voor de analyse (REQ-NIPT-019).
 
 De `409` noemt ze in `nipt_failed_checks` en in `qc_summary.messages` (dat van het plasma met zijn sample); het auditevent legt ze vast (`nipt_failed_checks`). Het vaderschap hoort er niet bij: de sample-QC leest het uit dezelfde analyse en blokkeert er al op. NIPT-resultaten die niet gelezen konden worden, staan in `not_captured`; ze blokkeren niet.
 

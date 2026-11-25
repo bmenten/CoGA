@@ -31,6 +31,8 @@ import {
   type SmallVariantPage,
 } from './smallVariantSearch';
 import { apiPath } from '../../lib/apiPath';
+import { describeDiagnosticPanel, niptDiagnosticPanelKey } from './NiptDiagnosticPanel';
+import type { NiptDiagnosticPanelStateOut } from '../../lib/apiSchema.generated';
 import { memberLabel } from '../../lib/familyMembers';
 import { formatCount, joinWithAnd } from '../../lib/format';
 import { signOutRefusal, useReportSignOut } from './reportSignOut';
@@ -159,6 +161,45 @@ const scopeLine = ({
     : `Gene panel ${panelName}.`;
 };
 
+// Whether the report's scope is the analysis's diagnostic panel, the one the sign-out freezes with
+// the coverage of its capture targets (REQ-NIPT-019).
+const DiagnosticPanelLine: React.FC<{
+  diagnostic: NiptDiagnosticPanelStateOut['panel'];
+  loadFailed: boolean;
+  panelId?: string;
+}> = ({ diagnostic, loadFailed, panelId }) => {
+  if (loadFailed) {
+    return (
+      <p className="report-paragraph" role="alert">
+        The analysis&rsquo;s diagnostic panel could not be loaded: whether this scope is the one the sign-out freezes
+        is unknown.
+      </p>
+    );
+  }
+  if (!diagnostic) {
+    return (
+      <p className="report-paragraph" role="alert">
+        No diagnostic panel is set for this analysis: it states no scope, and the sign-out asks for a reason. Set one on
+        the NIPT page.
+      </p>
+    );
+  }
+  if (diagnostic.panel_id === panelId) {
+    return (
+      <p className="report-paragraph">
+        This is the analysis&rsquo;s diagnostic panel, {describeDiagnosticPanel(diagnostic)}: the sign-out freezes it,
+        with the coverage of its capture targets.
+      </p>
+    );
+  }
+  return (
+    <p className="report-paragraph" role="alert">
+      This is not the analysis&rsquo;s diagnostic panel, {describeDiagnosticPanel(diagnostic)}: the sign-out freezes
+      that panel and the coverage of its targets, not this report&rsquo;s scope.
+    </p>
+  );
+};
+
 const variantGeneSort = (a: SmallVariant, b: SmallVariant): number =>
   (a.gene || '').localeCompare(b.gene || '') ||
   (a.nipt?.category ?? 99) - (b.nipt?.category ?? 99);
@@ -193,7 +234,8 @@ const FamilyNiptReportPage: React.FC = () => {
   const navigate = useNavigate();
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const preferredProjectId = searchParams.get('project_id') || undefined;
-  const panelId = searchParams.get('panel_id') || undefined;
+  // The panel the NIPT page's link names; without one, the analysis's diagnostic panel.
+  const linkedPanelId = searchParams.get('panel_id') || undefined;
   const gene = searchParams.get('gene') || undefined;
   const geneTerms = useMemo(() => niptGeneTerms(gene), [gene]);
 
@@ -240,6 +282,25 @@ const FamilyNiptReportPage: React.FC = () => {
   const namedNipt = pregnancyAnalyses(family?.metadata, 'monogenic_nipt').length > 1 ? niptAnalysis : null;
   const analysisParams: Record<string, string> = namedNipt ? { [ANALYSIS_PARAM]: namedNipt } : {};
 
+  // The analysis's diagnostic gene panel (REQ-NIPT-019), which the sign-out freezes: the report's
+  // scope when the page's link names no panel.
+  const {
+    data: diagnosticPanel,
+    isLoading: diagnosticPanelLoading,
+    isError: diagnosticPanelFailed,
+  } = useQuery<NiptDiagnosticPanelStateOut>({
+    queryKey: niptDiagnosticPanelKey(familyId, niptAnalysis),
+    enabled: queryReady,
+    queryFn: async () => {
+      const res = await api.get(apiPath`/families/${familyId}/nipt/diagnostic-panel`, { params: analysisParams });
+      return res.data as NiptDiagnosticPanelStateOut;
+    },
+  });
+  const diagnostic = diagnosticPanel?.panel ?? null;
+  const panelId = linkedPanelId ?? diagnostic?.panel_id ?? undefined;
+  // The scope is known once the diagnostic panel is read, unless the link names a panel.
+  const scopeReady = queryReady && (Boolean(linkedPanelId) || !diagnosticPanelLoading);
+
   const {
     data: summary,
     isLoading: summaryLoading,
@@ -261,7 +322,7 @@ const FamilyNiptReportPage: React.FC = () => {
     refetch: refetchCoverage,
   } = useQuery<ApiNiptCoverageSummary>({
     queryKey: ['family', familyId, 'nipt', 'coverage', niptAnalysis, panelId ?? null, gene ?? null],
-    enabled: queryReady,
+    enabled: scopeReady,
     queryFn: async () => {
       const params: Record<string, string> = { ...analysisParams };
       if (panelId) params.panel_id = panelId;
@@ -278,7 +339,7 @@ const FamilyNiptReportPage: React.FC = () => {
     refetch: refetchVariants,
   } = useQuery<SmallVariantPage>({
     queryKey: ['family', familyId, 'nipt', 'report-variants', niptAnalysis, panelId ?? null, gene ?? null],
-    enabled: queryReady,
+    enabled: scopeReady,
     queryFn: async () => {
       const params: Record<string, string | number> = { page: 1, page_size: REPORT_PAGE_SIZE, ...analysisParams };
       if (panelId) params.panel_id = panelId;
@@ -296,7 +357,7 @@ const FamilyNiptReportPage: React.FC = () => {
     refetch: refetchPanel,
   } = useQuery<GenePanel>({
     queryKey: ['panel', panelId],
-    enabled: Boolean(queryReady && panelId),
+    enabled: Boolean(scopeReady && panelId),
     queryFn: async () => {
       const res = await api.get(apiPath`/panels/${panelId}`);
       return res.data as GenePanel;
@@ -667,6 +728,7 @@ const FamilyNiptReportPage: React.FC = () => {
       <section className="surface-card report-section">
         <h2 className="section-title">Scope</h2>
         <p className="report-paragraph">{scopeLine({ panelId, panel, panelFailed, geneTerms })}</p>
+        <DiagnosticPanelLine diagnostic={diagnostic} loadFailed={diagnosticPanelFailed} panelId={panelId} />
         <p className="report-paragraph">
           The candidate list holds every variant in this scope with a call in the cfDNA sample or
           the father&apos;s, except the sites on the recurrent-artifact list of the assay. No other

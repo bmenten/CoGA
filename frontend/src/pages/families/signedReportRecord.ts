@@ -1100,6 +1100,29 @@ export interface SignedCnipt {
   samples: SignedCniptSample[];
 }
 
+/** A monogenic NIPT's diagnostic gene panel as its record froze it. */
+export interface SignedNiptDiagnosticPanel {
+  panelId: string | null;
+  name: string | null;
+  version: number | null;
+  source: string | null;
+  geneCount: number | null;
+  externalVersion: string | null;
+  genesDigest: string | null;
+}
+
+/** The coverage of the diagnostic panel's capture targets as the record froze it. */
+export interface SignedNiptPanelTargetCoverage {
+  panelGenes: number | null;
+  targets: number | null;
+  medianMean: number | null;
+  belowCritical: number | null;
+  criticalMeanDepth: number | null;
+  /** The panel's genes without a capture target: not tested. */
+  genesWithoutTarget: string[];
+  genesWithWeakTarget: { gene: string; targets: number | null; weakTargets: number | null; minMean: number | null }[];
+}
+
 /**
  * A monogenic NIPT's results of one pregnancy, as its record froze them (`signed_record_nipt`):
  * its trio (the pregnancy's fetuses, two or more in a multiple pregnancy), the analysis (its key)
@@ -1120,6 +1143,10 @@ export interface SignedNipt {
   fetalSex: SignedNiptFetalSex | null;
   plasmaSample: SignedNiptCheck | null;
   targetCoverage: SignedNiptTargetCoverage | null;
+  /** The analysis's diagnostic gene panel (REQ-NIPT-019); null when it had none. */
+  diagnosticPanel: SignedNiptDiagnosticPanel | null;
+  /** The coverage of the diagnostic panel's capture targets; null without a panel or a table. */
+  panelTargetCoverage: SignedNiptPanelTargetCoverage | null;
   /**
    * The coverage check's notes over the coverage tracks: recorded as null with a per-target table,
    * whose targets the check reads.
@@ -2279,6 +2306,8 @@ const parseNipt = (value: Json): SignedNipt => {
   const sex = isObject(checks.fetal_sex) ? checks.fetal_sex : null;
   const window = isObject(value.de_novo_window) ? value.de_novo_window : null;
   const coverage = isObject(value.target_coverage) ? value.target_coverage : null;
+  const panel = isObject(value.diagnostic_panel) ? value.diagnostic_panel : null;
+  const panelCoverage = isObject(value.panel_target_coverage) ? value.panel_target_coverage : null;
   const inputs = isObject(value.inputs) ? value.inputs : {};
   const artifacts = isObject(inputs.artifact_list) ? inputs.artifact_list : null;
   const model = isObject(value.model) ? value.model : {};
@@ -2325,6 +2354,33 @@ const parseNipt = (value: Json): SignedNipt => {
           incomplete: number(coverage.incomplete),
           criticalMeanDepth: number(coverage.critical_mean_depth),
           weakGenes: objects(coverage.genes).map((gene) => ({
+            gene: text(gene.gene) ?? 'a gene',
+            targets: number(gene.targets),
+            weakTargets: number(gene.weak_targets),
+            minMean: number(gene.min_mean),
+          })),
+        }
+      : null,
+    diagnosticPanel: panel
+      ? {
+          panelId: text(panel.panel_id),
+          name: text(panel.name),
+          version: number(panel.version),
+          source: text(panel.source),
+          geneCount: number(panel.gene_count),
+          externalVersion: text(panel.external_version),
+          genesDigest: text(panel.genes_digest),
+        }
+      : null,
+    panelTargetCoverage: panelCoverage
+      ? {
+          panelGenes: number(panelCoverage.panel_genes),
+          targets: number(panelCoverage.targets),
+          medianMean: number(panelCoverage.median_mean),
+          belowCritical: number(panelCoverage.below_critical),
+          criticalMeanDepth: number(panelCoverage.critical_mean_depth),
+          genesWithoutTarget: strings(panelCoverage.genes_without_target),
+          genesWithWeakTarget: objects(panelCoverage.genes_with_weak_target).map((gene) => ({
             gene: text(gene.gene) ?? 'a gene',
             targets: number(gene.targets),
             weakTargets: number(gene.weak_targets),

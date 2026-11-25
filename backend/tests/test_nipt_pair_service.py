@@ -302,6 +302,8 @@ def _plasma_targets() -> list[TargetCoverageRow]:
         # Over every chr1 site of _ff_sites, called by the plasma or not.
         TargetCoverageRow(chrom="1", start=900, end=8100, gene="GENEZ", attribute="GENEZ", mean=1500.0, median=1500.0),
         TargetCoverageRow(chrom="7", start=350, end=450, gene="GENEB", attribute="GENEB", mean=1500.0, median=1500.0),
+        # Over the de novo candidate: a call outside every target is none (off_target).
+        TargetCoverageRow(chrom="7", start=480, end=520, gene="GENEC", attribute="GENEC", mean=1500.0, median=1500.0),
         TargetCoverageRow(chrom="7", start=0, end=120, gene="GENEA", attribute="GENEA;NM_1", mean=250.0, median=240.0,
                           proportion_covered=100.0),
     ]
@@ -378,7 +380,7 @@ async def test_the_summary_reads_the_paternal_alleles_and_the_target_coverage(mo
     assert (evidence.hom_alt_transmitted, evidence.hom_alt_not_transmitted) == (30, 0)
     assert evidence.without_plasma_depth == 1
     assert analysis.filter_counts["paternal_only"] == 61  # 60 missed + the GENEB paternal allele
-    assert summary.target_coverage is not None and summary.target_coverage.targets == 3
+    assert summary.target_coverage is not None and summary.target_coverage.targets == 4
     assert summary.sex_chromosomes is not None and summary.sex_chromosomes.profile == "no_chrY_targets"
 
 
@@ -431,6 +433,52 @@ async def test_the_de_novo_view_triages_the_candidates(monkeypatch: pytest.Monke
     with pytest.raises(HTTPException) as refused:
         await _variants(inheritance="de_novo", de_novo_priority="urgent")
     assert (refused.value.status_code, refused.value.detail) == (400, "Unsupported de novo priority: urgent")
+
+
+@pytest.mark.asyncio
+async def test_a_call_outside_every_capture_target_is_no_de_novo_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Without the GENEC target the candidate's call lies outside every target of the plasma's
+    # coverage table: it stays in the list, flagged off_target, and is no de novo candidate.
+    targets = [row for row in _plasma_targets() if row.gene != "GENEC"]
+    _wire(monkeypatch, filtered=_gene_sites(), targets=targets)
+    assert (await _variants(inheritance="de_novo")).variants == []
+    listed = {item.record.variant_id: item for item in (await _variants()).variants}
+    assert "off_target" in listed["7-500-G-A"].classification.flags
+    assert listed["7-500-G-A"].site is not None and listed["7-500-G-A"].site.in_target is False
+    # A site over a target is not flagged (the GENEB paternal allele, at 7:400).
+    assert "off_target" not in listed["7-400-C-T"].classification.flags
+
+
+def test_a_record_is_in_a_capture_target_when_its_ref_span_overlaps_one() -> None:
+    # The R pipeline's rule: a deletion whose padding base lies just before a target overlaps it.
+    lookup = TargetDepthLookup(
+        [TargetCoverageRow(chrom="7", start=100, end=200, gene="GENEA", attribute="GENEA", mean=900.0, median=900.0)]
+    )
+    sites = {
+        site.variant_id: site
+        for site in build_nipt_observations(
+            [
+                _record("7-100-ACG-A", [_call(PLASMA, [900, 100])]),  # REF 100-102: over the target's first base
+                _record("7-100-A-G", [_call(PLASMA, [900, 100])]),  # BED start 100 is outside (start < pos)
+                _record("7-150-C-T", [_call(PLASMA, [900, 100])]),
+            ],
+            father_sample_id=FATHER,
+            cfdna_sample_id=PLASMA,
+            plasma_depth=lookup,
+        )
+    }
+    assert {variant_id: site.in_target for variant_id, site in sites.items()} == {
+        "7-100-ACG-A": True,
+        "7-100-A-G": False,
+        "7-150-C-T": True,
+    }
+    # A joint VCF, or no coverage table: unknown, and read as before.
+    [joint] = build_nipt_observations(
+        [_record("7-150-C-T", [_call(PLASMA, [900, 100]), _call(FATHER, [50, 0])])],
+        father_sample_id=FATHER,
+        cfdna_sample_id=PLASMA,
+    )
+    assert joint.in_target is None
 
 
 @pytest.mark.asyncio
@@ -727,10 +775,11 @@ async def test_the_coverage_page_reads_every_gene_and_a_gene_s_targets(
         all_genes=True,
     )
     assert coverage.targets is not None
-    # The weak GENEA and the passing GENEB and GENEZ alike.
+    # The weak GENEA and the passing GENEB, GENEC and GENEZ alike.
     assert {gene.gene: gene.weak_targets for gene in coverage.targets.genes} == {
         "GENEA": 1,
         "GENEB": 0,
+        "GENEC": 0,
         "GENEZ": 0,
     }
 

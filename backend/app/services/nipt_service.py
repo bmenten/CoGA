@@ -68,7 +68,7 @@ from .genotypes import classify_genotype
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
 from .family_analysis_types import pregnancy_of
-from .family_package_records import suffixed_source
+from .family_package_records import analysis_label, suffixed_source
 from .nipt import (
     MONOGENIC_NIPT_ANALYSIS_TYPE,
     NIPT_TRIO_UNRESOLVED,
@@ -116,6 +116,7 @@ from .nipt_target_coverage import (
     target_row_from_track,
 )
 from .panel_use_audit import record_family_panel_use
+from .analysis_gene_panel import AnalysisGenePanel, load_analysis_gene_panel, set_analysis_gene_panel
 from .nipt_triage import (
     DeNovoAnnotation,
     DeNovoTriage,
@@ -296,6 +297,18 @@ def restored_site_depths(records: Iterable[SmallVariantRecord], sample_id: str) 
     return depths
 
 
+# The longest REF span the capture-target check walks base by base; a longer deletion is in
+# the target when one of its first bases is.
+_MAX_TARGET_SPAN = 1000
+
+
+def _in_capture_target(lookup: TargetDepthLookup, record: SmallVariantRecord) -> bool:
+    """Whether the record's REF span overlaps a capture target of the plasma's coverage table
+    (the R pipeline's rule: a variant is in the target when its REF span overlaps an interval)."""
+    span = min(max(len(record.ref or ""), 1), _MAX_TARGET_SPAN)
+    return any(lookup.target_at(record.chr, record.start + offset) is not None for offset in range(span))
+
+
 def _lookup_depth(lookup: TargetDepthLookup | None, chrom: str, position: int) -> int | None:
     if lookup is None:
         return None
@@ -428,6 +441,7 @@ def build_nipt_observations(
         father_vaf = _call_vaf(father_call, father_dp) if father_call is not None else None
         father_alt = _alt_reads(father_call) if father_call is not None else None
         plasma_coverage = _lookup_depth(plasma_depth, record.chr, record.start) if per_sample else None
+        in_target = _in_capture_target(plasma_depth, record) if per_sample and plasma_depth is not None else None
         if cf_call is None:
             sites.append(
                 NiptSiteObservation(
@@ -451,6 +465,7 @@ def build_nipt_observations(
                     cf_depth_estimated=True,
                     representation=representation,
                     represented_by=represented_by,
+                    in_target=in_target,
                 )
             )
             continue
@@ -484,6 +499,7 @@ def build_nipt_observations(
                 cf_metrics=dict(cf_call.metrics or {}),
                 representation=representation,
                 represented_by=represented_by,
+                in_target=in_target,
             )
         )
     return sites
@@ -1608,6 +1624,9 @@ class NiptFamilyRecord:
     # The recessive fetal risk of the genes the reported variants make both parents carriers
     # in, as the recessive view computes it over them.
     recessive_genes: list[RecessiveGeneRisk]
+    # The plasma's per-target coverage table ([] without one): the record reads the coverage
+    # of the diagnostic panel's targets from it.
+    plasma_targets: list[TargetCoverageRow] = field(default_factory=list)
 
 
 # Why a reported variant, or one the variant list's review-tag filter selects, has no NIPT
@@ -1722,6 +1741,7 @@ async def get_family_nipt_record(
         variants=classified,
         unclassified=unclassified,
         recessive_genes=recessive_genes,
+        plasma_targets=list(data.plasma_targets),
     )
 
 
@@ -1780,20 +1800,9 @@ async def _resolve_nipt_target_regions(
     regions: list[TargetRegion] = []
     gene_terms: list[str] = list(_split_gene_terms(gene)) if gene else []
     if panel_id:
-        constraints = await _fetch_panel_constraints(
-            session, panel_id, assembly_id=context.assembly_id
-        )
-        gene_terms.extend(constraints.genes)
-        for region in constraints.regions:
-            chrom = normalize_chromosome(region.chr)
-            regions.append(
-                TargetRegion(
-                    label=f"{chrom}:{region.start}-{region.end}",
-                    chrom=chrom,
-                    start=region.start,
-                    end=region.end,
-                )
-            )
+        panel_genes, panel_regions = await _panel_genes_and_regions(session, context, panel_id)
+        gene_terms.extend(panel_genes)
+        regions.extend(panel_regions)
     if gene_terms:
         regions.extend(
             await _fetch_labeled_gene_regions(
@@ -1805,6 +1814,32 @@ async def _resolve_nipt_target_regions(
         regions.append(
             roi_target_region(query=roi.query, label=roi.label, chrom=roi.chr, start=roi.start, end=roi.end)
         )
+    return regions
+
+
+async def _panel_genes_and_regions(
+    session: AsyncSession, context: FamilyMetadataContext, panel_id: str
+) -> tuple[list[str], list[TargetRegion]]:
+    """A panel's genes, and its explicit regions on the family's assembly labelled by their
+    coordinates."""
+    constraints = await _fetch_panel_constraints(session, panel_id, assembly_id=context.assembly_id)
+    regions = []
+    for region in constraints.regions:
+        chrom = normalize_chromosome(region.chr)
+        regions.append(
+            TargetRegion(label=f"{chrom}:{region.start}-{region.end}", chrom=chrom, start=region.start, end=region.end)
+        )
+    return list(constraints.genes), regions
+
+
+async def nipt_panel_target_regions(
+    session: AsyncSession, context: FamilyMetadataContext, panel_id: str
+) -> list[TargetRegion]:
+    """The coverage check's target regions of a gene panel: its genes' loci, labelled by their
+    symbols, and its explicit regions (as ``get_family_nipt_coverage`` reads a panel)."""
+    genes, regions = await _panel_genes_and_regions(session, context, panel_id)
+    if genes:
+        regions.extend(await _fetch_labeled_gene_regions(session, terms=genes, assembly_id=context.assembly_id))
     return regions
 
 
@@ -1968,6 +2003,57 @@ class NiptGeneTargets:
     gene: str
     critical_mean_depth: float
     rows: list[TargetCoverageRow]
+
+
+def nipt_analysis_key(trio: NiptTrio) -> str:
+    """The key the trio's analysis is stored and audited under: its pregnancy's key, or the
+    analysis type for a family that names no pregnancy (one made in the Family Builder)."""
+    return trio.analysis or MONOGENIC_NIPT_ANALYSIS_TYPE
+
+
+async def get_family_nipt_diagnostic_panel(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+    project_id: str | None = None,
+    analysis: str | None = None,
+) -> tuple[str, AnalysisGenePanel | None]:
+    """The monogenic NIPT's analysis key and its diagnostic gene panel (REQ-NIPT-019), None when
+    it has none."""
+    trio, context, _assay_key = await _resolve_trio_and_context(
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
+    )
+    key = nipt_analysis_key(trio)
+    return key, await load_analysis_gene_panel(session, family_uuid=context.family_uuid, analysis=key)
+
+
+async def set_family_nipt_diagnostic_panel(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+    panel_id: str | None,
+    project_id: str | None = None,
+    analysis: str | None = None,
+) -> tuple[str, AnalysisGenePanel | None]:
+    """Set or clear the monogenic NIPT's diagnostic gene panel, on the family's clinical audit
+    trail (``analysis_gene_panel.set_analysis_gene_panel``). A reader of the family is refused
+    by the family's checkpoint, as every change is."""
+    trio, context, _assay_key = await _resolve_trio_and_context(
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
+    )
+    key = nipt_analysis_key(trio)
+    panel = await set_analysis_gene_panel(
+        session,
+        family_uuid=context.family_uuid,
+        family_identifier=context.family_id,
+        analysis=key,
+        analysis_label=analysis_label(key) or "monogenic NIPT",
+        panel_id=panel_id,
+        user=user,
+    )
+    return key, panel
 
 
 async def get_family_nipt_gene_targets(

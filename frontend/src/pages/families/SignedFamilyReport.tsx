@@ -721,6 +721,31 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
                 }`
               : 'no per-target coverage table'}
           </li>
+          <li>
+            Diagnostic gene panel:{' '}
+            {nipt.diagnosticPanel
+              ? `${nipt.diagnosticPanel.name ?? nipt.diagnosticPanel.panelId ?? 'a panel'} (version ${
+                  nipt.diagnosticPanel.version ?? '?'
+                }, ${formatCount(nipt.diagnosticPanel.geneCount ?? 0)} genes${
+                  nipt.diagnosticPanel.genesDigest ? `, gene list digest ${nipt.diagnosticPanel.genesDigest.slice(0, 12)}` : ''
+                })`
+              : 'none was set: the analysis stated no scope'}
+          </li>
+          {nipt.panelTargetCoverage ? (
+            <li>
+              Coverage of the panel&rsquo;s targets: {formatCount(nipt.panelTargetCoverage.targets ?? 0)} targets of{' '}
+              {formatCount(nipt.panelTargetCoverage.panelGenes ?? 0)} genes, {formatCount(nipt.panelTargetCoverage.belowCritical ?? 0)}{' '}
+              below {depth(nipt.panelTargetCoverage.criticalMeanDepth)}
+              {nipt.panelTargetCoverage.genesWithoutTarget.length
+                ? `; not tested (no capture target): ${nipt.panelTargetCoverage.genesWithoutTarget.join(', ')}`
+                : ''}
+              {nipt.panelTargetCoverage.genesWithWeakTarget.length
+                ? `; genes with a weak target: ${nipt.panelTargetCoverage.genesWithWeakTarget
+                    .map((gene) => `${gene.gene} (${gene.weakTargets ?? '?'} of ${gene.targets ?? '?'}, lowest mean ${depth(gene.minMean)})`)
+                    .join(', ')}`
+                : ''}
+            </li>
+          ) : null}
           <NiptCoverageNotesLine nipt={nipt} />
           <li>
             Filters: {describeNiptFunnel(nipt.filterCounts)}

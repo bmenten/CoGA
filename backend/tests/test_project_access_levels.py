@@ -446,6 +446,7 @@ CHECKPOINT_ROUTES = {
     ("PUT", "/api/families/{family_id}/ancestry/choices/{sample_id}"),
     ("PUT", "/api/families/{family_id}/ancestry/choices/{sample_id}/bed"),
     ("PUT", "/api/families/{family_id}/paraphase/{gene_symbol}/review"),
+    ("PUT", "/api/families/{family_id}/nipt/diagnostic-panel"),
     ("POST", "/api/families/{family_id}/report/sign-out"),
 }
 # The configuration the analyses read, and package import: a superuser's or an admin's

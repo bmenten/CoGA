@@ -10,6 +10,9 @@ from ..core.csv_export import TRUNCATED_BY_CANDIDATE_LIMIT, csv_document, export
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import (
+    NiptDiagnosticPanelOut,
+    NiptDiagnosticPanelStateOut,
+    NiptDiagnosticPanelUpdate,
     NiptCoverageLowRegionOut,
     NiptCoverageRegionOut,
     NiptCoverageSummaryOut,
@@ -41,6 +44,7 @@ from ..services.clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
 )
 from ..services.access_control import CurrentUser
+from ..services.analysis_gene_panel import AnalysisGenePanel
 from ..services.nipt_analysis import (
     FATHER_CALL_OTHER_REPRESENTATION,
     MATERNAL_HET_BIAS,
@@ -55,6 +59,8 @@ from ..services.nipt import multiple_pregnancy_note
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
 from ..services.nipt_quality_checks import nipt_quality_checks
 from ..services.nipt_service import (
+    get_family_nipt_diagnostic_panel,
+    set_family_nipt_diagnostic_panel,
     NIPT_VARIANT_FETCH_LIMIT,
     NiptClassifiedVariant,
     NiptFamilySummary,
@@ -663,6 +669,62 @@ async def export_family_nipt_variants_csv(
             reason=TRUNCATED_BY_CANDIDATE_LIMIT if result.total_is_estimated else None,
         ),
     )
+
+
+def _diagnostic_panel_out(analysis: str, panel: AnalysisGenePanel | None) -> NiptDiagnosticPanelStateOut:
+    if panel is None:
+        return NiptDiagnosticPanelStateOut(analysis=analysis, panel=None)
+    identity = panel.identity
+    return NiptDiagnosticPanelStateOut(
+        analysis=analysis,
+        panel=NiptDiagnosticPanelOut(
+            panel_id=panel.panel_id,
+            name=identity["name"],
+            version=identity["version"],
+            source=identity.get("source"),
+            gene_count=identity["gene_count"],
+            external_version=identity.get("external_version"),
+            set_at=panel.set_at,
+        ),
+    )
+
+
+@router.get("/{family_id}/nipt/diagnostic-panel", response_model=NiptDiagnosticPanelStateOut)
+async def get_nipt_diagnostic_panel(
+    family_id: str,
+    project_id: str | None = None,
+    analysis: NiptAnalysisParam = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptDiagnosticPanelStateOut:
+    """The monogenic NIPT's diagnostic gene panel (REQ-NIPT-019): the panel the analysis is read
+    and reported within."""
+    key, panel = await get_family_nipt_diagnostic_panel(
+        session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
+    )
+    return _diagnostic_panel_out(key, panel)
+
+
+@router.put("/{family_id}/nipt/diagnostic-panel", response_model=NiptDiagnosticPanelStateOut)
+async def put_nipt_diagnostic_panel(
+    family_id: str,
+    payload: NiptDiagnosticPanelUpdate,
+    project_id: str | None = None,
+    analysis: NiptAnalysisParam = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptDiagnosticPanelStateOut:
+    """Set (``panel_id``) or clear (null) the monogenic NIPT's diagnostic gene panel; the change
+    is a clinical audit event of the family."""
+    key, panel = await set_family_nipt_diagnostic_panel(
+        session,
+        family_id=family_id,
+        user=user,
+        panel_id=payload.panel_id,
+        project_id=project_id,
+        analysis=analysis,
+    )
+    return _diagnostic_panel_out(key, panel)
 
 
 @router.get("/{family_id}/nipt/coverage", response_model=NiptCoverageSummaryOut)

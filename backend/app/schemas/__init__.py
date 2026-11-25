@@ -291,6 +291,9 @@ from .variants import (
     SharedStructuralVariantCountsOut,
 )
 from .nipt import (
+    NiptDiagnosticPanelOut,
+    NiptDiagnosticPanelStateOut,
+    NiptDiagnosticPanelUpdate,
     NiptDeNovoTriageOut,
     NiptDeNovoWindowOut,
     NiptFetalFractionOut,
@@ -757,6 +760,9 @@ __all__ = [
     "NiptArtifactImportOut",
     "NiptArtifactScopeOut",
     "NiptArtifactSeedVariantOut",
+    "NiptDiagnosticPanelOut",
+    "NiptDiagnosticPanelStateOut",
+    "NiptDiagnosticPanelUpdate",
     "NiptDeNovoTriageOut",
     "NiptDeNovoWindowOut",
     "NiptFetalSexOut",

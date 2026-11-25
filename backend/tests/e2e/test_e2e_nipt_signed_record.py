@@ -172,9 +172,18 @@ async def _collect(root: Path, family_id: str, panel: str) -> dict:
             await ac.post("/api/admin/nipt/artifacts", json={**scope, "variant_id": ARTIFACT, "label": "e2e recurrent artifact"})
         )
         artifact_id = (r["artifact_added"]["json"] or {}).get("id")
+        # The analysis's diagnostic gene panel (REQ-NIPT-019), a panel of the run's own.
+        r["panel_created"] = capture(
+            await ac.post("/api/panels/", json={"name": f"e2e NIPT diagnostic {panel}", "genes": ["GENE_DENOVO", "BRCA1"]})
+        )
+        panel_id = ((r["panel_created"]["json"] or {}).get("panel") or {}).get("_id")
         reader_id = None
         try:
             r["artifacts"] = capture(await ac.get("/api/admin/nipt/artifacts", params=scope))
+            r["diagnostic_panel_before"] = capture(await ac.get(f"{family}/nipt/diagnostic-panel"))
+            r["diagnostic_panel_set"] = capture(
+                await ac.put(f"{family}/nipt/diagnostic-panel", json={"panel_id": panel_id})
+            )
             await _sign_out_and_read(ac, r, family, family_id)
 
             # A reader in the family's project: the same sign-out, the one the NIPT page sends.
@@ -186,7 +195,14 @@ async def _collect(root: Path, family_id: str, panel: str) -> dict:
             )
             out["versions_after_reader"] = await _signed_versions(family_id)
         finally:
-            # Nothing left in a scope another module could read, and no account.
+            # Nothing left in a scope another module could read, and no account. A panel that is
+            # an analysis's diagnostic panel cannot be deleted: cleared first.
+            if panel_id:
+                r["panel_deleted_in_use"] = capture(await ac.delete(f"/api/panels/{panel_id}"))
+                r["diagnostic_panel_cleared"] = capture(
+                    await ac.put(f"{family}/nipt/diagnostic-panel", json={"panel_id": None})
+                )
+                r["panel_deleted"] = capture(await ac.delete(f"/api/panels/{panel_id}"))
             if artifact_id:
                 r["artifact_deleted"] = capture(await ac.delete(f"/api/admin/nipt/artifacts/{artifact_id}"))
             r["artifacts_after"] = capture(await ac.get("/api/admin/nipt/artifacts", params=scope))
@@ -201,6 +217,11 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str) -> None:
     # What the NIPT page shows: its coverage card asks for no gene or panel when it opens.
     r["summary"] = capture(await ac.get(f"{family}/nipt/summary"))
     r["coverage"] = capture(await ac.get(f"{family}/nipt/coverage"))
+    # And with the analysis's diagnostic panel, which the sign-out runs the check over.
+    diagnostic = ((r.get("diagnostic_panel_set") or {}).get("json") or {}).get("panel") or {}
+    r["coverage_panel"] = capture(
+        await ac.get(f"{family}/nipt/coverage", params={"panel_id": diagnostic.get("panel_id", "")})
+    )
     r["variants"] = capture(await ac.get(f"{family}/nipt/variants", params={"page_size": 500}))
     r["de_novo_view"] = capture(await ac.get(f"{family}/nipt/variants", params={"inheritance": "de_novo"}))
     # The variant summary's NIPT-M tab and its small-variant tab.
@@ -473,6 +494,27 @@ def test_the_review_tag_filter_keeps_and_leaves_out_exactly_the_tagged_variants(
     assert (unheld["total"], unheld["variants"], unheld["not_classified"]) == (0, [], [])
 
 
+def test_the_record_freezes_the_diagnostic_panel_set_through_the_api(signed) -> None:
+    # REQ-NIPT-019: none at first; set through the API, it is the analysis's scope, frozen in
+    # the record with its version and gene list; in use it cannot be deleted, cleared it can.
+    assert ok_json(signed, "diagnostic_panel_before")["panel"] is None
+    assert signed["responses"]["panel_created"]["status"] == 201
+    created = signed["responses"]["panel_created"]["json"]["panel"]
+    state = ok_json(signed, "diagnostic_panel_set")
+    assert state["panel"]["panel_id"] == created["_id"]
+    assert (state["panel"]["version"], state["panel"]["gene_count"]) == (1, 2)
+    frozen = _nipt(signed)["diagnostic_panel"]
+    assert (frozen["panel_id"], frozen["version"], frozen["gene_count"]) == (created["_id"], 1, 2)
+    assert frozen["genes_digest"]
+    events = [event for event in ok_json(signed, "audit")["events"] if event["action"] == "diagnostic_panel_set"]
+    assert [((event["before"] or {}).get("panel_id"), (event["after"] or {}).get("panel_id")) for event in events][
+        -1
+    ] == (None, created["_id"])
+    assert signed["responses"]["panel_deleted_in_use"]["status"] == 409
+    assert ok_json(signed, "diagnostic_panel_cleared")["panel"] is None
+    assert signed["responses"]["panel_deleted"]["status"] in (200, 204)
+
+
 def test_the_record_verifies_and_still_matches_right_after_it_was_signed(signed) -> None:
     detail = ok_json(signed, "detail")
     assert detail["verified"] is True
@@ -489,10 +531,12 @@ def test_the_record_verifies_and_still_matches_right_after_it_was_signed(signed)
 
 
 def test_the_record_freezes_the_coverage_notes_the_nipt_page_showed(signed) -> None:
-    # Without a per-target table the NIPT page's coverage card, which asks for no gene or panel
-    # when it opens, reads the plasma's coverage tracks over the family's ROI and names its
-    # coverage BED, which declares nothing, as not read as depth. The record freezes the notes
-    # word for word, with what the check ran for (the owner's decision of 2026-10-28).
+    # Without a per-target table the NIPT page's coverage card reads the plasma's coverage
+    # tracks over the family's ROI (no gene or panel, or a panel whose genes have no loci on the
+    # assembly, as the run's diagnostic panel) and names its coverage BED, which declares
+    # nothing, as not read as depth. The record freezes the notes of the check over the
+    # analysis's diagnostic panel word for word, with what the check ran for (the owner's
+    # decision of 2026-10-28).
     coverage = ok_json(signed, "coverage")
     plasma = signed["ids"]["CFDNA_NIPT"]
     assert coverage["coverage_notes"] == [
@@ -500,16 +544,18 @@ def test_the_record_freezes_the_coverage_notes_the_nipt_page_showed(signed) -> N
         "read as depth."
     ]
     assert coverage["target_region_count"] == 1
+    with_panel = ok_json(signed, "coverage_panel")
     frozen = _nipt(signed)["coverage_notes"]
     assert frozen == {
         "gene": None,
-        "panel": None,
+        "panel": signed["responses"]["panel_created"]["json"]["panel"]["_id"],
         "regions": [
             {"label": region["label"], "chrom": region["chr"], "start": region["start"], "end": region["end"]}
-            for region in coverage["per_region"]
+            for region in with_panel["per_region"]
         ],
-        "notes": coverage["coverage_notes"],
+        "notes": with_panel["coverage_notes"],
     }
+    assert frozen["notes"] == coverage["coverage_notes"]
     assert [(region["chrom"], region["start"], region["end"]) for region in frozen["regions"]] == [("1", 1000, 20000)]
 
 

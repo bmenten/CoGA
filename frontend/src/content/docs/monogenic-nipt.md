@@ -175,6 +175,8 @@ alt allele, and the fetus inherited it. The alt signal then comes from the fetus
 `FF / 2`. CoGA selects these sites:
 
 - autosomal, with a cfDNA call of the site's own;
+- inside a capture target of the plasma's per-target coverage table, when it has one (the R
+  validation restricts every call to the capture target);
 - the father's genotype is het or hom-alt, at a depth of 20 or more;
 - cfDNA depth 20 or more, and the call passes the quality filter;
 - cfDNA VAF from 0.5% to 25%. 25% is midway between `FF / 2` and the `50% − FF / 2` of a maternal
@@ -290,7 +292,8 @@ Flags appear as chips on the variant card.
 | `no_alt_signal` | The allele is not present in the cfDNA, and the father does not carry it or has no usable call. |
 | `maternal_inference_indel`, `allele_balance_outlier` | See the maternal probability above. |
 | `father_call_…`, `plasma_call_…` | The other sample's call was looked up in another representation (see above). |
-| `artifact_list_protected` | The site is on the assay's artifact list, but the family's own annotation marks it common or ClinVar-pathogenic, so it stays in (see *Artifact list*). |
+| `artifact_list_protected` | The site is on the assay's artifact list, but the family's own annotation marks it common or ClinVar-pathogenic, or the family's father carries it, so it stays in (see *Artifact list*). |
+| `off_target` | The site lies outside every capture target of the plasma's per-target coverage table: off-target reads. It is listed and classified, but it is no fetal-fraction site and no de novo candidate (paternity and the fetal sex count no site without the plasma's target depth either). |
 | `sex_chromosome_unsupported` | chrX, chrY or the mitochondrion: not classified. |
 
 ---
@@ -313,9 +316,10 @@ A saved search or a link can carry filters that only the other page applies:
 
 ### De novo in the fetus
 
-A candidate is a cfDNA call of the site's own that passes the quality filter, on an autosome, where the
-father has no supported call (no call, reference, a low-level signal, too thin, or no data). CoGA then
-triages it as the R pipeline does.
+A candidate is a cfDNA call of the site's own that passes the quality filter, on an autosome, inside a
+capture target of the plasma's coverage table (when it has one), where the father has no supported
+call (no call, reference, a low-level signal, too thin, or no data). CoGA then triages it as the R
+pipeline does.
 
 **The fetal window.** A fetal allele the mother lacks sits where the paternal alleles the fetus
 inherited sit. The strict window runs from the 5th to the 95th percentile of the FF sites' allele
@@ -482,9 +486,38 @@ other cfDNA samples. When the list stops at the 5,000 limit, the file is named
 
 ---
 
+## The diagnostic gene panel
+
+Each pregnancy's analysis is read and reported within a **diagnostic gene panel**: the indication's
+panel, or the clinical exome's. The panels are CoGA's own gene panels, which an administrator edits and
+versions as for every other analysis (*Admin → Gene panels*).
+
+- **Set it** in the *Diagnostic gene panel* card of the NIPT page, and change it when the indication
+  changes. Each change is a clinical audit event of the family (`diagnostic_panel_set`), with the panel
+  before and after: its version and a digest of its gene list.
+- **The page and the report open on it.** Without one, the page opens on the Mendeliome. The panel
+  filter still lets you look at other panels; the card offers to show the diagnostic panel's variants
+  again.
+- **The sign-out freezes it:** the panel's name, version, source release and the digest of its gene
+  list, and the **coverage of its capture targets**: how many targets its genes have, how many fall
+  below 300×, each gene with a weak target, and each gene of the panel without a capture target. Such
+  a gene is **not tested**. A panel edited since the sign-out (a new version) shows as a change of the
+  NIPT results.
+- **Without a diagnostic panel** the sign-out stops until you record a reason, as for a failed NIPT
+  quality check: the analysis then states no scope.
+- A panel that is an analysis's diagnostic panel cannot be deleted.
+
+Systematically poorly captured targets (the R validation's capture classes A and B, such as SMN1/2,
+CYP21A2, HBA1/2 and STRC) have no list of their own: the coverage check names them per sample, as weak
+targets of the genes they belong to.
+
+---
+
 ## The report
 
-The report uses only the gene panel and the gene of the NIPT page's search. Its **Scope** section names
+The report uses only the gene panel and the gene of the NIPT page's search; without a panel in the
+link from the NIPT page, the analysis's diagnostic panel. It says whether its scope is the diagnostic
+panel, the one the sign-out freezes, and warns when it is not. Its **Scope** section names
 them, with the panel's version, and says that no other filter of the page applies: not the categories,
 the inheritance view, the confidence, the regions, or the frequency and consequence filters. With both
 a panel and a gene, a variant is listed when it matches both. Artifact-list sites are left out; sites
@@ -529,7 +562,8 @@ signed version shows them:
 - the pregnancy, its fetuses and, for a multiple pregnancy, the note above;
 - the fetal fraction and the quality checks with their verdicts;
 - the coverage of the capture targets (without a per-target table, the coverage check's notes on the
-  coverage tracks it did not read as depth; see *Coverage*);
+  coverage tracks it did not read as depth, over the diagnostic panel's genes; see *Coverage*);
+- the diagnostic gene panel and the coverage of its targets (see *The diagnostic gene panel*);
 - the filter funnel and the category counts;
 - each variant tagged *report*, as this analysis classifies it (its category, reads, inheritance
   probabilities, how its allele recurred in the assay's other cfDNA samples and, for a de novo
@@ -538,8 +572,8 @@ signed version shows them:
 - what the analysis ran with (the coverage tables, the artifact list and the model).
 
 Sign-out stops at the family's checks. Besides the Sample QC, a failed NIPT quality check stops it until
-you record a reason: no fetal-fraction estimate, a fetal sex whose two signals disagree, or male DNA
-given as the maternal plasma. Tag the variants you report before you sign out: a variant without the
+you record a reason: no fetal-fraction estimate, a fetal sex whose two signals disagree, male DNA
+given as the maternal plasma, or no diagnostic gene panel. Tag the variants you report before you sign out: a variant without the
 *report* tag is not frozen with its classification.
 
 **Show reported (N)**, in the page's *Sign-out* section, lists what a sign-out would freeze: the

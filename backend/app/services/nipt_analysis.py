@@ -70,6 +70,10 @@ ALLELE_BALANCE_OUTLIER_Z = 4.0
 FF_HARD_FLOOR = 5
 FF_MIN_SITES = 30
 FF_MAX_CI_HALFWIDTH = 0.03
+# A site outside every capture target of the plasma's per-target coverage table
+# (``NiptSiteObservation.in_target``): classified and listed, but no fetal-fraction site and
+# no de novo candidate.
+OFF_TARGET_FLAG = "off_target"
 
 _CATEGORY_LABELS: dict[int, str] = {
     1: "de novo in fetus",
@@ -152,6 +156,11 @@ class NiptSiteObservation:
     # another record (FATHER_CALL_OTHER_REPRESENTATION, PLASMA_CALL_OTHER_REPRESENTATION): the
     # one carrying the allele's weakest base. None otherwise.
     represented_by: str | None = None
+    # Whether the allele lies in a capture target of the plasma's per-target coverage table
+    # (its REF span overlaps one); None without a table, or in a joint VCF. An allele outside
+    # every target is no fetal-fraction site and no de novo candidate (OFF_TARGET_FLAG), as
+    # the R validation restricts every call to the capture target.
+    in_target: bool | None = None
 
     @property
     def variant_class(self) -> str:
@@ -575,7 +584,7 @@ def _passes_quality(site: NiptSiteObservation, qc: NiptQualityThresholds, *, ff:
 def _is_ff_site(site: NiptSiteObservation, qc: NiptQualityThresholds, vaf_ceiling: float) -> bool:
     """A category-7 site: the father carries the allele, the mother does not, and the
     fetus inherited it -- a passing cfDNA call in the fetal band."""
-    if not site.is_autosomal or not has_own_plasma_call(site):
+    if not site.is_autosomal or not has_own_plasma_call(site) or site.in_target is False:
         return False
     if trusted_father_state(site, qc) not in ("het", "hom_alt"):
         return False
@@ -848,6 +857,8 @@ def classify_site(
 ) -> NiptClassification:
     ff = ff_estimate.ff
     flags: list[str] = []
+    if site.in_target is False:
+        flags.append(OFF_TARGET_FLAG)
 
     if not site.is_autosomal:
         flags.append("sex_chromosome_unsupported")

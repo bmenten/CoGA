@@ -36,6 +36,7 @@ from backend.app.services.clickhouse_variant_records import SmallVariantCall, Sm
 from backend.app.services.coverage_read_depth import SampleCoverageTracks
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.hash_chain import canonical_hash
+from backend.app.services.panel_use_audit import panel_identity
 from backend.app.services.nipt import NiptTrio
 from backend.app.services.nipt_analysis import NIPT_MODEL_REFERENCE, NiptQualityThresholds
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
@@ -107,6 +108,8 @@ def _targets(*, y_mean: float = 108.0, x_mean: float = 1300.0) -> list[TargetCov
         # Over every chr1 site of _ff_sites, called by the plasma or not.
         TargetCoverageRow(chrom="1", start=900, end=8100, gene="GENEZ", attribute="GENEZ", mean=1500.0, median=1500.0),
         TargetCoverageRow(chrom="7", start=350, end=450, gene="GENEB", attribute="GENEB", mean=1500.0, median=1500.0),
+        # Over the de novo candidate: a call outside every target is none (off_target).
+        TargetCoverageRow(chrom="7", start=480, end=520, gene="GENEC", attribute="GENEC", mean=1500.0, median=1500.0),
         TargetCoverageRow(chrom="7", start=0, end=120, gene="GENEA", attribute="GENEA;NM_1", mean=250.0, median=240.0,
                           proportion_covered=100.0),
         TargetCoverageRow(chrom="X", start=0, end=100, gene="GENEX", attribute="GENEX", mean=x_mean, median=x_mean),
@@ -166,9 +169,20 @@ def _family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
 _LOADED = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
 
 
+# The analysis's diagnostic gene panel (analysis_gene_panel): GENEA, GENEB and GENEC have
+# capture targets, GENEQ none. Its genes as stored: GENEQ by its Ensembl id.
+_PANEL_ID = "0d1a2b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+_PANEL_ROW = {
+    "panel_id": _PANEL_ID, "name": "NIPT diagnostic", "version": 3, "source": "local", "external_id": None,
+    "external_version": None, "source_updated_at": None, "source_metadata": {}, "gene_count": 4,
+}
+_PANEL_GENES = [("ENSG00000000001", "GENEQ"), ("GENEA", None), ("GENEB", None), ("GENEC", None)]
+
+
 class _Session:
-    """Answers the family's analysis type and region of interest, its target-table sources and
-    its small-variant reviews (variant id -> tags)."""
+    """Answers the family's analysis type and region of interest, its target-table sources,
+    its small-variant reviews (variant id -> tags) and its NIPT's diagnostic panel (``panel``:
+    False for none)."""
 
     def __init__(
         self,
@@ -176,15 +190,23 @@ class _Session:
         analysis_type: str | None = "monogenic_nipt",
         reviews: dict[str, list[str]] | None = None,
         roi: dict[str, Any] | None = None,
+        panel: bool = True,
     ) -> None:
         self.analysis_type = analysis_type
         self.reviews = reviews or {}
         self.roi = roi or {}
+        self.panel = panel
         self.executed: list[tuple[str, Any]] = []
 
     async def execute(self, statement: Any, params: Any = None) -> _Result:
         sql = str(statement)
         self.executed.append((sql, params))
+        if "FROM family_analysis_gene_panels" in sql:
+            return _Result([{"panel_id": _PANEL_ID, "set_at": _LOADED}] if self.panel else [])
+        if "FROM gene_panel_genes" in sql and "count(*)" not in sql:
+            return _Result([{"gene": gene, "symbol": symbol} for gene, symbol in _PANEL_GENES])
+        if "FROM gene_panels gp" in sql:
+            return _Result([_PANEL_ROW])
         if "track_type = 'haplotype'" in sql:
             # No member has haplotype blocks: the fetus, read as an embryo, has no data at all.
             return _Result([])
@@ -641,9 +663,9 @@ async def test_a_plasma_without_a_target_table_has_no_coverage_check_and_no_sex_
 # Without a per-target table the NIPT page reads the plasma's coverage tracks over the genes or
 # panel of its search, else the family's region of interest, and names each track it does not
 # read as depth. The record freezes those notes (the owner's decision of 2026-10-28). The
-# sign-out does not know the page's search: it runs the check itself as the page runs it without
-# a gene or panel, over the family's ROI, and freezes its notes word for word with what it ran
-# for.
+# sign-out does not know the page's search: it runs the check itself over the analysis's
+# diagnostic panel, or, without one, as the page runs it without a gene or panel, over the
+# family's ROI, and freezes its notes word for word with what it ran for.
 
 # A coverage BED that declares nothing, and WisecondorX's bins: neither is read as depth.
 _NOT_DEPTH = {"web": "unknown", "wisecondorx": "log2_ratio"}
@@ -654,7 +676,7 @@ async def test_the_coverage_notes_are_frozen_as_the_nipt_page_shows_them_over_th
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     track_reads = _wire(monkeypatch, targets=[], roi=_ROI, coverage=_NOT_DEPTH)
-    section = await _section([], _Session(roi=_ROI_ROW))
+    section = await _section([], _Session(roi=_ROI_ROW, panel=False))
     # The page's check with no gene or panel: the request its coverage card sends on opening.
     page = await nipt_service.get_family_nipt_coverage(session=None, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
 
@@ -677,7 +699,7 @@ async def test_the_coverage_notes_are_frozen_as_the_nipt_page_shows_them_over_th
     assert track_reads == [["7"], ["7"]]
     # JSON-safe, and the same when built again: the sign-out check compares it.
     assert canonical_hash(json.loads(json.dumps(section, allow_nan=False))) == canonical_hash(section)
-    again = await _section([], _Session(roi=_ROI_ROW))
+    again = await _section([], _Session(roi=_ROI_ROW, panel=False))
     assert again["coverage_notes"] == section["coverage_notes"]
 
 
@@ -685,7 +707,7 @@ async def test_the_coverage_notes_are_frozen_as_the_nipt_page_shows_them_over_th
 async def test_a_coverage_check_that_reads_every_track_as_depth_freezes_no_note(monkeypatch: pytest.MonkeyPatch) -> None:
     _wire(monkeypatch, targets=[], roi=_ROI, coverage={"web": "read_depth"})
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", _no_coverage_rows)
-    section = await _section([], _Session(roi=_ROI_ROW))
+    section = await _section([], _Session(roi=_ROI_ROW, panel=False))
     page = await nipt_service.get_family_nipt_coverage(session=None, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
     assert section["coverage_notes"]["notes"] == page.notes == []
     assert [region["label"] for region in section["coverage_notes"]["regions"]] == ["GENEA locus"]
@@ -707,10 +729,28 @@ async def test_without_a_roi_the_coverage_check_runs_over_no_region_and_notes_no
     # The page's card then says there is no target region; no track is read, so none is named.
     # A region of interest stored without its coordinates, or without its query, is none.
     track_reads = _wire(monkeypatch, targets=[], coverage=_NOT_DEPTH)
-    section = await _section([], _Session(roi=roi_row))
+    section = await _section([], _Session(roi=roi_row, panel=False))
     page = await nipt_service.get_family_nipt_coverage(session=None, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
     assert section["coverage_notes"] == {"gene": None, "panel": None, "regions": [], "notes": []}
     assert (page.regions.target_region_count, page.notes, track_reads) == (0, [], [])
+
+
+@pytest.mark.asyncio
+async def test_with_a_diagnostic_panel_the_coverage_check_runs_over_its_genes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Not over the family's ROI: over the panel's genes, as the page's check with the panel.
+    _wire(monkeypatch, targets=[], roi=_ROI, coverage=_NOT_DEPTH)
+    regions = []
+
+    async def panel_regions(_session, _context, panel_id):
+        assert panel_id == _PANEL_ID
+        regions.append(panel_id)
+        return [nipt_service.TargetRegion(label="GENEB", chrom="7", start=300, end=500)]
+
+    monkeypatch.setattr(srn, "nipt_panel_target_regions", panel_regions)
+    section = await _section([], _Session(roi=_ROI_ROW))
+    assert section["coverage_notes"]["panel"] == _PANEL_ID
+    assert section["coverage_notes"]["regions"] == [{"label": "GENEB", "chrom": "7", "start": 300, "end": 500}]
+    assert regions == [_PANEL_ID]
 
 
 @pytest.mark.asyncio
@@ -843,15 +883,53 @@ async def test_a_trio_that_cannot_be_resolved_is_frozen_as_such(monkeypatch: pyt
 # --- What gates the sign-out ---------------------------------------------------------------
 
 
-def _checked(ff: str = "pass", fetal_sex: str = "pass", plasma: str = "pass", sample: str | None = PLASMA) -> dict:
+def _checked(
+    ff: str = "pass", fetal_sex: str = "pass", plasma: str = "pass", sample: str | None = PLASMA, panel: bool = True
+) -> dict:
     return {
         "samples": {"maternal_plasma": sample},
+        "diagnostic_panel": {"panel_id": _PANEL_ID, "name": "NIPT diagnostic", "version": 3} if panel else None,
         "fetal_fraction": {"status": ff, "message": "Not estimated, from 2 category-7 sites (an estimate needs at least 5)."},
         "checks": {
             "fetal_sex": {"status": fetal_sex, "message": "The two signals disagree."},
             "plasma_sample": {"status": plasma, "message": "Male DNA: this sample cannot be maternal plasma."},
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_the_record_freezes_the_diagnostic_panel_and_its_targets_coverage(monkeypatch: pytest.MonkeyPatch) -> None:
+    # REQ-NIPT-019: the panel the analysis is read within, at its version, with its gene list's
+    # digest; and the coverage of its capture targets: GENEQ has none (not tested), GENEA's is
+    # weak (250x).
+    _wire(monkeypatch)
+    section = await _section([])
+    assert section["diagnostic_panel"] == {
+        **panel_identity(_PANEL_ROW),
+        "genes_digest": canonical_hash(["ENSG00000000001", "GENEA", "GENEB", "GENEC"]),
+    }
+    coverage = section["panel_target_coverage"]
+    assert (coverage["panel_genes"], coverage["targets"], coverage["below_critical"]) == (4, 3, 1)
+    assert coverage["genes_without_target"] == ["GENEQ"]
+    assert [gene["gene"] for gene in coverage["genes_with_weak_target"]] == ["GENEA"]
+    # Its panel set, the NIPT gates nothing.
+    assert srn.nipt_signout_concerns(section) == []
+
+
+@pytest.mark.asyncio
+async def test_without_a_diagnostic_panel_the_record_says_so_and_the_sign_out_asks_why(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wire(monkeypatch)
+    section = await _section([], _Session(panel=False))
+    assert (section["diagnostic_panel"], section["panel_target_coverage"]) == (None, None)
+    assert srn.nipt_signout_concerns(section) == [
+        (
+            "NIPT diagnostic panel",
+            "no diagnostic gene panel is set: the analysis states no scope. Set one on the NIPT page.",
+        )
+    ]
+    assert srn.nipt_signout_concerns(_checked(panel=False)) == srn.nipt_signout_concerns(section)
 
 
 def test_each_nipt_check_that_failed_gates_the_sign_out_naming_what_it_read() -> None:
@@ -875,7 +953,7 @@ def test_each_nipt_check_that_failed_gates_the_sign_out_naming_what_it_read() ->
         None,
         "not a section",
         {"unavailable": "The NIPT results could not be read."},
-        {"fetal_fraction": None, "checks": "garbled", "samples": None},
+        {"fetal_fraction": None, "checks": "garbled", "samples": None, "diagnostic_panel": {"panel_id": _PANEL_ID}},
     ],
 )
 def test_nipt_checks_that_did_not_fail_or_cannot_be_read_do_not_gate(section: Any) -> None:
@@ -886,6 +964,7 @@ def test_a_failed_check_without_its_message_still_gives_a_reason() -> None:
     bare = {
         "fetal_fraction": {"status": "fail"},
         "checks": {"fetal_sex": {"status": "fail"}, "plasma_sample": {"status": "fail"}},
+        "diagnostic_panel": {"panel_id": _PANEL_ID},
     }
     assert [message for _subject, message in srn.nipt_signout_concerns(bare)] == [
         "not estimated.",

@@ -25,6 +25,7 @@ from ..schemas import (
     PanelAppImportRequest,
     PanelAppImportResponse,
 )
+from .analysis_gene_panel import PANEL_IN_USE_SQL
 from .access_control import CurrentUser, has_superuser_rights
 from .ensembl_gene_ids import ensembl_gene_id, panel_gene_name
 from .panelapp_service import (
@@ -1104,6 +1105,18 @@ async def delete_panel_data(
 ) -> None:
     _ensure_admin(user)
     panel_id = require_uuid(panel_id, "Invalid panel id")
+    # A panel an analysis is read within (its diagnostic panel, analysis_gene_panel) stays: the
+    # analysis must first be given another one, on its clinical audit trail.
+    in_use = (await session.execute(PANEL_IN_USE_SQL, {"panel_id": panel_id})).scalar() or 0
+    if in_use:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"The panel is the diagnostic panel of {in_use} "
+                f"{'analysis' if in_use == 1 else 'analyses'}: give "
+                f"{'it' if in_use == 1 else 'them'} another panel first."
+            ),
+        )
     result = await session.execute(
         text("DELETE FROM gene_panels WHERE id = CAST(:panel_id AS uuid)"),
         {"panel_id": panel_id},
