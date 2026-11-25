@@ -30,11 +30,13 @@ Package import | A superuser or an administrator checks, corrects and approves t
 
 The **Package import** page lists under **Deliveries** the family folders the pipelines delivered,
 each with its package file (`coga-package.json`), checked by CoGA. Nothing is imported until you
-approve it.
+approve it. A folder is listed once its check is done: CoGA reads the package's files whole, which
+takes up to an hour for a genome, and checks the smaller packages first.
 
 1. Read the delivery's **State** (*Ready*, *Needs attention*, *Still copying*) and its warnings; a NIPT
    delivery names its pregnancy (*· pregnancy ZW1*). **Add a folder by hand** adds a folder no pipeline
-   delivered (for a NIPT, give its **Pregnancy ID**).
+   delivered (for a NIPT, give its **Pregnancy ID**); a folder that holds its own `coga-package.json`
+   is not offered there, as it comes in under **Deliveries**.
 2. **Correct…** completes or corrects what the package says (the project, the analysis, a NIPT's
    pregnancy, the members, the datasets), with a reason.
 3. **Dry run** checks it as an import would, without writing anything. **Approve…** imports it, or tick

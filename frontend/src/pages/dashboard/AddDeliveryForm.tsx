@@ -106,6 +106,11 @@ const AddDeliveryForm: React.FC<{
           delivery. Check and correct it with Correct…, then approve it. CoGA
           writes nothing in the folder.
         </p>
+        <p className="table-subtle">
+          A folder that holds its own coga-package.json is not listed: a
+          pipeline delivered it, and it appears under Deliveries once CoGA has
+          checked it.
+        </p>
         <div className="delivery-correction-grid">
           <div className="space-y-1">
             <label className="field-label">
@@ -122,7 +127,9 @@ const AddDeliveryForm: React.FC<{
                 <option value="">
                   {packagesQuery.isLoading
                     ? 'Scanning the import folder…'
-                    : 'Select a folder…'}
+                    : listed.length === 0
+                      ? 'No folder to add by hand'
+                      : 'Select a folder…'}
                 </option>
                 {listed.map((pkg) => (
                   <option key={pkg.folder_path} value={pkg.folder_path}>

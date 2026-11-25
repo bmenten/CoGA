@@ -222,6 +222,21 @@ describe('AddDeliveryForm', () => {
     ).toHaveValue('p1');
   });
 
+  it('says when no folder can be added by hand, and why a delivered one is not listed', async () => {
+    // Every folder holds its own coga-package.json: the watcher delivers them.
+    vi.mocked(api.get).mockImplementation((url: string) =>
+      Promise.resolve({ data: url === '/projects' ? projects : [] })
+    );
+    renderForm();
+
+    expect(
+      await screen.findByRole('option', { name: 'No folder to add by hand' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/holds its own coga-package\.json is not listed/)
+    ).toBeInTheDocument();
+  });
+
   it('says why a folder was not added', async () => {
     vi.mocked(api.post).mockRejectedValue({
       response: {

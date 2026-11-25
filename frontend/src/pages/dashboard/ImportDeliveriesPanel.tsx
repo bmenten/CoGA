@@ -724,7 +724,9 @@ const ImportDeliveriesPanel: React.FC = () => {
       <p className="table-subtle">
         Packages pipelines delivered with their package file
         (coga-package.json), checked by CoGA. Nothing is imported until you
-        approve it.
+        approve it. A delivery is listed once its check is done: CoGA reads the
+        package&apos;s files whole, which takes up to an hour for a genome, and
+        checks the smaller packages first.
       </p>
 
       <AddDeliveryForm

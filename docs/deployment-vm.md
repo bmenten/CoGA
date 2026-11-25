@@ -521,7 +521,10 @@ sudo systemctl daemon-reload && sudo mount /srv/coga/data/share
   project in CoGA (`/data/share/<project>/<family>`), add `FAMILY_IMPORT_WATCH_ROOTS=/data/share` to `.env` and run
   `docker compose up -d`. The import-worker service looks into it every five minutes
   (`FAMILY_IMPORT_WATCH_INTERVAL_SECONDS`), checks each new delivery and lists it under **Deliveries**
-  (`GET /api/family-imports/deliveries`). It imports nothing by itself
+  (`GET /api/family-imports/deliveries`) once its check is done. A check reads the package's files
+  whole, so the first rounds over a share that already holds many packages take hours: the watcher
+  checks `FAMILY_IMPORT_WATCH_CHECKS` (2) at a time, the smallest packages first, and the
+  import-worker's log counts the ones still waiting. It imports nothing by itself
   ([data-import.md](data-import.md#watched-import-folders)).
 
 ## 9. Run it

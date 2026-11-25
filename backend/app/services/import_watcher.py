@@ -14,7 +14,12 @@ superseded: the pipeline is writing the folder again. A folder whose file says i
 a delivery per package fingerprint (``family_package_fingerprint``): a folder that changes is a
 new delivery, and an open one before it of the same folder is superseded. A new delivery is
 checked once, and its state stored (``import_deliveries``, whose ``marker`` columns hold the
-package file):
+package file). A check reads the folder's files whole (their SHA-256, each VCF to its end), which
+for a genome's package takes minutes to an hour, so a round does not wait for it: the round finds
+the new deliveries and hands them to the checks (``DeliveryChecks``), which run beside the rounds,
+``FAMILY_IMPORT_WATCH_CHECKS`` at a time, the smallest folder first. One large package then holds
+neither the smaller ones nor what the rounds do every interval (an import job's end recorded, a
+folder followed after its import). A delivery is listed once its check is done:
 
 - ``incomplete``: a file the package file lists is missing or of another size: the copy runs
   still (its folder's fingerprint changes once it has finished, which is a new delivery);
@@ -66,6 +71,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
@@ -1134,11 +1140,144 @@ async def _assess_again(
         return _failed_check(exc)
 
 
+@dataclass(slots=True)
+class NewDelivery:
+    """A package folder as a round found it, whose state no delivery holds yet: its package file
+    as read (``read``) and its listing (``listing``), whose fingerprint the delivery is stored
+    under, in the watched folder ``root``."""
+
+    root: Path
+    folder: Path
+    read: PackageRead
+    listing: PackageListing
+
+    @property
+    def fingerprint(self) -> str:
+        return self.listing.fingerprint.sha256
+
+    @property
+    def size(self) -> float:
+        """The bytes of the files its listing names, by which the checks are ordered: a folder
+        too large to be listed whole comes last."""
+        if self.listing.entries is None:
+            return math.inf
+        return float(
+            sum(
+                int(record[1])
+                for record in self.listing.entries.values()
+                if len(record) > 1 and record[0] == "file" and isinstance(record[1], int)
+            )
+        )
+
+
+async def check_new_delivery(session_factory: async_sessionmaker[AsyncSession], new: NewDelivery) -> str | None:
+    """Check the new delivery ``new`` and store it (``_store_new_delivery``), with the listing its
+    fingerprint was taken over (``file_listing``). Returns its state, or None when its folder
+    changed while it was checked (what was checked is not what is there: the next round takes it)
+    or it was stored already."""
+    # The package file as read before the fingerprint: a folder changed since then is left below.
+    assessment = await _assess(session_factory, new.folder, new.read, watched_in=new.root)
+    if await _fingerprint(new.folder) != new.fingerprint:
+        return None
+    assessment.file_listing = new.listing.entries
+    return await _store_new_delivery(session_factory, new.root, new.folder, new.fingerprint, assessment)
+
+
+class DeliveryChecks:
+    """The checks of the new deliveries the rounds find, run beside the rounds: at most ``limit``
+    at a time (``FAMILY_IMPORT_WATCH_CHECKS``), the smallest folder first, so one large package
+    holds neither the smaller ones nor the rounds.
+
+    One check of a folder at a time: a folder found again with the fingerprint it is being checked
+    under is left to that check; one found changed waits for it, as the folder is now (its check
+    finds the change and stores nothing). A check that waited takes the folder's fingerprint again
+    first, and leaves a folder changed or gone since it was found to the next round. Each check's
+    end is counted by state (``taken``): the round logs the new deliveries, never a folder."""
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession], limit: int | None = None) -> None:
+        self._session_factory = session_factory
+        self._limit = max(1, limit if limit is not None else settings.family_import_watch_checks)
+        self._waiting: dict[str, NewDelivery] = {}
+        self._running: dict[str, tuple[str, asyncio.Task[None]]] = {}
+        self._checked: dict[str, int] = {}
+
+    @property
+    def waiting(self) -> int:
+        """The new deliveries waiting for their check."""
+        return len(self._waiting)
+
+    @property
+    def running(self) -> int:
+        """The new deliveries being checked."""
+        return len(self._running)
+
+    def submit(self, new: NewDelivery) -> None:
+        """Have the new delivery ``new`` checked, unless its folder is being checked as it is now."""
+        key = str(new.folder)
+        running = self._running.get(key)
+        if running is not None and running[0] == new.fingerprint:
+            self._waiting.pop(key, None)
+            return
+        self._waiting[key] = new
+        self._start()
+
+    def _start(self) -> None:
+        while len(self._running) < self._limit:
+            free = [new for key, new in self._waiting.items() if key not in self._running]
+            if not free:
+                return
+            # The smallest first; of equal ones, the one found first.
+            new = min(free, key=lambda item: item.size)
+            key = str(new.folder)
+            del self._waiting[key]
+            self._running[key] = (new.fingerprint, asyncio.create_task(self._check(new)))
+
+    async def _check(self, new: NewDelivery) -> None:
+        key = str(new.folder)
+        try:
+            # It may have waited for others: a folder changed or gone since is the next round's.
+            if await _fingerprint(new.folder) != new.fingerprint:
+                return
+            state = await check_new_delivery(self._session_factory, new)
+            if state is not None:
+                self._checked[state] = self._checked.get(state, 0) + 1
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - one folder's failure never stops the others
+            logger.warning("Import watcher could not check a delivery: %s", describe_error(exc))
+        finally:
+            self._running.pop(key, None)
+            self._start()
+
+    def taken(self) -> dict[str, int]:
+        """The new deliveries stored since the last call, by state."""
+        checked, self._checked = self._checked, {}
+        return checked
+
+    async def drain(self) -> None:
+        """Wait until every delivery handed over is checked."""
+        while self._running:
+            await asyncio.wait([task for _fingerprint, task in self._running.values()])
+
+    async def stop(self) -> None:
+        """Drop the waiting checks and cancel the running ones: another watcher, or the next start,
+        finds their folders again. A check's thread that is reading a file ends with that read;
+        what it found is not stored."""
+        self._waiting.clear()
+        tasks = [task for _fingerprint, task in self._running.values()]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self._running.clear()
+
+
 async def look_at_folder(
     session_factory: async_sessionmaker[AsyncSession],
     root: Path,
     folder: Path,
     seen_fingerprints: dict[str, str] | None = None,
+    *,
+    checks: DeliveryChecks | None = None,
 ) -> tuple[str, str] | None:
     """Look at one package folder: one whose package file says its run is under way, or failed, is
     no delivery, and the open deliveries of the folder before it are superseded
@@ -1154,7 +1293,8 @@ async def look_at_folder(
     The fingerprint taken is put in ``seen_fingerprints`` by the folder's path: the round's
     following of imported deliveries does not list a folder seen as it was imported again
     (``package_changed_after_import``). A new delivery keeps the listing its fingerprint was
-    taken over (``file_listing``)."""
+    taken over (``file_listing``). With ``checks``, a new delivery is handed to them
+    (``DeliveryChecks``) and None returned: the round does not wait for its check."""
     read = await asyncio.to_thread(read_package_file, folder)
     if not read.offered:
         superseded = await _supersede_for_run(session_factory, folder, read)
@@ -1205,13 +1345,11 @@ async def look_at_folder(
         )
         kind = "reopened" if why is FOLDER_AS_BEFORE else "checked_again"
         return (kind, state) if state is not None else None
-    # The package file as read before the fingerprint: a folder changed since then is left below.
-    assessment = await _assess(session_factory, folder, read, watched_in=root)
-    # Changed while it was checked: what was checked is not what is there.
-    if await _fingerprint(folder) != fingerprint:
+    new = NewDelivery(root=root, folder=folder, read=read, listing=listing)
+    if checks is not None:
+        checks.submit(new)
         return None
-    assessment.file_listing = listing.entries
-    stored = await _store_new_delivery(session_factory, root, folder, fingerprint, assessment)
+    stored = await check_new_delivery(session_factory, new)
     return ("new", stored) if stored is not None else None
 
 
@@ -1632,6 +1770,9 @@ class WatchRound:
     changed_after_import: int = 0
     gone_after_import: int = 0
     changes_ended: int = 0
+    # The new deliveries waiting for their check, and being checked, as the round ends.
+    checks_waiting: int = 0
+    checks_running: int = 0
 
 
 async def _open_deliveries(session_factory: async_sessionmaker[AsyncSession], root: Path) -> int:
@@ -1649,14 +1790,41 @@ async def _open_deliveries(session_factory: async_sessionmaker[AsyncSession], ro
         )
 
 
-async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roots: list[Path]) -> WatchRound:
+async def run_watch_round(
+    session_factory: async_sessionmaker[AsyncSession],
+    roots: list[Path],
+    *,
+    checks: DeliveryChecks | None = None,
+) -> WatchRound:
     """One round over the watched folders ``roots`` (see the module's docstring), none or more. It
     first records the end of each queued delivery's import job
     (``import_delivery_review.sync_delivery_jobs``) and offers each delivery whose import failed
     again (``import_delivery_review.offer_failed_deliveries_again``), and last follows the package
     folder of each family imported from a delivery, against its reference delivery
     (``package_changed_after_import.follow_imported_deliveries``): those hold for a folder added by
-    hand too, so they run with no folder watched."""
+    hand too, so they run with no folder watched.
+
+    The new deliveries it finds are handed to ``checks``, which the watcher keeps from round to
+    round: the round does not wait for them, and counts those stored since the last round. With
+    none given, the round checks them itself (in the same order, as many at a time) and waits for
+    them, each watched folder's before its deliveries are counted missing."""
+    if checks is not None:
+        return await _watch_round(session_factory, roots, checks, own_checks=False)
+    checks = DeliveryChecks(session_factory)
+    try:
+        return await _watch_round(session_factory, roots, checks, own_checks=True)
+    finally:
+        # A round that failed leaves no check of its own running.
+        await checks.stop()
+
+
+async def _watch_round(
+    session_factory: async_sessionmaker[AsyncSession],
+    roots: list[Path],
+    checks: DeliveryChecks,
+    *,
+    own_checks: bool,
+) -> WatchRound:
     # Imported here: the review module and the following of imported deliveries read this one's
     # chain and list.
     from .import_delivery_review import offer_failed_deliveries_again, sync_delivery_jobs
@@ -1681,7 +1849,7 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
         folders = listing.folders
         result.roots_watched += 1
         for folder in folders:
-            looked = await look_at_folder(session_factory, root, folder, seen_fingerprints)
+            looked = await look_at_folder(session_factory, root, folder, seen_fingerprints, checks=checks)
             if looked is not None:
                 kind, state = looked
                 if kind == "superseded":
@@ -1689,6 +1857,8 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
                     continue
                 counts = {"new": result.deliveries, "reopened": result.reopened}.get(kind, result.checked_again)
                 counts[state] = counts.get(state, 0) + 1
+        if own_checks:
+            await checks.drain()
         result.gone += await mark_missing(
             session_factory, root, {str(folder) for folder in folders}, unreadable=listing.unreadable
         )
@@ -1698,6 +1868,9 @@ async def run_watch_round(session_factory: async_sessionmaker[AsyncSession], roo
     result.changed_after_import = followed.changed
     result.gone_after_import = followed.gone
     result.changes_ended = sum(followed.resolved.values())
+    for state, count in checks.taken().items():
+        result.deliveries[state] = result.deliveries.get(state, 0) + count
+    result.checks_waiting, result.checks_running = checks.waiting, checks.running
     return result
 
 
@@ -1757,15 +1930,23 @@ async def import_watcher(stop: asyncio.Event) -> None:
     is set, while this watcher holds the leadership. It runs wherever import workers run, also
     with no folder watched: a folder added by hand is a delivery too, whose import job's end a
     round records, and whose folder it follows after its import. A round that fails is logged,
-    without its values, and the next one runs."""
+    without its values, and the next one runs.
+
+    The new deliveries the rounds find are checked beside them (``DeliveryChecks``), kept from
+    round to round while this watcher leads: a watcher that no longer leads, or stops, drops them,
+    and the one that leads finds their folders again."""
     roots = watch_roots()
     leadership = WatcherLeadership()
+    checks: DeliveryChecks | None = None
     logger.info("Import watcher watching %d import folder(s)", len(roots))
     try:
         while not stop.is_set():
             try:
                 if await leadership.hold():
-                    done = await run_watch_round(get_postgres_sessionmaker(), roots)
+                    session_factory = get_postgres_sessionmaker()
+                    if checks is None:
+                        checks = DeliveryChecks(session_factory)
+                    done = await run_watch_round(session_factory, roots, checks=checks)
                     if (
                         done.deliveries
                         or done.checked_again
@@ -1779,12 +1960,15 @@ async def import_watcher(stop: asyncio.Event) -> None:
                         or done.changed_after_import
                         or done.gone_after_import
                         or done.changes_ended
+                        or done.checks_waiting
+                        or done.checks_running
                     ):
                         logger.info(
                             "Import watch round: new deliveries %s, checked again %s, reopened %s, %d superseded by a "
                             "run, %d gone, %d import job(s) ended, failed imports offered again %s, %d "
                             "superseded after a failed import, %d of %d import folder(s) skipped; "
-                            "after their import %d folder(s) changed, %d gone, %d change(s) ended",
+                            "after their import %d folder(s) changed, %d gone, %d change(s) ended; "
+                            "%d new delivery(ies) waiting for their check, %d being checked",
                             dict(sorted(done.deliveries.items())),
                             dict(sorted(done.checked_again.items())),
                             dict(sorted(done.reopened.items())),
@@ -1798,7 +1982,13 @@ async def import_watcher(stop: asyncio.Event) -> None:
                             done.changed_after_import,
                             done.gone_after_import,
                             done.changes_ended,
+                            done.checks_waiting,
+                            done.checks_running,
                         )
+                elif checks is not None:
+                    # Another watcher leads now, and finds these folders again.
+                    await checks.stop()
+                    checks = None
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - a failed round never stops the watcher
@@ -1808,6 +1998,8 @@ async def import_watcher(stop: asyncio.Event) -> None:
             except TimeoutError:
                 pass
     finally:
+        if checks is not None:
+            await checks.stop()
         await leadership.release()
 
 

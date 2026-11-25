@@ -596,6 +596,9 @@ class Settings(BaseSettings):
     family_import_watch_interval_seconds: int = Field(
         default=300, ge=30, le=86_400, alias="FAMILY_IMPORT_WATCH_INTERVAL_SECONDS"
     )
+    # How many new deliveries the import watcher checks at a time, beside its rounds, the smallest
+    # folder first. A check reads the folder's files whole (their SHA-256, each VCF to its end).
+    family_import_watch_checks: int = Field(default=2, ge=1, le=8, alias="FAMILY_IMPORT_WATCH_CHECKS")
     # Reverse proxies in front of the backend that each append to X-Forwarded-For; the
     # client address is taken that many entries from the right. 0 leaves it to
     # uvicorn. Google's external Application Load Balancer appends two (client, LB).

@@ -949,6 +949,8 @@ delivery on the Package Import page, and only then is its import queued (below).
   log says how many; an entry with a scheme (`gs://` or `s3://`) stops the backend at start: name
   the folder a bucket is mounted on.
 - `FAMILY_IMPORT_WATCH_INTERVAL_SECONDS` (default 300, 30 to 86400) is the time between rounds.
+- `FAMILY_IMPORT_WATCH_CHECKS` (default 2, 1 to 8) is how many new deliveries the watcher checks
+  at a time, beside its rounds (below).
 - The watcher runs where the import workers run, whether a folder is watched or not: in each
   import-worker process, and in the API when it runs import workers itself
   (`FAMILY_IMPORT_WORKER_COUNT` above 0). One watcher looks at a time: it holds a Postgres advisory
@@ -1042,6 +1044,20 @@ changes is a new delivery. One seen before is checked again only when what CoGA 
 Any of these that fails makes the delivery `needs_attention`, each failure an issue; one that
 passes them all is `ready`. A check that cannot run (an error) is the issue `watch_check_failed`,
 with a fixed sentence. A folder that changed while it was checked is left to the next round.
+
+**Checks beside the rounds.** A check reads the folder's files whole (step 3, and each VCF to its
+end in step 6), which for a genome's package over a share takes minutes to an hour. So a round
+does not wait for the checks of the new deliveries it finds: it hands them over and goes on, and
+they run beside the rounds, `FAMILY_IMPORT_WATCH_CHECKS` at a time, the smallest folder (the bytes
+its files hold) first. One large package then holds neither the smaller ones behind it nor what
+the rounds do every interval: an import job's end recorded, a failed import offered again, a
+folder followed after its import. A folder is checked once at a time: a round that finds it again
+as it is being checked leaves it to that check, and one that finds it changed has it checked again
+after that check. A check that waited takes the folder's fingerprint first, and leaves a folder
+changed or gone since to the next round. A delivery is listed once its check is done; until then
+the round's log line counts the deliveries waiting for their check and being checked, never
+naming a folder. A watcher that stops, or no longer leads, drops the checks it has not finished:
+the one that leads finds those folders again, as new.
 
 **Checked again when CoGA changes.** Some issues come from what CoGA holds, not from the folder:
 the project the package file names (`package_project_unknown`, `package_assembly_differs`), a
@@ -3220,6 +3236,7 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
 | Message or symptom | Cause and fix |
 | --- | --- |
 | `package_folder_not_allowed` | The folder is not under `FAMILY_IMPORT_ROOTS`, or its path cannot be followed: it runs through a symlink loop, or starts with `~` for a home folder the server does not have. |
+| A package folder in a watched folder is not under **Deliveries** yet | It is listed once its check is done. A check reads the package's files whole, so a genome's package takes up to an hour, and the first rounds over a share that already holds many packages take hours; the smallest packages are checked first, `FAMILY_IMPORT_WATCH_CHECKS` at a time ([Checks beside the rounds](#watched-import-folders)). The import-worker's log line *Import watch round* counts the deliveries waiting for their check and being checked. A folder that is not counted there either lies outside a project folder of a watched folder, holds no `coga-package.json`, or its file says the run is under way or failed. |
 | A folder in the import folder is not in **Add a folder by hand**'s list | It holds no PED (at its top or in `ped/`) and no long-read per-sample folders; it holds its own `coga-package.json` (deliver it through a watched folder); it was imported completely (tick **Show imported folders**); or the import refuses it: a symlink leading out of `FAMILY_IMPORT_ROOTS`, or one that loops. Type its path to see the reason (`package_folder_not_allowed`). |
 | `family_id_invalid` | The family ID holds a control character, whitespace, a text-direction, zero-width or other non-printable character, a `/` or a `\`, or is `.`, `..` or empty ([Validation](#validation)). The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
 | `sample_id_invalid` | A sample ID breaks the same rule. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
