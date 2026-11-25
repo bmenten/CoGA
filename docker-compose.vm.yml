@@ -21,6 +21,11 @@ services:
 
   import-worker:
     logging: *logging
+    # Its temporary files on /srv (docs/deployment-vm.md, step 5): the VEP annotation index of
+    # a whole-genome import takes tens of gigabytes, and a container's own files are on the
+    # system disk, in containerd's image store. Added to the base file's ./data:/data.
+    volumes:
+      - /srv/coga-import-tmp:/tmp
 
   frontend:
     logging: *logging
