@@ -1,6 +1,11 @@
 {
   "schema_version": 1,
   "source": "Curated Paraphase medically relevant duplicated and difficult regions",
+  "field_descriptions": {
+    "total_cn": "Copies of the gene and its paralogs or pseudogene together, on both chromosomes.",
+    "gene_cn": "Copies of the gene itself, its pseudogene not counted. Paraphase gives it only where it tells the gene from its pseudogene.",
+    "highest_total_cn": "The most haplotypes Paraphase saw in the region, a count for its own use. Noisy alignment can raise it above the total copy number: it is not a copy number and never the call."
+  },
   "regions": [
     {
       "region_id": "smn1_smn2",
@@ -77,7 +82,6 @@
       "region_id": "rccx",
       "display_name": "RCCX module",
       "genes": [
-        "RCCX",
         "CYP21A2",
         "TNXB",
         "C4A",
@@ -86,7 +90,6 @@
       "aliases": [
         "rccx",
         "cyp21a2",
-        "tnxb",
         "c4a",
         "c4b"
       ],
@@ -119,7 +122,8 @@
         "deletion_hap": "Deletion haplotype with both starting and ending characteristics, consistent with one RCCX copy on the allele.",
         "hap_variants": "Common CYP21A2/CYP21A1P differentiating variants used for allele annotation.",
         "phasing_success": "Whether RCCX haplotypes could be connected into alleles.",
-        "annotated_alleles": "Per-allele CYP21A2 annotations such as WT, pseudogene deletion, gene duplication, or fusion deletion alleles."
+        "annotated_alleles": "One label per chromosome for what its CYP21A2 copies hold; How to read lists the labels.",
+        "total_cn": "RCCX modules on both chromosomes; each holds one CYP21 copy, CYP21A2 or its pseudogene CYP21A1P. Four, two per chromosome, is the most common; fewer or more occur in healthy people, so the number alone says nothing about CAH."
       },
       "disorders": [
         {
@@ -140,7 +144,158 @@
         "normal": "Each allele has one functional CYP21A2 + one CYP21A1P (WT); isolated pseudogene duplication/deletion or a benign gene duplication are not disease.",
         "carrier": "One affected allele (CYP21A2 deletion, CYP21A1P/CYP21A2 fusion, or pathogenic variant) with a normal allele.",
         "pathogenic": "Biallelic damaging alleles (gene deletion, chimeric/30-kb deletion alleles, gene conversion, or known pathogenic CYP21A2 variants).",
-        "caveats": "Allele-dependent, not inferable from copy number alone (e.g. a WT+Q319X duplication allele is NOT pathogenic)."
+        "caveats": "Allele-dependent, not inferable from copy number alone (e.g. a WT+Q319X duplication allele is NOT pathogenic).",
+        "allele_rule": {
+          "field": "annotated_alleles",
+          "alleles": 2,
+          "phasing_field": "phasing_success",
+          "normal": [
+            "WT",
+            "pseudogene_duplication",
+            "pseudogene_deletion",
+            "gene_duplication"
+          ],
+          "normal_prefixes": [
+            "duplication_WT_plus_"
+          ]
+        }
+      },
+      "guide": [
+        {
+          "heading": "The module",
+          "text": "An RCCX module is a stretch of about 30 kb holding four genes: RP, C4 (C4A or C4B), CYP21 and TNX. Most chromosomes carry two modules in a row. The first holds the pseudogenes CYP21A1P and TNXA, the last the genes CYP21A2 and TNXB. One module, or three, also occur on healthy chromosomes. Paraphase counts each module as one copy."
+        },
+        {
+          "heading": "Allele labels",
+          "text": "Annotated alleles, under Extra info, gives one label per chromosome for what its CYP21A2 copies hold. Paraphase may give a label this list does not name: read such an allele in IGV.",
+          "terms": [
+            {
+              "term": "WT",
+              "text": "One CYP21A2 and one CYP21A1P on the chromosome. A normal allele."
+            },
+            {
+              "term": "pseudogene_duplication",
+              "text": "An extra CYP21A1P copy. A normal allele."
+            },
+            {
+              "term": "pseudogene_deletion",
+              "text": "No CYP21A1P; CYP21A2 is intact. A normal allele."
+            },
+            {
+              "term": "gene_duplication",
+              "text": "An extra CYP21A2 copy, no variant named. A normal allele."
+            },
+            {
+              "term": "gene_deletion",
+              "text": "CYP21A2 is deleted. A damaging allele, of the severe (classic) kind."
+            },
+            {
+              "term": "deletion_<variants>",
+              "text": "For example deletion_P31L,G111Vfs. One module is left, holding a CYP21A1P/CYP21A2 fusion gene (the 30-kb deletion) that carries the pseudogene variants named. A damaging allele; the variants named set how severe."
+            },
+            {
+              "term": "duplication_WT_plus_<variant>",
+              "text": "For example duplication_WT_plus_Q319X. Two CYP21A2 copies, one intact and one with the variant named. The intact copy works: not a damaging allele, though a test that sees only the variant would call it one."
+            },
+            {
+              "term": "<variant>",
+              "text": "A variant alone, for example Q319X: one CYP21A2 copy carrying that pseudogene variant, no copy gained or lost (a gene conversion or a point variant). A damaging allele."
+            }
+          ]
+        },
+        {
+          "heading": "Variant names",
+          "text": "Paraphase names the ten variants that tell CYP21A2 from its pseudogene, numbering the protein from its first amino acid; most CAH literature counts one lower (P31L is P30L). In a person with two damaging alleles, the milder one sets the expected form.",
+          "terms": [
+            {
+              "term": "P31L (P30L)",
+              "text": "Non-classic (mild)."
+            },
+            {
+              "term": "IVS2-13A/C>G (I2G)",
+              "text": "Classic (severe)."
+            },
+            {
+              "term": "G111Vfs (G110Δ8nt)",
+              "text": "Classic (severe, no enzyme activity)."
+            },
+            {
+              "term": "I173N (I172N)",
+              "text": "Classic, simple virilizing."
+            },
+            {
+              "term": "I237N, V238E, M240K",
+              "text": "The exon 6 cluster (I236N, V237E, M239K). Classic (severe, no enzyme activity)."
+            },
+            {
+              "term": "V282L (V281L)",
+              "text": "Non-classic (mild)."
+            },
+            {
+              "term": "Q319X (Q318X)",
+              "text": "Classic (severe, no enzyme activity)."
+            },
+            {
+              "term": "R357W (R356W)",
+              "text": "Classic (severe)."
+            }
+          ]
+        },
+        {
+          "heading": "When phasing fails",
+          "text": "Phasing success no: Paraphase found the copies but could not join them into the two chromosomes. CoGA cannot then tell which variants share a chromosome, so a carrier cannot be told from an affected person, and the call reads Review. The parents' results can show which allele came from whom."
+        },
+        {
+          "heading": "TNXB and CAH-X",
+          "text": "Only the last module of a chromosome holds TNXB (Ending hap, under Extra info); earlier modules hold TNXA. A deletion whose junction falls in TNXB rather than in CYP21A2 removes CYP21A2 and disrupts TNXB (a TNXA/TNXB chimera, CAH-X): CAH with features of Ehlers-Danlos syndrome. Annotated alleles names the CYP21A2 side only. Paraphase counts TNXB apart from TNXA in a result of its own, the TNXB card: read its copy number, and the last copy in IGV."
+        },
+        {
+          "heading": "C4",
+          "text": "Each module holds one C4 gene, so the module count is also the number of C4 genes. This result does not say which are C4A and which C4B, and the C4 copy number varies widely in healthy people."
+        },
+        {
+          "heading": "What CoGA shows here",
+          "text": "CoGA reads Annotated alleles: a call reads Review when a label is not one of the normal alleles above (WT, pseudogene_duplication, pseudogene_deletion, gene_duplication, duplication_WT_plus_<variant>), when there are not two labels, or when phasing failed. It also reads Review when the total copy number is not four. Otherwise it gives no status. Review means read the call: CoGA calls neither a carrier nor an affected person here. CYP21A2 variants other than the ten above are not in this result."
+        }
+      ]
+    },
+    {
+      "region_id": "tnxb",
+      "display_name": "TNXB",
+      "genes": [
+        "TNXB"
+      ],
+      "aliases": [
+        "tnxb"
+      ],
+      "summary": "TNXB copy number told apart from its pseudogene TNXA, in the RCCX module.",
+      "clinical_priority": 2,
+      "key_copy_number_fields": [
+        "gene_cn",
+        "total_cn",
+        "highest_total_cn"
+      ],
+      "chromosome": "autosome",
+      "expected_copy_number": {
+        "gene_cn": 1
+      },
+      "key_read_fields": [],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
+      "field_descriptions": {
+        "gene_cn": "TNXB copies, TNXA not counted. Each chromosome holds one TNXB, in its last RCCX module.",
+        "total_cn": "TNXB and TNXA copies together. It follows the number of RCCX modules, which varies in healthy people, so it has no fixed normal value here."
+      },
+      "disorders": [
+        {
+          "name": "Ehlers-Danlos syndrome due to TNXB deficiency",
+          "omim_url": "https://www.omim.org/entry/606408"
+        }
+      ],
+      "clinical": {
+        "interpretation": "Read the TNXB copy number (Gene CN) with the RCCX module card. Two is normal. Fewer reads Review: a TNXA/TNXB chimera (CAH-X), which also removes CYP21A2, or a TNXB deletion.",
+        "caveats": "Allele-dependent: the copy number shows neither a point variant in TNXB nor which chromosome lost the copy."
       }
     },
     {
@@ -534,15 +689,15 @@
     },
     {
       "region_id": "gba",
-      "display_name": "GBA",
+      "display_name": "GBA1",
       "genes": [
-        "GBA"
+        "GBA1"
       ],
       "aliases": [
         "gba",
         "gba1"
       ],
-      "summary": "GBA copy-number and recombinant allele calls in the GBA/GBAP1 region.",
+      "summary": "GBA1 copy-number and recombinant allele calls in the GBA1/GBAP1 region.",
       "clinical_priority": 12,
       "key_copy_number_fields": [
         "total_cn",
@@ -668,5 +823,6 @@
       }
     }
   ],
-  "expected_copy_number_note": "expected_copy_number is per chromosome copy (haploid): an autosomal or female X-linked region expects twice the value, a male X-linked region once. A [min, max] pair is a normal range. Fields without an expectation are not assessed for a copy-number change."
+  "expected_copy_number_note": "expected_copy_number is per chromosome copy (haploid): an autosomal or female X-linked region expects twice the value, a male X-linked region once. A [min, max] pair is a normal range. Fields without an expectation are not assessed for a copy-number change.",
+  "field_descriptions_note": "field_descriptions at the top is what every region's field_descriptions starts from; a region's own entry for a field replaces it. guide is a region's reading guide: sections of a heading, a text and terms, shown under How to read on its card. clinical.allele_rule reads the per-allele labels Paraphase gives in field: a call reads review when a label is neither in normal nor starts with one of normal_prefixes, when there are not alleles labels, or when phasing_field is false."
 }

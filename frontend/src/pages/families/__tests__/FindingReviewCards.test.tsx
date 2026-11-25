@@ -256,7 +256,7 @@ describe('reviews on the Paraphase region cards', () => {
     });
     apiMock.put.mockResolvedValue({ data: review({ key: 'smn1', tags: ['review'] }) });
     renderFamilyRoute('/families/:familyId/paraphase', '/families/F1/paraphase', <FamilyParaphasePage />);
-    const card = (await screen.findByText('SMN1/SMN2')).closest('article') as HTMLElement;
+    const card = await screen.findByRole('article', { name: 'SMN1/SMN2 region' });
 
     fireEvent.click(within(card).getByRole('button', { name: 'Review' }));
     await waitFor(() => expect(apiMock.put).toHaveBeenCalledTimes(1));

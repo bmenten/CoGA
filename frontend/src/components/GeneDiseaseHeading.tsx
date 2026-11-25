@@ -51,11 +51,13 @@ const DiseaseName: React.FC<{ disease: GeneDiseaseHeadingDisease; max: number }>
 /**
  * A finding's heading, the same on every variant card: the gene first, linked to its gene
  * page, then "— disease; disease", each disease leading to OMIM. A long disease name is cut
- * on screen with the full name in a tooltip; the gene is never cut. `children` follow on the
- * same line: what the finding is (its type or status chips).
+ * on screen with the full name in a tooltip; the gene is never cut. A name that is not one
+ * gene's (a Paraphase region of several) comes without `geneHref`, its own links in `gene`.
+ * `children` follow on the same line: what the finding is (its type or status chips).
  */
 const GeneDiseaseHeading: React.FC<{
-  gene: string;
+  /** The gene's name, or links of its own: a region named after its genes links each. */
+  gene: React.ReactNode;
   /** The gene page; without one the gene stands unlinked (an intergenic or control region). */
   geneHref?: string | null;
   diseases?: GeneDiseaseHeadingDisease[];

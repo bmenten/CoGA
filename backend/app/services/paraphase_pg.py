@@ -115,6 +115,10 @@ def load_paraphase_medical_regions() -> list[dict[str, Any]]:
         raw_regions = payload.get("regions") if isinstance(payload, dict) else payload
         if not isinstance(raw_regions, list):
             continue
+        # What every region's field_descriptions starts from; a region's own entry wins.
+        default_descriptions = _field_descriptions(
+            payload.get("field_descriptions") if isinstance(payload, dict) else None
+        )
         regions: list[dict[str, Any]] = []
         for raw_region in raw_regions:
             if not isinstance(raw_region, dict):
@@ -148,15 +152,19 @@ def load_paraphase_medical_regions() -> list[dict[str, Any]]:
                         str(item) for item in raw_region.get("key_extra_fields") or [] if item
                     ],
                     "field_descriptions": {
-                        str(key): str(value)
-                        for key, value in (raw_region.get("field_descriptions") or {}).items()
-                        if key and value
+                        **default_descriptions,
+                        **_field_descriptions(raw_region.get("field_descriptions")),
                     },
                     "clinical": _clinical_block(raw_region.get("clinical")),
                     "status_rule": (
                         raw_region["clinical"].get("status_rule")
                         if isinstance(raw_region.get("clinical"), dict)
                         and isinstance(raw_region["clinical"].get("status_rule"), dict)
+                        else None
+                    ),
+                    "allele_rule": _allele_rule(
+                        raw_region["clinical"].get("allele_rule")
+                        if isinstance(raw_region.get("clinical"), dict)
                         else None
                     ),
                     "notes": [str(item) for item in raw_region.get("notes") or [] if item],
@@ -168,10 +176,85 @@ def load_paraphase_medical_regions() -> list[dict[str, Any]]:
                         for disorder in raw_region.get("disorders") or []
                         if isinstance(disorder, dict) and disorder.get("name")
                     ],
+                    "guide": _guide_sections(raw_region.get("guide")),
                 }
             )
         return regions
     return []
+
+
+def _allele_rule(raw: Any) -> dict[str, Any] | None:
+    """A region's rule on the per-allele labels Paraphase writes (RCCX's ``annotated_alleles``).
+
+    A rule without a field, or without any normal label, is dropped: one that names no normal
+    allele would put every call up for review, one without a field reads nothing."""
+    if not isinstance(raw, dict):
+        return None
+    field = str(raw.get("field") or "").strip()
+
+    def labels(key: str) -> list[str]:
+        value = raw.get(key)
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value if isinstance(item, str) and item]
+
+    normal, prefixes = labels("normal"), labels("normal_prefixes")
+    if not field or not (normal or prefixes):
+        return None
+    alleles = raw.get("alleles")
+    return {
+        "field": field,
+        "alleles": alleles if isinstance(alleles, int) and not isinstance(alleles, bool) and alleles > 0 else None,
+        "phasing_field": str(raw.get("phasing_field") or "").strip() or None,
+        "normal": normal,
+        "normal_prefixes": prefixes,
+    }
+
+
+def _alleles_need_review(rule: dict[str, Any], payload: dict[str, Any]) -> bool:
+    """Whether the per-allele labels of a call need a look: a label the rule does not name as a
+    normal allele, another number of labels than the rule expects, labels that are not a list
+    of text, or failed phasing. Labels that cannot be read never pass as normal."""
+    if rule.get("phasing_field") and payload.get(rule["phasing_field"]) is not True:
+        return True
+    labels = payload.get(rule["field"])
+    if not isinstance(labels, list) or not labels or not all(isinstance(label, str) for label in labels):
+        return True
+    if rule.get("alleles") is not None and len(labels) != rule["alleles"]:
+        return True
+    normal = set(rule.get("normal") or [])
+    prefixes = tuple(rule.get("normal_prefixes") or [])
+    return any(label not in normal and not (prefixes and label.startswith(prefixes)) for label in labels)
+
+
+def _field_descriptions(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): str(value) for key, value in raw.items() if key and value}
+
+
+def _guide_sections(raw: Any) -> list[dict[str, Any]]:
+    """A region's reading guide: sections with a heading, and a text, terms or both. A
+    section without a heading or without either, and a term without both parts, is
+    dropped, so a malformed entry never shows as an empty heading."""
+    if not isinstance(raw, list):
+        return []
+    sections: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        heading = str(item.get("heading") or "").strip()
+        text = str(item.get("text") or "").strip() or None
+        terms = [
+            {"term": str(term["term"]).strip(), "text": str(term["text"]).strip()}
+            for term in item.get("terms") or []
+            if isinstance(term, dict)
+            and str(term.get("term") or "").strip()
+            and str(term.get("text") or "").strip()
+        ]
+        if heading and (text or terms):
+            sections.append({"heading": heading, "text": text, "terms": terms})
+    return sections
 
 
 _CLINICAL_DISPLAY_KEYS = ("interpretation", "normal", "carrier", "pathogenic", "caveats")
@@ -209,6 +292,26 @@ def _clinical_status(
     *,
     copy_number_signal: bool,
     fusion_count: int | None,
+    payload: dict[str, Any],
+) -> str | None:
+    """The call's status by its region's rules. Where the region has an allele rule, a call
+    whose alleles need a look reads ``review`` unless its copy number already calls it
+    pathogenic or carrier: a damaging allele never reads normal, nor goes without a status."""
+    status = _copy_number_status(
+        region, copy_number_metrics, copy_number_signal=copy_number_signal, fusion_count=fusion_count
+    )
+    allele_rule = region.get("allele_rule") if region else None
+    if allele_rule and status not in {"pathogenic", "carrier"} and _alleles_need_review(allele_rule, payload):
+        return "review"
+    return status
+
+
+def _copy_number_status(
+    region: dict[str, Any] | None,
+    copy_number_metrics: list[ParaphaseMetricOut],
+    *,
+    copy_number_signal: bool,
+    fusion_count: int | None,
 ) -> str | None:
     if region is None:
         return None
@@ -236,13 +339,18 @@ def _clinical_status(
 
 
 def _paraphase_region_for_gene(gene_symbol: str) -> dict[str, Any] | None:
+    """The catalogue region of a Paraphase result, by Paraphase's key for it. A region's aliases
+    are Paraphase's keys and are read first: its genes can name a gene Paraphase also gives a
+    result of its own (TNXB, in the RCCX module and in ``tnxb``)."""
     gene_key = str(gene_symbol or "").strip().lower()
     if not gene_key:
         return None
-    for region in load_paraphase_medical_regions():
-        aliases = set(region.get("aliases") or [])
-        genes = {str(gene).lower() for gene in region.get("genes") or []}
-        if gene_key in aliases or gene_key in genes:
+    regions = load_paraphase_medical_regions()
+    for region in regions:
+        if gene_key in set(region.get("aliases") or []):
+            return region
+    for region in regions:
+        if gene_key in {str(gene).lower() for gene in region.get("genes") or []}:
             return region
     return None
 
@@ -262,6 +370,7 @@ def _region_out_payload(region: dict[str, Any]) -> dict[str, Any]:
         "field_descriptions": region.get("field_descriptions") or {},
         "notes": region.get("notes") or [],
         "disorders": region.get("disorders") or [],
+        "guide": region.get("guide") or [],
     }
 
 
@@ -585,6 +694,7 @@ async def get_family_paraphase_table_response(
             copy_number_metrics,
             copy_number_signal=copy_number_signal,
             fusion_count=_optional_count(payload.get("fusions_called")),
+            payload=payload,
         )
         sample_result = ParaphaseSampleResultOut(
             sample=sample_name,

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useLocation, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type {
@@ -138,6 +138,22 @@ const formatExtraFieldValue = (value: unknown): string => {
   return String(value);
 };
 
+const EXTRA_LIST_MAX = 6;
+
+// A list value gives each item a line of its own: an RCCX allele label holds commas of its own
+// ("deletion_P31L,G111Vfs"), so items joined by commas could not be told apart.
+const ExtraFieldValue: React.FC<{ value: unknown }> = ({ value }) => {
+  if (!Array.isArray(value) || value.length < 2) return <strong>{formatExtraFieldValue(value)}</strong>;
+  return (
+    <strong className="paraphase-extra-list">
+      {value.slice(0, EXTRA_LIST_MAX).map((item, index) => (
+        <span key={index}>{formatExtraFieldValue(item)}</span>
+      ))}
+      {value.length > EXTRA_LIST_MAX ? <span>+{value.length - EXTRA_LIST_MAX} more</span> : null}
+    </strong>
+  );
+};
+
 // Paraphase reports the analysed region per call as e.g. "38:chr5:70917100-70961220".
 const parsePhaseRegion = (
   phaseRegion?: string | null,
@@ -241,7 +257,7 @@ const ParaphaseSampleDetail: React.FC<{
                 <span>{field.label}</span>
                 {field.description && <p>{field.description}</p>}
               </div>
-              <strong>{formatExtraFieldValue(field.value)}</strong>
+              <ExtraFieldValue value={field.value} />
             </div>
           ))}
         </div>
@@ -306,6 +322,129 @@ const writeParaphaseReview = (
   genes: table.genes.map((gene) => (gene.gene_symbol === key ? { ...gene, review } : gene)),
 });
 
+// What a field is called on the card: its label in a member's call, else its key in words.
+const extraFieldLabels = (gene: ApiParaphaseGeneResult): Map<string, string> => {
+  const labels = new Map<string, string>();
+  Object.values(gene.samples).forEach((call) =>
+    (call.extra_fields || []).forEach((field) => labels.set(field.key, field.label)),
+  );
+  return labels;
+};
+
+const ParaphaseGuideTerms: React.FC<{ terms: { term: string; text: string }[]; plain?: boolean }> = ({
+  terms,
+  plain = false,
+}) => (
+  <dl className={`paraphase-guide-terms${plain ? ' paraphase-guide-terms--plain' : ''}`}>
+    {terms.map((term) => (
+      <React.Fragment key={term.term}>
+        {/* A long label (duplication_WT_plus_<variant>) wraps after an underscore. */}
+        <dt>
+          {term.term.split('_').map((part, index) => (
+            <React.Fragment key={index}>
+              {index > 0 && (
+                <>
+                  _<wbr />
+                </>
+              )}
+              {part}
+            </React.Fragment>
+          ))}
+        </dt>
+        <dd>{term.text}</dd>
+      </React.Fragment>
+    ))}
+  </dl>
+);
+
+/**
+ * How to read a region: what it is, how its calls read, what each column and extra field
+ * holds, and the catalogue's own guide (the RCCX module's allele labels). Explanation, the
+ * same for every family, so it opens on request; this family's calls stay on the card.
+ */
+const ParaphaseReadingGuide: React.FC<{
+  gene: ApiParaphaseGeneResult;
+  title: string;
+  columns: { key: string; label: string }[];
+}> = ({ gene, title, columns }) => {
+  const region = gene.region_info;
+  if (!region) return null;
+  const clinical = region.clinical;
+  const descriptions = region.field_descriptions || {};
+  const labels = extraFieldLabels(gene);
+  const columnTerms = columns
+    .filter((column) => descriptions[column.key])
+    .map((column) => ({ term: column.label, text: descriptions[column.key] }));
+  const extraTerms = (region.key_extra_fields || [])
+    .filter((key) => descriptions[key])
+    .map((key) => ({ term: labels.get(key) ?? key.replace(/_/g, ' '), text: descriptions[key] }));
+  const callTerms = [
+    { term: 'Normal', text: clinical?.normal },
+    { term: 'Carrier', text: clinical?.carrier },
+    { term: 'Pathogenic', text: clinical?.pathogenic },
+  ].filter((entry): entry is { term: string; text: string } => Boolean(entry.text));
+  return (
+    <section className="paraphase-guide" aria-label={`How to read ${title}`}>
+      {(region.summary || clinical?.interpretation) && (
+        <div className="paraphase-guide-section paraphase-guide-section--wide">
+          {region.summary && <p>{region.summary}</p>}
+          {clinical?.interpretation && <p>{clinical.interpretation}</p>}
+        </div>
+      )}
+      {(callTerms.length > 0 || clinical?.caveats) && (
+        <div className="paraphase-guide-section">
+          <h3>Calls</h3>
+          {callTerms.length > 0 && <ParaphaseGuideTerms terms={callTerms} plain />}
+          {clinical?.caveats && (
+            <p className="paraphase-guide-caveat">
+              <strong>Caveat:</strong> {clinical.caveats}
+            </p>
+          )}
+        </div>
+      )}
+      {(columnTerms.length > 0 || extraTerms.length > 0) && (
+        <div className="paraphase-guide-section">
+          <h3>Fields</h3>
+          {columnTerms.length > 0 && <ParaphaseGuideTerms terms={columnTerms} plain />}
+          {extraTerms.length > 0 && (
+            <>
+              <p className="paraphase-guide-subhead">Under Extra info</p>
+              <ParaphaseGuideTerms terms={extraTerms} plain />
+            </>
+          )}
+        </div>
+      )}
+      {(region.guide || []).map((section) => (
+        <div key={section.heading} className="paraphase-guide-section">
+          <h3>{section.heading}</h3>
+          {section.text && <p>{section.text}</p>}
+          {section.terms.length > 0 && <ParaphaseGuideTerms terms={section.terms} />}
+        </div>
+      ))}
+    </section>
+  );
+};
+
+// The gene page of each gene, linked by its name.
+const GeneLinks: React.FC<{
+  genes: string[];
+  separator: string;
+  familyId: string;
+  projectId?: string | null;
+  className?: string;
+}> = ({ genes, separator, familyId, projectId, className }) => (
+  <>
+    {genes.map((symbol, index) => (
+      <React.Fragment key={symbol}>
+        {index > 0 && separator}
+        <Link to={geneInfoHref(symbol, familyId, projectId) ?? '/genes'} className={className}>
+          {symbol}
+        </Link>
+      </React.Fragment>
+    ))}
+  </>
+);
+
 const ParaphaseLocusCard: React.FC<{
   gene: ApiParaphaseGeneResult;
   members: ApiFamilyMember[];
@@ -314,6 +453,7 @@ const ParaphaseLocusCard: React.FC<{
   review: FindingReviewCardParts;
 }> = ({ gene, members, familyId, projectId, review }) => {
   const [showExtra, setShowExtra] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const region = gene.region_info;
   const clinical = region?.clinical;
   const calls = Object.values(gene.samples);
@@ -321,18 +461,19 @@ const ParaphaseLocusCard: React.FC<{
   const anyCarrier = calls.some((call) => call.clinical_status === 'carrier');
   const phaseRegion = calls.map((call) => parsePhaseRegion(call.phase_region)).find(Boolean) || null;
   const title = region?.display_name || gene.gene_symbol;
-  // What the region is and how to read its calls: explanation, not this family's result, so
-  // it sits behind the info icon.
-  const readingGuide = [region?.summary, clinical?.interpretation].filter(Boolean).join(' ');
   // The region's note on a null copy-number call, shown whenever a member's key copy number
   // is one: it says why the call is missing, so it stays on the card.
   const noCallNote =
     region?.notes?.length && calls.some((call) => hasClinicalNoCall(gene, call)) ? region.notes[0] : null;
-  const [callColumn, ...metricColumns] = regionCopyNumberColumns(gene, members);
+  const copyNumberColumns = regionCopyNumberColumns(gene, members);
+  const [callColumn, ...metricColumns] = copyNumberColumns;
+  // A catalogue region's genes are HGNC symbols; Paraphase's own key (smn1, RCCX) names no
+  // gene. A region of one gene links its title to it; one named after its genes (SMN1/SMN2)
+  // links each name in its title; one with a name of its own (RCCX module) links its genes
+  // under Genes, its title standing unlinked. OMIM takes the first gene.
   const genes = region?.genes?.length ? region.genes : [gene.gene_symbol];
-  // Paraphase names a region by its own key (smn1, RCCX); the gene page and OMIM take the
-  // region's first gene, its HGNC symbol.
   const primaryGene = genes[0];
+  const titleIsGenes = genes.length > 1 && genes.join('/') === title;
   return (
     <FindingCard
       aria-label={`${title} region`}
@@ -343,15 +484,25 @@ const ParaphaseLocusCard: React.FC<{
       subhead={review.subhead}
       heading={
         <GeneDiseaseHeading
-          gene={title}
-          geneHref={geneInfoHref(primaryGene, familyId, projectId)}
+          gene={
+            titleIsGenes ? (
+              <GeneLinks
+                genes={genes}
+                separator="/"
+                familyId={familyId}
+                projectId={projectId}
+                className="variant-card-gene"
+              />
+            ) : (
+              title
+            )
+          }
+          geneHref={genes.length === 1 ? geneInfoHref(primaryGene, familyId, projectId) : null}
           diseases={(region?.disorders || []).map((disorder) => ({
             name: disorder.name,
             omimUrl: disorder.omim_url,
           }))}
-        >
-          {readingGuide && <InfoIcon name={`How to read ${title}`} text={readingGuide} />}
-        </GeneDiseaseHeading>
+        />
       }
       tags={
         gene.is_medically_relevant ? (
@@ -372,7 +523,15 @@ const ParaphaseLocusCard: React.FC<{
               {genes.join('/') !== title && (
                 <div>
                   <dt>Genes</dt>
-                  <dd>{genes.join(', ')}</dd>
+                  <dd>
+                    <GeneLinks
+                      genes={genes}
+                      separator=", "
+                      familyId={familyId}
+                      projectId={projectId}
+                      className="variant-card-gene-fact-link"
+                    />
+                  </dd>
                 </div>
               )}
               {clinical?.caveats && (
@@ -435,6 +594,16 @@ const ParaphaseLocusCard: React.FC<{
       actions={
         <>
           {review.actions}
+          {region && (
+            <button
+              type="button"
+              className="variant-review-link paraphase-guide-toggle"
+              aria-expanded={showGuide}
+              onClick={() => setShowGuide((value) => !value)}
+            >
+              {showGuide ? 'Hide how to read' : 'How to read'}
+            </button>
+          )}
           <button
             type="button"
             className="variant-review-link paraphase-extra-toggle"
@@ -467,35 +636,22 @@ const ParaphaseLocusCard: React.FC<{
         />
       }
       more={
-        showExtra ? (
-          <div className="paraphase-card-extra">
-            {clinical && (clinical.normal || clinical.carrier || clinical.pathogenic) && (
-              <dl className="paraphase-findings">
-                {clinical.normal && (
-                  <>
-                    <dt>Normal</dt>
-                    <dd>{clinical.normal}</dd>
-                  </>
-                )}
-                {clinical.carrier && (
-                  <>
-                    <dt>Carrier</dt>
-                    <dd>{clinical.carrier}</dd>
-                  </>
-                )}
-                {clinical.pathogenic && (
-                  <>
-                    <dt className="paraphase-findings-pathogenic">Pathogenic</dt>
-                    <dd>{clinical.pathogenic}</dd>
-                  </>
-                )}
-              </dl>
+        showGuide || showExtra ? (
+          <>
+            {showGuide && (
+              <div className="paraphase-card-extra">
+                <ParaphaseReadingGuide gene={gene} title={title} columns={copyNumberColumns} />
+              </div>
             )}
-            {members.map((member) => {
-              const call = gene.samples[member.sample_id];
-              return call ? <ParaphaseSampleDetail key={member.sample_id} gene={gene} call={call} /> : null;
-            })}
-          </div>
+            {showExtra && (
+              <div className="paraphase-card-extra">
+                {members.map((member) => {
+                  const call = gene.samples[member.sample_id];
+                  return call ? <ParaphaseSampleDetail key={member.sample_id} gene={gene} call={call} /> : null;
+                })}
+              </div>
+            )}
+          </>
         ) : null
       }
     />

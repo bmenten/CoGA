@@ -80,6 +80,8 @@ export type ApiContract = [
   Check<Fits<Api.ApiParaphaseHaplotypeGroup, Schema.ParaphaseHaplotypeGroupOut>>,
   Check<Fits<Api.ApiParaphaseDisorder, Schema.ParaphaseDisorderOut>>,
   Check<Fits<Api.ApiParaphaseClinical, Schema.ParaphaseClinicalOut>>,
+  Check<Fits<Api.ApiParaphaseGuideTerm, Schema.ParaphaseGuideTermOut>>,
+  Check<Fits<Api.ApiParaphaseGuideSection, Schema.ParaphaseGuideSectionOut>>,
   Check<Fits<Api.ApiParaphaseRegionInfo, Schema.ParaphaseRegionInfoOut>>,
   Check<Fits<Api.ApiParaphaseExtraField, Schema.ParaphaseExtraFieldOut>>,
   Check<Fits<Api.ApiParaphaseSampleResult, Schema.ParaphaseSampleResultOut>>,

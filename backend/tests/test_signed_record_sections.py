@@ -22,6 +22,7 @@ from backend.app.schemas import (
     FamilyParaphaseTableOut,
     FamilyRepeatExpansionTableOut,
     GenotypeOut,
+    ParaphaseExtraFieldOut,
     ParaphaseGeneResultOut,
     ParaphaseMetricOut,
     ParaphaseSampleResultOut,
@@ -438,6 +439,22 @@ def _paraphase_table() -> FamilyParaphaseTableOut:
                 },
             ),
             ParaphaseGeneResultOut(gene_symbol="GBA", is_medically_relevant=True, samples={}),
+            ParaphaseGeneResultOut(
+                gene_symbol="RCCX",
+                is_medically_relevant=True,
+                samples={
+                    "PROBAND": ParaphaseSampleResultOut(
+                        sample="PROBAND",
+                        clinical_status="review",
+                        total_cn=4,
+                        copy_number_metrics=[ParaphaseMetricOut(key="total_cn", label="Total CN", value=4.0)],
+                        extra_fields=[
+                            ParaphaseExtraFieldOut(key="annotated_alleles", label="Annotated Alleles", value=["WT", "Q319X"]),
+                            ParaphaseExtraFieldOut(key="phasing_success", label="Phasing Success", value=True),
+                        ],
+                    )
+                },
+            ),
         ]
     )
 
@@ -449,16 +466,25 @@ def test_each_paraphase_result_is_frozen_with_its_status_and_the_rule_behind_it(
     monkeypatch.setattr(srs, "get_family_paraphase_table_response", _table)
     out = asyncio.run(srs.paraphase_results(_Session(), _context()))
 
-    assert [gene["gene"] for gene in out["genes"]] == ["GBA", "SMN1"]
-    smn = out["genes"][1]
+    assert [gene["gene"] for gene in out["genes"]] == ["GBA", "RCCX", "SMN1"]
+    smn = out["genes"][2]
     assert smn["region_id"] == "smn1_smn2"
     # The catalogue's rule the status was read with, and the copy-number norm.
     assert smn["status_rule"]["field"] == "smn1_cn"
+    assert smn["allele_rule"] is None
     assert smn["expected_copy_number"]["smn1_cn"] == [1.0, 1.0]
     [result] = smn["samples"]
     assert (result["sample"], result["status"], result["copy_number_signal"]) == ("PROBAND", "pathogenic", True)
     assert result["copy_number"] == [{"key": "smn1_cn", "label": "SMN1 CN", "value": 0.0}]
+    assert result["allele_reading"] is None
     assert result["loaded_at"] == "2026-10-02T00:00:00+00:00"
+    # RCCX's status reads the alleles: its rule, and the labels and phasing it read.
+    rccx = out["genes"][1]
+    assert rccx["status_rule"] is None
+    assert rccx["allele_rule"]["field"] == "annotated_alleles"
+    assert "WT" in rccx["allele_rule"]["normal"]
+    [result] = rccx["samples"]
+    assert result["allele_reading"] == {"alleles": ["WT", "Q319X"], "phasing_success": True}
     assert out["catalogue"]["regions"] > 0 and len(out["catalogue"]["digest"]) == 64
 
 

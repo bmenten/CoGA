@@ -3281,6 +3281,21 @@ export interface ParaphaseGeneResultOut {
   review: FindingReviewOut | null;
 }
 
+/**
+ * A section of a region's reading guide: a heading, its text and a list of terms
+ * (labels Paraphase writes, variant names) each with what it means.
+ */
+export interface ParaphaseGuideSectionOut {
+  heading: string;
+  text: string | null;
+  terms: ParaphaseGuideTermOut[];
+}
+
+export interface ParaphaseGuideTermOut {
+  term: string;
+  text: string;
+}
+
 export interface ParaphaseHaplotypeGroupOut {
   key: string;
   label: string;
@@ -3308,6 +3323,7 @@ export interface ParaphaseRegionInfoOut {
   field_descriptions: Record<string, string>;
   notes: string[];
   disorders: ParaphaseDisorderOut[];
+  guide: ParaphaseGuideSectionOut[];
 }
 
 export interface ParaphaseReviewUpdate {

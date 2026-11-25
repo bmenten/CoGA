@@ -3,10 +3,12 @@
 The SMN metrics (copy numbers, read counts, haplotype groups) and the extra fields a region
 names; the medical-region catalogue (aliases, clinical fields, a copy-number norm for every
 region, a configured file read first and one that does not read passed over, a malformed norm
-left unassessed); a copy-number change judged against each region's own norm times the copies
+left unassessed, field descriptions from the catalogue's defaults, a region's reading guide,
+gene symbols the gene page knows); a copy-number change judged against each region's own norm times the copies
 the sample's sex gives it (a man's single X is no loss; with no sex on a sex chromosome nothing
 is called normal); and the clinical status a region's rule calls (SMN1, STRC and HBA by their
-copy number, each band at its boundary), or review for an allele-dependent region with a change.
+copy number, each band at its boundary), or review for an allele-dependent region with a change,
+and for RCCX a label for a chromosome that is not a normal allele, or alleles it cannot read.
 All values are synthetic.
 """
 
@@ -122,7 +124,7 @@ def test_paraphase_male_x_linked_single_copy_is_normal() -> None:
 
     male_ikbkg = _x_linked_metrics(2, 1)
     assert not _signal(ikbkg, male_ikbkg, chromosome="X", sex="male")
-    assert paraphase_pg._clinical_status(ikbkg, male_ikbkg, copy_number_signal=False, fusion_count=None) == "none"
+    assert paraphase_pg._clinical_status(ikbkg, male_ikbkg, copy_number_signal=False, fusion_count=None, payload={}) == "none"
     assert not _signal(f8, _x_linked_metrics(3, None)[:1], chromosome="X", sex="male")
     male_opsin = paraphase_pg._extract_copy_number_metrics(
         {"total_cn": 3, "opn1lw_cn": 1, "opn1mw_cn": 2, "highest_total_cn": 3}, {"total_cn": 3}
@@ -146,7 +148,7 @@ def test_paraphase_copy_number_change_uses_the_region_norm() -> None:
     assert _signal(neb, _x_linked_metrics(8, None), chromosome="autosome", sex="female")
     normal_gba = _x_linked_metrics(4, None)
     assert not _signal(gba, normal_gba, chromosome="autosome", sex="male")
-    assert paraphase_pg._clinical_status(gba, normal_gba, copy_number_signal=False, fusion_count=None) == "none"
+    assert paraphase_pg._clinical_status(gba, normal_gba, copy_number_signal=False, fusion_count=None, payload={}) == "none"
     # An exploratory region is judged on its functional gene CN only.
     assert not _signal(None, _x_linked_metrics(5, None), chromosome="autosome", sex="male")
     assert _signal(None, _x_linked_metrics(5, 1), chromosome="autosome", sex="male")
@@ -156,7 +158,7 @@ def test_paraphase_allele_dependent_region_reports_a_no_call() -> None:
     f8 = paraphase_pg._paraphase_region_for_gene("f8")
     metrics = _x_linked_metrics(None, None)
     assert not _signal(f8, metrics, chromosome="X", sex="female")
-    assert paraphase_pg._clinical_status(f8, metrics, copy_number_signal=False, fusion_count=None) == "no_call"
+    assert paraphase_pg._clinical_status(f8, metrics, copy_number_signal=False, fusion_count=None, payload={}) == "no_call"
 
 
 def test_paraphase_phase_region_gives_the_chromosome() -> None:
@@ -166,6 +168,41 @@ def test_paraphase_phase_region_gives_the_chromosome() -> None:
     assert paraphase_pg._phase_region_chromosome(None) is None
     assert paraphase_pg._chromosome_copies("Y", "female") == 0
     assert paraphase_pg._chromosome_copies("autosome", None) == 2
+
+
+def test_a_regions_genes_are_the_genes_its_card_links_to() -> None:
+    """The card links each gene to its gene page, which knows HGNC symbols only: a region's
+    own key (RCCX) or a gene's former symbol (GBA) would lead nowhere. Paraphase's keys stay
+    aliases, so its results still find their region."""
+    paraphase_pg.load_paraphase_medical_regions.cache_clear()
+    regions = {region["region_id"]: region for region in paraphase_pg.load_paraphase_medical_regions()}
+
+    assert regions["rccx"]["genes"] == ["CYP21A2", "TNXB", "C4A", "C4B"]
+    assert regions["gba"]["genes"] == ["GBA1"]
+    assert paraphase_pg._paraphase_region_for_gene("RCCX") is regions["rccx"]
+    assert paraphase_pg._paraphase_region_for_gene("GBA") is regions["gba"]
+    # Paraphase's own TNXB result is its region's by alias, though RCCX lists TNXB as a gene.
+    assert paraphase_pg._paraphase_region_for_gene("tnxb") is regions["tnxb"]
+    assert "TNXB" in regions["rccx"]["genes"]
+
+
+def test_the_shipped_catalogue_explains_its_fields_and_the_rccx_alleles() -> None:
+    paraphase_pg.load_paraphase_medical_regions.cache_clear()
+    regions = {region["region_id"]: region for region in paraphase_pg.load_paraphase_medical_regions()}
+
+    # Every region explains the copy numbers Paraphase gives; RCCX its own total.
+    for region in regions.values():
+        assert {"total_cn", "gene_cn", "highest_total_cn"} <= set(region["field_descriptions"])
+    assert regions["rccx"]["field_descriptions"]["total_cn"].startswith("RCCX modules")
+    assert regions["smn1_smn2"]["field_descriptions"]["total_cn"].startswith("Copies of the gene")
+    labels = next(section for section in regions["rccx"]["guide"] if section["heading"] == "Allele labels")
+    assert [term["term"] for term in labels["terms"]][:2] == ["WT", "pseudogene_duplication"]
+    # The guide reaches the API as the region's.
+    out = paraphase_pg.ParaphaseGeneResultOut(
+        gene_symbol="RCCX", region_info=paraphase_pg._region_out_payload(regions["rccx"])
+    )
+    assert out.region_info is not None
+    assert out.region_info.guide[0].heading == "The module"
 
 
 def test_paraphase_catalog_gives_every_region_a_copy_number_norm() -> None:
@@ -219,13 +256,13 @@ def test_a_regions_status_rule_calls_it_by_its_copy_number(
     assert region["status_rule"]["field"] == field
     metrics = [paraphase_pg._metric(field, value)]
 
-    assert paraphase_pg._clinical_status(region, metrics, copy_number_signal=False, fusion_count=None) == status
+    assert paraphase_pg._clinical_status(region, metrics, copy_number_signal=False, fusion_count=None, payload={}) == status
 
 
 def test_a_rule_whose_field_paraphase_did_not_report_is_a_no_call() -> None:
     region = _shipped_region("smn1_smn2")
     metrics = [paraphase_pg._metric("smn2_cn", 3)]
-    assert paraphase_pg._clinical_status(region, metrics, copy_number_signal=False, fusion_count=None) == "no_call"
+    assert paraphase_pg._clinical_status(region, metrics, copy_number_signal=False, fusion_count=None, payload={}) == "no_call"
 
 
 def test_a_rule_condition_that_names_no_number_never_holds() -> None:
@@ -235,23 +272,118 @@ def test_a_rule_condition_that_names_no_number_never_holds() -> None:
 
     def status(value: float) -> str | None:
         metrics = [paraphase_pg._metric("gene_cn", value)]
-        return paraphase_pg._clinical_status(region, metrics, copy_number_signal=False, fusion_count=None)
+        return paraphase_pg._clinical_status(region, metrics, copy_number_signal=False, fusion_count=None, payload={})
 
     # Pathogenic is never called on a condition it cannot read.
     assert status(0) == "carrier"
     assert status(1) == "carrier"
     assert status(2) == "normal"
     # No region, or one without a rule or a clinical block, has no status.
-    assert paraphase_pg._clinical_status(None, [], copy_number_signal=True, fusion_count=1) is None
-    assert paraphase_pg._clinical_status({"region_id": "x"}, [], copy_number_signal=True, fusion_count=1) is None
+    assert paraphase_pg._clinical_status(None, [], copy_number_signal=True, fusion_count=1, payload={}) is None
+    assert paraphase_pg._clinical_status({"region_id": "x"}, [], copy_number_signal=True, fusion_count=1, payload={}) is None
 
 
 def test_an_allele_dependent_region_puts_a_change_or_a_fusion_up_for_review() -> None:
     f8 = paraphase_pg._paraphase_region_for_gene("f8")
     normal = paraphase_pg._extract_copy_number_metrics({"total_cn": 3}, {"total_cn": 3})
-    assert paraphase_pg._clinical_status(f8, normal, copy_number_signal=True, fusion_count=None) == "review"
-    assert paraphase_pg._clinical_status(f8, normal, copy_number_signal=False, fusion_count=1) == "review"
-    assert paraphase_pg._clinical_status(f8, normal, copy_number_signal=False, fusion_count=0) == "none"
+    assert paraphase_pg._clinical_status(f8, normal, copy_number_signal=True, fusion_count=None, payload={}) == "review"
+    assert paraphase_pg._clinical_status(f8, normal, copy_number_signal=False, fusion_count=1, payload={}) == "review"
+    assert paraphase_pg._clinical_status(f8, normal, copy_number_signal=False, fusion_count=0, payload={}) == "none"
+
+
+# --- the RCCX alleles --------------------------------------------------------------------------------
+# RCCX has no copy-number rule: its status reads Paraphase's label for each chromosome. A label
+# the catalogue does not name as a normal allele, a count of labels other than two, or failed
+# phasing puts the call up for review, whatever its copy number.
+
+_RCCX_CN4 = [paraphase_pg._metric("total_cn", 4)]
+
+
+@pytest.mark.parametrize(
+    ("alleles", "phased", "status"),
+    [
+        (["WT", "WT"], True, "none"),
+        (["WT", "pseudogene_deletion"], True, "none"),
+        (["pseudogene_duplication", "gene_duplication"], True, "none"),
+        (["WT", "duplication_WT_plus_Q319X"], True, "none"),
+        # A damaging allele on one chromosome or on both, at the usual four copies.
+        (["WT", "Q319X"], True, "review"),
+        (["Q319X", "Q319X"], True, "review"),
+        (["WT", "deletion_P31L,G111Vfs"], True, "review"),
+        (["WT", "gene_deletion"], True, "review"),
+        # A label the catalogue does not know is read, never passed.
+        (["WT", "pseudogene_conversion"], True, "review"),
+        # Alleles that cannot be read.
+        (["WT", "WT"], False, "review"),
+        (["WT", "WT"], None, "review"),
+        (["WT"], True, "review"),
+        (["WT", "WT", "WT"], True, "review"),
+        ([], True, "review"),
+        (None, True, "review"),
+        ([["WT"], ["WT"]], True, "review"),
+    ],
+)
+def test_rccx_reads_its_alleles(alleles, phased, status: str) -> None:
+    rccx = _shipped_region("rccx")
+    payload = {"total_cn": 4}
+    if alleles is not None:
+        payload["annotated_alleles"] = alleles
+    if phased is not None:
+        payload["phasing_success"] = phased
+
+    assert (
+        paraphase_pg._clinical_status(rccx, _RCCX_CN4, copy_number_signal=False, fusion_count=None, payload=payload)
+        == status
+    )
+
+
+def test_normal_rccx_alleles_keep_a_copy_number_change_up_for_review() -> None:
+    rccx = _shipped_region("rccx")
+    payload = {"annotated_alleles": ["WT", "pseudogene_duplication"], "phasing_success": True}
+    metrics = [paraphase_pg._metric("total_cn", 5)]
+    assert (
+        paraphase_pg._clinical_status(rccx, metrics, copy_number_signal=True, fusion_count=None, payload=payload)
+        == "review"
+    )
+    # A copy-number no-call with a damaging allele is read too.
+    no_call = [paraphase_pg._metric("total_cn", None)]
+    damaging = {"annotated_alleles": ["WT", "Q319X"], "phasing_success": True}
+    assert (
+        paraphase_pg._clinical_status(rccx, no_call, copy_number_signal=False, fusion_count=None, payload=damaging)
+        == "review"
+    )
+
+
+def test_an_allele_rule_never_lowers_a_copy_number_call() -> None:
+    region = {
+        "status_rule": {"field": "gene_cn", "pathogenic": {"eq": 0}, "carrier": {"eq": 1}, "normal": {"gte": 2}},
+        "allele_rule": {"field": "labels", "alleles": 2, "phasing_field": None, "normal": ["WT"], "normal_prefixes": []},
+    }
+    damaging = {"labels": ["WT", "del"]}
+
+    def status(value: float) -> str | None:
+        metrics = [paraphase_pg._metric("gene_cn", value)]
+        return paraphase_pg._clinical_status(region, metrics, copy_number_signal=False, fusion_count=None, payload=damaging)
+
+    assert status(0) == "pathogenic"
+    assert status(1) == "carrier"
+    assert status(2) == "review"
+
+
+def test_a_malformed_allele_rule_is_dropped() -> None:
+    assert paraphase_pg._allele_rule(None) is None
+    assert paraphase_pg._allele_rule({"normal": ["WT"]}) is None
+    assert paraphase_pg._allele_rule({"field": "annotated_alleles", "normal": [], "normal_prefixes": [1]}) is None
+    rule = paraphase_pg._allele_rule({"field": "annotated_alleles", "alleles": True, "normal": ["WT", 3]})
+    assert rule == {
+        "field": "annotated_alleles",
+        "alleles": None,
+        "phasing_field": None,
+        "normal": ["WT"],
+        "normal_prefixes": [],
+    }
+    # Without a count or a phasing field, the labels alone are read.
+    assert not paraphase_pg._alleles_need_review(rule, {"annotated_alleles": ["WT", "WT", "WT"]})
 
 
 # --- the catalogue a start reads ----------------------------------------------------------------------
@@ -304,6 +436,40 @@ def test_a_configured_catalogue_is_read_and_an_unreadable_one_is_passed_over(mon
     assert (region["region_id"], region["display_name"], region["genes"]) == ("synthetic", "synthetic", ["SYN1"])
     assert (region["chromosome"], region["clinical_priority"], region["clinical"]) == ("autosome", 999, None)
     assert region["disorders"] == [{"name": "Synthetic disorder", "omim_url": None}]
+
+    assert region["guide"] == []
+
+    # Field descriptions start from the catalogue's own, a region's entry winning; a guide
+    # section without a heading or without content, and a term without a meaning, is dropped.
+    configured.write_text(
+        json.dumps(
+            {
+                "field_descriptions": {"total_cn": "Default total.", "gene_cn": "Default gene.", "empty": ""},
+                "regions": [
+                    {
+                        "region_id": "synthetic",
+                        "genes": ["SYN1"],
+                        "field_descriptions": {"total_cn": "Region total."},
+                        "guide": [
+                            "not a section",
+                            {"heading": "", "text": "No heading."},
+                            {"heading": "Empty"},
+                            {"heading": "Labels", "terms": [{"term": "WT", "text": "Normal."}, {"term": "X"}]},
+                            {"heading": "Text", "text": " Only text. ", "terms": "not a list"},
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    paraphase_pg.load_paraphase_medical_regions.cache_clear()
+    [region] = paraphase_pg.load_paraphase_medical_regions()
+    assert region["field_descriptions"] == {"total_cn": "Region total.", "gene_cn": "Default gene."}
+    assert region["guide"] == [
+        {"heading": "Labels", "text": None, "terms": [{"term": "WT", "text": "Normal."}]},
+        {"heading": "Text", "text": "Only text.", "terms": []},
+    ]
 
     # A file that does not read as a catalogue is passed over for the shipped one.
     configured.write_text("{not json", encoding="utf-8")

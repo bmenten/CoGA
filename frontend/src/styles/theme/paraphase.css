@@ -119,28 +119,80 @@
   border-top: 1px dashed var(--color-border);
 }
 
-.paraphase-findings {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.125rem 0.4375rem;
-  margin: 0;
+/* How to read a region: its sections flow down two columns where the card is wide, so a
+   long one (the RCCX allele labels) leaves no gap beside a short one; one column on a narrow
+   screen. Terms (allele labels, variant names) in a two-column list. */
+.paraphase-guide {
+  columns: 2 22rem;
+  column-gap: 0.875rem;
   font-size: var(--fs-xs);
+  line-height: 1.4;
 }
 
-.paraphase-findings dt {
+/* A long section may continue in the next column, between its paragraphs or its terms,
+   never right after its heading. */
+.paraphase-guide-section {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  margin-bottom: 0.4375rem;
+}
+
+.paraphase-guide-section--wide {
+  column-span: all;
+}
+
+.paraphase-guide-section h3 {
+  break-after: avoid;
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-heading);
+}
+
+.paraphase-guide-section p {
+  margin: 0;
+}
+
+.paraphase-guide-subhead {
   font-weight: 600;
   color: var(--color-text-muted);
-  font-size: var(--fs-2xs);
-  padding-top: 0.0625rem;
 }
 
-.paraphase-findings dt.paraphase-findings-pathogenic {
-  color: var(--color-signature-red-dark);
+.paraphase-guide-caveat {
+  border-left: 3px solid rgba(180, 125, 45, 0.45);
+  padding-left: 0.3125rem;
 }
 
-.paraphase-findings dd {
+.paraphase-guide-terms {
+  display: grid;
+  grid-template-columns: fit-content(11rem) 1fr;
+  gap: 0.125rem 0.4375rem;
   margin: 0;
-  line-height: 1.35;
+}
+
+.paraphase-guide-terms dt,
+.paraphase-guide-terms dd,
+.paraphase-guide-section p {
+  break-inside: avoid;
+}
+
+.paraphase-guide-terms dt {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-heading);
+  overflow-wrap: anywhere;
+}
+
+.paraphase-guide-terms dd {
+  margin: 0;
+  min-width: 0;
+}
+
+/* The calls and the card's own field names read as words, not as Paraphase's labels. */
+.paraphase-guide-terms--plain dt {
+  font-family: inherit;
+  color: var(--color-text-muted);
 }
 
 .paraphase-sample-detail {

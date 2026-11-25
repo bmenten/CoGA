@@ -89,6 +89,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..schemas import (
     FamilyParaphaseTableOut,
     FamilyRepeatExpansionTableOut,
+    ParaphaseSampleResultOut,
     RepeatExpansionRowOut,
     VariantOut,
 )
@@ -681,6 +682,25 @@ def _status_rule(region: Mapping[str, Any] | None) -> Any:
     return json.loads(json.dumps(rule, default=str)) if isinstance(rule, Mapping) else None
 
 
+def _allele_rule(region: Mapping[str, Any] | None) -> Any:
+    rule = region.get("allele_rule") if region else None
+    return json.loads(json.dumps(rule, default=str)) if isinstance(rule, Mapping) else None
+
+
+def _allele_reading(region: Mapping[str, Any] | None, result: ParaphaseSampleResultOut) -> dict[str, Any] | None:
+    """What a region's allele rule read of a call: its labels and whether phasing succeeded, as
+    Paraphase gave them (None for a field it did not give). None where the region has no rule."""
+    rule = region.get("allele_rule") if region else None
+    if not isinstance(rule, Mapping):
+        return None
+    fields = {field.key: field.value for field in result.extra_fields}
+    phasing_field = rule.get("phasing_field")
+    return {
+        "alleles": fields.get(str(rule.get("field"))),
+        "phasing_success": fields.get(str(phasing_field)) if phasing_field else None,
+    }
+
+
 def _expected_copy_number(region: Mapping[str, Any] | None) -> dict[str, list[float]] | None:
     block = region.get("expected_copy_number") if region else None
     if not isinstance(block, Mapping) or not block:
@@ -707,6 +727,7 @@ async def paraphase_results(
                 "region": region.get("display_name") if region else None,
                 "medically_relevant": gene.is_medically_relevant,
                 "status_rule": _status_rule(region),
+                "allele_rule": _allele_rule(region),
                 "expected_copy_number": _expected_copy_number(region),
                 "samples": [
                     {
@@ -722,6 +743,7 @@ async def paraphase_results(
                             for metric in result.copy_number_metrics
                         ],
                         "fusion_count": result.fusion_count,
+                        "allele_reading": _allele_reading(region, result),
                         "loaded_at": _iso(result.uploaded_at),
                     }
                     for _sample, result in sorted(gene.samples.items())

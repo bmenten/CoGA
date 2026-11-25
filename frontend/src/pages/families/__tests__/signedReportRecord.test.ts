@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ANALYTICAL_SIGN_OFF_STATEMENT,
   coverageTrackCaller,
+  describeAlleleReading,
   describeBreachedMetric,
   describeSignedQcMetric,
   describeCatalogue,
@@ -60,6 +61,7 @@ import {
   liveReportSignedState,
   NIPT_NOT_CLASSIFIED_REASONS,
   paraphaseStatusWords,
+  parseFindingReviews,
   parseSignedReport,
   parseSignedVersionParam,
   parseUnreviewedFindings,
@@ -1256,15 +1258,28 @@ describe('what the analysis looked at', () => {
 
     expect(record.paraphase.state).toBe('recorded');
     if (record.paraphase.state === 'recorded') {
-      const [smn, gba] = record.paraphase.value.genes;
+      const [smn, gba, rccx] = record.paraphase.value.genes;
       expect(smn.statusRule).toBe('status by smn1_cn: pathogenic = 0, carrier = 1, normal ≥ 2');
+      expect(smn.alleleRule).toBeNull();
       expect(smn.results[0]).toEqual({
         sample: 'PROBAND',
         status: 'carrier',
         copyNumberSignal: true,
         copyNumber: [{ label: 'SMN1 CN', value: 1 }],
+        alleleReading: null,
       });
       expect(gba.statusRule).toBeNull();
+      // RCCX's status reads the alleles: the rule and what it read of each call, in words.
+      expect(rccx.statusRule).toBeNull();
+      expect(rccx.alleleRule).toBe(
+        'review unless phasing_success and 2 labels in annotated_alleles, each one of WT, pseudogene_deletion, duplication_WT_plus_…',
+      );
+      expect(rccx.results[0].alleleReading).toEqual({ alleles: ['WT', 'deletion_P31L,G111Vfs'], phasingSuccess: true });
+      expect(describeAlleleReading(rccx.results[0].alleleReading!)).toBe('alleles WT / deletion_P31L,G111Vfs');
+      expect(describeAlleleReading({ alleles: null, phasingSuccess: false })).toBe('alleles not given, phasing failed');
+      expect(describeAlleleReading({ alleles: ['WT', 'WT'], phasingSuccess: null })).toBe(
+        'alleles WT / WT, phasing not given',
+      );
     }
   });
 
@@ -2376,5 +2391,40 @@ describe('a live report beside the latest signed version', () => {
     expect(liveReportSignedNotice('loading', null)).toBe(
       'The sign-out record is still loading — do not use as the signed report.',
     );
+  });
+});
+
+// A review of a region read by its alleles (RCCX) froze them with the copy number: both are
+// the call it rests on.
+describe('parseFindingReviews — a Paraphase region read by its alleles', () => {
+  it('names the alleles each call froze beside its copy number', () => {
+    const reviews = parseFindingReviews({
+      paraphase_reviews: [
+        {
+          key: 'RCCX',
+          evidence_snapshot: {
+            evidence: {
+              gene: 'RCCX',
+              region: 'RCCX module',
+              samples: [
+                {
+                  sample: 'PROBAND',
+                  status: 'review',
+                  copy_number: [{ key: 'total_cn', label: 'Total CN', value: 4 }],
+                  allele_reading: { alleles: ['WT', 'Q319X'], phasing_success: true },
+                },
+                { sample: 'MOTHER', status: 'review', allele_reading: { alleles: [], phasing_success: false } },
+                { sample: 'FATHER', status: 'none', copy_number: [{ key: 'total_cn', label: 'Total CN', value: 4 }] },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    expect(reviews?.reviews[0].calls).toEqual([
+      { sample: 'PROBAND', call: 'Total CN 4 · alleles WT / Q319X', status: 'review' },
+      { sample: 'MOTHER', call: 'alleles not given, phasing failed', status: 'review' },
+      { sample: 'FATHER', call: 'Total CN 4', status: 'none' },
+    ]);
   });
 });

@@ -150,10 +150,11 @@ zoals de recordsecties.
   near-boundary-waarschuwing.
 
 **Paraphase**, per regio:
-- de regio-identiteit en de catalogusregel (`paraphase_catalogue_identity`, de statusregel, het verwachte
-  kopieaantal);
+- de regio-identiteit en de catalogusregel (`paraphase_catalogue_identity`, de statusregel, de allelregel,
+  het verwachte kopieaantal);
 - per sample: `total_cn`, `gene_cn`, `highest_total_cn`, de klinisch gebruikte metrieken
-  (`key_copy_number_fields`) en de `clinical_status`.
+  (`key_copy_number_fields`), de `clinical_status` en, bij een regio met een allelregel (RCCX), wat die
+  las (`allele_reading`: de labels per chromosoom en of de fasering lukte).
 
 Een hash van de snapshot gaat mee in de audit-event van de opslag.
 
