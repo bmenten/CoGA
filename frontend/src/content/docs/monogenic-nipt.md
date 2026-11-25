@@ -226,6 +226,30 @@ On the variant card, **Maternal** shows `hom_ref`, `het`, `hom` or `unknown`, an
 inheritance of the chosen category (for example `paternal_transmitted` or `maternal_inherited_het`).
 `unknown` means CoGA withheld the fetal call.
 
+### chrX and the fetal sex
+
+The pseudo-autosomal regions of chrX are diploid in both sexes and classified as an autosome. Outside
+them chrX is classified by the **fetal sex** the quality checks read from the two signals (the father's
+X alleles and the plasma's chrY coverage), as the R validation (version 0.7.3) does:
+
+- **A daughter** has an X from each parent: her chrX is classified as an autosome. Her father has one
+  X, so his allele always reaches her (category 7 at a near-certain prior; absent at good depth, the
+  false-negative category 8), and a het call of his there is an artefact, read as no call
+  (`father_het_call_on_x`).
+- **A son** has his mother's X only (`x_nonpar_male_fetus`). A maternal het allele sits at
+  `(1 − FF) / (2 − FF)` when he did not inherit it (category 2) and at `1 / (2 − FF)` when he did
+  (category 4: his one X carries it), half and half whatever the father carries; a hom-alt mother's
+  always reaches him (category 6). A fetal allele beside a reference mother is de novo, at
+  `FF / (2 − FF)`. He never inherits his father's X: the probability that he inherited a paternal X
+  allele is 0, and a call his father also has is a de novo candidate of low confidence
+  (`paternal_x_allele_in_male_fetus`).
+- **A fetal sex that is not known** (indeterminate or discordant) leaves chrX outside the
+  pseudo-autosomal regions unclassified (`sex_chromosome_unsupported`), as chrY and the mitochondrion
+  always are.
+
+The pseudo-autosomal bounds are conservative, spanning GRCh37's and GRCh38's (PAR1 up to 2.8 Mb, PAR2
+from 154.9 Mb), the same bounds the fetal-sex check reads.
+
 ### How a category is chosen
 
 Each variant is scored against the candidate categories with a beta-binomial model of its alt reads
@@ -294,7 +318,10 @@ Flags appear as chips on the variant card.
 | `father_call_…`, `plasma_call_…` | The other sample's call was looked up in another representation (see above). |
 | `artifact_list_protected` | The site is on the assay's artifact list, but the family's own annotation marks it common or ClinVar-pathogenic, or the family's father carries it, so it stays in (see *Artifact list*). |
 | `off_target` | The site lies outside every capture target of the plasma's per-target coverage table: off-target reads. It is listed and classified, but it is no fetal-fraction site and no de novo candidate (paternity and the fetal sex count no site without the plasma's target depth either). |
-| `sex_chromosome_unsupported` | chrX, chrY or the mitochondrion: not classified. |
+| `x_nonpar_female_fetus`, `x_nonpar_male_fetus` | chrX outside the pseudo-autosomal regions, classified for a daughter or a son (see *chrX and the fetal sex*). |
+| `father_het_call_on_x` | The father has a het call on chrX outside the pseudo-autosomal regions, where he has one X: an artefact, read as no call. |
+| `paternal_x_allele_in_male_fetus` | A son's fetal allele that his father also calls: he never inherits his father's X, so a low-confidence de novo candidate. |
+| `sex_chromosome_unsupported` | chrX outside the pseudo-autosomal regions of a fetus whose sex is not known, chrY or the mitochondrion: not classified. |
 
 ---
 
@@ -316,9 +343,10 @@ A saved search or a link can carry filters that only the other page applies:
 
 ### De novo in the fetus
 
-A candidate is a cfDNA call of the site's own that passes the quality filter, on an autosome, inside a
-capture target of the plasma's coverage table (when it has one), where the father has no supported
-call (no call, reference, a low-level signal, too thin, or no data). CoGA then triages it as the R
+A candidate is a cfDNA call of the site's own that passes the quality filter, on an autosome or on a
+chrX the fetal sex lets CoGA classify, inside a capture target of the plasma's coverage table (when it
+has one), where the father has no supported call (no call, reference, a low-level signal, too thin, or
+no data). On a son's X the father's call does not count: he passes no X. CoGA then triages it as the R
 pipeline does.
 
 **The fetal window.** A fetal allele the mother lacks sits where the paternal alleles the fetus
@@ -397,7 +425,7 @@ The presets combine the views with the usual filters:
   ClinVar rules;
 - **Recessive (both parents carrier)**: the recessive view with those filters.
 
-The page opens on **De novo**, on the **Mendeliome** panel, unless its link carries a search of its own.
+The page opens on **De novo**, on the analysis's diagnostic gene panel (without one, on the **Mendeliome**), unless its link carries a search of its own.
 
 ---
 
@@ -411,8 +439,10 @@ The calls are not equally reliable.
   versus 4, and 5 versus 6). Watch the probability and the confidence; only an FF below 1% withholds
   the fetal call (`ff_too_low`).
 
-> **Out of scope.** A local CNV or aneuploidy breaks the `0, ½, 1` dosage assumption. The sex
-> chromosomes are not classified; the fetal sex is estimated apart (see *Quality checks*).
+> **Out of scope.** A local CNV or aneuploidy breaks the `0, ½, 1` dosage assumption. chrY and the
+> mitochondrion are not classified, nor chrX outside the pseudo-autosomal regions when the fetal sex is
+> not known (see *chrX and the fetal sex*). On a son's X the maternal inference rests on the same small
+> allele-fraction shift as on an autosome.
 
 ---
 

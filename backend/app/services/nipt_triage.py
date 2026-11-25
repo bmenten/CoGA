@@ -40,6 +40,8 @@ from typing import Sequence
 
 from .nipt_analysis import (
     FATHER_CALL_OVERLAPS,
+    FATHER_X_HET_FLAG,
+    X_MALE_FLAG,
     FetalFractionEstimate,
     NiptClassification,
     NiptSiteObservation,
@@ -126,11 +128,20 @@ def is_de_novo_candidate(site: NiptSiteObservation, classification: NiptClassifi
     """A cfDNA call of the site's own (not a coverage-only site, nor one read off another
     representation), inside a capture target where the plasma has a coverage table, that
     passes the quality filter, where the father has no supported call. The triage's window
-    decides the rest."""
-    if not site.is_autosomal or not has_own_plasma_call(site) or site.in_target is False:
+    decides the rest.
+
+    On chrX outside the pseudo-autosomal regions the site must be classified (the fetal sex
+    known): in a son the father passes no X, so his call does not matter (one he has makes
+    a low-confidence candidate, ``PATERNAL_X_IN_SON_FLAG``); in a daughter a het call of his
+    is an artefact, no genotype, and leaves the candidate in."""
+    if not has_own_plasma_call(site) or site.in_target is False:
+        return False
+    if not site.is_autosomal and classification.category is None:
         return False
     if classification.quality_failures:
         return False
+    if X_MALE_FLAG in classification.flags or FATHER_X_HET_FLAG in classification.flags:
+        return True
     return site.father_state in _UNSUPPORTED_FATHER_STATES
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from backend.app.services.nipt_triage import is_de_novo_candidate
 from backend.app.services.nipt_analysis import (
     OFF_TARGET_FLAG,
     is_genotyped_call,
@@ -363,11 +364,97 @@ def test_absent_father_het_is_not_transmitted() -> None:
 # 5. Edge flags
 # --------------------------------------------------------------------------- #
 
+# chrX outside the pseudo-autosomal regions (a position between PAR1 and PAR2).
+_X_NONPAR = 50_000_000
+
+
 def test_sex_chromosome_unsupported() -> None:
-    site = _site("v", father_state="het", dp=120, alt=6, is_autosomal=False, chrom="X")
-    c = classify_site(site, _ff(0.10), NiptQualityThresholds())
-    assert c.category is None
-    assert "sex_chromosome_unsupported" in c.flags
+    qc = NiptQualityThresholds()
+    # chrX outside the PARs with no fetal sex known, and chrY whatever the sex: not classified.
+    site = _site("v", father_state="het", dp=120, alt=6, is_autosomal=False, chrom="X", pos=_X_NONPAR)
+    for sex in (None, "indeterminate", "discordant"):
+        c = classify_site(site, _ff(0.10), qc, fetal_sex=sex)
+        assert c.category is None and "sex_chromosome_unsupported" in c.flags
+    y = _site("y", father_state="hom_alt", dp=120, alt=6, is_autosomal=False, chrom="Y", pos=_X_NONPAR)
+    assert classify_site(y, _ff(0.10), qc, fetal_sex="male").category is None
+    # PAR1 is diploid in both sexes: classified as an autosome.
+    par = _site("par", father_state="het", dp=1000, alt=50, is_autosomal=False, chrom="X", pos=100)
+    assert classify_site(par, _ff(0.10), qc).category == 7
+
+
+def test_a_daughters_x_is_classified_as_an_autosome_her_fathers_allele_always_passed() -> None:
+    qc = NiptQualityThresholds()
+    ff = _ff(0.10)
+    # Her father's one X: his allele reaches her (category 7), on the near-certain prior.
+    site = _site("x", father_state="hom_alt", dp=1000, alt=50, is_autosomal=False, chrom="X", pos=_X_NONPAR)
+    c = classify_site(site, ff, qc, fetal_sex="female")
+    assert c.category == 7 and "x_nonpar_female_fetus" in c.flags
+    assert c.paternal_transmission_probability is not None and c.paternal_transmission_probability > 0.99
+    # A het call of a man's X is an artefact: read as no call.
+    het = _site("h", father_state="het", dp=1000, alt=50, is_autosomal=False, chrom="X", pos=_X_NONPAR)
+    c = classify_site(het, ff, qc, fetal_sex="female")
+    assert "father_het_call_on_x" in c.flags and "father_no_coverage" in c.flags
+    # Absent at good depth, his allele is a false negative, as an autosomal hom-alt father's.
+    absent = _site("a", father_state="hom_alt", dp=1000, alt=0, present=False, is_autosomal=False, chrom="X", pos=_X_NONPAR)
+    assert classify_site(absent, ff, qc, fetal_sex="female").category == 8
+
+
+def test_a_sons_x_is_his_mothers_by_the_hemizygous_model() -> None:
+    qc = NiptQualityThresholds()
+    ff_value = 0.20
+    ff = _ff(ff_value)
+    # A maternal het allele the son inherited sits at 1 / (2 - FF), one he did not at
+    # (1 - FF) / (2 - FF) (each with the consensus reference bias); the father's genotype
+    # bounds nothing.
+    for father in ("hom_ref", "het", "hom_alt"):
+        inherited = _site("i", father_state=father, dp=2000,
+                          alt=round(2000 * (1 / (2 - ff_value) + MATERNAL_HET_BIAS)), is_autosomal=False,
+                          chrom="X", pos=_X_NONPAR)
+        c = classify_site(inherited, ff, qc, fetal_sex="male")
+        assert c.category == 4 and "x_nonpar_male_fetus" in c.flags
+        assert c.maternal_allele_probability is not None and c.maternal_allele_probability > 0.9
+        assert c.expected_vaf == pytest.approx(1 / (2 - ff_value) + MATERNAL_HET_BIAS)
+    missed = _site("m", father_state="hom_ref", dp=2000,
+                   alt=round(2000 * ((1 - ff_value) / (2 - ff_value) + MATERNAL_HET_BIAS)),
+                   is_autosomal=False, chrom="X", pos=_X_NONPAR)
+    c = classify_site(missed, ff, qc, fetal_sex="male")
+    assert c.category == 2 and c.maternal_allele_probability is not None and c.maternal_allele_probability < 0.1
+    assert c.fetal_genotype_posterior is not None and c.fetal_genotype_posterior["het"] == 0.0
+
+
+def test_a_son_never_inherits_his_fathers_x() -> None:
+    qc = NiptQualityThresholds()
+    ff = _ff(0.10)
+    # Absent from the plasma: not transmitted, with certainty, and no false negative.
+    absent = _site("a", father_state="hom_alt", dp=1000, alt=0, present=False, is_autosomal=False, chrom="X", pos=_X_NONPAR)
+    c = classify_site(absent, ff, qc, fetal_sex="male")
+    assert (c.category, c.fetal_inheritance, c.paternal_transmission_probability) == (None, "paternal_not_transmitted", 0.0)
+    # In the fetal window beside his call: a de novo allele at FF / (2 - FF), flagged doubtful.
+    present = _site("p", father_state="hom_alt", dp=2000, alt=105, is_autosomal=False, chrom="X", pos=_X_NONPAR)
+    c = classify_site(present, ff, qc, fetal_sex="male")
+    assert c.category == 1 and "paternal_x_allele_in_male_fetus" in c.flags
+    assert c.paternal_transmission_probability == 0.0
+    assert c.expected_vaf == pytest.approx(0.10 / 1.90)
+    assert is_de_novo_candidate(present, c)
+    # In a daughter the same call is her father's allele, no de novo candidate.
+    daughter = classify_site(present, ff, qc, fetal_sex="female")
+    assert daughter.category == 7 and not is_de_novo_candidate(present, daughter)
+
+
+def test_the_analysis_classifies_chrx_by_the_fetal_sex_its_two_signals_read() -> None:
+    qc = NiptQualityThresholds()
+    autosomal = [_site(f"cat7-{i}", father_state="het", dp=1000, alt=60) for i in range(40)]
+    x_site = _site("x", father_state="hom_ref", dp=2000, alt=round(2000 / 1.88), is_autosomal=False, chrom="X",
+                   pos=_X_NONPAR)
+    # The plasma's chrY coverage reads a son; the father's X alleles tell nothing here.
+    male = run_nipt_analysis([*autosomal, x_site], qc, chry_profile="female_with_male_fetal_signal")
+    assert male.fetal_sex_call == "male"
+    [x] = [c for c in male.classifications if c.variant_id == "x"]
+    assert x.category == 4 and "x_nonpar_male_fetus" in x.flags
+    unknown = run_nipt_analysis([*autosomal, x_site], qc)
+    assert unknown.fetal_sex_call == "indeterminate"
+    [x] = [c for c in unknown.classifications if c.variant_id == "x"]
+    assert x.category is None and "sex_chromosome_unsupported" in x.flags
 
 
 def test_father_no_coverage_flag() -> None:
