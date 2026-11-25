@@ -464,7 +464,7 @@ describe('preset frequency ceilings bound popmax', () => {
     const draft = result.current.draftFilters;
     expect(draft.expanded_carrier_screening).toBe('true');
     // Without an impact filter a long-read genome's rare variants fill the candidate
-    // window long before chrX, and the female partner's X-linked variants are never read.
+    // window long before chrX, and the partners' X-linked variants are never read.
     expect(draft.impact).toBe('HIGH, MODERATE');
     expect(draft.max_gnomad_popmax_af).toBe('0.01');
     // A pathogenic founder allele above 1% in some population (CFTR p.Phe508del) stays.

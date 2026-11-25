@@ -1213,10 +1213,6 @@ def _is_male_sex(value: str) -> bool:
     return value in {"m", "male", "1"}
 
 
-def _is_female_sex(value: str) -> bool:
-    return value in {"f", "female", "2"}
-
-
 def _pair_phase_for_sample(
     left_call: SmallVariantCall | None,
     right_call: SmallVariantCall | None,
@@ -1455,29 +1451,19 @@ def _filter_expanded_carrier_screening(
 
     A gene in which both partners carry a variant: every variant either of them carries
     in it (a recessive condition needs a variant from each). On chrX outside the
-    pseudo-autosomal regions, also every variant a female partner carries on her own:
-    for an X-linked condition her carrier status alone puts a son at risk, whatever the
-    other partner carries. A partner not recorded as male counts as female here, as the
-    rest of CoGA reads such a sample as diploid on chrX; on an assembly whose
-    pseudo-autosomal regions are not known (``hemizygous_chromosome``) only the
-    both-partners rule applies. A variant without a gene is never a finding, and neither
-    is a mitochondrial one: mtDNA passes from the mother alone, so two partners carrying
-    a variant in one chrM gene says nothing of a child's risk (the mtDNA analysis reads
-    the female partner's chrM calls).
+    pseudo-autosomal regions, also every variant either partner carries on their own,
+    whatever the other partner carries: a woman's carrier status alone puts a son at risk
+    of an X-linked condition, and a man passes his one X to every daughter. Neither rule
+    reads a partner's recorded sex. On an assembly whose pseudo-autosomal regions are not
+    known (``hemizygous_chromosome``) only the both-partners rule applies; a chrY variant
+    follows it too, so it is never a finding on its own. A variant without a gene is
+    never a finding, and neither is a mitochondrial one: mtDNA passes from the mother
+    alone, so two partners carrying a variant in one chrM gene says nothing of a child's
+    risk (the mtDNA analysis reads the female partner's chrM calls).
     """
     partners = _carrier_partners(sample_rows, relationship_rows, left_out=left_out)
     if partners is None:
         return []
-    sample_sex = _sample_sex_map(sample_rows)
-    # A partner sampled twice is male when a sample of theirs is recorded male and none female.
-    x_carrier_partners = [
-        index
-        for index, samples in enumerate(partners)
-        if not (
-            any(_is_male_sex(sample_sex.get(sample, "")) for sample in samples)
-            and not any(_is_female_sex(sample_sex.get(sample, "")) for sample in samples)
-        )
-    ]
     qualifying_ids: set[str] = set()
     carrier_variants: dict[tuple[str, str], list[SmallVariantRecord]] = {}
     carrier_sets: dict[tuple[str, str], set[int]] = {}
@@ -1500,9 +1486,7 @@ def _filter_expanded_carrier_screening(
         }
         if not carriers:
             continue
-        if any(partner in carriers for partner in x_carrier_partners) and (
-            hemizygous_chromosome(assembly_name, record.chr, record.start) == "X"
-        ):
+        if hemizygous_chromosome(assembly_name, record.chr, record.start) == "X":
             qualifying_ids.add(record.variant_id)
         for key in keys:
             carrier_sets.setdefault(key, set()).update(carriers)

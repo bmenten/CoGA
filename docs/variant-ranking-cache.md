@@ -35,7 +35,7 @@ Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the r
 | The genes and regions the panel filter applied | as the query read them for the family's assembly: `gene_panel_genes`, `gene_panel_regions` and each gene's loci in `genes` (a digest, `panel_members_digest`) |
 | The regions the query kept to or left out, and the genes it left out | as the query resolved them: the intervals, the excluded genes' loci (from `genes`) and names |
 | The present HPO terms of the affected members | `individual_hpo` |
-| The pedigree, who is affected and each member's sex (they name a carrier screen's couple and decide its X-linked findings) | the loaded family the ranking is computed on: members with sex, role and status, and the relationships |
+| The pedigree, who is affected and each member's sex (they name a carrier screen's couple, and the sex decides a son's X-linked inheritance modes) | the loaded family the ranking is computed on: members with sex, role and status, and the relationships |
 | The family's small-variant data | the ClickHouse `SNV_INDEL/family_data_version` table: every insert, delete or re-import of the family's variants adds a token |
 | The analysis the family is read for, of a family with several: its key, the other analyses' callsets it leaves out, and the members only another analysis's package lists | the request's `analysis` and the family's package records (`families.metadata`), as `analysis_scope.py` reads them |
 | The Monarch release | `monarch_gene_disease.release_version` |
