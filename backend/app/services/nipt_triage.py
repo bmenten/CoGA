@@ -33,6 +33,11 @@ fetal genotype posterior's hom-alt, het and hom-ref. The gene's pair is the one 
 make the fetus affected. Its status: ``undetermined`` when an inheritance the pair rests on lies
 between 0.2 and 0.8 or was not told (the R validation's band: a coin flip must not drop a gene),
 else ``affected`` when both were inherited (0.8 or more), else ``carrier`` or ``unaffected``.
+As the R pairing reads it, a heterozygous father's allele the mother carries too is not told
+(``maternal_also_carrier``), and a site both parents carry with the mother homozygous is
+undetermined. The locked diagnostic candidates pair only alleles past the technical filter
+(``RecessiveCandidate.plasma_call_retained``): the mother's other alleles are left out, the
+father's stay with their inheritance not told.
 
 **X-linked** (``mode``): on chrX outside the pseudo-autosomal regions a son has his mother's X
 only, so her allele alone makes him affected (``x_linked_son``: P(affected) = P(m), never a
@@ -321,6 +326,11 @@ class RecessiveCandidate:
     variant_class: str = "SNV"
     # False when the annotation has no population frequency at all.
     has_population_af: bool = True
+    # False when the site's plasma call fails the cfDNA quality filter or lies outside the
+    # capture targets (the R validation's technical filter, which the locked diagnostic
+    # candidates apply): the mother's allele, known from the plasma alone, is left out; the
+    # father's, known from his own genotype, stays with its inheritance not told.
+    plasma_call_retained: bool = True
 
 
 def _frequency_note(candidate: RecessiveCandidate) -> str | None:
@@ -345,7 +355,7 @@ def _maternal_allele(candidate: RecessiveCandidate) -> RecessiveAllele | None:
     """The mother's allele when she carries it: heterozygous (categories 2-4) or homozygous
     (5-6, always passed)."""
     classification = candidate.classification
-    if classification.maternal_state not in ("het", "hom"):
+    if classification.maternal_state not in ("het", "hom") or not candidate.plasma_call_retained:
         return None
     if classification.maternal_state == "hom":
         return RecessiveAllele(
@@ -369,41 +379,36 @@ def _maternal_allele(candidate: RecessiveCandidate) -> RecessiveAllele | None:
 
 def _paternal_allele(candidate: RecessiveCandidate) -> RecessiveAllele | None:
     """The father's allele when he carries it: heterozygous, or homozygous (on his X,
-    hemizygous), which he always passes. A son never inherits his father's X."""
+    hemizygous), which he always passes. A son never inherits his father's X.
+
+    As the R pairing reads it, the plasma tells whether a heterozygous father passed his
+    allele only where the mother does not carry it and the plasma's call is retained:
+    where she carries it too (``maternal_also_carrier``), or the call fails the technical
+    filter, the inheritance is not told (the ½ prior, an undetermined status). A site both
+    parents carry is paired on its own (``_shared_site_pair``)."""
     classification = candidate.classification
     if candidate.father_state not in ("het", "hom_alt") or X_MALE_FLAG in classification.flags:
         return None
+    note: str | None
     if candidate.father_state == "hom_alt":
-        probability_hom = (
-            classification.paternal_transmission_probability
-            if classification.maternal_state == "hom_ref" and classification.paternal_transmission_probability is not None
-            else 1.0
-        )
         note = "father hemizygous (his X)" if X_FEMALE_FLAG in classification.flags else "father homozygous"
         return RecessiveAllele(
             variant_id=candidate.variant_id,
-            inherited_probability=probability_hom,
+            inherited_probability=1.0,
             category=classification.category,
             note=_notes(note, _frequency_note(candidate)),
         )
-    probability: float | None
-    if classification.maternal_state == "het":
-        # Both parents carry it: a heterozygous fetus has either parent's allele.
-        genotype = classification.fetal_genotype_posterior
-        if genotype is not None:
-            probability = genotype.get("hom_alt", 0.0) + 0.5 * genotype.get("het", 0.0)
-        else:
-            probability = classification.fetal_hom_alt_probability
-    elif classification.maternal_state == "hom":
-        # The mother always transmits the allele: the father's is in a homozygous fetus.
-        probability = classification.fetal_hom_alt_probability
-    else:
-        probability = classification.paternal_transmission_probability
+    probability: float | None = classification.paternal_transmission_probability
+    note = None
+    if classification.maternal_state in ("het", "hom"):
+        probability, note = None, "the mother carries it too: its inheritance is not told"
+    elif not candidate.plasma_call_retained:
+        probability, note = None, "its plasma call fails the technical filter: its inheritance is not told"
     return RecessiveAllele(
         variant_id=candidate.variant_id,
         inherited_probability=probability,
         category=classification.category,
-        note=_frequency_note(candidate),
+        note=_notes(note, _frequency_note(candidate)),
     )
 
 
@@ -445,9 +450,17 @@ def _two_site_pair(maternal: RecessiveAllele, paternal: RecessiveAllele) -> _Pai
     )
 
 
-def _shared_site_pair(allele: RecessiveAllele, genotype: dict[str, float] | None, hom_alt: float | None) -> _Pair:
+def _shared_site_pair(
+    allele: RecessiveAllele, paternal: RecessiveAllele, genotype: dict[str, float] | None, hom_alt: float | None
+) -> _Pair:
     """A site both parents carry: the fetal genotype posterior (hom-alt affected, het a
-    carrier); without one, the hom-alt probability alone, and the Mendelian 1/4 without that."""
+    carrier); without one, the hom-alt probability alone, and the Mendelian 1/4 without that.
+    Two homozygous parents always make the fetus homozygous. A homozygous mother (categories
+    5-6) beside a heterozygous father is undetermined, as the R pairing reads it: the plasma's
+    allele fraction cannot tell his allele beside two of hers."""
+    if allele.category in (5, 6) and paternal.inherited_probability == 1.0:
+        return _Pair(1.0, 0.0, 0.0, "affected", allele.variant_id, allele.variant_id, False)
+    maternal_hom = allele.category in (5, 6)
     if genotype is not None:
         affected, carrier, unaffected = genotype.get("hom_alt", 0.0), genotype.get("het", 0.0), genotype.get("hom_ref", 0.0)
         uses_prior = False
@@ -457,7 +470,7 @@ def _shared_site_pair(allele: RecessiveAllele, genotype: dict[str, float] | None
     else:
         affected, carrier, unaffected = 0.25, 0.5, 0.25
         uses_prior = True
-    if uses_prior or UNDETERMINED_BAND[0] < affected < UNDETERMINED_BAND[1]:
+    if maternal_hom or uses_prior or UNDETERMINED_BAND[0] < affected < UNDETERMINED_BAND[1]:
         status = "undetermined"
     elif affected >= UNDETERMINED_BAND[1]:
         status = "affected"
@@ -529,7 +542,7 @@ def recessive_gene_risks(candidates: Sequence[RecessiveCandidate]) -> list[Reces
             for paternal in paternal_by_gene[gene]:
                 if maternal.variant_id == paternal.variant_id:
                     genotype, hom_alt = shared.get(gene, {}).get(maternal.variant_id, (None, None))
-                    pair = _shared_site_pair(maternal, genotype, hom_alt)
+                    pair = _shared_site_pair(maternal, paternal, genotype, hom_alt)
                 else:
                     pair = _two_site_pair(maternal, paternal)
                 if best is None or pair.affected > best.affected:

@@ -622,7 +622,10 @@ const FamilyNiptPage: React.FC = () => {
                 Fetal fraction could not be loaded
               </span>
             ) : (
-              <FamilyFact label="Fetal fraction" value={pct(ff?.ff)} />
+              <FamilyFact
+                label="Fetal fraction"
+                value={ff && ff.ff_computed == null ? 'not estimated' : pct(ff?.ff_computed)}
+              />
             )}
             {ff?.ci_low != null && ff?.ci_high != null ? (
               <FamilyFact label="95% CI" value={`${pct(ff.ci_low)}–${pct(ff.ci_high)}`} />
@@ -698,6 +701,8 @@ const FamilyNiptPage: React.FC = () => {
 
       <MultiplePregnancyNote note={summary?.multiple_pregnancy_note} fetuses={summary?.fetuses} />
       <NiptDiagnosticPanel
+        // A pregnancy's own form: a choice or an error is never carried to another.
+        key={niptAnalysis ?? ''}
         familyId={familyId ?? ''}
         analysisParams={analysisParams}
         analysisKey={niptAnalysis}

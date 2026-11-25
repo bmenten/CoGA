@@ -401,3 +401,17 @@ def test_the_list_of_a_pregnancy_is_saved_under_its_pregnancy_and_read_for_it(cl
 
     assert response.headers["content-disposition"] == 'attachment; filename="family-FAM1-ZW2-nipt-variants.csv"'
     assert calls[-1]["analysis"] == "monogenic_nipt:ZW2"
+
+
+def test_a_fetal_fraction_that_was_not_estimated_is_an_empty_cell() -> None:
+    # Without an estimate the analysis holds ff = 0.0 for its arithmetic: never written as one.
+    from backend.app.schemas.nipt import NiptFetalFractionOut
+
+    not_estimated = NiptFetalFractionOut(
+        ff=0.0, ff_computed=None, ff_median=0.08, ci_low=0.01, ci_high=0.2, n_sites=3,
+        method="category7_pooled", low_confidence=True,
+    )
+    row = SimpleNamespace()
+    assert nipt_router._nipt_export_cell(row, "fetal_fraction", not_estimated, None) == ""  # type: ignore[arg-type]
+    estimated = not_estimated.model_copy(update={"ff": 0.112, "ff_computed": 0.112})
+    assert nipt_router._nipt_export_cell(row, "fetal_fraction", estimated, None) == "0.112"  # type: ignore[arg-type]

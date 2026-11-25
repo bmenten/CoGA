@@ -1417,3 +1417,15 @@ async def test_get_family_nipt_coverage_labels_gene_regions(
     assert summary.target_region_count == 1
     assert summary.per_region[0].label == "BRCA1"
     assert summary.overall_median_on_target == 80.0
+
+
+def test_the_diagnostic_panel_update_needs_its_field() -> None:
+    # An empty body clears nothing: a panel is set with its id, or cleared with an explicit null.
+    from pydantic import ValidationError
+
+    from backend.app.schemas.nipt import NiptDiagnosticPanelUpdate
+
+    with pytest.raises(ValidationError):
+        NiptDiagnosticPanelUpdate.model_validate({})
+    assert NiptDiagnosticPanelUpdate.model_validate({"panel_id": None}).panel_id is None
+    assert NiptDiagnosticPanelUpdate.model_validate({"panel_id": "panel-1"}).panel_id == "panel-1"

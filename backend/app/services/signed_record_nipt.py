@@ -723,14 +723,20 @@ def nipt_signout_concerns(section: Any) -> list[tuple[str | None, str]]:
     is about, why): no fetal-fraction estimate, too few expected fetal reads (or a QC gate that
     rests on a provisional bound QA has not set), fetal-sex signals that disagree, male DNA
     given as the maternal plasma, no diagnostic gene panel (the analysis states no scope).
-    They gate the sign-out like a failed Sample QC check. [] for a section that holds no
-    checks (none, or one that could not be read).
+    They gate the sign-out like a failed Sample QC check. A section that could not be read
+    gates it too: the record then holds no NIPT result, and none of its checks is verified (as a
+    conventional NIPT's record without a result does). [] for a record without the section
+    (another family's).
 
     Paternity is not among them: the Sample QC reads it from the same analysis, and its gate
     already acts on it (``sample_qc.paternity_check``).
     """
-    if not isinstance(section, Mapping) or section.get("unavailable"):
+    if not isinstance(section, Mapping):
         return []
+    if section.get("unavailable"):
+        # The section's own fixed sentence (results not read, or a trio not resolved).
+        why = str(section.get("unavailable")).rstrip(".")
+        return [("NIPT results", f"{why}. The record holds no NIPT result, so none of its quality checks is verified.")]
     concerns: list[tuple[str | None, str]] = []
     fetal_fraction = section.get("fetal_fraction")
     if isinstance(fetal_fraction, Mapping) and fetal_fraction.get("status") == "fail":

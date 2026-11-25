@@ -455,6 +455,12 @@ def test_the_analysis_classifies_chrx_by_the_fetal_sex_its_two_signals_read() ->
     assert unknown.fetal_sex_call == "indeterminate"
     [x] = [c for c in unknown.classifications if c.variant_id == "x"]
     assert x.category is None and "sex_chromosome_unsupported" in x.flags
+    # Twins: one fetus's chrY signal says nothing of the other's X. The call stands, but chrX
+    # outside the pseudo-autosomal regions is left unclassified.
+    twins = run_nipt_analysis([*autosomal, x_site], qc, chry_profile="female_with_male_fetal_signal", fetuses=2)
+    assert twins.fetal_sex_call == "male"
+    [x] = [c for c in twins.classifications if c.variant_id == "x"]
+    assert x.category is None and "sex_chromosome_unsupported" in x.flags
 
 
 def test_father_no_coverage_flag() -> None:

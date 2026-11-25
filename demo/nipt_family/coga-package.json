@@ -52,8 +52,8 @@
   "files": [
     {
       "path": "README.md",
-      "size": 9469,
-      "sha256": "d43a8d489e071eda1a18514d4795d0ee3286df9350216942afe3b774a6eb13c4"
+      "size": 9579,
+      "sha256": "f777e45d996fb93a1925de9c8fc093ccdebee5bb9371fee40acc2bb26ebd2aa1"
     },
     {
       "path": "nipt_coverage.bed",

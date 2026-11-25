@@ -145,6 +145,7 @@ agreement estimates.
   - The R NIPT-M analysis that CoGA names (v0.7.3) is to be committed and tagged in its repository, so that the model reference names a fixed version.
   - QA and the laboratory director confirm or change the QC gate's provisional bound (40 expected fetal reads) before the release candidate.
   - The comparator, the FF distribution of the 30 samples, and the artifact list built without them (INPUTS C4).
+  - The fetal-fraction estimator. CoGA pools the paternal alleles' reads (2 × Σ alt / Σ depth, the father het or hom-alt) and estimates from 5 sites, with a low-confidence warning below 30. The R validation takes 2 × the median allele fraction of the paternal het alleles, and gives no estimate (and classifies nothing) below 25 sites. The median often reads higher, which moves the QC gate. The owner decided on 2026-11-25 to keep CoGA's estimator for now; compare both against R's per-family results on the test VM before deciding.
 
 ### 3.5 Mitochondrial disease — ONT adaptive sampling (N to define)
 - **Units of analysis:** the **mtDNA variant + heteroplasmy** call set (variant detection and heteroplasmy fraction), the **nuclear mito-gene** variant/diagnostic conclusion, and the combined **diagnostic conclusion**.

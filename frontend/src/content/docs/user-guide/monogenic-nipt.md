@@ -51,9 +51,10 @@ its data, reviews and sign-out are its own.
   and its report open on it (without one, on the Mendeliome), and the sign-out freezes its version,
   its gene list and the coverage of its capture targets. A gene of the panel without a capture target
   is not tested. Without a diagnostic panel the sign-out asks for a reason.
-- **The NIPT report** lists the **diagnostic candidates** of its scope by the locked criteria of the
-  R validation (rare, protein-altering, ClinVar read strictly; see the reference): the de novo,
-  paternal and maternal alleles and the recessive genes left for further investigation. The sign-out
+- **The NIPT report** lists the **diagnostic candidates** of the diagnostic panel by the locked
+  criteria of the R validation (rare, protein-altering, ClinVar read strictly; see the reference): the
+  de novo and paternal alleles the fetus inherited, each of the mother's alleles with the probability
+  that the fetus inherited it, and the recessive genes left for further investigation. The sign-out
   freezes them with the criteria's version. The page's filters stay adjustable, for exploring.
 - **Quality checks** come first: the fetal fraction (with the per-site median and the de novo window),
   the **expected fetal reads**, the fetal sex from the father's X alleles and from the chrY coverage,

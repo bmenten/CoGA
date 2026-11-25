@@ -177,9 +177,10 @@ Bij een monogene NIPT-familie telt ook een gefaalde NIPT-kwaliteitscontrole uit 
 - te weinig verwachte foetale reads, of een QC-gate op de voorlopige grens die QA nog niet zette (REQ-NIPT-021);
 - een foetaal geslacht waarover de X-allelen van de vader en de chrY-dekking elkaar tegenspreken;
 - mannelijk DNA als plasma van de moeder (REQ-NIPT-015);
-- geen diagnostisch genpanel voor de analyse (REQ-NIPT-019).
+- geen diagnostisch genpanel voor de analyse (REQ-NIPT-019);
+- NIPT-resultaten die niet gelezen konden worden: het record bevat dan geen enkele NIPT-controle.
 
-De `409` noemt ze in `nipt_failed_checks` en in `qc_summary.messages` (dat van het plasma met zijn sample); het auditevent legt ze vast (`nipt_failed_checks`). Het vaderschap hoort er niet bij: de sample-QC leest het uit dezelfde analyse en blokkeert er al op. NIPT-resultaten die niet gelezen konden worden, staan in `not_captured`; ze blokkeren niet.
+De `409` noemt ze in `nipt_failed_checks` en in `qc_summary.messages` (dat van het plasma met zijn sample); het auditevent legt ze vast (`nipt_failed_checks`). Het vaderschap hoort er niet bij: de sample-QC leest het uit dezelfde analyse en blokkeert er al op. NIPT-resultaten die niet gelezen konden worden, staan ook in `not_captured`.
 
 Bij een familie met ccnv-output telt, onder dezelfde erkenning, uit de sectie `cnipt`:
 

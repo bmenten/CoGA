@@ -101,6 +101,14 @@ async def _panel(session: AsyncSession, panel_id: str) -> tuple[dict[str, Any], 
     return panel_identity(dict(row)), genes, symbols
 
 
+async def panel_gene_symbols(session: AsyncSession, panel_id: str) -> tuple[str, ...] | None:
+    """A gene panel's genes by symbol, as its capture targets are named and a signed record
+    reads them: an Ensembl gene id's symbol, a symbol itself (``panel_id`` canonical). None for
+    no such panel."""
+    panel = await _panel(session, panel_id)
+    return None if panel is None else panel[2]
+
+
 async def load_analysis_gene_panel(
     session: AsyncSession, *, family_uuid: str, analysis: str
 ) -> AnalysisGenePanel | None:

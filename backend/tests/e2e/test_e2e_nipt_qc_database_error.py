@@ -14,10 +14,10 @@ table that does not exist), through the API, this:
 
 * reads the Sample QC page: the fixed note, and no cfDNA check;
 * signs out without acknowledging the Sample QC: the gate holds it, and lists the NIPT checks
-  among those that could not run;
+  among those that could not run, and the NIPT results the record could not read;
 * signs out with the acknowledgement: the record holds the Sample QC with its note, and the
   NIPT section frozen as unavailable and named as not captured; it verifies, on a chain that
-  verifies, and its audit event lists the concern the acknowledgement covered;
+  verifies, and its audit event lists the concerns the acknowledgement covered;
 * with the list readable again, signs out once more: the record holds the NIPT results.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
@@ -126,7 +126,13 @@ def test_the_gate_lists_the_nipt_checks_among_those_that_could_not_run(signed) -
     detail = refused["json"]["detail"]
     assert detail["gate"] == "sample_qc"
     assert detail["unverifiable_checks"] == [COULD_NOT_RUN]
-    assert detail["failed_checks"] == [] and detail["nipt_failed_checks"] == []
+    assert detail["failed_checks"] == []
+    # The record's NIPT section could not be read either: it verifies none of the NIPT checks,
+    # and says so beside the Sample QC's.
+    assert detail["nipt_failed_checks"] == [
+        "NIPT results: the NIPT results could not be read. The record holds no NIPT result, so none of its "
+        "quality checks is verified."
+    ]
 
 
 def test_the_acknowledged_sign_out_freezes_what_could_not_run(signed) -> None:
@@ -146,6 +152,7 @@ def test_the_acknowledged_sign_out_freezes_what_could_not_run(signed) -> None:
     event = next(event for event in ok_json(signed, "audit")["events"] if event["action"] == "sign_out")
     assert event["after"]["version"] == signout["version"]
     assert event["after"]["qc_unverifiable"] == [COULD_NOT_RUN]
+    assert event["after"]["nipt_failed_checks"] == signed["responses"]["refused"]["json"]["detail"]["nipt_failed_checks"]
     assert event["after"]["acknowledged_qc"] is True
 
 

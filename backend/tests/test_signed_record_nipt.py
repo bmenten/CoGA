@@ -284,9 +284,11 @@ def _wire(
         assert track_type == "target_coverage"
         if sample_uuid != "cfdna-uuid":
             return []
+        # Each target's median and covered share only when asked for, as the track reader does.
         return [
             {"chr": row.chrom, "start": row.start, "end": row.end, "record_id": row.gene, "value": row.mean,
-             "metadata_json": json.dumps({"median": row.median, "proportion_covered": row.proportion_covered})}
+             **({"metadata_json": json.dumps({"median": row.median, "proportion_covered": row.proportion_covered})}
+                if include_metadata else {})}
             for row in rows
         ]
 
@@ -392,6 +394,20 @@ async def test_the_section_says_what_the_nipt_page_showed(monkeypatch: pytest.Mo
         (gene.gene, gene.weak_targets, gene.targets, gene.min_mean) for gene in qc.target_coverage.genes
     ]
     assert [gene["gene"] for gene in coverage["genes"]] == ["GENEY", "GENEA"]
+
+
+@pytest.mark.asyncio
+async def test_a_target_with_bases_without_coverage_is_weak_in_the_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The analysis reads each target's covered share, as the coverage page does: a deep target
+    # with uncovered bases is weak, in the summary and the record alike.
+    rows = _targets()
+    rows[1] = TargetCoverageRow(
+        chrom="7", start=350, end=450, gene="GENEB", attribute="GENEB", mean=1500.0, median=1500.0, proportion_covered=92.0
+    )
+    _wire(monkeypatch, targets=rows, gate_bounds=QA_GATE_BOUND)
+    coverage = (await _section([]))["target_coverage"]
+    assert coverage["incomplete"] == 1
+    assert "GENEB" in [gene["gene"] for gene in coverage["genes"]]
 
 
 @pytest.mark.asyncio
@@ -1051,7 +1067,6 @@ def test_each_nipt_check_that_failed_gates_the_sign_out_naming_what_it_read() ->
         _checked(plasma="unknown"),
         None,
         "not a section",
-        {"unavailable": "The NIPT results could not be read."},
         {"fetal_fraction": None, "checks": "garbled", "samples": None, "diagnostic_panel": {"panel_id": _PANEL_ID}},
     ],
 )
@@ -1082,6 +1097,18 @@ def test_a_gate_on_a_provisional_bound_asks_why_until_qa_sets_it() -> None:
     )
     assert srn.nipt_signout_concerns(untold) == [
         ("NIPT expected fetal reads", "Not assessed: the plasma has no per-target coverage table.")
+    ]
+
+
+def test_nipt_results_that_could_not_be_read_gate_the_sign_out() -> None:
+    # A record without its NIPT results verifies none of its checks: a fetal fraction not
+    # estimated or a failed QC gate would otherwise pass unseen.
+    assert srn.nipt_signout_concerns({"unavailable": "The NIPT results could not be read."}) == [
+        (
+            "NIPT results",
+            "The NIPT results could not be read. The record holds no NIPT result, so none of its quality checks is "
+            "verified.",
+        )
     ]
 
 

@@ -45,8 +45,8 @@ const DATA = {
       risk_uses_prior: false,
       maternal: [],
       paternal: [],
-      maternal_variant_id: null,
-      paternal_variant_id: null,
+      maternal_variant_id: '7-100-A-G',
+      paternal_variant_id: '7-200-C-T',
     },
     {
       gene: 'GENEX',
@@ -58,17 +58,18 @@ const DATA = {
       risk_uses_prior: false,
       maternal: [],
       paternal: [],
-      maternal_variant_id: null,
+      maternal_variant_id: 'X-5000000-A-G',
       paternal_variant_id: null,
     },
   ],
-  recessive_variants: [],
+  recessive_variants: [candidate('7-100-A-G', 'GENEA'), candidate('7-200-C-T', 'GENEA')],
 } as unknown as NiptDiagnosticCandidatesOut;
 
 const renderSection = (data: NiptDiagnosticCandidatesOut = DATA) =>
   render(
     <NiptDiagnosticCandidatesSection
       data={data}
+      scope="the analysis's diagnostic panel, NIPT diagnostic (version 3), as the sign-out freezes it."
       renderVariant={(item) => <p data-testid="variant">{`${item.variant.gene} ${item.variant._id}`}</p>}
     />,
   );
@@ -89,13 +90,37 @@ describe('NiptDiagnosticCandidatesSection', () => {
     const paternal = screen.getByRole('heading', { name: 'Paternal, inherited by the fetus (1)' })
       .parentElement as HTMLElement;
     expect(within(paternal).getByText('ClinVar pathogenic')).toBeInTheDocument();
-    const maternal = screen.getByRole('heading', { name: 'Maternal, inherited by the fetus (0)' })
+    const maternal = screen.getByRole('heading', { name: 'Maternal (0)' })
       .parentElement as HTMLElement;
     expect(within(maternal).getByText('None.')).toBeInTheDocument();
+    // Each recessive gene with its status, its probabilities and the pair they rest on, a son's
+    // X-linked gene on his mother's allele alone; then the alleles of these genes.
     expect(
-      screen.getByText('GENEA: Undetermined (affected 24.0%, carrier 52.0%, unaffected 24.0%)'),
+      screen.getByText(
+        'GENEA: Undetermined (affected 24.0%, carrier 52.0%, unaffected 24.0%; maternal 7-100-A-G, paternal 7-200-C-T)',
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByText('GENEX (X-linked): Affected (affected 95.0%, unaffected 5.0%)')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "GENEX (X-linked, a son: his mother’s allele alone): Affected (affected 95.0%, unaffected 5.0%; maternal X-5000000-A-G)",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('The qualifying alleles of these genes:')).toBeInTheDocument();
+    expect(screen.getAllByTestId('variant').map((node) => node.textContent)).toEqual([
+      'GENEC 7-500-G-GCAGCAG',
+      'GENEA 7-200-C-T',
+      'GENEA 7-100-A-G',
+      'GENEA 7-200-C-T',
+    ]);
+  });
+
+  it("names its scope, and a son's paternal-X allele by what it is", () => {
+    renderSection({
+      ...DATA,
+      de_novo: [{ ...DATA.de_novo[0], flags: ['paternal_x_allele_in_male_fetus'] }],
+    });
+    expect(screen.getByText(/the analysis's diagnostic panel, NIPT diagnostic \(version 3\)/)).toBeInTheDocument();
+    expect(screen.getByText(/a son's X allele his father also calls/)).toBeInTheDocument();
   });
 
   it('says when the lists may be incomplete', () => {

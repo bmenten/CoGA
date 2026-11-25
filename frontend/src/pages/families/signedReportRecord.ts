@@ -44,6 +44,7 @@ import {
   recessiveProbabilitiesText,
   recurrenceText,
 } from './niptClassification';
+import { DIAGNOSTIC_FLAG_LABELS, describeDiagnosticCriteria } from './NiptDiagnosticCandidates';
 import { formatAlleleFrequency, scoreBesideClass } from './reportNarrative';
 import { formatCompoundHetPhaseStatus, formatLocus } from './smallVariantResultUtils';
 import { sourceBase } from '../../lib/pregnancySources';
@@ -1153,17 +1154,34 @@ export interface SignedNiptDiagnosticCandidate {
   genes: string[];
   confidence: string | null;
   flags: string[];
+  /** What the analysis said of it, and what the criteria read of it, as frozen. */
+  category: number | null;
+  cfVaf: number | null;
+  cfAltReads: number | null;
+  cfDepth: number | null;
+  fatherState: string | null;
+  paternalTransmissionProbability: number | null;
+  maternalAlleleProbability: number | null;
+  maxPopulationAf: number | null;
+  impact: string | null;
+  spliceaiMax: number | null;
+  clinvarPathogenic: boolean;
+  otherCfdnaCarriers: number | null;
 }
 
 /** The locked diagnostic candidates as the record froze them, with the criteria's version. */
 export interface SignedNiptDiagnosticCandidates {
   criteriaReference: string | null;
+  /** The criteria in words, as the report words them; null when the record holds them in part. */
+  criteriaText: string | null;
   panelId: string | null;
   capped: boolean;
   deNovo: SignedNiptDiagnosticCandidate[];
   paternal: SignedNiptDiagnosticCandidate[];
   maternal: SignedNiptDiagnosticCandidate[];
   recessiveGenes: SignedNiptRecessiveGene[];
+  /** The qualifying alleles of the recessive genes. */
+  recessiveVariants: SignedNiptDiagnosticCandidate[];
 }
 
 /** The coverage of the diagnostic panel's capture targets as the record froze it. */
@@ -2391,6 +2409,18 @@ const parseNipt = (value: Json): SignedNipt => {
     genes: strings(entry.genes),
     confidence: text(entry.confidence),
     flags: strings(entry.flags),
+    category: number(entry.category),
+    cfVaf: number(entry.cf_vaf),
+    cfAltReads: number(entry.cf_alt_reads),
+    cfDepth: number(entry.cf_depth),
+    fatherState: text(entry.father_state),
+    paternalTransmissionProbability: number(entry.paternal_transmission_probability),
+    maternalAlleleProbability: number(entry.maternal_allele_probability),
+    maxPopulationAf: number(entry.max_population_af),
+    impact: text(entry.impact),
+    spliceaiMax: number(entry.spliceai_max),
+    clinvarPathogenic: entry.clinvar_pathogenic === true,
+    otherCfdnaCarriers: number(entry.other_cfdna_carriers),
   });
   const inputs = isObject(value.inputs) ? value.inputs : {};
   const artifacts = isObject(inputs.artifact_list) ? inputs.artifact_list : null;
@@ -2495,12 +2525,14 @@ const parseNipt = (value: Json): SignedNipt => {
     diagnosticCandidates: diagnostic
       ? {
           criteriaReference: text(diagnosticCriteria.reference),
+          criteriaText: describeFrozenDiagnosticCriteria(diagnosticCriteria),
           panelId: text(diagnostic.panel_id),
           capped: diagnostic.capped === true,
           deNovo: objects(diagnostic.de_novo).map(diagnosticCandidate),
           paternal: objects(diagnostic.paternal).map(diagnosticCandidate),
           maternal: objects(diagnostic.maternal).map(diagnosticCandidate),
           recessiveGenes: objects(diagnostic.recessive_genes).map(parseNiptRecessiveGene),
+          recessiveVariants: objects(diagnostic.recessive_variants).map(diagnosticCandidate),
         }
       : null,
     // Null with a per-target table: recorded, as none.
@@ -3099,6 +3131,60 @@ export const describeNiptCoverageNotes = (coverage: SignedNiptCoverageNotes): st
 };
 
 /**
+ * The locked criteria as the record froze them, worded as the report words them
+ * (``describeDiagnosticCriteria``); null when the record holds them only in part.
+ */
+const describeFrozenDiagnosticCriteria = (criteria: Json): string | null => {
+  const numbers = [
+    'rare_max_af_dominant',
+    'rare_max_af_recessive',
+    'cohort_common_min_samples',
+    'min_spliceai',
+    'clinvar_max_af',
+  ].map((key) => number(criteria[key]));
+  const reference = text(criteria.reference);
+  const impacts = strings(criteria.effect_impacts);
+  if (!reference || !impacts.length || numbers.some((value) => value === null)) return null;
+  return describeDiagnosticCriteria(criteria as unknown as Parameters<typeof describeDiagnosticCriteria>[0]);
+};
+
+/**
+ * A locked diagnostic candidate as signed: what the analysis said of it and what the criteria
+ * read of it, worded as the report's variant card words them.
+ */
+export const describeSignedDiagnosticCandidate = (candidate: SignedNiptDiagnosticCandidate): string => {
+  const parts = [
+    candidate.category !== null ? `category ${candidate.category}` : 'unclassified',
+    candidate.cfVaf !== null
+      ? `plasma ${pct(candidate.cfVaf)}${
+          candidate.cfAltReads !== null && candidate.cfDepth !== null
+            ? ` (${candidate.cfAltReads} of ${candidate.cfDepth} reads)`
+            : ''
+        }`
+      : 'no plasma call',
+    candidate.fatherState ? `father ${FATHER_STATE_LABELS[candidate.fatherState] ?? candidate.fatherState}` : null,
+    candidate.paternalTransmissionProbability !== null
+      ? `paternal inherited ${pct(candidate.paternalTransmissionProbability)}`
+      : null,
+    candidate.maternalAlleleProbability !== null
+      ? `maternal inherited ${pct(candidate.maternalAlleleProbability)}`
+      : null,
+    `population AF ${candidate.maxPopulationAf !== null ? candidate.maxPopulationAf.toString() : 'none'}`,
+    candidate.impact ? `${candidate.impact} impact` : null,
+    candidate.spliceaiMax !== null ? `SpliceAI ${candidate.spliceaiMax}` : null,
+    candidate.clinvarPathogenic ? 'ClinVar pathogenic' : null,
+    candidate.otherCfdnaCarriers ? `in ${candidate.otherCfdnaCarriers} other cfDNA sample(s)` : null,
+  ].filter(Boolean);
+  const low =
+    candidate.confidence === 'low'
+      ? `; low confidence: ${candidate.flags.map((flag) => DIAGNOSTIC_FLAG_LABELS[flag] ?? flag).join(', ')}`
+      : candidate.flags.length
+        ? `; ${candidate.flags.map((flag) => DIAGNOSTIC_FLAG_LABELS[flag] ?? flag).join(', ')}`
+        : '';
+  return `${candidate.genes.join('/') || '—'} ${candidate.variantId}: ${parts.join(', ')}${low}`;
+};
+
+/**
  * The QC gate as signed: its sentence, then the bound it applied, QA's or provisional, as the
  * NIPT page words it.
  */
@@ -3108,6 +3194,16 @@ export const describeSignedGate = (gate: SignedNiptExpectedFetalReads): string =
   }${gate.warnValue !== null ? `, warning below ${gate.warnValue}` : ''} (${
     gate.provisional ? 'provisional: QA had not set it' : 'set by QA'
   }).`;
+
+/** The pair a recessive gene's status rests on, as signed: " (maternal A, paternal B)". */
+export const describeSignedRecessivePair = (gene: SignedNiptRecessiveGene): string => {
+  if (gene.maternalVariantId && gene.paternalVariantId) {
+    return gene.maternalVariantId === gene.paternalVariantId
+      ? ` (${gene.maternalVariantId}, a site both parents carry)`
+      : ` (maternal ${gene.maternalVariantId}, paternal ${gene.paternalVariantId})`;
+  }
+  return gene.maternalVariantId ? ` (maternal ${gene.maternalVariantId})` : '';
+};
 
 /**
  * A recessive gene's fetal status as signed, worded as the NIPT page words it:

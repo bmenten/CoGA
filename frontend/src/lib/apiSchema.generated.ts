@@ -2843,9 +2843,12 @@ export interface NiptDiagnosticPanelStateOut {
   panel: NiptDiagnosticPanelOut | null;
 }
 
-/** Set the analysis's diagnostic panel (a gene panel's id), or clear it (null). */
+/**
+ * Set the analysis's diagnostic panel (a gene panel's id), or clear it (an explicit null):
+ * the field is required, so an empty body clears nothing.
+ */
 export interface NiptDiagnosticPanelUpdate {
-  panel_id?: string | null;
+  panel_id: string | null;
 }
 
 /**

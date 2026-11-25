@@ -635,7 +635,8 @@ def _nipt_export_cell(
     columns hold ``fetal_fraction``, and the multiple-pregnancy column the note of a pregnancy
     of two or more fetuses (``multiple_pregnancy_note``), each the same on every row."""
     if field == _FETAL_FRACTION_FIELD:
-        return _nipt_value_text(fetal_fraction.ff)
+        # The estimate, or nothing when there is none (``ff`` then holds 0.0, never a value).
+        return _nipt_value_text(fetal_fraction.ff_computed)
     if field == _FETAL_FRACTION_LOW_CONFIDENCE_FIELD:
         return _nipt_value_text(fetal_fraction.low_confidence)
     if field == _MULTIPLE_PREGNANCY_FIELD:
@@ -813,6 +814,10 @@ async def get_family_nipt_coverage_summary(
     # The coverage page lists every gene in scope, the ones whose targets all pass too;
     # the NIPT page only the weak ones.
     all_genes: bool = False,
+    # The depth the QC gate's fetal reads need at the analysis's fetal fraction, as the summary
+    # serves it (qc.target_coverage.fetal_read_depth): the targets below it are counted. This
+    # endpoint runs no analysis, so it knows no fetal fraction of its own.
+    fetal_read_depth: float | None = Query(None, gt=0),
     analysis: NiptAnalysisParam = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -826,6 +831,7 @@ async def get_family_nipt_coverage_summary(
         panel_id=panel_id,
         min_depth=min_depth,
         all_genes=all_genes,
+        thin_below=fetal_read_depth,
         analysis=analysis,
     )
     summary = coverage.regions
