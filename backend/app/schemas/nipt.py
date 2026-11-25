@@ -345,8 +345,9 @@ class NiptRecessiveAlleleOut(BaseModel):
 
 
 class NiptRecessiveGeneOut(BaseModel):
-    """A gene where both parents carry an allele: whether the fetus inherited each, and
-    the probability it inherited one of each (a carrier couple's prior is 25%)."""
+    """A gene where both parents carry an allele (or, X-linked, a son's mother carries one):
+    whether the fetus inherited each, the probability it is affected (``risk``; a carrier
+    couple's prior is 25%), a carrier or neither, and its fetal status."""
 
     gene: str
     maternal: List[NiptRecessiveAlleleOut]
@@ -355,6 +356,11 @@ class NiptRecessiveGeneOut(BaseModel):
     maternal_variant_id: Optional[str] = None
     paternal_variant_id: Optional[str] = None
     risk_uses_prior: bool = False
+    status: Literal["affected", "carrier", "unaffected", "undetermined"] = "undetermined"
+    carrier_probability: Optional[float] = None
+    unaffected_probability: Optional[float] = None
+    # autosomal; x_linked_daughter (paired as an autosome); x_linked_son (his mother's allele alone).
+    mode: Literal["autosomal", "x_linked_daughter", "x_linked_son"] = "autosomal"
 
 
 class NiptNotClassifiedOut(BaseModel):

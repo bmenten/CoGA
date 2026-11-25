@@ -177,7 +177,7 @@ it.
   the family report page (the NIPT page has none).
   - Its record holds the section `nipt` (`signed_record_nipt.py`): the summary, the checks, each
     reported variant as the variant list classifies it (from `nipt_service.get_family_nipt_record`),
-    the recessive fetal risk over them, the inputs, and, without a per-target table, the coverage
+    the recessive fetal status over them, the inputs, and, without a per-target table, the coverage
     check's notes over the coverage tracks (`coverage_notes`, from
     `nipt_service.nipt_coverage_notes`).
   - A failed fetal-fraction, fetal-sex or plasma check gates it under the Sample QC's
@@ -215,9 +215,16 @@ it.
   pipeline, a candidate a ClinVar record may call pathogenic (`triage_annotation`,
   `clinvar_may_assert_pathogenic`) is never `excluded_recurrent`: a de novo hotspot recurs between
   pregnancies.
-- **Recessive risk** — `nipt_triage.recessive_gene_risks` (CoGA's own): heterozygous carriers only;
-  per gene the highest maternal × paternal inheritance product; P(fetus hom-alt) at a shared site;
-  the ½ prior for an untold inheritance; notes for a missing population frequency.
+- **Recessive fetal status** — `nipt_triage.recessive_gene_risks` (the R v0.7.3 gene pairing, with
+  CoGA's probabilities): heterozygous and homozygous parents (a homozygous one, or a father on his X,
+  always passes the allele); per gene the pair most likely to make the fetus affected, with
+  P(affected), P(carrier) and P(unaffected): from the two independent inheritances at two sites
+  (`_two_site_pair`), the fetal genotype posterior at a shared site (`_shared_site_pair`), or a son's
+  maternal X inheritance alone (`_son_x_pair`, `mode` `x_linked_son`, never a carrier; a daughter's
+  chrX gene is `x_linked_daughter`, paired as an autosome). The status (`_pair_status`) is R's:
+  `undetermined` when an inheritance lies in `UNDETERMINED_BAND` (0.2–0.8) or was not told (then
+  read at the ½ prior), else `affected`, `carrier` or `unaffected` by the inheritances of 0.8 or
+  more. Notes for a missing population frequency.
 - **Target coverage** — `summarize_target_coverage` (weak: mean < 300× or uncovered bases; 1000×
   advisory). The NIPT page's card counts the genes with a weak target. The coverage page lists every
   gene in scope (`include_passing`) and reads one gene's targets on demand
@@ -269,7 +276,7 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
   **Show reported**: what a sign-out freezes. The sign-out selects the reported variants by
   the same rule, a variant's own report tag or its compound-het pair's
   (`report_signout_service._reported_reviews`). So a pair tagged `report` is listed,
-  counted, frozen and in the record's recessive fetal risk alike.
+  counted, frozen and in the record's recessive fetal status alike.
 
 Endpoints (`routers/families_nipt.py`, under `/api`):
 

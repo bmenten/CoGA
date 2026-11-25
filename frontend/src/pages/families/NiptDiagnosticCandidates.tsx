@@ -1,6 +1,6 @@
 import React from 'react';
 import type { NiptDiagnosticCandidateOut, NiptDiagnosticCandidatesOut } from '../../lib/apiSchema.generated';
-import { pct } from './niptClassification';
+import { RECESSIVE_STATUS_LABELS, pct, recessiveProbabilitiesText } from './niptClassification';
 
 /** How the report names a candidate's flags. */
 export const DIAGNOSTIC_FLAG_LABELS: Record<string, string> = {
@@ -92,14 +92,18 @@ const NiptDiagnosticCandidatesSection: React.FC<NiptDiagnosticCandidatesSectionP
     <div className="report-section report-nipt-group">
       <h3 className="report-subheading">Recessive: both parents carriers ({data.recessive_genes.length})</h3>
       <p className="report-paragraph">
-        Genes in which the mother and the father each carry a qualifying allele, with the fetal risk.
+        Genes in which the mother and the father each carry a qualifying allele, and X-linked genes in which a son&rsquo;s
+        mother carries one, with the fetal status and its probabilities (undetermined: an inheritance between 20% and
+        80%).
       </p>
       {data.recessive_genes.length ? (
         <ul className="report-list">
           {data.recessive_genes.map((gene) => (
             <li key={gene.gene}>
-              {gene.gene}: fetal risk {gene.risk != null ? pct(gene.risk) : 'unknown'}
-              {gene.risk_uses_prior ? ' (an inheritance read at its Mendelian prior)' : ''}
+              {gene.gene}
+              {gene.mode !== 'autosomal' ? ' (X-linked)' : ''}: {RECESSIVE_STATUS_LABELS[gene.status] ?? gene.status} (
+              {recessiveProbabilitiesText(gene.risk, gene.carrier_probability, gene.unaffected_probability, gene.mode === 'x_linked_son')})
+              {gene.risk_uses_prior ? ', an inheritance read at its Mendelian prior' : ''}
             </li>
           ))}
         </ul>

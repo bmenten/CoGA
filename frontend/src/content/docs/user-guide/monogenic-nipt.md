@@ -74,8 +74,9 @@ its data, reviews and sign-out are its own.
   - *Paternal, inherited by the fetus* and *Maternal, inherited by the fetus*: each parent's alleles
     with the probability that the fetus inherited them. **Also list the alleles the fetus did not
     inherit** adds the rest.
-  - *Recessive: both parents carriers*: the genes where both parents are heterozygous for an allele,
-    in a table with the fetal risk per gene.
+  - *Recessive: both parents carriers*: the genes where both parents carry an allele (and, for a son,
+    the X-linked genes in which his mother carries one), in a table with per gene the fetal status
+    (affected, carrier, unaffected or undetermined) and its probabilities.
 - **Each variant** carries its category, the plasma reads, the father's genotype, the probabilities
   that the fetus inherited the paternal or maternal allele or is homozygous, a de novo candidate's
   priority, any flags and **Other cfDNA samples**: in how many other cfDNA samples of the assay, in
@@ -108,8 +109,9 @@ link with its own filters, such as **Back to NIPT**, opens on those.
 
 > **Read the probabilities, not only the category.** A de novo or paternal allele shows clearly at any
 > fetal fraction. Whether the fetus inherited a *maternal* allele needs depth and a fair fetal fraction:
-> check its probability. The recessive risk assumes both alleles are pathogenic and, at two sites, in
-> trans; an allele without a population frequency (every MNV) is noted.
+> check its probability. An inheritance between 20% and 80% leaves a recessive gene's status
+> undetermined. The recessive status assumes both alleles are pathogenic and, at two sites, in trans;
+> an allele without a population frequency (every MNV) is noted.
 
 ### The NIPT report
 

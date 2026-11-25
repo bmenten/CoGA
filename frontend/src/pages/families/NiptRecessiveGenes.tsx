@@ -1,15 +1,10 @@
 import React from 'react';
 import type { NiptRecessiveAlleleOut, NiptRecessiveGeneOut } from '../../lib/apiSchema.generated';
-import { pct } from './niptClassification';
+import { RECESSIVE_STATUS_LABELS, pct, recessiveProbabilitiesText, recessiveStatusTone } from './niptClassification';
 
-// A gene's fetal risk against a carrier couple's 25% prior: high when the cfDNA says the
-// fetus very likely inherited both alleles, low when one allele very likely was not.
-export const recessiveRiskTone = (risk?: number | null): string => {
-  if (risk == null) return 'table-chip table-chip--neutral';
-  if (risk >= 0.5) return 'table-chip table-chip--critical';
-  if (risk <= 0.05) return 'table-chip table-chip--success';
-  return 'table-chip table-chip--warning';
-};
+// "affected 92.0%, carrier 7.0%, unaffected 1.0%" for a gene's probabilities.
+const describeProbabilities = (gene: NiptRecessiveGeneOut): string =>
+  recessiveProbabilitiesText(gene.risk, gene.carrier_probability, gene.unaffected_probability, gene.mode === 'x_linked_son');
 
 const Alleles: React.FC<{ alleles: NiptRecessiveAlleleOut[]; highlight: string | null }> = ({
   alleles,
@@ -34,27 +29,34 @@ interface NiptRecessiveGenesProps {
 }
 
 /**
- * The recessive view's genes: where the mother and the father each carry an allele, the
- * probability that the fetus inherited each, and the fetal risk (one of each).
+ * The recessive view's genes: where the mother and the father each carry an allele (and the
+ * X-linked genes in which a son's mother carries one), the probability that the fetus
+ * inherited each, and the fetal status with its probabilities.
  */
 const NiptRecessiveGenes: React.FC<NiptRecessiveGenesProps> = ({ genes }) => (
-  <section className="surface-card space-y-2" aria-label="Recessive fetal risk by gene">
-    <h2 className="section-title">Recessive fetal risk by gene</h2>
+  <section className="surface-card space-y-2" aria-label="Recessive fetal status by gene">
+    <h2 className="section-title">Recessive fetal status by gene</h2>
     <p className="table-subtle">
-      Genes where both parents carry an allele among the listed variants. The fetal risk is the probability that the
-      fetus inherited a maternal and a paternal allele (the highest pair; at a site both parents carry, that the fetus is
-      homozygous), assuming both alleles are pathogenic and the maternal and paternal ones in trans. A carrier
-      couple&apos;s prior is 25%. Screening, not diagnosis: confirm with invasive testing.
+      Genes where both parents carry an allele among the listed variants, and X-linked genes in which a son&apos;s
+      mother carries one (her allele alone makes him affected). For the pair most likely to make the fetus affected:
+      the fetal status and the probabilities that the fetus is affected (it inherited a maternal and a paternal
+      allele; at a site both parents carry, it is homozygous), a carrier, or neither, assuming the alleles are
+      pathogenic and in trans. A homozygous parent always passes the allele. An inheritance between 20% and 80%, or one
+      the cfDNA did not tell, leaves the status undetermined. A carrier couple&apos;s prior is 25%. Screening, not
+      diagnosis: confirm with invasive testing.
     </p>
     {genes.length === 0 ? (
-      <p className="table-subtle">No gene where both parents carry an allele among the variants that match.</p>
+      <p className="table-subtle">
+        No gene where both parents carry an allele, or a son&apos;s mother an X-linked one, among the variants that
+        match.
+      </p>
     ) : (
       <div className="data-table-shell overflow-x-auto">
         <table>
           <thead>
             <tr>
               <th>Gene</th>
-              <th>Fetal risk</th>
+              <th>Fetal status</th>
               <th>Maternal allele(s)</th>
               <th>Paternal allele(s)</th>
             </tr>
@@ -62,9 +64,15 @@ const NiptRecessiveGenes: React.FC<NiptRecessiveGenesProps> = ({ genes }) => (
           <tbody>
             {genes.map((gene) => (
               <tr key={gene.gene}>
-                <td className="font-semibold">{gene.gene}</td>
+                <td className="font-semibold">
+                  {gene.gene}
+                  {gene.mode !== 'autosomal' ? <p className="table-subtle">X-linked</p> : null}
+                </td>
                 <td>
-                  <span className={recessiveRiskTone(gene.risk)}>{gene.risk == null ? '—' : pct(gene.risk)}</span>
+                  <span className={recessiveStatusTone(gene.status)}>
+                    {RECESSIVE_STATUS_LABELS[gene.status] ?? gene.status}
+                  </span>
+                  <p className="table-subtle">{describeProbabilities(gene)}</p>
                   {gene.risk_uses_prior ? (
                     <p className="table-subtle">An inheritance the cfDNA did not tell is read at its 50% prior.</p>
                   ) : null}
@@ -73,7 +81,11 @@ const NiptRecessiveGenes: React.FC<NiptRecessiveGenesProps> = ({ genes }) => (
                   <Alleles alleles={gene.maternal} highlight={gene.maternal_variant_id} />
                 </td>
                 <td>
-                  <Alleles alleles={gene.paternal} highlight={gene.paternal_variant_id} />
+                  {gene.mode === 'x_linked_son' ? (
+                    <p className="table-subtle">A son does not inherit his father&apos;s X.</p>
+                  ) : (
+                    <Alleles alleles={gene.paternal} highlight={gene.paternal_variant_id} />
+                  )}
                 </td>
               </tr>
             ))}

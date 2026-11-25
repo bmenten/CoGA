@@ -150,12 +150,13 @@ def test_nipt_demo_recessive_at_risk() -> None:
     ]
     risks = {risk.gene: risk for risk in recessive_gene_risks(candidates)}
 
-    # Genes where both parents are heterozygous carriers: GENE_RECESS (maternal cat 3 +
-    # paternal cat 7) and GENE_HOMRISK (cat 4 -- maternal het + paternal allele the fetus
-    # made homozygous). GENE_MATHOM2 (cat 6) has two homozygous parents, who are not
-    # carriers; GENE_CARRIER's lone paternal hit (cat 7, no maternal carrier) and the
-    # maternal-only genes (cat 2/5, father hom-ref) are excluded too.
-    assert set(risks) == {"GENE_RECESS", "GENE_HOMRISK"}
+    # Genes where both parents carry an allele: GENE_RECESS (maternal cat 3 + paternal cat
+    # 7), GENE_HOMRISK (cat 4 -- maternal het + paternal allele the fetus made homozygous)
+    # and GENE_MATHOM2 (cat 6: two homozygous parents, who always pass the allele, as the R
+    # pairing reads them). GENE_CARRIER's lone paternal hit (cat 7, no maternal carrier) and
+    # the maternal-only genes (cat 2/5, father hom-ref) are excluded.
+    assert set(risks) == {"GENE_RECESS", "GENE_HOMRISK", "GENE_MATHOM2"}
+    assert risks["GENE_MATHOM2"].status == "affected"
     # The fetus inherited the maternal and the paternal allele of GENE_RECESS. The
     # paternal allele is plain to see (at FF/2 where the mother has none); whether the
     # maternal one was inherited rests on 50% versus 44% (FF 12%), which the validated

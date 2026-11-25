@@ -9,6 +9,7 @@ import {
   describeAlleleReading,
   describeBreachedMetric,
   describeSignedQcMetric,
+  describeSignedRecessiveStatus,
   describeCatalogue,
   describeCnvKnowledgebase,
   describeCompoundHetPair,
@@ -2080,7 +2081,17 @@ describe('a NIPT family’s NIPT results', () => {
       'not an entry',
     ],
     not_classified: [{ variant_id: '7-300-A-G', reason: 'artifact_list' }, { reason: 'no_plasma_call' }],
-    recessive_genes: [{ gene: 'GENEB', risk: 0.0001, risk_uses_prior: true }],
+    recessive_genes: [
+      {
+        gene: 'GENEB',
+        status: 'unaffected',
+        mode: 'autosomal',
+        risk: 0.0001,
+        carrier_probability: 0.0198,
+        unaffected_probability: 0.9801,
+        risk_uses_prior: true,
+      },
+    ],
     inputs: { target_tables: [], artifact_list: null },
     model: {},
   };
@@ -2125,8 +2136,31 @@ describe('a NIPT family’s NIPT results', () => {
       { variantId: 'a variant', reason: 'no_plasma_call' },
     ]);
     expect(nipt.recessiveGenes).toEqual([
-      { gene: 'GENEB', risk: 0.0001, riskUsesPrior: true, maternalVariantId: null, paternalVariantId: null },
+      {
+        gene: 'GENEB',
+        status: 'unaffected',
+        mode: 'autosomal',
+        risk: 0.0001,
+        carrierProbability: 0.0198,
+        unaffectedProbability: 0.9801,
+        riskUsesPrior: true,
+        maternalVariantId: null,
+        paternalVariantId: null,
+      },
     ]);
+    expect(describeSignedRecessiveStatus(nipt.recessiveGenes[0])).toBe(
+      'Unaffected: affected 0.0%, carrier 2.0%, unaffected 98.0%',
+    );
+    expect(
+      describeSignedRecessiveStatus({
+        ...nipt.recessiveGenes[0],
+        status: 'affected',
+        mode: 'x_linked_son',
+        risk: 0.9,
+        carrierProbability: 0,
+        unaffectedProbability: 0.1,
+      }),
+    ).toBe('Affected (X-linked): affected 90.0%, unaffected 10.0%');
     expect(nipt.artifactList).toBeNull();
     expect(nipt.modelReference).toBeNull();
   });

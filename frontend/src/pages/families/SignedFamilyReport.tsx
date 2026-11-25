@@ -52,6 +52,7 @@ import {
   ANALYTICAL_SIGN_OFF_STATEMENT,
   coverageTrackCaller,
   describeSignedQcMetric,
+  describeSignedRecessiveStatus,
   describeCatalogue,
   describeCnvKnowledgebase,
   describeCompoundHetPair,
@@ -775,7 +776,7 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
                   .join('; ')}; recessive genes: ${
                   nipt.diagnosticCandidates.recessiveGenes.length
                     ? nipt.diagnosticCandidates.recessiveGenes
-                        .map((gene) => `${gene.gene ?? 'a gene'} (fetal risk ${pct(gene.risk)})`)
+                        .map((gene) => `${gene.gene ?? 'a gene'} (${describeSignedRecessiveStatus(gene)})`)
                         .join(', ')
                     : 'none'
                 }`
@@ -823,17 +824,20 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
         {nipt.recessiveGenes.length ? (
           <>
             <p className="report-paragraph">
-              Recessive fetal risk of the genes in which the reported variants make both parents carriers:
+              Fetal status of the genes in which the reported variants make both parents carriers, or a son&rsquo;s
+              mother a carrier of an X-linked allele:
             </p>
             <ul className="report-signed-list">
               {nipt.recessiveGenes.map((gene, index) => (
                 <li key={`${gene.gene ?? 'gene'}-${index}`}>
-                  <strong>{gene.gene ?? 'A gene'}</strong>: {pct(gene.risk)}
+                  <strong>{gene.gene ?? 'A gene'}</strong>: {describeSignedRecessiveStatus(gene)}
                   {gene.maternalVariantId && gene.paternalVariantId
                     ? gene.maternalVariantId === gene.paternalVariantId
-                      ? ` (the fetus homozygous for ${gene.maternalVariantId})`
+                      ? ` (${gene.maternalVariantId}, a site both parents carry)`
                       : ` (maternal ${gene.maternalVariantId}, paternal ${gene.paternalVariantId})`
-                    : ''}
+                    : gene.maternalVariantId
+                      ? ` (maternal ${gene.maternalVariantId})`
+                      : ''}
                   {gene.riskUsesPrior ? '; an inheritance the cfDNA did not tell is read at its Mendelian prior' : ''}
                 </li>
               ))}

@@ -34,7 +34,16 @@ import { formatCount, joinWithAnd } from '../../lib/format';
 import type { HaplotypeRiskState } from '../../lib/haplotypeRisk';
 import { describePhaseCorrection, type HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import { COUNT_UNIT_MARK, describeCountOffset, formatCorrectedCounts } from '../../lib/repeatStatus';
-import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText, recurrenceText } from './niptClassification';
+import {
+  FATHER_STATE_LABELS,
+  RECESSIVE_STATUS_LABELS,
+  depth,
+  niptEvidenceSummary,
+  pct,
+  readsText,
+  recessiveProbabilitiesText,
+  recurrenceText,
+} from './niptClassification';
 import { formatAlleleFrequency, scoreBesideClass } from './reportNarrative';
 import { formatCompoundHetPhaseStatus, formatLocus } from './smallVariantResultUtils';
 import { sourceBase } from '../../lib/pregnancySources';
@@ -995,9 +1004,20 @@ export interface SignedNiptVariant {
   };
 }
 
+/**
+ * A gene of the recessive view as the record froze it (`nipt_triage.RecessiveGeneRisk`): the
+ * fetal status of its pair most likely to make the fetus affected, and that pair's
+ * probabilities that the fetus is affected (`risk`), a carrier or neither.
+ */
 export interface SignedNiptRecessiveGene {
   gene: string | null;
+  /** affected, carrier, unaffected or undetermined. */
+  status: string | null;
+  /** autosomal; x_linked_daughter (paired as an autosome); x_linked_son (his mother's allele alone). */
+  mode: string | null;
   risk: number | null;
+  carrierProbability: number | null;
+  unaffectedProbability: number | null;
   riskUsesPrior: boolean;
   maternalVariantId: string | null;
   paternalVariantId: string | null;
@@ -1127,7 +1147,7 @@ export interface SignedNiptDiagnosticCandidates {
   deNovo: SignedNiptDiagnosticCandidate[];
   paternal: SignedNiptDiagnosticCandidate[];
   maternal: SignedNiptDiagnosticCandidate[];
-  recessiveGenes: { gene: string | null; risk: number | null }[];
+  recessiveGenes: SignedNiptRecessiveGene[];
 }
 
 /** The coverage of the diagnostic panel's capture targets as the record froze it. */
@@ -2171,6 +2191,18 @@ const countEntries = (value: unknown): [string, number][] =>
         .map((key): [string, number] => [key, number(value[key]) as number])
     : [];
 
+const parseNiptRecessiveGene = (gene: Json): SignedNiptRecessiveGene => ({
+  gene: text(gene.gene),
+  status: text(gene.status),
+  mode: text(gene.mode),
+  risk: number(gene.risk),
+  carrierProbability: number(gene.carrier_probability),
+  unaffectedProbability: number(gene.unaffected_probability),
+  riskUsesPrior: gene.risk_uses_prior === true,
+  maternalVariantId: text(gene.maternal_variant_id),
+  paternalVariantId: text(gene.paternal_variant_id),
+});
+
 const parseNiptVariant = (entry: Json): SignedNiptVariant => {
   const plasma = isObject(entry.plasma) ? entry.plasma : {};
   const father = isObject(entry.father) ? entry.father : {};
@@ -2425,10 +2457,7 @@ const parseNipt = (value: Json): SignedNipt => {
           deNovo: objects(diagnostic.de_novo).map(diagnosticCandidate),
           paternal: objects(diagnostic.paternal).map(diagnosticCandidate),
           maternal: objects(diagnostic.maternal).map(diagnosticCandidate),
-          recessiveGenes: objects(diagnostic.recessive_genes).map((gene) => ({
-            gene: text(gene.gene),
-            risk: number(gene.risk),
-          })),
+          recessiveGenes: objects(diagnostic.recessive_genes).map(parseNiptRecessiveGene),
         }
       : null,
     // Null with a per-target table: recorded, as none.
@@ -2441,13 +2470,7 @@ const parseNipt = (value: Json): SignedNipt => {
       variantId: text(entry.variant_id) ?? 'a variant',
       reason: text(entry.reason) ?? 'unknown',
     })),
-    recessiveGenes: objects(value.recessive_genes).map((gene) => ({
-      gene: text(gene.gene),
-      risk: number(gene.risk),
-      riskUsesPrior: gene.risk_uses_prior === true,
-      maternalVariantId: text(gene.maternal_variant_id),
-      paternalVariantId: text(gene.paternal_variant_id),
-    })),
+    recessiveGenes: objects(value.recessive_genes).map(parseNiptRecessiveGene),
     targetTables: objects(inputs.target_tables).map((table) => ({
       sample: text(table.sample) ?? 'a sample',
       file: text(table.file),
@@ -3031,6 +3054,15 @@ export const describeNiptCoverageNotes = (coverage: SignedNiptCoverageNotes): st
       : 'without a gene or panel, over no region: the family had no region of interest';
   return `${coverage.notes.length ? coverage.notes.join(' ') : 'none.'} The coverage check ran ${ranFor}.`;
 };
+
+/**
+ * A recessive gene's fetal status as signed, worded as the NIPT page words it:
+ * "Affected: affected 92.0%, carrier 7.6%, unaffected 0.4%"; a son's X-linked gene says so.
+ */
+export const describeSignedRecessiveStatus = (gene: SignedNiptRecessiveGene): string =>
+  `${gene.status ? (RECESSIVE_STATUS_LABELS[gene.status] ?? gene.status) : 'Status not in the record'}${
+    gene.mode === 'x_linked_son' || gene.mode === 'x_linked_daughter' ? ' (X-linked)' : ''
+  }: ${recessiveProbabilitiesText(gene.risk, gene.carrierProbability, gene.unaffectedProbability, gene.mode === 'x_linked_son')}`;
 
 /** A reported variant's NIPT classification as signed, worded as the NIPT page words it. */
 export const describeNiptVariant = (variant: SignedNiptVariant): string => {
