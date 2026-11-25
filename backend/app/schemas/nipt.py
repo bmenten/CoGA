@@ -75,6 +75,8 @@ class NiptTargetCoverageGeneOut(BaseModel):
     min_mean: Optional[float] = None
     mean_of_means: Optional[float] = None
     weak: List["NiptTargetOut"] = Field(default_factory=list)
+    # Its targets too thin for the QC gate's fetal reads; None without a fetal-read depth.
+    below_fetal_read_depth: Optional[int] = None
 
 
 class NiptTargetOut(BaseModel):
@@ -122,6 +124,24 @@ class NiptTargetCoverageOut(BaseModel):
     critical_mean_depth: float
     advisory_mean_depth: float
     genes: List[NiptTargetCoverageGeneOut] = Field(default_factory=list)
+    # The mean depth at which a fetal-specific allele expects the QC gate's reads
+    # (2 x bound / FF), and the targets below it; None without a fetal-fraction estimate.
+    fetal_read_depth: Optional[float] = None
+    below_fetal_read_depth: Optional[int] = None
+
+
+class NiptExpectedFetalReadsOut(BaseModel):
+    """The QC gate (REQ-NIPT-021): the plasma's median target depth x FF/2 against its bound,
+    QA's or provisional (``nipt_qc_gate.expected_fetal_reads_verdict``)."""
+
+    status: Literal["pass", "warn", "fail"]
+    message: str
+    expected_reads: Optional[float] = None
+    median_depth: Optional[float] = None
+    fetal_fraction: Optional[float] = None
+    warn_value: Optional[float] = None
+    error_value: Optional[float] = None
+    provisional: bool
 
 
 class NiptModelOut(BaseModel):
@@ -150,6 +170,7 @@ class NiptQcOut(BaseModel):
     # The fetal-fraction check: fail without an estimate, warn on a low-confidence one
     # (nipt_quality_checks.fetal_fraction_verdict).
     fetal_fraction_status: Literal["pass", "warn", "fail"]
+    expected_fetal_reads: NiptExpectedFetalReadsOut
     fetal_sex: NiptFetalSexOut
     plasma_profile_status: Literal["pass", "warn", "fail", "unknown"]
     plasma_profile_message: str

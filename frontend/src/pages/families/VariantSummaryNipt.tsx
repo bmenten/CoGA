@@ -818,6 +818,15 @@ const Facts: React.FC<{ stats: NiptVariantStatisticsOut }> = ({ stats }) => {
         <span className={QC_STATUS_CHIP[stats.qc.fetal_fraction_status as QcStatus]}>
           {QC_STATUS_LABEL[stats.qc.fetal_fraction_status as QcStatus]}
         </span>
+        <span className="table-subtle">
+          expected fetal reads{' '}
+          {stats.qc.expected_fetal_reads.expected_reads == null
+            ? 'not assessed'
+            : formatCount(Math.round(stats.qc.expected_fetal_reads.expected_reads))}{' '}
+        </span>
+        <span className={QC_STATUS_CHIP[stats.qc.expected_fetal_reads.status as QcStatus]}>
+          {QC_STATUS_LABEL[stats.qc.expected_fetal_reads.status as QcStatus]}
+        </span>
       </div>
       <div className="stat-card">
         <span className="stat-label">Sites grouped</span>

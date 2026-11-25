@@ -31,6 +31,14 @@ const Row: React.FC<{ status?: QcStatus; title: React.ReactNode; children?: Reac
   </div>
 );
 
+// The gate's bound as it applied: QA's (with its warning bound) or the provisional one.
+const describeGateBound = (gate: NiptQcOut['expected_fetal_reads']): string =>
+  `A fetal-specific allele has about median target depth × FF/2 reads. Bound: ${
+    gate.error_value == null ? 'no error bound set' : `at least ${gate.error_value}`
+  }${gate.warn_value != null ? `, warning below ${gate.warn_value}` : ''}${
+    gate.provisional ? ' (provisional: QA has not set it)' : ' (set by QA)'
+  }.`;
+
 const share = (part: number, whole: number): string =>
   whole ? `${((part / whole) * 100).toFixed(1)}%` : '—';
 
@@ -41,9 +49,9 @@ interface NiptQcPanelProps {
 
 /**
  * The NIPT quality checks a reader confirms before reading any variant: the fetal
- * fraction, the fetal sex from two independent signals, paternity, the plasma sample's
- * sex profile, the capture targets' coverage and why cfDNA calls failed the quality
- * filter. Each verdict is the backend's (`nipt_quality_checks`), the one the signed record
+ * fraction, the QC gate on the expected fetal reads, the fetal sex from two independent
+ * signals, paternity, the plasma sample's sex profile, the capture targets' coverage and why
+ * cfDNA calls failed the quality filter. Each verdict is the backend's (`nipt_quality_checks`), the one the signed record
  * freezes: the page made the fetal-fraction and the fetal-sex verdicts itself before.
  *
  * Folded on open to its title and one verdict over the checks that have one: Pass when every
@@ -53,11 +61,18 @@ interface NiptQcPanelProps {
 const NiptQcPanel: React.FC<NiptQcPanelProps> = ({ qc, fetalFraction: ff }) => {
   const paternity = qc.paternity;
   const sex = qc.fetal_sex;
+  const gate = qc.expected_fetal_reads;
   const coverage = qc.target_coverage;
   const failures = Object.entries(qc.quality_failures || {}).filter(([, count]) => count > 0);
   const plasmaStatus: QcStatus =
     qc.plasma_profile_status === 'unknown' ? 'skip' : (qc.plasma_profile_status as QcStatus);
-  const overall = worstIntegrityStatus([qc.fetal_fraction_status, sex.status, paternity.status, plasmaStatus]);
+  const overall = worstIntegrityStatus([
+    qc.fetal_fraction_status,
+    gate.status,
+    sex.status,
+    paternity.status,
+    plasmaStatus,
+  ]);
   return (
     <details className="surface-card nipt-qc-panel" aria-label="NIPT quality checks">
       <summary className="nipt-qc-summary">
@@ -90,6 +105,17 @@ const NiptQcPanel: React.FC<NiptQcPanelProps> = ({ qc, fetalFraction: ff }) => {
               : ''}
             {ff.low_confidence ? ' Low confidence: too few sites or a wide interval.' : ''}
           </p>
+        </Row>
+        <Row
+          status={gate.status}
+          title={
+            gate.expected_reads == null
+              ? 'Expected fetal reads: not assessed'
+              : `Expected fetal reads: ${Math.round(gate.expected_reads).toLocaleString()}`
+          }
+        >
+          <p className="table-subtle">{gate.message}</p>
+          <p className="table-subtle">{describeGateBound(gate)}</p>
         </Row>
         <Row status={sex.status} title={`Fetal sex: ${niptFetalSexLabel(sex.call)}`}>
           <p className="table-subtle">
@@ -130,6 +156,13 @@ const NiptQcPanel: React.FC<NiptQcPanelProps> = ({ qc, fetalFraction: ff }) => {
               {coverage.zero_mean.toLocaleString()} without coverage. The coverage card below lists the weak targets
               of the selected genes.
             </p>
+            {coverage.fetal_read_depth != null && coverage.below_fetal_read_depth != null ? (
+              <p className="table-subtle">
+                {coverage.below_fetal_read_depth.toLocaleString()} (
+                {share(coverage.below_fetal_read_depth, coverage.targets)}) below {depth(coverage.fetal_read_depth)}, too
+                thin at this fetal fraction for the gate&apos;s expected fetal reads.
+              </p>
+            ) : null}
           </Row>
         ) : null}
         <Row title="cfDNA quality filter">

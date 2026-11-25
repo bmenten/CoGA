@@ -8,6 +8,7 @@ import {
   coverageTrackCaller,
   describeAlleleReading,
   describeBreachedMetric,
+  describeSignedGate,
   describeSignedQcMetric,
   describeSignedRecessiveStatus,
   describeCatalogue,
@@ -2047,6 +2048,17 @@ describe('a NIPT family’s NIPT results', () => {
     filter_counts: { total_in: 10, failed_quality: 2, failed_artifact: 0, passed: 8, paternal_only: 2 },
     quality_failures: { low_vaf: 2, few_alt_reads: 1 },
     checks: {
+      expected_fetal_reads: {
+        status: 'fail',
+        message: '30 expected fetal reads (median target depth 600x times half the fetal fraction of 10.0%), below 40.',
+        expected_reads: 30,
+        median_depth: 600,
+        fetal_fraction: 0.1,
+        metric: 'mnipt.expected_fetal_reads',
+        warn_value: null,
+        error_value: 40,
+        provisional: true,
+      },
       paternity: { status: 'warn', message: 'Too few paternal-informative sites.' },
       fetal_sex: { call: 'indeterminate', status: 'warn', message: 'Indeterminate.', paternal_x: 'indeterminate', chry: null },
       plasma_sample: { status: 'fail', message: 'Male DNA.' },
@@ -2120,6 +2132,24 @@ describe('a NIPT family’s NIPT results', () => {
       ['low_vaf', 2],
     ]);
     expect(nipt.plasmaSample).toEqual({ status: 'fail', message: 'Male DNA.' });
+    // The QC gate (REQ-NIPT-021), with the bound it applied.
+    expect(nipt.expectedFetalReads).toEqual({
+      status: 'fail',
+      message: '30 expected fetal reads (median target depth 600x times half the fetal fraction of 10.0%), below 40.',
+      expectedReads: 30,
+      medianDepth: 600,
+      fetalFraction: 0.1,
+      warnValue: null,
+      errorValue: 40,
+      provisional: true,
+    });
+    expect(describeSignedGate(nipt.expectedFetalReads!)).toBe(
+      '30 expected fetal reads (median target depth 600x times half the fetal fraction of 10.0%), below 40. ' +
+        'Bound: at least 40 (provisional: QA had not set it).',
+    );
+    expect(describeSignedGate({ ...nipt.expectedFetalReads!, warnValue: 60, provisional: false })).toMatch(
+      /Bound: at least 40, warning below 60 \(set by QA\)\.$/,
+    );
     expect(nipt.fetalSex).toMatchObject({ call: 'indeterminate', status: 'warn', paternalX: 'indeterminate', chry: null });
     expect(nipt.targetCoverage).toBeNull();
     // An entry that cannot be read is skipped, never shown as a variant.
@@ -2208,6 +2238,8 @@ describe('a NIPT family’s NIPT results', () => {
         belowAdvisory: 40000,
         incomplete: 1000,
         criticalMeanDepth: 300,
+        fetalReadDepth: null,
+        belowFetalReadDepth: null,
         weakGenes: [],
       }),
     ).toBe('median 800x over 60,000 targets; 1,500 below 300x, 1,000 with uncovered bases');

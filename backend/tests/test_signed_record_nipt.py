@@ -40,9 +40,10 @@ from backend.app.services.hash_chain import canonical_hash
 from backend.app.services.panel_use_audit import panel_identity
 from backend.app.services.nipt import NiptTrio
 from backend.app.services.nipt_analysis import NIPT_MODEL_REFERENCE, NiptQualityThresholds
+from backend.app.services.nipt_quality_checks import nipt_quality_checks
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
 from backend.app.services.sample_integrity_qc import evaluate_nipt_category_qc
-from backend.tests._nipt_service_fakes import listed_artifact_recurrence
+from backend.tests._nipt_service_fakes import gate_bound_loader, listed_artifact_recurrence
 from backend.tests._query_results import MappingRows as _Result
 
 FATHER = "FATHER1"
@@ -228,6 +229,12 @@ class _Session:
         return _Result([])
 
 
+# The QC gate's bound as QA set it (the provisional value's number): no provisional concern.
+QA_GATE_BOUND: dict[str, dict[str, float | None]] = {
+    "mnipt.expected_fetal_reads": {"warn_value": None, "error_value": 40.0}
+}
+
+
 def _wire(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -238,11 +245,13 @@ def _wire(
     roi: FamilyRegionOfInterestOut | None = None,
     coverage: dict[str, str] | None = None,
     recurrence_counts: list[list[str]] | None = None,
+    gate_bounds: dict[str, dict[str, float | None]] | None = None,
 ) -> list[list[str]]:
     """The family's data, as the NIPT page and the signed record both read it: with ``roi``
     the family page's region of interest, and with ``coverage`` what each of the plasma's
     coverage tracks holds, by source; each variant's recurrence in the assay's 12 other cfDNA
-    samples from ``recurrence`` (the ids of each count appended to ``recurrence_counts``). The
+    samples from ``recurrence`` (the ids of each count appended to ``recurrence_counts``); the
+    QC gate's bound as QA set it in ``gate_bounds`` (else provisional). The
     chromosomes each read of the coverage tracks asked for are returned (appended to as they
     are read)."""
     filtered = sites if sites is not None else _gene_sites()
@@ -306,6 +315,7 @@ def _wire(
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_tracks)
     monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
+    monkeypatch.setattr(nipt_service, "load_nipt_gate_bound", gate_bound_loader(gate_bounds))
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
     monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", carriers)
     monkeypatch.setattr(nipt_service, "count_cfdna_recurrence", count_recurrence)
@@ -790,7 +800,12 @@ def test_numbers_jsonb_cannot_hold_are_frozen_as_null_and_a_negative_zero_as_zer
 async def test_a_failed_check_computed_from_the_data_is_frozen_with_its_verdict(monkeypatch: pytest.MonkeyPatch) -> None:
     # The father's X alleles read a daughter, the chrY coverage a son: discordant; and the
     # plasma's chrY at the autosomal level with a low chrX: male DNA.
-    _wire(monkeypatch, sites=[*_gene_sites(), *_paternal_x_sites()], targets=_targets(y_mean=1000.0, x_mean=500.0))
+    _wire(
+        monkeypatch,
+        sites=[*_gene_sites(), *_paternal_x_sites()],
+        targets=_targets(y_mean=1000.0, x_mean=500.0),
+        gate_bounds=QA_GATE_BOUND,
+    )
     section = await _section([])
     assert section["checks"]["plasma_sample"]["status"] == "fail"
     assert section["checks"]["fetal_sex"]["paternal_x"] == "female"
@@ -801,7 +816,7 @@ async def test_a_failed_check_computed_from_the_data_is_frozen_with_its_verdict(
         )
     ]
     # A male fetal chrY signal beside the daughter's paternal X: the sex check fails.
-    _wire(monkeypatch, sites=[*_gene_sites(), *_paternal_x_sites()])
+    _wire(monkeypatch, sites=[*_gene_sites(), *_paternal_x_sites()], gate_bounds=QA_GATE_BOUND)
     section = await _section([])
     assert (section["checks"]["fetal_sex"]["call"], section["checks"]["fetal_sex"]["status"]) == ("discordant", "fail")
     assert [subject for subject, _message in srn.nipt_signout_concerns(section)] == ["NIPT fetal sex"]
@@ -892,13 +907,26 @@ async def test_a_trio_that_cannot_be_resolved_is_frozen_as_such(monkeypatch: pyt
 
 
 def _checked(
-    ff: str = "pass", fetal_sex: str = "pass", plasma: str = "pass", sample: str | None = PLASMA, panel: bool = True
+    ff: str = "pass",
+    fetal_sex: str = "pass",
+    plasma: str = "pass",
+    sample: str | None = PLASMA,
+    panel: bool = True,
+    gate: str = "pass",
+    provisional: bool = False,
 ) -> dict:
     return {
         "samples": {"maternal_plasma": sample},
         "diagnostic_panel": {"panel_id": _PANEL_ID, "name": "NIPT diagnostic", "version": 3} if panel else None,
         "fetal_fraction": {"status": ff, "message": "Not estimated, from 2 category-7 sites (an estimate needs at least 5)."},
         "checks": {
+            "expected_fetal_reads": {
+                "status": gate,
+                "message": "30 expected fetal reads, below 40: a fetal-specific allele may be missed.",
+                "expected_reads": 30.0,
+                "error_value": 40.0,
+                "provisional": provisional,
+            },
             "fetal_sex": {"status": fetal_sex, "message": "The two signals disagree."},
             "plasma_sample": {"status": plasma, "message": "Male DNA: this sample cannot be maternal plasma."},
         },
@@ -910,7 +938,7 @@ async def test_the_record_freezes_the_diagnostic_panel_and_its_targets_coverage(
     # REQ-NIPT-019: the panel the analysis is read within, at its version, with its gene list's
     # digest; and the coverage of its capture targets: GENEQ has none (not tested), GENEA's is
     # weak (250x).
-    _wire(monkeypatch)
+    _wire(monkeypatch, gate_bounds=QA_GATE_BOUND)
     section = await _section([])
     assert section["diagnostic_panel"] == {
         **panel_identity(_PANEL_ROW),
@@ -920,6 +948,11 @@ async def test_the_record_freezes_the_diagnostic_panel_and_its_targets_coverage(
     assert (coverage["panel_genes"], coverage["targets"], coverage["below_critical"]) == (4, 3, 1)
     assert coverage["genes_without_target"] == ["GENEQ"]
     assert [gene["gene"] for gene in coverage["genes_with_weak_target"]] == ["GENEA"]
+    # At the estimated FF the QC gate's 40 reads need 2 x 40 / FF: GENEA's 250x is too thin.
+    ff = section["fetal_fraction"]["ff_computed"]
+    assert coverage["fetal_read_depth"] == pytest.approx(2 * 40 / ff)
+    assert [gene["gene"] for gene in coverage["genes_below_fetal_read_depth"]] == ["GENEA"]
+    assert coverage["below_fetal_read_depth"] == 1
     # Its panel set, the NIPT gates nothing.
     assert srn.nipt_signout_concerns(section) == []
 
@@ -928,7 +961,7 @@ async def test_the_record_freezes_the_diagnostic_panel_and_its_targets_coverage(
 async def test_without_a_diagnostic_panel_the_record_says_so_and_the_sign_out_asks_why(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _wire(monkeypatch)
+    _wire(monkeypatch, gate_bounds=QA_GATE_BOUND)
     section = await _section([], _Session(panel=False))
     assert (section["diagnostic_panel"], section["panel_target_coverage"]) == (None, None)
     assert srn.nipt_signout_concerns(section) == [
@@ -965,9 +998,42 @@ async def test_the_record_freezes_the_locked_criteria_and_the_diagnostic_candida
     assert (await _section([]))["diagnostic_candidates"] == frozen
 
 
+@pytest.mark.asyncio
+async def test_the_qc_gate_is_frozen_with_the_bound_it_applied(monkeypatch: pytest.MonkeyPatch) -> None:
+    # REQ-NIPT-021: the plasma's median target depth times half the fetal fraction, against
+    # QA's bound; the same verdict the NIPT page shows.
+    _wire(monkeypatch, gate_bounds=QA_GATE_BOUND)
+    section = await _section([])
+    gate = section["checks"]["expected_fetal_reads"]
+    ff = section["fetal_fraction"]["ff_computed"]
+    assert gate["median_depth"] == section["target_coverage"]["median_mean"] == 1300.0
+    assert gate["expected_reads"] == pytest.approx(1300.0 * ff / 2)
+    assert (gate["status"], gate["metric"], gate["error_value"], gate["provisional"]) == (
+        "pass",
+        "mnipt.expected_fetal_reads",
+        40.0,
+        False,
+    )
+    assert section["target_coverage"]["fetal_read_depth"] == pytest.approx(2 * 40 / ff)
+    page = nipt_quality_checks(
+        await nipt_service.get_family_nipt_summary(
+            session=None, family_id="NIPTFAM1", user=None,  # type: ignore[arg-type]
+        )
+    ).expected_fetal_reads
+    assert (page.status, page.message) == (gate["status"], gate["message"])
+    assert srn.nipt_signout_concerns(section) == []
+    # Too few reads for a stricter bound QA set: the check fails and the sign-out asks why.
+    _wire(monkeypatch, gate_bounds={"mnipt.expected_fetal_reads": {"warn_value": None, "error_value": 500.0}})
+    section = await _section([])
+    gate = section["checks"]["expected_fetal_reads"]
+    assert gate["status"] == "fail" and "Consider a redraw." in gate["message"]
+    assert srn.nipt_signout_concerns(section) == [("NIPT expected fetal reads", gate["message"])]
+
+
 def test_each_nipt_check_that_failed_gates_the_sign_out_naming_what_it_read() -> None:
-    assert srn.nipt_signout_concerns(_checked(ff="fail", fetal_sex="fail", plasma="fail")) == [
+    assert srn.nipt_signout_concerns(_checked(ff="fail", fetal_sex="fail", plasma="fail", gate="fail")) == [
         ("NIPT fetal fraction", "Not estimated, from 2 category-7 sites (an estimate needs at least 5)."),
+        ("NIPT expected fetal reads", "30 expected fetal reads, below 40: a fetal-specific allele may be missed."),
         ("NIPT fetal sex", "The two signals disagree."),
         (f"Sample {PLASMA} (maternal plasma)", "Male DNA: this sample cannot be maternal plasma."),
     ]
@@ -981,7 +1047,7 @@ def test_each_nipt_check_that_failed_gates_the_sign_out_naming_what_it_read() ->
     "section",
     [
         _checked(),
-        _checked(ff="warn", fetal_sex="warn", plasma="warn"),
+        _checked(ff="warn", fetal_sex="warn", plasma="warn", gate="warn"),
         _checked(plasma="unknown"),
         None,
         "not a section",
@@ -993,14 +1059,45 @@ def test_nipt_checks_that_did_not_fail_or_cannot_be_read_do_not_gate(section: An
     assert srn.nipt_signout_concerns(section) == []
 
 
+def test_a_gate_on_a_provisional_bound_asks_why_until_qa_sets_it() -> None:
+    # Passed, but on the provisional bound: the sign-out asks for a reason, as for the
+    # conventional NIPT's provisional bounds; failed, the failure says so too.
+    assert srn.nipt_signout_concerns(_checked(provisional=True)) == [
+        (
+            "NIPT expected fetal reads",
+            "the QC gate rests on a provisional bound of 40 expected fetal reads, which QA has not set.",
+        )
+    ]
+    assert srn.nipt_signout_concerns(_checked(gate="fail", provisional=True)) == [
+        (
+            "NIPT expected fetal reads",
+            "30 expected fetal reads, below 40: a fetal-specific allele may be missed. "
+            "The bound is provisional: QA has not set it.",
+        )
+    ]
+    # A gate that could not be told compared no bound: its reason is its own.
+    untold = _checked(gate="fail", provisional=True)
+    untold["checks"]["expected_fetal_reads"].update(
+        expected_reads=None, message="Not assessed: the plasma has no per-target coverage table."
+    )
+    assert srn.nipt_signout_concerns(untold) == [
+        ("NIPT expected fetal reads", "Not assessed: the plasma has no per-target coverage table.")
+    ]
+
+
 def test_a_failed_check_without_its_message_still_gives_a_reason() -> None:
     bare = {
         "fetal_fraction": {"status": "fail"},
-        "checks": {"fetal_sex": {"status": "fail"}, "plasma_sample": {"status": "fail"}},
+        "checks": {
+            "expected_fetal_reads": {"status": "fail"},
+            "fetal_sex": {"status": "fail"},
+            "plasma_sample": {"status": "fail"},
+        },
         "diagnostic_panel": {"panel_id": _PANEL_ID},
     }
     assert [message for _subject, message in srn.nipt_signout_concerns(bare)] == [
         "not estimated.",
+        "too few expected fetal reads.",
         "the two signals disagree.",
         "this sample cannot be maternal plasma.",
     ]

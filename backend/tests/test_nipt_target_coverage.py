@@ -150,6 +150,28 @@ def test_the_target_qc_flags_critical_and_incomplete_targets() -> None:
     assert [(gene.gene, gene.targets) for gene in scoped.genes] == [("GENEC", 1), ("GENEZ", 0)]
 
 
+def test_the_targets_too_thin_for_the_qc_gates_fetal_reads_are_counted() -> None:
+    # At FF 0.10 the gate's 40 reads need a mean depth of 800x (nipt_qc_gate.fetal_read_depth).
+    rows = [
+        _target("7", 0, 100, 1500.0, gene="GENEA"),
+        _target("7", 200, 300, 700.0, gene="GENEA"),  # thin for the fetal reads, not weak
+        _target("7", 400, 500, 250.0, gene="GENEB"),  # weak and thin
+        _target("7", 600, 700, 900.0, gene="GENEC"),
+    ]
+    summary = summarize_target_coverage(rows, genes=["GENEA", "GENEB", "GENEC", "GENEZ"], fetal_read_depth=800.0)
+    assert (summary.fetal_read_depth, summary.below_fetal_read_depth, summary.below_critical) == (800.0, 2, 1)
+    assert {gene.gene: gene.below_fetal_read_depth for gene in summary.genes} == {
+        "GENEA": 1,
+        "GENEB": 1,
+        "GENEC": 0,
+        "GENEZ": 0,
+    }
+    # Without a fetal-read depth (no fetal-fraction estimate) nothing is counted.
+    plain = summarize_target_coverage(rows)
+    assert (plain.fetal_read_depth, plain.below_fetal_read_depth) == (None, None)
+    assert {gene.below_fetal_read_depth for gene in plain.genes} == {None}
+
+
 def test_the_coverage_page_lists_the_genes_whose_targets_all_pass_too() -> None:
     rows = [
         _target("7", 0, 100, 1500.0, gene="GENEA"),

@@ -51,6 +51,7 @@ import {
 import {
   ANALYTICAL_SIGN_OFF_STATEMENT,
   coverageTrackCaller,
+  describeSignedGate,
   describeSignedQcMetric,
   describeSignedRecessiveStatus,
   describeCatalogue,
@@ -676,7 +677,14 @@ const NiptCoverageNotesLine: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
 };
 
 const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
-  const { fetalFraction: ff, paternity, fetalSex: sex, plasmaSample: plasma, targetCoverage: coverage } = nipt;
+  const {
+    fetalFraction: ff,
+    expectedFetalReads: gate,
+    paternity,
+    fetalSex: sex,
+    plasmaSample: plasma,
+    targetCoverage: coverage,
+  } = nipt;
   return (
     <>
       <p className="report-paragraph">
@@ -700,6 +708,10 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
               : ''}
           </li>
           <li>
+            Expected fetal reads: {niptStatusLabel(gate?.status ?? null)}
+            {gate ? ` — ${describeSignedGate(gate)}` : ' — not in the record'}
+          </li>
+          <li>
             Paternity: {niptStatusLabel(paternity?.status ?? null)}
             {paternity?.message ? ` — ${paternity.message}` : ''}
           </li>
@@ -715,6 +727,10 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
             Target coverage:{' '}
             {coverage
               ? `${describeNiptCoverage(coverage)}${
+                  coverage.fetalReadDepth !== null && coverage.belowFetalReadDepth !== null
+                    ? `; ${formatCount(coverage.belowFetalReadDepth)} below ${depth(coverage.fetalReadDepth)}, too thin for the expected fetal reads`
+                    : ''
+                }${
                   coverage.weakGenes.length
                     ? `; genes with a weak target: ${coverage.weakGenes
                         .map((gene) => `${gene.gene} (${gene.weakTargets ?? '?'} of ${gene.targets ?? '?'}, lowest mean ${depth(gene.minMean)})`)
@@ -745,6 +761,15 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
                 ? `; genes with a weak target: ${nipt.panelTargetCoverage.genesWithWeakTarget
                     .map((gene) => `${gene.gene} (${gene.weakTargets ?? '?'} of ${gene.targets ?? '?'}, lowest mean ${depth(gene.minMean)})`)
                     .join(', ')}`
+                : ''}
+              {nipt.panelTargetCoverage.fetalReadDepth !== null
+                ? `; genes with a target below ${depth(nipt.panelTargetCoverage.fetalReadDepth)}, too thin for the expected fetal reads: ${
+                    nipt.panelTargetCoverage.genesBelowFetalReadDepth.length
+                      ? nipt.panelTargetCoverage.genesBelowFetalReadDepth
+                          .map((gene) => `${gene.gene} (${gene.belowFetalReadDepth ?? '?'} of ${gene.targets ?? '?'})`)
+                          .join(', ')
+                      : 'none'
+                  }`
                 : ''}
             </li>
           ) : null}

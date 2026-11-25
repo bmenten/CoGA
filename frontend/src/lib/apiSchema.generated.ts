@@ -2848,6 +2848,21 @@ export interface NiptDiagnosticPanelUpdate {
   panel_id?: string | null;
 }
 
+/**
+ * The QC gate (REQ-NIPT-021): the plasma's median target depth x FF/2 against its bound,
+ * QA's or provisional (``nipt_qc_gate.expected_fetal_reads_verdict``).
+ */
+export interface NiptExpectedFetalReadsOut {
+  status: "pass" | "warn" | "fail";
+  message: string;
+  expected_reads: number | null;
+  median_depth: number | null;
+  fetal_fraction: number | null;
+  warn_value: number | null;
+  error_value: number | null;
+  provisional: boolean;
+}
+
 /** Fetal-fraction estimate for a monogenic NIPT family. */
 export interface NiptFetalFractionOut {
   ff: number;
@@ -2941,6 +2956,7 @@ export interface NiptQcOut {
   de_novo_window: NiptDeNovoWindowOut | null;
   paternity: NiptPaternityOut;
   fetal_fraction_status: "pass" | "warn" | "fail";
+  expected_fetal_reads: NiptExpectedFetalReadsOut;
   fetal_sex: NiptFetalSexOut;
   plasma_profile_status: "pass" | "warn" | "fail" | "unknown";
   plasma_profile_message: string;
@@ -3042,6 +3058,7 @@ export interface NiptTargetCoverageGeneOut {
   min_mean: number | null;
   mean_of_means: number | null;
   weak: NiptTargetOut[];
+  below_fetal_read_depth: number | null;
 }
 
 /**
@@ -3059,6 +3076,8 @@ export interface NiptTargetCoverageOut {
   critical_mean_depth: number;
   advisory_mean_depth: number;
   genes: NiptTargetCoverageGeneOut[];
+  fetal_read_depth: number | null;
+  below_fetal_read_depth: number | null;
 }
 
 /**

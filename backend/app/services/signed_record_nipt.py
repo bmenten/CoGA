@@ -92,6 +92,7 @@ from .nipt_service import (
     roi_target_region,
 )
 from .analysis_gene_panel import AnalysisGenePanel, load_analysis_gene_panel
+from .nipt_qc_gate import fetal_read_depth
 from .nipt_target_coverage import TARGET_COVERAGE_TRACK_TYPE, TargetCoverageSummary, summarize_target_coverage
 from .nipt_triage import RecessiveAllele, RecessiveGeneRisk
 
@@ -316,7 +317,20 @@ def _checks(checks: NiptQualityChecks) -> dict[str, Any]:
     fetal_sex = checks.fetal_sex
     plasma = checks.plasma_sample
     coverage = plasma.coverage
+    gate = checks.expected_fetal_reads
     return {
+        # The QC gate (REQ-NIPT-021) with the bound it applied, QA's or provisional.
+        "expected_fetal_reads": {
+            "status": gate.status,
+            "message": gate.message,
+            "expected_reads": _number(gate.expected_reads),
+            "median_depth": _number(gate.median_depth),
+            "fetal_fraction": _number(gate.fetal_fraction),
+            "metric": gate.bound.key,
+            "warn_value": _number(gate.bound.warn_value),
+            "error_value": _number(gate.bound.error_value),
+            "provisional": gate.bound.provisional,
+        },
         "paternity": {
             "status": paternity.status,
             "message": paternity.message,
@@ -364,6 +378,10 @@ def _target_coverage(summary: TargetCoverageSummary | None) -> dict[str, Any] | 
         "incomplete": summary.incomplete,
         "critical_mean_depth": _number(summary.critical_mean_depth),
         "advisory_mean_depth": _number(summary.advisory_mean_depth),
+        # The depth at which a fetal-specific allele expects the QC gate's reads, and the
+        # targets below it (null without a fetal-fraction estimate).
+        "fetal_read_depth": _number(summary.fetal_read_depth),
+        "below_fetal_read_depth": summary.below_fetal_read_depth,
         "genes": [
             {
                 "gene": gene.gene,
@@ -371,6 +389,7 @@ def _target_coverage(summary: TargetCoverageSummary | None) -> dict[str, Any] | 
                 "weak_targets": gene.weak_targets,
                 "min_mean": _number(gene.min_mean),
                 "mean_of_means": _number(gene.mean_of_means),
+                "below_fetal_read_depth": gene.below_fetal_read_depth,
             }
             for gene in summary.genes
         ],
@@ -381,12 +400,19 @@ def _panel_target_coverage(
     panel: AnalysisGenePanel | None, analysis: NiptFamilyRecord
 ) -> dict[str, Any] | None:
     """The coverage QC of the diagnostic panel's capture targets (REQ-NIPT-006, REQ-NIPT-019):
-    the panel's genes with a target and without one, the totals over their targets, and each
-    gene with a weak target or with no target at all (a gene the assay does not capture is not
-    tested). None without a panel or without a per-target coverage table."""
+    the panel's genes with a target and without one, the totals over their targets, each gene
+    with a weak target or with no target at all (a gene the assay does not capture is not
+    tested), and each gene with a target too thin for the QC gate's fetal reads (REQ-NIPT-021).
+    None without a panel or without a per-target coverage table."""
     if panel is None or not analysis.plasma_targets:
         return None
-    summary = summarize_target_coverage(analysis.plasma_targets, genes=panel.gene_symbols)
+    summary = summarize_target_coverage(
+        analysis.plasma_targets,
+        genes=panel.gene_symbols,
+        fetal_read_depth=fetal_read_depth(
+            analysis.summary.analysis.fetal_fraction.ff_computed, analysis.summary.gate_bound
+        ),
+    )
     frozen = _target_coverage(summary) or {}
     genes = frozen.pop("genes", [])
     return {
@@ -394,6 +420,9 @@ def _panel_target_coverage(
         "panel_genes": len(panel.gene_symbols),
         "genes_without_target": sorted(str(gene["gene"]) for gene in genes if not gene["targets"]),
         "genes_with_weak_target": [gene for gene in genes if gene["targets"] and gene["weak_targets"]],
+        "genes_below_fetal_read_depth": [
+            gene for gene in genes if gene["targets"] and gene["below_fetal_read_depth"]
+        ],
     }
 
 
@@ -691,7 +720,8 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 
 def nipt_signout_concerns(section: Any) -> list[tuple[str | None, str]]:
     """The NIPT quality checks of a record's ``nipt`` section that failed, each as (what it
-    is about, why): no fetal-fraction estimate, fetal-sex signals that disagree, male DNA
+    is about, why): no fetal-fraction estimate, too few expected fetal reads (or a QC gate that
+    rests on a provisional bound QA has not set), fetal-sex signals that disagree, male DNA
     given as the maternal plasma, no diagnostic gene panel (the analysis states no scope).
     They gate the sign-out like a failed Sample QC check. [] for a section that holds no
     checks (none, or one that could not be read).
@@ -706,6 +736,25 @@ def nipt_signout_concerns(section: Any) -> list[tuple[str | None, str]]:
     if isinstance(fetal_fraction, Mapping) and fetal_fraction.get("status") == "fail":
         concerns.append(("NIPT fetal fraction", str(fetal_fraction.get("message") or "not estimated.")))
     checks = _mapping(section.get("checks"))
+    gate = checks.get("expected_fetal_reads")
+    if isinstance(gate, Mapping):
+        if gate.get("status") == "fail":
+            reason = str(gate.get("message") or "too few expected fetal reads.")
+            # Below a provisional bound: say so (a gate that could not be told compared none).
+            if gate.get("provisional") and gate.get("expected_reads") is not None:
+                reason += " The bound is provisional: QA has not set it."
+            concerns.append(("NIPT expected fetal reads", reason))
+        elif gate.get("provisional"):
+            bound = gate.get("error_value")
+            concerns.append(
+                (
+                    "NIPT expected fetal reads",
+                    f"the QC gate rests on a provisional bound of {bound:g} expected fetal reads, "
+                    "which QA has not set."
+                    if isinstance(bound, (int, float))
+                    else "the QC gate rests on a provisional bound, which QA has not set.",
+                )
+            )
     fetal_sex = checks.get("fetal_sex")
     if isinstance(fetal_sex, Mapping) and fetal_sex.get("status") == "fail":
         concerns.append(

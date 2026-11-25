@@ -21,6 +21,7 @@ from ..schemas import (
     NiptCoverageSummaryOut,
     NiptDeNovoTriageOut,
     NiptDeNovoWindowOut,
+    NiptExpectedFetalReadsOut,
     NiptFetalFractionOut,
     NiptFetalSexOut,
     NiptGeneTargetsOut,
@@ -138,9 +139,12 @@ def _target_coverage_out(summary: TargetCoverageSummary) -> NiptTargetCoverageOu
                 min_mean=gene.min_mean,
                 mean_of_means=gene.mean_of_means,
                 weak=[_target_out(row) for row in gene.weak],
+                below_fetal_read_depth=gene.below_fetal_read_depth,
             )
             for gene in summary.genes
         ],
+        fetal_read_depth=summary.fetal_read_depth,
+        below_fetal_read_depth=summary.below_fetal_read_depth,
     )
 
 
@@ -151,6 +155,7 @@ def _qc_out(summary: NiptFamilySummary) -> NiptQcOut:
     evidence = checks.paternal_transmission
     paternity = checks.paternity
     fetal_sex = checks.fetal_sex
+    gate = checks.expected_fetal_reads
     sex = summary.sex_chromosomes
     qc = NiptQualityThresholds()
     return NiptQcOut(
@@ -175,6 +180,16 @@ def _qc_out(summary: NiptFamilySummary) -> NiptQcOut:
             message=paternity.message,
         ),
         fetal_fraction_status=checks.fetal_fraction_check.status,
+        expected_fetal_reads=NiptExpectedFetalReadsOut(
+            status=gate.status,
+            message=gate.message,
+            expected_reads=gate.expected_reads,
+            median_depth=gate.median_depth,
+            fetal_fraction=gate.fetal_fraction,
+            warn_value=gate.bound.warn_value,
+            error_value=gate.bound.error_value,
+            provisional=gate.bound.provisional,
+        ),
         fetal_sex=NiptFetalSexOut(
             call=fetal_sex.call,  # type: ignore[arg-type]
             status=fetal_sex.status,

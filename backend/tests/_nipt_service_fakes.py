@@ -3,7 +3,8 @@ and ``test_nipt_pair_service.py`` (one VCF per parent).
 
 ``wire_nipt_reads`` answers the family record, its metadata context, the two variant loads
 (the cohort the fetal fraction is read from, without a gene filter, and the filtered variant
-list, with one), the assay's artifact list and the other cfDNA samples of the assay; the
+list, with one), the assay's artifact list, the QC gate's bound (provisional: QA has set none)
+and the other cfDNA samples of the assay; the
 review and internal-cohort hydration of the listed rows is a database concern exercised
 elsewhere, and is a no-op here. Synthetic families only.
 """
@@ -20,6 +21,7 @@ from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfIntere
 from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services import nipt_service
 from backend.app.services.nipt_artifact_pg import recurrence_rules
+from backend.app.services.nipt_qc_gate import NiptGateBound, resolve_nipt_gate_bound
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import SmallVariantRecord
 
@@ -28,6 +30,16 @@ from backend.app.services.clickhouse_variant_records import SmallVariantRecord
 # listed artefact, seen in more cfDNA samples than a father's allele may be
 # (nipt_service.PATERNAL_CARRIER_PROTECTION_MAX_RECURRENCE).
 LISTED_ARTIFACT_RECURRENCE = 10
+
+
+def gate_bound_loader(configured: dict[str, dict[str, float | None]] | None = None) -> Any:
+    """A ``load_nipt_gate_bound`` answering the QC gate's bound as QA set it in
+    ``configured`` (metric key -> bounds), else the provisional one."""
+
+    async def load(_session: Any) -> NiptGateBound:
+        return resolve_nipt_gate_bound(configured or {})
+
+    return load
 
 
 def listed_artifact_recurrence(artifacts: set[str] | dict[str, int] | None) -> dict[str, int]:
@@ -107,6 +119,7 @@ def wire_nipt_reads(
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", metadata_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fetch)
     monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
+    monkeypatch.setattr(nipt_service, "load_nipt_gate_bound", gate_bound_loader())
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
     monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", assay_carriers)
     counts: list[list[str]] = []

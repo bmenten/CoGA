@@ -200,6 +200,21 @@ def test_the_conventional_nipt_bounds_are_its_rules_and_never_a_sequencing_qc_ve
     assert [metric["metric_key"] for metric in result["metrics"]] == ["depth.mean_depth"]
 
 
+def test_the_monogenic_nipt_gate_is_its_own_and_never_a_sequencing_qc_verdict() -> None:
+    # The mNIPT QC gate reads its bound from its own profile and compares it itself
+    # (nipt_qc_gate); the sequencing-QC evaluator never judges it.
+    mnipt = [metric for metric in QC_METRICS if metric.source == "mnipt"]
+    assert [(metric.key, metric.direction) for metric in mnipt] == [
+        ("mnipt.expected_fetal_reads", "lower_is_worse")
+    ]
+    result = evaluate_sequencing_qc(
+        {"mnipt": {"expected_fetal_reads": 10.0}, "depth": {"mean_depth": 30.0}},
+        {"mnipt.expected_fetal_reads": {"warn_value": None, "error_value": 40.0}},
+    )
+    assert result is not None
+    assert [metric["metric_key"] for metric in result["metrics"]] == ["depth.mean_depth"]
+
+
 def test_mtdna_metrics_are_configured_here_but_evaluated_elsewhere() -> None:
     # Their cut-offs belong in the one admin place, but their values come from the
     # mitochondrial analysis' own coverage/contamination inputs, not from

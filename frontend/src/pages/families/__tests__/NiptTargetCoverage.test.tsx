@@ -32,10 +32,36 @@ const coverage = {
   critical_mean_depth: 300,
   advisory_mean_depth: 1000,
   genes: [
-    { gene: 'GENEA', targets: 10, weak_targets: 1, min_mean: 250, mean_of_means: 900, weak: [target('GENEA', 250)] },
-    { gene: 'GENEB', targets: 2, weak_targets: 0, min_mean: 1200, mean_of_means: 1250, weak: [] },
-    { gene: 'GENEZ', targets: 0, weak_targets: 0, min_mean: null, mean_of_means: null, weak: [] },
+    {
+      gene: 'GENEA',
+      targets: 10,
+      weak_targets: 1,
+      min_mean: 250,
+      mean_of_means: 900,
+      weak: [target('GENEA', 250)],
+      below_fetal_read_depth: null,
+    },
+    {
+      gene: 'GENEB',
+      targets: 2,
+      weak_targets: 0,
+      min_mean: 1200,
+      mean_of_means: 1250,
+      weak: [],
+      below_fetal_read_depth: null,
+    },
+    {
+      gene: 'GENEZ',
+      targets: 0,
+      weak_targets: 0,
+      min_mean: null,
+      mean_of_means: null,
+      weak: [],
+      below_fetal_read_depth: null,
+    },
   ],
+  fetal_read_depth: null,
+  below_fetal_read_depth: null,
 };
 
 const renderCoverage = (props: Partial<ComponentProps<typeof NiptTargetCoverage>> = {}) =>

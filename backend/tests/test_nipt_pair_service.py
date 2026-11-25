@@ -830,6 +830,14 @@ async def test_the_quality_checks_payload(monkeypatch: pytest.MonkeyPatch) -> No
     assert (qc.fetal_fraction_status, qc.fetal_sex.status) == ("pass", "pass")
     assert qc.de_novo_window is not None and qc.target_coverage is not None
     assert qc.model.reference.startswith("R NIPT-M v0.7.3")
+    # The QC gate (REQ-NIPT-021): median target depth x FF/2 against the provisional bound,
+    # and the depth that gives it, at which the coverage QC counts the thin targets.
+    gate = qc.expected_fetal_reads
+    assert gate.median_depth == qc.target_coverage.median_mean
+    assert gate.expected_reads == pytest.approx(gate.median_depth * gate.fetal_fraction / 2)
+    assert (gate.status, gate.error_value, gate.provisional) == ("pass", 40.0, True)
+    assert qc.target_coverage.fetal_read_depth == pytest.approx(2 * 40.0 / gate.fetal_fraction)
+    assert qc.target_coverage.below_fetal_read_depth is not None
     # chrY at the autosomal level and a low chrX: male DNA, not maternal plasma.
     male_targets = [
         TargetCoverageRow(chrom="X", start=0, end=100, gene="GENEX", attribute="GENEX", mean=500.0, median=500.0),
@@ -861,6 +869,11 @@ async def test_without_a_plasma_coverage_table_paternity_cannot_be_assessed(monk
     assert qc.paternity.status == "warn"
     assert qc.paternity.message.startswith("Too few paternal-informative sites (0 homozygous, 0 het)")
     assert "The plasma's depth is not known at 152 of the father's sites" in qc.paternity.message
+    # Nor is its median target depth: the QC gate cannot pass.
+    assert (qc.expected_fetal_reads.status, qc.expected_fetal_reads.message) == (
+        "fail",
+        "Not assessed: the plasma has no per-target coverage table.",
+    )
 
 
 @pytest.mark.asyncio

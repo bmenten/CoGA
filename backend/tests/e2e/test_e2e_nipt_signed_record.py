@@ -13,8 +13,9 @@ API, this:
   reads the NIPT page's reported view before signing out (the review-tag filter
   ``review_tag=report`` with no other filter, and ``exclude_review_tag``);
 * signs the family out, the drift and Sample QC gates acknowledged (the demo's paternity rests
-  on too few sites, so the Sample QC gate holds; no NIPT quality check fails, and the 409 says
-  so);
+  on too few sites, so the Sample QC gate holds; of the NIPT quality checks only the QC gate
+  on the expected fetal reads fails, as the demo's plasma has no per-target coverage table, and
+  the 409 says so);
 * reads the signed record back: the NIPT results as the page served them (the fetal fraction,
   the quality checks with their verdicts, each reported variant as the variant list
   classifies it, the artifact as not classified, the de novo candidate's triage, the inputs),
@@ -335,7 +336,7 @@ def test_the_variant_summary_reads_the_analysis_the_nipt_page_shows(signed) -> N
 # ------------------------------------------------------------------------ the gates
 
 
-def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
+def test_the_sample_qc_gate_holds_and_names_the_nipt_check_that_failed(signed) -> None:
     for variant_id in (DE_NOVO, PATERNAL, ARTIFACT):
         ok_json(signed, f"review_{variant_id}")
     refused_drift = signed["responses"]["refused_drift"]
@@ -353,8 +354,12 @@ def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
     detail = refused["json"]["detail"]
     assert detail["gate"] == "sample_qc"
     assert any("paternity" in reason.lower() for reason in detail["unverifiable_checks"])
-    # The NIPT page's checks passed, warned or could not run: none failed.
-    assert detail["nipt_failed_checks"] == []
+    # The NIPT page's checks passed, warned or could not run, but the QC gate on the expected
+    # fetal reads: without a per-target coverage table it cannot be told, and fails
+    # (REQ-NIPT-021).
+    assert detail["nipt_failed_checks"] == [
+        "NIPT expected fetal reads: not assessed: the plasma has no per-target coverage table."
+    ]
     # The refusal lists each group of concerns once, as the sign-out dialog shows them, and
     # the acknowledged sign-out's audit event records the same groups: what the
     # acknowledgement covered.
@@ -523,11 +528,13 @@ def test_the_record_verifies_and_still_matches_right_after_it_was_signed(signed)
     check = ok_json(signed, "check")
     assert check["matches"] is True and check["changed_sections"] == [], check
     assert [gap for gap in check["not_captured"] if gap["section"] == "nipt"] == []
-    # The sign-out's audit event names the NIPT checks the acknowledgement covered: none.
-    # Most recent first: the sign-out just made.
+    # The sign-out's audit event names the NIPT checks the acknowledgement covered: the QC gate
+    # that could not be told. Most recent first: the sign-out just made.
     event = next(event for event in ok_json(signed, "audit")["events"] if event["action"] == "sign_out")
     assert event["after"]["version"] == detail["version"]
-    assert event["after"]["nipt_failed_checks"] == []
+    assert event["after"]["nipt_failed_checks"] == [
+        "NIPT expected fetal reads: not assessed: the plasma has no per-target coverage table."
+    ]
 
 
 def test_the_record_freezes_the_coverage_notes_the_nipt_page_showed(signed) -> None:

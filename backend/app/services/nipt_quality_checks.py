@@ -1,10 +1,10 @@
 """The monogenic NIPT quality checks and their verdicts (REQ-NIPT-015), made in one place.
 
 The NIPT page shows them (``GET /families/{family_id}/nipt/summary``, ``qc``) and the signed
-analysis record freezes them (``signed_record_nipt``): the fetal fraction, the fetal sex from
-the father's X alleles and from the plasma's chrY coverage, paternity, the maternal plasma
-sample's sex profile, the coverage of the capture targets and why cfDNA calls failed the
-quality filter, with the de novo window. The page made the fetal-fraction and the fetal-sex
+analysis record freezes them (``signed_record_nipt``): the fetal fraction, the QC gate on the
+expected fetal reads (``nipt_qc_gate``), the fetal sex from the father's X alleles and from the
+plasma's chrY coverage, paternity, the maternal plasma sample's sex profile, the coverage of the
+capture targets and why cfDNA calls failed the quality filter, with the de novo window. The page made the fetal-fraction and the fetal-sex
 verdicts itself, in the browser; a signed record holds values made by the backend's tested
 code, so each verdict is made here and the page and the record both read it.
 
@@ -26,6 +26,7 @@ from .nipt_analysis import (
     chry_fetal_sex,
     combined_fetal_sex,
 )
+from .nipt_qc_gate import ExpectedFetalReadsCheck, expected_fetal_reads_verdict
 from .nipt_target_coverage import SexChromosomeCoverage, TargetCoverageSummary
 from .nipt_triage import DeNovoWindow, de_novo_window
 from .sample_integrity_qc import PaternityCheck, evaluate_paternity
@@ -103,6 +104,8 @@ class NiptQualityChecks:
 
     fetal_fraction: FetalFractionEstimate
     fetal_fraction_check: CheckVerdict
+    # The QC gate: median target depth x FF/2 against its bound (REQ-NIPT-021).
+    expected_fetal_reads: ExpectedFetalReadsCheck
     de_novo_window: DeNovoWindow | None
     paternity: PaternityCheck
     paternal_transmission: PaternalTransmissionEvidence
@@ -210,9 +213,13 @@ def nipt_quality_checks(summary: NiptFamilySummary, *, father: str = "father") -
     analysis = summary.analysis
     ff = analysis.fetal_fraction
     sex = summary.sex_chromosomes
+    coverage = summary.target_coverage
     return NiptQualityChecks(
         fetal_fraction=ff,
         fetal_fraction_check=fetal_fraction_verdict(ff),
+        expected_fetal_reads=expected_fetal_reads_verdict(
+            coverage.median_mean if coverage is not None else None, ff.ff_computed, summary.gate_bound
+        ),
         de_novo_window=de_novo_window(ff),
         paternity=paternity_verdict(analysis.paternal_transmission, father),
         paternal_transmission=analysis.paternal_transmission,

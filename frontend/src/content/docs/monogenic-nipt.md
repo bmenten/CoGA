@@ -464,6 +464,18 @@ The NIPT page opens with the checks to confirm before reading any variant, folde
 check that could not run included). A click shows each check.
 
 - **Fetal fraction**, with its interval, the per-site median, the chrY estimate and the de novo window.
+- **Expected fetal reads**, the QC gate. A fetal-specific allele (the father's, or a de novo one) has
+  about *median target depth × FF/2* reads in the plasma. The gate asks for at least 40: at an FF of 4%,
+  that is a median depth of 2,000×. In the R validation's simulation, fetal-specific recall fell to 93%
+  at an FF of 4%.
+  - Below the bound the check **fails**: a fetal-specific allele may be missed, so a result without
+    one is not reliable. Consider a redraw. An allele that was found stays a finding.
+  - Without a fetal-fraction estimate or a per-target coverage table the gate cannot be told, and fails.
+  - QA sets the bound on the QC thresholds page (profile *Monogenic NIPT*, metric *mNIPT: expected
+    fetal reads*), with a warning bound if wanted. Until QA sets it, the provisional value of 40
+    applies and the page says so.
+  - The same bound marks thin capture targets: a target whose mean depth is below *2 × bound / FF*
+    expects fewer reads of a fetal-specific allele. The target coverage counts them.
 - **Fetal sex**, from two independent signals:
   - *Paternal X*: at the father's X alleles (outside the pseudo-autosomal regions, where he is hom-alt
     and the plasma's allele fraction is below 30%), a daughter shows the allele and a son does not.
@@ -484,7 +496,8 @@ check that could not run included). A click shows each check.
   read the variants.
 - **Maternal plasma sample**, from the chrX and chrY depth: female plasma passes; a chrY near the
   autosomal level with a low chrX is male DNA, which cannot be maternal plasma (fail).
-- **Target coverage** and the **cfDNA quality filter** (see *Coverage*, and above).
+- **Target coverage** and the **cfDNA quality filter** (see *Coverage*, and above). The target coverage
+  also counts the targets too thin for the expected fetal reads at the estimated FF.
 
 ---
 
@@ -645,8 +658,9 @@ signed version shows them:
 - what the analysis ran with (the coverage tables, the artifact list and the model).
 
 Sign-out stops at the family's checks. Besides the Sample QC, a failed NIPT quality check stops it until
-you record a reason: no fetal-fraction estimate, a fetal sex whose two signals disagree, male DNA
-given as the maternal plasma, or no diagnostic gene panel. Tag the variants you report before you sign out: a variant without the
+you record a reason: no fetal-fraction estimate, too few expected fetal reads (or a gate on the
+provisional bound QA has not set), a fetal sex whose two signals disagree, male DNA given as the
+maternal plasma, or no diagnostic gene panel. Tag the variants you report before you sign out: a variant without the
 *report* tag is not frozen with its classification.
 
 **Show reported (N)**, in the page's *Sign-out* section, lists what a sign-out would freeze: the

@@ -271,6 +271,9 @@ class TargetGeneCoverage:
     min_mean: float | None
     mean_of_means: float | None
     weak: list[TargetCoverageRow] = field(default_factory=list)
+    # Its targets too thin for the QC gate's fetal reads (below ``fetal_read_depth``); None
+    # when the summary has no such depth (no fetal-fraction estimate).
+    below_fetal_read_depth: int | None = None
 
 
 @dataclass(slots=True)
@@ -287,6 +290,10 @@ class TargetCoverageSummary:
     critical_mean_depth: float
     advisory_mean_depth: float
     genes: list[TargetGeneCoverage] = field(default_factory=list)
+    # The mean depth at which a fetal-specific allele expects the QC gate's reads
+    # (``nipt_qc_gate.fetal_read_depth``), and the targets below it; None without one.
+    fetal_read_depth: float | None = None
+    below_fetal_read_depth: int | None = None
 
 
 def summarize_target_coverage(
@@ -296,13 +303,21 @@ def summarize_target_coverage(
     critical_mean_depth: float = CRITICAL_MEAN_DEPTH,
     advisory_mean_depth: float = ADVISORY_MEAN_DEPTH,
     include_passing: bool = False,
+    fetal_read_depth: float | None = None,
 ) -> TargetCoverageSummary:
     """The coverage QC of the targets, restricted to ``genes`` when given (case-insensitive).
 
     The per-gene list holds the requested genes, or, without a gene list, only the genes
     with a weak target, weakest first. ``include_passing`` lists every gene in scope, the
-    ones whose targets all pass too: the coverage page shows both.
+    ones whose targets all pass too: the coverage page shows both. ``fetal_read_depth``
+    counts the targets below it, in all and per gene: too thin for the QC gate's fetal reads.
     """
+
+    def too_thin(targets: Sequence[TargetCoverageRow]) -> int | None:
+        if fetal_read_depth is None:
+            return None
+        return sum(1 for row in targets if row.mean is None or row.mean < fetal_read_depth)
+
     wanted = {gene.strip().upper() for gene in genes or [] if gene and gene.strip()}
     selected = [row for row in rows if not wanted or row.gene.upper() in wanted]
     means = sorted(row.mean for row in selected if row.mean is not None)
@@ -323,13 +338,21 @@ def summarize_target_coverage(
                 min_mean=min(gene_means) if gene_means else None,
                 mean_of_means=sum(gene_means) / len(gene_means) if gene_means else None,
                 weak=sorted(weak, key=lambda row: (row.mean if row.mean is not None else -1.0)),
+                below_fetal_read_depth=too_thin(gene_targets),
             )
         )
     gene_rows.sort(key=lambda item: (item.min_mean if item.min_mean is not None else -1.0, item.gene))
     if wanted:
         missing = sorted(wanted - {item.gene.upper() for item in gene_rows})
         gene_rows.extend(
-            TargetGeneCoverage(gene=gene, targets=0, weak_targets=0, min_mean=None, mean_of_means=None)
+            TargetGeneCoverage(
+                gene=gene,
+                targets=0,
+                weak_targets=0,
+                min_mean=None,
+                mean_of_means=None,
+                below_fetal_read_depth=too_thin([]),
+            )
             for gene in missing
         )
     return TargetCoverageSummary(
@@ -347,6 +370,8 @@ def summarize_target_coverage(
         critical_mean_depth=critical_mean_depth,
         advisory_mean_depth=advisory_mean_depth,
         genes=gene_rows,
+        fetal_read_depth=fetal_read_depth,
+        below_fetal_read_depth=too_thin(selected),
     )
 
 

@@ -87,6 +87,16 @@ const STATS: NiptVariantStatisticsOut = {
       message: 'ok',
     },
     fetal_fraction_status: 'pass',
+    expected_fetal_reads: {
+      status: 'fail',
+      message: 'Not assessed: the plasma has no per-target coverage table.',
+      expected_reads: null,
+      median_depth: null,
+      fetal_fraction: 0.12,
+      warn_value: null,
+      error_value: 40,
+      provisional: false,
+    },
     fetal_sex: {
       call: 'female',
       status: 'pass',

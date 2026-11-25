@@ -616,11 +616,16 @@ backend's code (`nipt_service`, `nipt_quality_checks`), never the browser:
 - the fetal fraction with its interval, site count, per-site median and verdict, and the de novo
   window;
 - the category counts, the filter funnel and why cfDNA calls failed the quality filter;
-- the quality checks, each with its verdict and the sentence that says why (`checks`: paternity,
-  the fetal sex from the father's X alleles and from the plasma's chrY coverage, the maternal
-  plasma sample's sex profile);
+- the quality checks, each with its verdict and the sentence that says why (`checks`: the QC gate
+  on the expected fetal reads, paternity, the fetal sex from the father's X alleles and from the
+  plasma's chrY coverage, the maternal plasma sample's sex profile). The QC gate
+  (`expected_fetal_reads`, REQ-NIPT-021) holds what it read (`median_depth`, `fetal_fraction`,
+  `expected_reads`) and the bound it applied (`metric`, `warn_value`, `error_value`, and
+  `provisional` while QA has not set it);
 - the coverage of every capture target and each gene with a weak target (`target_coverage`, null
-  without a per-target coverage table);
+  without a per-target coverage table), with the depth that gives the QC gate's fetal reads at the
+  estimated fetal fraction (`fetal_read_depth`) and the targets below it (`below_fetal_read_depth`,
+  in all and per gene);
 - without a per-target table, the coverage check's notes over the plasma's coverage tracks
   (`coverage_notes`; owner decision of 2026-10-28), word for word as the NIPT page shows them, each
   naming a track the check does not read as depth and why, with what the check ran for: `gene` and
@@ -642,8 +647,9 @@ backend's code (`nipt_service`, `nipt_quality_checks`), never the browser:
   version, source release and gene count, and a digest of its gene list (`genes_digest`); null when
   the analysis had none, which stops the sign-out until a reason is recorded
   (`nipt_signout_concerns`). And the coverage of its capture targets (`panel_target_coverage`): the
-  panel's gene count, the totals over its genes' targets, each gene with a weak target and each gene
-  without a target (not tested); null without a panel or without a per-target table. The record is
+  panel's gene count, the totals over its genes' targets, each gene with a weak target, each gene
+  with a target too thin for the QC gate's fetal reads (`genes_below_fetal_read_depth`) and each
+  gene without a target (not tested); null without a panel or without a per-target table. The record is
   rebuilt from the saved panel and its current version, so a panel edited since the sign-out shows
   as a change;
 - the locked diagnostic candidates of the diagnostic panel (`diagnostic_candidates`,
@@ -976,8 +982,9 @@ changed, without the review's time), and the message says how many.
   is known only from the analysis, ccnv's call in `cnipt`. In the record of another analysis, cNIPT
   results that could not be read are not captured (named in `not_captured`), not a QC concern;
 - in a monogenic NIPT family, a NIPT quality check that failed in the record's `nipt` section, under
-  the same acknowledgement: no fetal-fraction estimate, a fetal sex whose paternal-X and chrY
-  signals disagree, or male DNA given as the maternal plasma (REQ-NIPT-015; TF-06 H4). The 409
+  the same acknowledgement: no fetal-fraction estimate, too few expected fetal reads or a QC gate
+  that rests on the provisional bound QA has not set (REQ-NIPT-021), a fetal sex whose paternal-X
+  and chrY signals disagree, or male DNA given as the maternal plasma (REQ-NIPT-015; TF-06 H4). The 409
   lists each in `nipt_failed_checks` and in `qc_summary.messages`, the plasma's naming its sample
   ("Sample X (maternal plasma): male DNA …"); the audit event records them (`nipt_failed_checks`).
   Paternity is not among them: the Sample QC reads it from the same analysis and gates on it

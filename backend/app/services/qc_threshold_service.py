@@ -56,8 +56,9 @@ _VERDICT_RANK: dict[QcVerdict, int] = {"skip": 0, "pass": 1, "warn": 2, "fail": 
 #: so that service evaluates them itself — but their cut-offs are configured here, in the
 #: one place, rather than hard-coded in the analysis.
 #: ``cnipt`` bounds are the conventional NIPT's result rule (``cnipt_result``), which reads them
-#: from its own profile (``nipt_conventional``) and applies its own comparisons.
-MetricSource = Literal["sequencing_qc", "mtdna", "cnipt"]
+#: from its own profile (``nipt_conventional``) and applies its own comparisons. ``mnipt``
+#: bounds are the monogenic NIPT's QC gate (``nipt_qc_gate``), read from ``nipt_monogenic``.
+MetricSource = Literal["sequencing_qc", "mtdna", "cnipt", "mnipt"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,6 +329,21 @@ QC_METRICS: tuple[QcMetric, ...] = (
         "A segmental CNV shorter than the error bound is not assessed (listed only). ccnv's "
         "limits of detection raise it at a low fetal fraction. Provisional: error 3.",
         source="cnipt",
+    ),
+    # The monogenic NIPT's QC gate (``nipt_qc_gate``), set in the profile ``nipt_monogenic``.
+    # Until QA sets the bound, the gate applies its provisional value and says so.
+    _metric(
+        "mnipt.expected_fetal_reads",
+        "mNIPT: expected fetal reads",
+        "reads",
+        "lower_is_worse",
+        "The maternal plasma's median target depth times half its fetal fraction: the reads a "
+        "fetal-specific allele (the father's, or a de novo one) is expected to have. Below the "
+        "error bound the check fails (a result without such an allele is not reliable); below "
+        "the warning bound it warns. A capture target whose mean depth gives fewer than the "
+        "error bound is counted as too thin for it. Provisional: error 40 (the R NIPT-M "
+        "v0.7.3 review).",
+        source="mnipt",
     ),
 )
 
