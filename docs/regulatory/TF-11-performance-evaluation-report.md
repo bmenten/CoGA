@@ -58,12 +58,18 @@ Discordance adjudication: ‹table — case, CoGA call, comparator, root cause, 
 | Inheritance / de-novo concordance | ‹…› | ‹…› | |
 
 ### 3.4 Monogenic NIPT (30)
+The 30 samples are not among the 22 families of the R NIPT-M v0.7.3 development: ‹confirm›.
+
 | Metric | Result | Acceptance | Pass? |
 | --- | --- | --- | --- |
 | FF bias vs comparator (Bland–Altman) | ‹…› | within ‹±X› | |
-| Category/inheritance concordance | ‹…› | ≥‹threshold› | |
-| Missed at-risk fetal calls | ‹…› | 0 | |
-| Low-FF/low-depth behavior | ‹…› | low-confidence, no forced call | |
+| QC gate: fetal-specific recall per bin of expected fetal reads; samples failing the gate | ‹…› | ‹…› | |
+| Category/inheritance concordance (autosomes; a daughter's and a son's chrX) | ‹…› | ≥‹threshold› | |
+| Maternal inheritance accuracy per FF bin | ‹…› | ‹…› | |
+| Locked diagnostic candidates: the comparator's diagnostic variants listed, per view; candidates per sample | ‹…› | ‹…› | |
+| Recessive fetal status vs the fetal genotype; genes left undetermined | ‹…› | no affected fetus called carrier or unaffected | |
+| Missed at-risk fetal calls in samples that pass the QC gate | ‹…› | 0 | |
+| Low-FF/low-depth behavior | ‹…› | low-confidence, no forced call; the gate fails below its bound | |
 
 ### 3.5 Mitochondrial disease — ONT adaptive sampling (N ‹…›)
 | Metric | Result | Acceptance | Pass? |

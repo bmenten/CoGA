@@ -112,13 +112,39 @@ agreement estimates.
 - **🔲 OWNER (clinical):** TF-01 §3.4 also claims proband-only analysis, but this protocol validates trios only. Add a proband-only arm, or narrow the claim.
 
 ### 3.4 Monogenic NIPT (30 samples)
-- **Units of analysis:** **fetal-fraction estimate** (quantitative QC, vs comparator/known FF); **per-variant zygosity category**; and the **inheritance-preset conclusions** (de novo, paternal/maternal dominant, recessive at-risk).
-- **Inputs:** the NIPT-M pipeline's single-sample cfDNA and paternal annotated VCFs with their per-target coverage tables (or combined two-sample VCFs with coverage), pedigree; external FF where available.
+- **Development data are not validation data.** CoGA's rules follow the R NIPT-M v0.7.3 validation on 22 families with trio exomes: the fixed cfDNA quality filter, the maternal model's constants, the locked diagnostic criteria (REQ-NIPT-020) and the QC gate's provisional bound (REQ-NIPT-021). Those 22 families set them, so they cannot also validate them. The 30 samples of this protocol are other pregnancies. The assay's artifact list they are read with is built without them, so no sample shapes its own artifact filter.
+- **Units of analysis:**
+  - the **fetal-fraction estimate** (quantitative QC, vs comparator/known FF);
+  - the **QC gate** on the expected fetal reads (pass or fail);
+  - the **per-variant zygosity category** and fetal-inheritance probability, on the autosomes and on chrX by the fetal sex;
+  - the **locked diagnostic candidates** per view (de novo, paternal, maternal) within the analysis's diagnostic gene panel;
+  - the **recessive fetal status** per gene (affected, carrier, unaffected, undetermined);
+  - the **inheritance-preset conclusions** (de novo, paternal/maternal dominant, recessive at-risk).
+- **Inputs:** the NIPT-M pipeline's single-sample cfDNA and paternal annotated VCFs with their per-target coverage tables (or combined two-sample VCFs with coverage), pedigree, and the analysis's diagnostic gene panel; external FF where available.
 - **Metrics:**
   - FF: bias and correlation (Pearson/Deming, Bland–Altman) of CoGA's fetal-fraction estimate (from paternally inherited variants, category 7) vs comparator FF (the external FF, where available).
-  - Category assignment & inheritance calls: PPA/NPA/OPA vs the confirmed fetal genotype/comparator; **false-negative rate** (paternal homozygous variants missing from the cfDNA, category 8).
-- **Proposed acceptance (confirm):** FF within ‹±X absolute / ±Y%› of comparator; **no missed at-risk fetal calls** (false-negative is the safety-critical error for a screening test); category concordance ≥‹threshold› at adequate FF/coverage; correct low-confidence behavior at low FF/depth (no forced calls).
-- **Edge cases:** low fetal fraction, low depth, category-8 dropout, FF far from the comparator.
+  - QC gate: the recall of fetal-specific alleles (the father's and de novo) per bin of expected fetal reads, and the share of samples that fail the gate.
+  - Category assignment & inheritance calls: PPA/NPA/OPA vs the confirmed fetal genotype/comparator, apart for the autosomes, a daughter's chrX and a son's chrX; the accuracy of the maternal inheritance per FF bin (the least certain inference: 92 % in the R validation, and over-confident at a low FF); **false-negative rate** (paternal homozygous variants missing from the cfDNA, category 8).
+  - Locked diagnostic candidates: per view, the share of the comparator's diagnostic variants within the panel that the list holds, and the number of candidates per sample (each needs confirmation).
+  - Recessive fetal status: concordance with the fetal genotype, and the share of genes left undetermined.
+- **Proposed acceptance (confirm):**
+  - FF within ‹±X absolute / ±Y%› of the comparator.
+  - **No missed at-risk fetal call in a sample that passes the QC gate** (a false negative is the safety-critical error of a screening test).
+  - No fetus the comparator shows affected given a recessive status of carrier or unaffected (undetermined is not a miss).
+  - Category concordance ≥‹threshold› at adequate FF/coverage.
+  - Correct low-confidence behaviour at a low FF or depth: no forced call, and the gate fails below its bound.
+- **Edge cases:**
+  - A low fetal fraction. The 22 development families had a high FF (10.6–36.8 %, median 14.5 %); below 8 % the R validation simulated, not observed. Include pregnancies below 8 %.
+  - Low depth.
+  - A son's X-linked gene; a homozygous parent.
+  - A call outside the capture targets (left out of the estimates).
+  - A de novo indel in a repeat (low confidence); an allele the ClinVar override admits.
+  - Category-8 dropout; FF far from the comparator.
+- **Blind spots (stated, not validated):** large indels and VNTRs, repeat expansions, HLA, paralogous genes, and poorly captured targets. A gene of the panel without a capture target is not tested, and the per-target coverage marks the targets too thin for the gate.
+- **🔲 OWNER:**
+  - The R NIPT-M analysis that CoGA names (v0.7.3) is to be committed and tagged in its repository, so that the model reference names a fixed version.
+  - QA and the laboratory director confirm or change the QC gate's provisional bound (40 expected fetal reads) before the release candidate.
+  - The comparator, the FF distribution of the 30 samples, and the artifact list built without them (INPUTS C4).
 
 ### 3.5 Mitochondrial disease — ONT adaptive sampling (N to define)
 - **Units of analysis:** the **mtDNA variant + heteroplasmy** call set (variant detection and heteroplasmy fraction), the **nuclear mito-gene** variant/diagnostic conclusion, and the combined **diagnostic conclusion**.
@@ -264,15 +290,25 @@ pull request updates this list only when it adds clinical behaviour that no area
     review edits.
   - The prioritised ranking and its cache keys.
 - **Application logic**
-  - Monogenic NIPT: one fetal fraction; paternally allowed fetal states; the R NIPT-M
-    validation's quality filter and model constants; paternity from how many of the father's
-    homozygous and of his heterozygous alleles the plasma shows; the fetal sex from the
-    father's X alleles and the plasma's chrY coverage; the maternal-plasma sex profile and the
-    per-target coverage check; the fetal-inheritance probabilities; the de novo triage; the
-    per-gene recessive risk; an allele written as an MNV in one sample and as SNVs in the
-    other; the audited artifact list and its import from the pipeline's recurrent table; each
-    allele's recurrence in the assay's other cfDNA samples and the filter on it; a report that
-    says when it is incomplete.
+  - Monogenic NIPT:
+    - **The model:** one fetal fraction; paternally allowed fetal states; the R NIPT-M v0.7.3
+      validation's fixed quality filter and model constants; a father called by HaplotypeCaller
+      read from his genotype.
+    - **The checks:** paternity from how many of the father's homozygous and of his heterozygous
+      alleles the plasma shows; the fetal sex from the father's X alleles and the plasma's chrY
+      coverage; the maternal-plasma sex profile and the per-target coverage check; the QC gate on
+      the expected fetal reads, its bound QA's or provisional, with the targets too thin for it.
+    - **The scope:** the analysis's diagnostic gene panel, saved per analysis; calls outside the
+      capture targets left out of the estimates; chrX classified by the fetal sex (a son's by the
+      hemizygous model), and left unclassified when the sex is not known.
+    - **The calls:** the fetal-inheritance probabilities; the de novo triage; the locked
+      diagnostic candidates frozen with their criteria; the per-gene recessive fetal status
+      (homozygous parents, a son's X-linked genes, the 20–80 % band left undetermined); an
+      allele written as an MNV in one sample and as SNVs in the other.
+    - **The artifacts and the report:** the audited artifact list and its import from the
+      pipeline's recurrent table, a father's allele protected from it; each allele's recurrence
+      in the assay's other cfDNA samples and the filter on it; a report that says when it is
+      incomplete.
   - PGT embryo calls that are uninformative without supporting data; that carry a warning when
     their phasing QC at the ROI falls below its provisional thresholds over the ROI and 1 Mb on
     each side (informative sites, Mendelian error rate, markers on each flank of the ROI on
