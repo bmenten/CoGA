@@ -289,6 +289,7 @@ The catalogue also records how to read a region: what each field means (`field_d
 - **Alleles.** A region can also have an allele rule (`allele_rule`); the RCCX module has one. It reads the label Paraphase gives per chromosome (`annotated_alleles`): a label that is not a normal allele, another number of labels than two, or failed phasing makes the call *review*, whatever the copy number. A *pathogenic* or *carrier* from the copy number stands. The signed record freezes the rule and, per call, what it read.
 - **chrX.** A male counts one copy and a female two, with the sex that Paraphase determines itself (otherwise the one from the pedigree); without a sex, a chrX value is not called normal.
 - **No change.** A field without a fixed norm (*highest_total_cn*) and a no-call do not count as a change.
+- **Paraphase 3 and 4.** Paraphase 3 writes the fields of a region's own analysis (`gene_cn`, `fusions_called`, SMN1's copy numbers, reads and haplotypes, RCCX's alleles) at a result's top level, Paraphase 4 under its `region_specific_info`. CoGA reads both forms alike (`paraphase_result_fields`): a call reads the same in either, and the signed record freezes the same.
 
 The filter *Copy-number changes and abnormal calls only* is ticked when the page opens. It shows the loci with such a change or with a member's call that reads *pathogenic*, *carrier* or *review*; a fusion gives *review* without a change in copy number and so stays in view. The page shows a card per locus with the interpretation and, per sample, the status.
 

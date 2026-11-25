@@ -724,7 +724,9 @@ picks none of them is stored without thresholds. `repeat_expansions.metadata` ho
 under `locus_not_resolved`, and the repeat page shows it with the call.
 
 `sample_paraphase_results.total_cn`, `gene_cn` and `highest_total_cn` are `integer` columns
-filled from each sample's Paraphase JSON. A copy number they cannot hold (below −2,147,483,648
+filled from each sample's Paraphase JSON (Paraphase 4 writes `gene_cn` under a result's
+`region_specific_info`, Paraphase 3 at its top level); `payload` holds the result as Paraphase
+wrote it. A copy number they cannot hold (below −2,147,483,648
 or above 2,147,483,647) fails the `paraphase` dataset before any sample's results are replaced,
 as a TRGT position beyond any chromosome fails the TRGT file. A copy number that is not a
 number is stored as null.
