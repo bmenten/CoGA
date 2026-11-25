@@ -215,7 +215,7 @@ def _context(family_uuid: str, project: str) -> Any:
 _CASES: dict[str, tuple[dict[str, Any], tuple[str, ...] | None]] = {
     "rare on a threshold": ({"max_gnomad_af": 0.001}, None),
     "rare, HIGH or MODERATE": ({"max_gnomad_af": 0.01, "impact": ["HIGH", "MODERATE"]}, None),
-    "rare, ClinVar P/LP rescued": ({"max_gnomad_af": 0.001, "clinvar_overrides_frequency": True}, None),
+    "rare, ClinVar P/LP rescued": ({"max_gnomad_af": 0.001, "clinvar_pathogenic_override": True}, None),
     "every frequency": (
         {
             "max_gnomad_exomes_af": 0.001,
@@ -245,7 +245,7 @@ _CASES: dict[str, tuple[dict[str, Any], tuple[str, ...] | None]] = {
     "every transcript filter": (
         {
             "max_gnomad_af": 0.01,
-            "clinvar_overrides_frequency": True,
+            "clinvar_pathogenic_override": True,
             "impact": ["HIGH", "MODERATE"],
             "canonical_only": True,
             "min_cadd": 15.0,

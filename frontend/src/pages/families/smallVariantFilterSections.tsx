@@ -1774,15 +1774,15 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
         <label className="analysis-checkbox">
           <input
             type="checkbox"
-            checked={draftFilters.clinvar_overrides_frequency === 'true'}
+            checked={draftFilters.clinvar_pathogenic_override === 'true'}
             onChange={(event) =>
               setDraftFilterValue(
-                'clinvar_overrides_frequency',
+                'clinvar_pathogenic_override',
                 event.target.checked ? 'true' : '',
               )
             }
           />
-          <span>ClinVar pathogenic / likely pathogenic overrules the frequency filter</span>
+          <span>ClinVar pathogenic / likely pathogenic overrules the frequency, consequence and in-silico filters</span>
         </label>
       </div>
     </FilterSection>

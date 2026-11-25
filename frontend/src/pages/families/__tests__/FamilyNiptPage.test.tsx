@@ -311,7 +311,7 @@ describe('FamilyNiptPage', () => {
     expect(variantCalls.every(([, config]) => config?.params?.inheritance === 'de_novo')).toBe(true);
     const { params } = variantCalls[0][1];
     expect(params.impact).toEqual(['HIGH', 'MODERATE']);
-    expect(params.clinvar_overrides_frequency).toBe(true);
+    expect(params.clinvar_pathogenic_override).toBe(true);
     // As the small-variant page opens: on the Mendeliome, ClinVar benign and likely benign left out.
     expect(variantCalls.every(([, config]) => config?.params?.panel_id === 'panel-mendeliome')).toBe(true);
     expect(params.exclude_clinvar).toEqual(['Benign', 'Likely benign']);

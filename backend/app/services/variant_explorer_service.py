@@ -342,8 +342,9 @@ class GlobalVariantFilters:
     max_gnomad_ac: int | None = None
     max_gnomad_hom_count: int | None = None
     max_gnomad_hemi_count: int | None = None
-    # ClinVar P/LP keeps a variant past the frequency ceilings, as in the family search.
-    clinvar_overrides_frequency: bool = False
+    # ClinVar P/LP keeps a variant past the consequence, in-silico and frequency filters, as
+    # in the family search.
+    clinvar_pathogenic_override: bool = False
     min_cadd: float | None = None
     min_revel: float | None = None
     min_spliceai: float | None = None
@@ -806,7 +807,7 @@ def _family_search_filters(filters: GlobalVariantFilters) -> SmallVariantQueryFi
         impact=list(filters.impacts),
         effect=list(filters.effects),
         clinvar=list(filters.clinvar),
-        clinvar_overrides_frequency=filters.clinvar_overrides_frequency,
+        clinvar_pathogenic_override=filters.clinvar_pathogenic_override,
         hgvsc=filters.hgvsc,
         hgvsp=filters.hgvsp,
         canonical_only=filters.canonical_only,

@@ -218,9 +218,11 @@ class SmallVariantQueryFilters:
     effect: List[str] = field(default_factory=list)
     clinvar: List[str] = field(default_factory=list)
     exclude_clinvar: List[str] = field(default_factory=list)
-    # When set, a ClinVar Pathogenic/Likely_pathogenic variant is kept even if it
-    # exceeds the gnomAD frequency / hom / hemi / AC thresholds (P/LP "rescue").
-    clinvar_overrides_frequency: bool = False
+    # When set, a ClinVar pathogenic or likely pathogenic variant passes the consequence
+    # filter (impact, consequence, the SpliceAI minimum), the in-silico filter (CADD, REVEL,
+    # SIFT, PolyPhen, SpliceAI) and the frequency filter (population frequencies, gnomAD
+    # AC / hom / hemi counts) whatever its values: the ClinVar P/LP override.
+    clinvar_pathogenic_override: bool = False
     exclude_gene: str | None = None
     exclude_intervals: str | None = None
     rsid: str | None = None

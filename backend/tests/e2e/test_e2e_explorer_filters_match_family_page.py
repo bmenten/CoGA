@@ -123,11 +123,11 @@ _CASES: dict[str, tuple[dict[str, Any], set[str]]] = {
     "MANE only and REVEL": ({"mane_only": "true", "min_revel": "0.5"}, {_COMMON_LIKELY_PATHOGENIC}),
     "CADD or REVEL": ({"min_cadd": "25", "min_revel": "0.5"}, _ALL - {_LOF_OFF_MANE}),
     "frequency": (
-        {"max_gnomad_af": "0.01", "clinvar_overrides_frequency": "false"},
+        {"max_gnomad_af": "0.01", "clinvar_pathogenic_override": "false"},
         _ALL - {_COMMON_LIKELY_PATHOGENIC},
     ),
     "frequency with the ClinVar rescue": (
-        {"max_gnomad_af": "0.01", "clinvar_overrides_frequency": "true"},
+        {"max_gnomad_af": "0.01", "clinvar_pathogenic_override": "true"},
         _ALL,
     ),
     "MANE only and ClinVar": (

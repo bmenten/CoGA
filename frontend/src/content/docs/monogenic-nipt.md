@@ -372,9 +372,11 @@ below the table holds every carrier variant of the listed genes.
 
 The presets combine the views with the usual filters:
 
-- **De novo**: the de novo view, HIGH or MODERATE impact, gnomAD 1% or below, a ClinVar pathogenic
-  record overriding the frequency, ClinVar benign and likely benign left out;
-- **Paternal, inherited**: the paternal view with HIGH or MODERATE impact and the same frequency rule;
+- **De novo**: the de novo view, HIGH or MODERATE impact, gnomAD 1% or below, a ClinVar pathogenic or
+  likely pathogenic record overriding the impact and the frequency, ClinVar benign and likely benign
+  left out;
+- **Paternal, inherited**: the paternal view with HIGH or MODERATE impact and the same frequency and
+  ClinVar rules;
 - **Recessive (both parents carrier)**: the recessive view with those filters.
 
 The page opens on **De novo**, on the **Mendeliome** panel, unless its link carries a search of its own.

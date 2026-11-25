@@ -244,8 +244,8 @@ describe('GlobalSmallVariantExplorerPage', () => {
       for (const unread of ['intervals', 'transcript', 'exclude_gene', 'exclude_intervals', 'exclude_review_tag', 'has_notes', 'locus', 'inheritance', 'prioritize']) {
         expect(request.has(unread), unread).toBe(false);
       }
-      // The ClinVar P/LP rescue, on by default, is applied by the explorer too.
-      expect(request.get('clinvar_overrides_frequency')).toBe('true');
+      // The ClinVar P/LP override, on by default, is applied by the explorer too.
+      expect(request.get('clinvar_pathogenic_override')).toBe('true');
     });
 
     it('shows a capped total as N+, not as an exact count', async () => {

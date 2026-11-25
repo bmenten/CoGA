@@ -391,7 +391,7 @@ _DEFAULT_VIEW = {
     "max_gnomad_popmax_af": 0.01,
     "max_gnomad_hom_count": 10,
     "max_gnomad_hemi_count": 10,
-    "clinvar_overrides_frequency": True,
+    "clinvar_pathogenic_override": True,
     "exclude_clinvar": ["Benign", "Likely_benign"],
     "sample_filters": [f"{_PROBAND}:0/1|1/1:20:10:0.2:4"],
 }
@@ -487,6 +487,27 @@ CASES: dict[str, _Case] = {
     ),
     "MANE only and HIGH": _case({MATERNAL_INSERTION}, mane_only=True, impact=["HIGH"]),
     "LoF only": _case({HIGH_OFF_MANE, MATERNAL_INSERTION}, lof_only=True),
+    # The ClinVar P/LP override keeps a pathogenic or likely pathogenic variant of another
+    # impact or consequence, or with lower scores; the transcript flags still hold on its
+    # transcript.
+    "impact with the ClinVar override": _case(
+        {HIGH_OFF_MANE, MATERNAL_INSERTION, LONG_DELETION, HOMOZYGOUS, COMMON_PATHOGENIC},
+        impact=["HIGH"], clinvar_pathogenic_override=True,
+    ),
+    "consequence with the ClinVar override": _case(
+        {MATERNAL_INSERTION, LONG_DELETION, HIGH_OFF_MANE, HOMOZYGOUS, COMMON_PATHOGENIC},
+        effect=["frameshift_variant"], clinvar_pathogenic_override=True,
+    ),
+    "impact with the ClinVar override, canonical only": _case(
+        {LONG_DELETION, HIGH_OFF_MANE, COMMON_PATHOGENIC},
+        impact=["HIGH"], canonical_only=True, clinvar_pathogenic_override=True,
+    ),
+    "impact and CADD with the ClinVar override": _case(
+        {HIGH_OFF_MANE, HOMOZYGOUS, COMMON_PATHOGENIC}, impact=["HIGH"], min_cadd=30, clinvar_pathogenic_override=True,
+    ),
+    "REVEL with the ClinVar override": _case(
+        {DE_NOVO_MISSENSE, HIGH_OFF_MANE, HOMOZYGOUS, COMMON_PATHOGENIC}, min_revel=0.7, clinvar_pathogenic_override=True,
+    ),
     # --- ClinVar ---
     "ClinVar pathogenic": _case({HIGH_OFF_MANE, COMMON_PATHOGENIC}, clinvar=["Pathogenic"]),
     "ClinVar likely pathogenic": _case({HOMOZYGOUS, COMMON_PATHOGENIC}, clinvar=["Likely_pathogenic"]),
@@ -513,8 +534,8 @@ CASES: dict[str, _Case] = {
     "gnomAD AF at the value": _case(
         ALL - {HOMOZYGOUS, MATERNAL_MNV, PATERNAL_SYNONYMOUS, COMMON_PATHOGENIC}, max_gnomad_af=0.001
     ),
-    "gnomAD AF with the ClinVar rescue": _case(
-        ALL - {MATERNAL_MNV}, max_gnomad_af=0.01, clinvar_overrides_frequency=True
+    "gnomAD AF with the ClinVar override": _case(
+        ALL - {MATERNAL_MNV}, max_gnomad_af=0.01, clinvar_pathogenic_override=True
     ),
     "gnomAD exomes AF at the value": _case(
         ALL - {HOMOZYGOUS, MATERNAL_MNV, PATERNAL_SYNONYMOUS, COMMON_PATHOGENIC}, max_gnomad_exomes_af=0.001
@@ -1070,6 +1091,10 @@ FT_REVEL = "11-95101230-T-C"
 FT_CLINVAR = "11-95101240-C-A"
 FT_CANONICAL = "11-95101250-G-T"
 FT_PICKED = "11-95101260-A-C"
+# ClinVar pathogenic on every transcript, synonymous on the primary one: HIGH and a damaging
+# REVEL on the second transcript, and on none.
+FT_OVERRIDE_SECOND = "11-95101270-G-C"
+FT_OVERRIDE_ONLY = "11-95101280-T-A"
 
 
 def _filter_transcript_variant(gene: str, primary: dict[str, Any], *others: dict[str, Any]) -> _Variant:
@@ -1213,6 +1238,16 @@ _DIVERGENCES: dict[str, _Variant] = {
         {"impact": "HIGH", "effect": "stop_gained"},
         {"canonical": True},
     ),
+    FT_OVERRIDE_SECOND: _filter_transcript_variant(
+        "SYNT8",
+        {"impact": "LOW", "effect": "synonymous_variant", "clinvar": "Pathogenic", "revel": 0.1},
+        {"impact": "HIGH", "effect": "stop_gained", "clinvar": "Pathogenic", "revel": 0.71},
+    ),
+    FT_OVERRIDE_ONLY: _filter_transcript_variant(
+        "SYNT9",
+        {"impact": "LOW", "effect": "synonymous_variant", "clinvar": "Likely_pathogenic"},
+        {"impact": "LOW", "effect": "splice_region_variant&synonymous_variant", "clinvar": "Likely_pathogenic"},
+    ),
     # chrX outside the pseudo-autosomal regions, the unaffected father carrying it too.
     X_HAPLOID_FATHER: _Variant(
         csq=[],
@@ -1303,6 +1338,28 @@ DIVERGENCE_CASES: dict[str, _Case] = {
         impact=["HIGH", "MODERATE"],
         intervals="11:95101260",
         filter_transcripts={FT_PICKED: "ENST_SYNT7_3"},
+    ),
+    # The ClinVar P/LP override keeps both, and names the transcript whose own impact or
+    # score meets the filter: none where the override alone keeps the variant.
+    "filter transcript, the ClinVar override": _divergence(
+        {FT_OVERRIDE_SECOND, FT_OVERRIDE_ONLY},
+        impact=["HIGH"],
+        clinvar_pathogenic_override=True,
+        intervals="11:95101270-95101280",
+        filter_transcripts={FT_OVERRIDE_SECOND: "ENST_SYNT8_2", FT_OVERRIDE_ONLY: None},
+    ),
+    "filter transcript, REVEL with the ClinVar override": _divergence(
+        {FT_OVERRIDE_SECOND, FT_OVERRIDE_ONLY},
+        min_revel=0.5,
+        clinvar_pathogenic_override=True,
+        intervals="11:95101270-95101280",
+        filter_transcripts={FT_OVERRIDE_SECOND: "ENST_SYNT8_2", FT_OVERRIDE_ONLY: None},
+    ),
+    "filter transcript, impact without the ClinVar override": _divergence(
+        {FT_OVERRIDE_SECOND},
+        impact=["HIGH"],
+        intervals="11:95101270-95101280",
+        filter_transcripts={FT_OVERRIDE_SECOND: "ENST_SYNT8_2"},
     ),
     "filter transcript, none without an annotation filter": _divergence(
         {FT_REVEL}, intervals="11:95101230", filter_transcripts={FT_REVEL: None}

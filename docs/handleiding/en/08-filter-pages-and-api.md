@@ -31,7 +31,7 @@ The page `FamilySmallVariantsPage.tsx` loads the family and the gene panels; the
 | *Pathogenicity* | the ClinVar status |
 | *Annotations* | impact (HIGH, MODERATE, …), consequence terms, the SpliceAI minimum, transcript, rsID, HGVS, only canonical or MANE transcripts, only loss-of-function |
 | *In silico* | CADD, REVEL, SIFT, PolyPhen; the SpliceAI minimum also counts as a predictor |
-| *Frequency* | maximum frequency in gnomAD (exomes, genomes), popmax (gnomAD's own popmax, otherwise VEP's `MAX_AF`, the highest frequency across the populations of 1000 Genomes and gnomAD) and TOPMed; homozygote and hemizygote counts (gnomAD's total: the combined count, otherwise exomes plus genomes); "a (likely) pathogenic ClinVar variant passes the frequency filter" |
+| *Frequency* | maximum frequency in gnomAD (exomes, genomes), popmax (gnomAD's own popmax, otherwise VEP's `MAX_AF`, the highest frequency across the populations of 1000 Genomes and gnomAD) and TOPMed; homozygote and hemizygote counts (gnomAD's total: the combined count, otherwise exomes plus genomes); "a (likely) pathogenic ClinVar variant passes the frequency, the consequence and the in-silico filter" |
 | *Call quality* | genotype quality, read depth, allele fraction, alt depth, and *Pass variants only* (the caller's FILTER) |
 | *Locations* | a gene panel (by default the Mendeliome), genes, a list of intervals. A locus (chromosome, start, end) comes in only through a link, e.g. from the genome browser |
 | *Exclude* | ClinVar statuses, review tags, genes and intervals to exclude |
@@ -57,11 +57,11 @@ If the page opens without a search in the URL, it applies the built-in preset *P
 - phenotype prioritisation;
 - impact HIGH or MODERATE;
 - in gnomAD (exomes, genomes, popmax) at most 1% and at most 10 homozygotes and hemizygotes;
-- a (likely) pathogenic ClinVar variant as an exception to the frequency limit;
+- a (likely) pathogenic ClinVar variant as an exception to the impact and the frequency limits;
 - ClinVar (likely) benign excluded;
 - in the affected members Hom or Het, with a genotype quality of at least 20, a depth of at least 10, an allele fraction of at least 0.2 and at least 4 alt reads.
 
-**The annotation filters apply per transcript.** Impact and consequence, transcript, HGVS, *Canonical only*, *MANE only* and *LoF only*, the ClinVar status, the frequencies and the predictors must hold together for one transcript of the variant (one row of the table `annotations`). With *MANE only* and impact HIGH, a variant whose HIGH transcript is not the MANE transcript therefore drops out. Of the predictors, one is enough, and a SpliceAI score at or above the cut-off also counts as a hit for impact and consequence. The gene, the panel, the rsID and the ClinVar statuses to exclude apply to the variant as a whole.
+**The annotation filters apply per transcript.** Impact and consequence, transcript, HGVS, *Canonical only*, *MANE only* and *LoF only*, the ClinVar status, the frequencies and the predictors must hold together for one transcript of the variant (one row of the table `annotations`). With *MANE only* and impact HIGH, a variant whose HIGH transcript is not the MANE transcript therefore drops out. Of the predictors, one is enough, and a SpliceAI score at or above the cut-off also counts as a hit for impact and consequence. With the ClinVar exception on (`clinvar_pathogenic_override`), a transcript with a (likely) pathogenic ClinVar record passes the consequence filter (impact, consequence, SpliceAI), the in-silico filter and the frequency filter, whatever its values: in this way a pathogenic synonymous or splice-region variant stays in with impact HIGH or MODERATE or with a CADD minimum. Transcript, HGVS, *Canonical only*, *MANE only*, *LoF only* and the ClinVar status also apply to that transcript. *Filters met on* names only a transcript whose own impact, consequence and scores meet the filters. The gene, the panel, the rsID and the ClinVar statuses to exclude apply to the variant as a whole.
 
 **Each row with its own annotation.** A row of `entries` is read with the annotation it was imported with: its variant key and its annotation set (`annotationSetHash`, the hash of its annotation), under whichever version (the source, e.g. `vcf_info` or `vep_tsv`). Rows with one key and one set carry the same annotation.
 
@@ -96,7 +96,7 @@ The display:
 
 `buildSmallVariantQueryParams` converts the choices into a query string. Three details matter for traceability:
 
-- **Default values are sent explicitly.** The phenotype prioritisation and the ClinVar exception to the frequency filter are on by default. They are always sent as `true` or `false`, so that a choice that was turned off is kept in the URL.
+- **Default values are sent explicitly.** The phenotype prioritisation and the ClinVar exception to the frequency, the consequence and the in-silico filter are on by default. They are always sent as `true` or `false`, so that a choice that was turned off is kept in the URL.
 - **A filter per sample** is sent as one parameter: `sample_filter=<sample>:<genotypes>:<quality>:<depth>:<allele-fraction>:<alt-depth>`, for example `child:0/1|1/1:20:10:0.2:5`.
 - **What the list does not apply is not sent.** The small-variant page shares the saved searches (of every user, in every family) with the NIPT page. A search from the NIPT page can carry filters that only the NIPT list knows: an inheritance view (`de_novo`, `paternal_dominant`, `maternal_dominant`, `recessive_at_risk`), the categories, the minimum confidence, `include_not_inherited`, `de_novo_priority` and the recurrence filter `max_unexplained_recurrence`.
 
@@ -179,7 +179,7 @@ The explanation with the mark lists the SVs, each with its phase. A deletion is 
 
 A mitochondrial variant (chrM) does not count: mtDNA is inherited only through the mother, so a variant of both partners in one chrM gene says nothing about a child's risk.
 
-The built-in preset *Expanded carrier screening* turns the choice on, together with rare (below 1%, popmax included), impact HIGH or MODERATE, and ClinVar pathogenic or likely pathogenic as an exception to the frequency limit. In this way a frequent founder variant (CFTR p.Phe508del) stays in. The preset leaves out ClinVar benign and likely benign: such a variant never makes a gene one in which both partners carry a variant. Without an impact filter, a long-read genome contains hundreds of thousands of rare variants: the search then stops at its candidate limit long before chrX, and the X-linked rule never sees the partners' variants.
+The built-in preset *Expanded carrier screening* turns the choice on, together with rare (below 1%, popmax included), impact HIGH or MODERATE, and ClinVar pathogenic or likely pathogenic as an exception to the impact and the frequency limits. In this way a frequent founder variant (CFTR p.Phe508del) stays in, as does a pathogenic synonymous or splice-region variant. The preset leaves out ClinVar benign and likely benign: such a variant never makes a gene one in which both partners carry a variant. Without an impact filter, a long-read genome contains hundreds of thousands of rare variants: the search then stops at its candidate limit long before chrX, and the X-linked rule never sees the partners' variants.
 
 **Where in the code:** the pairs in `clickhouse_variant_queries.py` and `SmallVariantPairCards.tsx`; the phase rule via the parents in `backend/app/services/compound_het_phase.py`; the SV index in `backend/app/services/sv_gene_index_service.py`; the carrier screening in `clickhouse_variant_queries.py` and `smallVariantSearch.ts`.
 

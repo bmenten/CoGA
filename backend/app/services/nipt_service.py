@@ -1040,7 +1040,7 @@ def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
         effect=query_filters.get("effect") or [],
         clinvar=query_filters.get("clinvar") or [],
         exclude_clinvar=query_filters.get("exclude_clinvar") or [],
-        clinvar_overrides_frequency=bool(query_filters.get("clinvar_overrides_frequency", False)),
+        clinvar_pathogenic_override=bool(query_filters.get("clinvar_pathogenic_override", False)),
         sift=query_filters.get("sift"),
         polyphen=query_filters.get("polyphen"),
         max_gnomad_af=query_filters.get("max_gnomad_af"),

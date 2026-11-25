@@ -110,7 +110,7 @@ describe('smallVariantSearch preset helpers', () => {
         effect: '',
         clinvar: '',
         exclude_clinvar: '',
-        clinvar_overrides_frequency: '',
+        clinvar_pathogenic_override: '',
         exclude_review_tags: '',
         exclude_gene: '',
         exclude_intervals: '',
@@ -468,7 +468,7 @@ describe('preset frequency ceilings bound popmax', () => {
     expect(draft.impact).toBe('HIGH, MODERATE');
     expect(draft.max_gnomad_popmax_af).toBe('0.01');
     // A pathogenic founder allele above 1% in some population (CFTR p.Phe508del) stays.
-    expect(draft.clinvar_overrides_frequency).toBe('true');
+    expect(draft.clinvar_pathogenic_override).toBe('true');
     // A ClinVar benign or likely benign variant is no carrier finding.
     expect(draft.exclude_clinvar).toBe('Benign, Likely benign');
   });
@@ -593,22 +593,22 @@ describe('buildSmallVariantQueryParams location', () => {
   it('sends a region locus with the chromosome, start and end it reads as', () => {
     expect(query({ locus: 'chr1:1,000-2,000', gene: 'BRCA2' }, 'P1')).toBe(
       'page=2&page_size=100&project_id=P1&locus=chr1%3A1%2C000-2%2C000&chr=1&start=1000&end=2000' +
-        '&clinvar_overrides_frequency=true&prioritize=false',
+        '&clinvar_pathogenic_override=true&prioritize=false',
     );
   });
 
   it('sends a gene locus with the gene, and an unreadable one as written only', () => {
     expect(query({ locus: 'BRCA1' })).toBe(
-      'page=2&page_size=100&locus=BRCA1&gene=BRCA1&clinvar_overrides_frequency=true&prioritize=false',
+      'page=2&page_size=100&locus=BRCA1&gene=BRCA1&clinvar_pathogenic_override=true&prioritize=false',
     );
     expect(query({ locus: 'chr1:100-' })).toBe(
-      'page=2&page_size=100&locus=chr1%3A100-&clinvar_overrides_frequency=true&prioritize=false',
+      'page=2&page_size=100&locus=chr1%3A100-&clinvar_pathogenic_override=true&prioritize=false',
     );
   });
 
   it('without a locus, sends the gene, chromosome, start and end as set', () => {
     expect(query({ gene: 'BRCA2', chr: '13', start: '100' })).toBe(
-      'page=2&page_size=100&gene=BRCA2&chr=13&start=100&clinvar_overrides_frequency=true&prioritize=false',
+      'page=2&page_size=100&gene=BRCA2&chr=13&start=100&clinvar_pathogenic_override=true&prioritize=false',
     );
   });
 });
@@ -633,7 +633,7 @@ describe('preset filter (de)serialisation', () => {
       require_sv_second_hit: true,
       impact: ['HIGH', 'MODERATE'],
       canonical_only: 'true',
-      clinvar_overrides_frequency: 'true',
+      clinvar_pathogenic_override: 'true',
     });
   });
 
@@ -729,7 +729,7 @@ describe('a NIPT search on the small-variant list', () => {
     expect(applied.map((chip) => chip.label)).toEqual([
       'Impact: HIGH',
       'Impact: MODERATE',
-      'ClinVar P/LP overrides frequency',
+      'ClinVar P/LP overrides frequency, consequence and in silico',
       'Max gnomAD AF: 0.01',
     ]);
     expect(
@@ -760,7 +760,7 @@ describe('a NIPT search on the small-variant list', () => {
     const chips = buildActiveFilterChips(search, members, {});
     expect(chips.filter(smallVariantAppliesFilterChip).map((chip) => chip.label)).toEqual([
       'Inheritance: De novo / dominant',
-      'ClinVar P/LP overrides frequency',
+      'ClinVar P/LP overrides frequency, consequence and in silico',
       'Has notes',
     ]);
     expect(describeUnappliedFilters('NIPT list', chips.filter((chip) => !niptAppliesFilterChip(chip)))).toBe(

@@ -80,7 +80,7 @@ from .variant_prioritization import (
 )
 from .clinvar_review_status import clinvar_conditions, clinvar_stars
 from .clickhouse_variant_records import (
-    CLINVAR_FREQUENCY_RESCUE_TERMS,
+    CLINVAR_OVERRIDE_TERMS,
     Region,
     PanelFilterConstraints,
     SmallSegregationFlags,
@@ -2665,11 +2665,41 @@ def _small_panel_filter_condition(
     return f"({' OR '.join(conditions)})" if conditions else None
 
 
+def _clinvar_overridden(block: str, *, params: dict[str, Any]) -> str:
+    """``block``, or a ClinVar pathogenic or likely pathogenic record on the same transcript
+    row: the *ClinVar P/LP override*. ``clinvar_terms`` holds the normalised terms
+    (``_status_terms``) the filter terms read; ClinVar's aggregate form is stored split into
+    its terms."""
+    params["detail_clinvar_override_terms"] = list(_status_filter_terms(CLINVAR_OVERRIDE_TERMS))
+    return f"({block} OR hasAny(a.clinvar_terms, %(detail_clinvar_override_terms)s))"
+
+
 def _small_annotation_filter_condition(
     filters: SmallVariantQueryFilters,
     *,
     params: dict[str, Any],
+    strict_transcript_filters: bool = False,
 ) -> str | None:
+    """The search's per-transcript filters as one condition on a transcript row (alias ``a``),
+    or None when the search asks nothing of a transcript: a variant is kept when they all hold
+    on one of its transcripts.
+
+    With ``clinvar_pathogenic_override``, a transcript row with a ClinVar pathogenic or likely
+    pathogenic record passes three filters whatever its values: the consequence filter (the
+    impacts, the consequences and the SpliceAI minimum, any of which keeps a transcript), the
+    in-silico filter (CADD, REVEL, SIFT, PolyPhen and SpliceAI, any of which keeps it) and the
+    frequency filter (the population frequencies and the gnomAD counts, all together). A
+    synonymous or splice-region variant that ClinVar holds pathogenic so stays in a search for
+    HIGH and MODERATE impact or for damaging scores, and a recurrent pathogenic allele above
+    the frequency cut-off in a search for rare variants. The other filters still hold on that
+    row: the transcript, HGVS, the ClinVar statuses, *Canonical only*, *MANE only* and *LoF
+    only*.
+
+    ``strict_transcript_filters=True`` leaves the consequence and in-silico filters strict:
+    the transcript a variant names as the one its filters held on
+    (``_filter_transcript_matches``) is one whose own consequence and scores meet them, and a
+    variant the override alone keeps names none. The frequency filter keeps its override
+    there: a variant's frequencies are the same on each of its transcripts."""
     conditions: list[str] = []
 
     if filters.transcript:
@@ -2700,6 +2730,8 @@ def _small_annotation_filter_condition(
         if condition:
             conditions.append(condition)
 
+    # The consequence block: a transcript of one of the impacts, with one of the
+    # consequences, or with a SpliceAI score at the minimum.
     impact_effect_conditions: list[str] = []
     impact_terms = tuple(_casefold(value) for value in filters.impact if str(value).strip())
     if impact_terms:
@@ -2723,8 +2755,13 @@ def _small_annotation_filter_condition(
     if filters.min_spliceai is not None:
         params["detail_min_spliceai"] = filters.min_spliceai
         impact_effect_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
+    # The ClinVar P/LP override of the consequence and in-silico blocks.
+    override_scores = filters.clinvar_pathogenic_override and not strict_transcript_filters
     if impact_effect_conditions:
-        conditions.append(f"({' OR '.join(impact_effect_conditions)})")
+        consequence_block = f"({' OR '.join(impact_effect_conditions)})"
+        if override_scores:
+            consequence_block = _clinvar_overridden(consequence_block, params=params)
+        conditions.append(consequence_block)
 
     clinvar_terms = _status_filter_terms(filters.clinvar)
     if clinvar_terms:
@@ -2738,9 +2775,7 @@ def _small_annotation_filter_condition(
     if filters.lof_only:
         conditions.append("a.lof NOT IN ('', '.', 'na', 'n/a')")
 
-    # The population-frequency block. It is one unit because a ClinVar P/LP call can
-    # "rescue" a variant past all of it, on the same transcript row, so a recurrent
-    # pathogenic allele above the cut-off is kept when the search asks for it.
+    # The frequency block: one unit, which the ClinVar P/LP override lifts whole.
     frequency_conditions: list[str] = []
     max_float_filters = [
         ("detail_max_gnomad_af", filters.max_gnomad_af, "gnomad_af"),
@@ -2767,19 +2802,13 @@ def _small_annotation_filter_condition(
         frequency_conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
 
     if frequency_conditions:
-        frequency_block = " AND ".join(frequency_conditions)
-        if filters.clinvar_overrides_frequency:
-            # clinvar_terms holds the normalised terms (_status_terms) the filter terms read;
-            # ClinVar's aggregate form is stored split into its terms.
-            params["detail_clinvar_rescue_terms"] = list(
-                _status_filter_terms(CLINVAR_FREQUENCY_RESCUE_TERMS)
-            )
-            conditions.append(
-                f"(({frequency_block}) OR hasAny(a.clinvar_terms, %(detail_clinvar_rescue_terms)s))"
-            )
+        if filters.clinvar_pathogenic_override:
+            frequency_block = f"({' AND '.join(frequency_conditions)})"
+            conditions.append(_clinvar_overridden(frequency_block, params=params))
         else:
             conditions.extend(frequency_conditions)
 
+    # The in-silico block: a transcript with one of the predictions asked for.
     in_silico_conditions: list[str] = []
     if filters.min_cadd is not None:
         params["detail_min_cadd"] = filters.min_cadd
@@ -2798,7 +2827,10 @@ def _small_annotation_filter_condition(
     if filters.min_spliceai is not None:
         in_silico_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
     if in_silico_conditions:
-        conditions.append(f"({' OR '.join(in_silico_conditions)})")
+        in_silico_block = f"({' OR '.join(in_silico_conditions)})"
+        if override_scores:
+            in_silico_block = _clinvar_overridden(in_silico_block, params=params)
+        conditions.append(in_silico_block)
 
     return f"({' AND '.join(conditions)})" if conditions else None
 
@@ -3637,11 +3669,11 @@ def _small_annotation_filter_clauses(
     """The annotation filters on an entries row (alias ``e``), each read on the row's own
     annotation (its key and annotation set, ``_OWN_ANNOTATION``): the gene
     (``_small_gene_condition``); one transcript meeting every per-transcript filter together
-    (``_small_annotation_filter_condition``: impact, consequence, ClinVar, HGVS, frequency
-    with the ClinVar P/LP rescue, in-silico scores, Canonical, MANE and LoF only); no
-    transcript of an excluded ClinVar class; and, for the small-variant track's wide window,
-    the salient variants alone (``_small_salient_condition``). The family search
-    (``_small_query_filter_parts``) and the Variant Explorer
+    (``_small_annotation_filter_condition``: impact, consequence, ClinVar, HGVS, frequency,
+    in-silico scores, the ClinVar P/LP override of consequence, scores and frequency,
+    Canonical, MANE and LoF only); no transcript of an excluded ClinVar class; and, for the small-variant
+    track's wide window, the salient variants alone (``_small_salient_condition``). The family
+    search (``_small_query_filter_parts``) and the Variant Explorer
     (``variant_explorer_service._carriers_where``) read them here, after the row filters
     (``_small_row_filter_clauses``), whose locus the annotation subqueries repeat. The
     family search reads the transcript conditions on the row's own transcripts, but with a

@@ -161,7 +161,7 @@ _CASES = [
     ),
     pytest.param({"max_gnomad_af": 0.01}, _ALL - {_COMMON_LIKELY_PATHOGENIC}, id="frequency"),
     pytest.param(
-        {"max_gnomad_af": 0.01, "clinvar_overrides_frequency": True}, _ALL, id="frequency-clinvar-rescue"
+        {"max_gnomad_af": 0.01, "clinvar_pathogenic_override": True}, _ALL, id="frequency-clinvar-rescue"
     ),
     pytest.param(
         {"mane_only": True, "clinvar": ["Likely_pathogenic"]},
