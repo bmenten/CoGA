@@ -8,7 +8,9 @@ gene symbols the gene page knows); a copy-number change judged against each regi
 the sample's sex gives it (a man's single X is no loss; with no sex on a sex chromosome nothing
 is called normal); and the clinical status a region's rule calls (SMN1, STRC and HBA by their
 copy number, each band at its boundary), or review for an allele-dependent region with a change,
-and for RCCX a label for a chromosome that is not a normal allele, or alleles it cannot read.
+and for RCCX a label for a chromosome that is not a normal allele, or alleles it cannot read; the
+CFH gene cluster's three results (CFH, CFHR3, CFHclust), each in a region of its own, a fusion or
+a copy-number change read as review; no Paraphase key or card title in two regions.
 The same calls in Paraphase 3's layout and Paraphase 4's (``region_specific_info``) read the same,
 from the import's rows to the page, and a result in neither layout is not read.
 All values are synthetic.
@@ -387,6 +389,106 @@ def test_a_malformed_allele_rule_is_dropped() -> None:
     }
     # Without a count or a phasing field, the labels alone are read.
     assert not paraphase_pg._alleles_need_review(rule, {"annotated_alleles": ["WT", "WT", "WT"]})
+
+
+# --- the CFH gene cluster ----------------------------------------------------------------------------
+# Paraphase counts the cluster's two segments in results of their own, CFH (segment A) and CFHR3
+# (segment B), and reads them together in a third, CFHclust, which holds both segments' fusions.
+# Each result has a region of its own, named apart, so each has one card and one review. None has
+# a rule: a fusion, or a total copy number other than four, reads review.
+
+
+@pytest.mark.parametrize(
+    ("key", "region_id", "display_name"),
+    [
+        ("CFHclust", "cfh_cluster", "CFH gene cluster"),
+        ("CFH", "cfh_segment_a", "CFH cluster segment A"),
+        ("CFHR3", "cfh_segment_b", "CFH cluster segment B"),
+        # Paraphase's key is matched whatever its case.
+        ("cfhclust", "cfh_cluster", "CFH gene cluster"),
+    ],
+)
+def test_each_cfh_cluster_result_has_a_region_of_its_own(key: str, region_id: str, display_name: str) -> None:
+    paraphase_pg.load_paraphase_medical_regions.cache_clear()
+    region = paraphase_pg._paraphase_region_for_gene(key)
+
+    assert region is not None
+    assert region["region_id"] == region_id
+    assert region["display_name"] == display_name
+    assert region["expected_copy_number"] == {"total_cn": (2.0, 2.0)}
+    assert region["clinical"] is not None
+    assert region["status_rule"] is None
+
+
+def test_a_cfh_cluster_regions_genes_are_the_genes_its_result_spans() -> None:
+    paraphase_pg.load_paraphase_medical_regions.cache_clear()
+    regions = {region["region_id"]: region for region in paraphase_pg.load_paraphase_medical_regions()}
+
+    assert regions["cfh_cluster"]["genes"] == ["CFH", "CFHR3", "CFHR1", "CFHR4", "CFHR2"]
+    assert regions["cfh_segment_a"]["genes"] == ["CFH", "CFHR1"]
+    assert regions["cfh_segment_b"]["genes"] == ["CFHR3", "CFHR1", "CFHR4", "CFHR2"]
+    # The cluster comes first in the catalogue and lists CFH and CFHR3 as genes; Paraphase's CFH
+    # and CFHR3 results still reach their segments, by alias.
+    assert paraphase_pg._paraphase_region_for_gene("CFH") is regions["cfh_segment_a"]
+    assert paraphase_pg._paraphase_region_for_gene("CFHR3") is regions["cfh_segment_b"]
+
+
+def test_no_paraphase_key_or_card_title_belongs_to_two_regions() -> None:
+    """A key two regions claim would reach the first only, the other's card never; two regions
+    of one name give cards that cannot be told apart."""
+    paraphase_pg.load_paraphase_medical_regions.cache_clear()
+    regions = paraphase_pg.load_paraphase_medical_regions()
+    aliases = [alias for region in regions for alias in region["aliases"]]
+    names = [region["display_name"] for region in regions]
+
+    assert len(aliases) == len(set(aliases))
+    assert len(names) == len(set(names))
+
+
+_CFH_DELETION = {"CFH_hap1": {"type": "deletion", "sequence": "1122100000", "breakpoint": [[10, 20], [110, 120]]}}
+_CFHR3_DUPLICATION = {"CFHR3_hap2": {"type": "duplication", "sequence": "0000122211", "breakpoint": [[30, 40], [130, 140]]}}
+
+
+@pytest.mark.parametrize("layout", ["paraphase3", "paraphase4"])
+@pytest.mark.parametrize("region_id", ["cfh_cluster", "cfh_segment_a", "cfh_segment_b"])
+@pytest.mark.parametrize(
+    ("total_cn", "fusions", "status"),
+    [
+        (4, {}, "none"),
+        # A fusion reads review, at the usual four copies too.
+        (4, _CFH_DELETION, "review"),
+        (4, _CFHR3_DUPLICATION, "review"),
+        (3, _CFH_DELETION, "review"),
+        # A copy number other than four reads review without a fusion.
+        (3, {}, "review"),
+        (2, {}, "review"),
+        (5, {}, "review"),
+        (None, {}, "no_call"),
+    ],
+)
+def test_a_cfh_cluster_fusion_or_copy_number_change_reads_review(
+    region_id: str, total_cn: int | None, fusions: dict, status: str, layout: str
+) -> None:
+    region = _shipped_region(region_id)
+    # Paraphase 4 writes the fusions under region_specific_info; the page reads both layouts alike.
+    result = (
+        {"total_cn": total_cn, "fusions_called": fusions}
+        if layout == "paraphase3"
+        else {"total_cn": total_cn, "region_specific_info": {"fusions_called": fusions}}
+    )
+    payload = paraphase_pg.paraphase_result_fields(result)
+    metrics = paraphase_pg._extract_copy_number_metrics(payload, {"total_cn": total_cn})
+
+    assert (
+        paraphase_pg._clinical_status(
+            region,
+            metrics,
+            copy_number_signal=_signal(region, metrics, chromosome="autosome", sex=None),
+            fusion_count=paraphase_pg._optional_count(payload["fusions_called"]),
+            payload=payload,
+        )
+        == status
+    )
 
 
 # --- the catalogue a start reads ----------------------------------------------------------------------

@@ -772,28 +772,22 @@
       }
     },
     {
-      "region_id": "cfh_cfhr",
-      "display_name": "CFH/CFHR locus",
+      "region_id": "cfh_cluster",
+      "display_name": "CFH gene cluster",
       "genes": [
         "CFH",
-        "CFHR1",
-        "CFHR2",
         "CFHR3",
-        "CFHR4"
+        "CFHR1",
+        "CFHR4",
+        "CFHR2"
       ],
       "aliases": [
-        "cfh",
-        "cfhr1",
-        "cfhr2",
-        "cfhr3",
-        "cfhr4",
-        "cfh_cfhr"
+        "cfhclust"
       ],
-      "summary": "CFH/CFHR large deletion and duplication calls relevant to complement-mediated disease.",
+      "summary": "Deletions and duplications in the CFH gene cluster: Paraphase's CFHclust result, its two segments, A and B, read together.",
       "clinical_priority": 14,
       "key_copy_number_fields": [
         "total_cn",
-        "gene_cn",
         "highest_total_cn"
       ],
       "chromosome": "autosome",
@@ -804,6 +798,9 @@
       "key_haplotype_fields": [
         "final_haplotypes"
       ],
+      "field_descriptions": {
+        "total_cn": "The lower of the two segments' copy numbers; where a fusion is called, also no more than the haplotypes Paraphase found in either segment. Four is normal."
+      },
       "disorders": [
         {
           "name": "Atypical hemolytic uremic syndrome",
@@ -815,11 +812,108 @@
         }
       ],
       "clinical": {
-        "interpretation": "Interpret by which genes are deleted/duplicated AND whether a breakpoint creates a CFH-involving hybrid. CFHR-only changes are mostly risk modifiers; CFH::CFHR hybrids are high-risk for atypical HUS.",
-        "normal": "Two intact copies of CFH and of each CFHR gene; a heterozygous CFHR3-CFHR1 deletion is common and on its own is only a modifier.",
-        "carrier": "Homozygous CFHR3-CFHR1 deletion predisposes to anti-Factor-H-antibody aHUS but is protective against AMD; CFHR-only rearrangements are moderate-risk.",
-        "pathogenic": "CFH-involving rearrangements (CFH::CFHR1 hybrid, reverse CFHR1::CFH, CFH duplication) = high-risk for aHUS.",
-        "caveats": "These are risk/modifier findings, not deterministic; the same CFHR3-CFHR1 deletion raises aHUS risk but lowers AMD risk, and only CFH-breakpoint hybrids carry the high-risk signal."
+        "interpretation": "Holds the fusions of both segments. A fusion, or a copy number other than four, reads Review. Which genes a deletion or duplication takes depends on the segment that holds its breakpoint: read the segment A and segment B cards, and the call in IGV.",
+        "caveats": "Risk findings, not a diagnosis. A deletion of CFHR3 and CFHR1 is common in healthy people and lowers the risk of age-related macular degeneration; on both chromosomes it raises the risk of atypical HUS with antibodies against factor H. A hybrid gene of CFH and CFHR1, either way round, carries a high risk of atypical HUS."
+      },
+      "guide": [
+        {
+          "heading": "The cluster",
+          "text": "CFH and four CFHR genes lie side by side on chromosome 1, in the order CFH, CFHR3, CFHR1, CFHR4, CFHR2. Two stretches occur twice. Segment A, the end of CFH and the stretch after it, has a copy at the end of CFHR1. Segment B, from the end of CFHR3 into CFHR1, has a copy from the end of CFHR4 into CFHR2. Unequal crossing over between a segment and its copy deletes or duplicates the genes between them."
+        },
+        {
+          "heading": "Three cards",
+          "text": "Paraphase counts each segment in a result of its own, the CFH cluster segment A and segment B cards, and reads them together here. Each counts four copies in a person without a change: the segment and its copy, on both chromosomes. One deletion or duplication shows on more than one card, and each card has its own review."
+        },
+        {
+          "heading": "Fusions",
+          "text": "A fusion is a haplotype that starts in a segment and ends in its copy. Paraphase calls it a deletion or a duplication and gives its breakpoints; its name starts with CFH_ in segment A and with CFHR3_ in segment B. A deletion with its breakpoint in segment A removes CFHR3 and CFHR1; with the breakpoint inside CFH, it also joins most of CFH to the end of CFHR1, a CFH/CFHR1 hybrid gene. A deletion with its breakpoint in segment B removes CFHR1 and CFHR4. CoGA does not show a fusion's type or breakpoints: read them in Paraphase's JSON (fusions_called), and the haplotypes in IGV."
+        },
+        {
+          "heading": "What CoGA shows here",
+          "text": "On each of the three cards, a fusion or a copy number other than four reads Review; otherwise the call has no status. Review means read the call: CoGA calls neither a carrier nor an affected person here. Small variants in CFH and the CFHR genes are not in these results."
+        }
+      ]
+    },
+    {
+      "region_id": "cfh_segment_a",
+      "display_name": "CFH cluster segment A",
+      "genes": [
+        "CFH",
+        "CFHR1"
+      ],
+      "aliases": [
+        "cfh"
+      ],
+      "summary": "Segment A of the CFH gene cluster: the end of CFH and the stretch after it, with its copy at the end of CFHR1. Paraphase's CFH result.",
+      "clinical_priority": 15,
+      "key_copy_number_fields": [
+        "total_cn",
+        "highest_total_cn"
+      ],
+      "chromosome": "autosome",
+      "expected_copy_number": {
+        "total_cn": 2
+      },
+      "key_read_fields": [],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
+      "field_descriptions": {
+        "total_cn": "Copies of segment A, at the end of CFH, and of its copy at the end of CFHR1, together. Four, two per chromosome, is normal. A deletion of CFHR3 and CFHR1, or of CFHR1 and CFHR4, on one chromosome leaves three."
+      },
+      "disorders": [
+        {
+          "name": "Atypical hemolytic uremic syndrome",
+          "omim_url": "https://www.omim.org/search?index=entry&search=CFH%20CFHR%20atypical%20hemolytic%20uremic%20syndrome"
+        },
+        {
+          "name": "Age-related macular degeneration",
+          "omim_url": "https://www.omim.org/search?index=entry&search=CFH%20age-related%20macular%20degeneration"
+        }
+      ],
+      "clinical": {
+        "interpretation": "A fusion here has its breakpoint in segment A: a deletion removes CFHR3 and CFHR1, and with the breakpoint inside CFH it makes a CFH/CFHR1 hybrid gene. A fusion, or a copy number other than four, reads Review. Read it with the CFH gene cluster card.",
+        "caveats": "One event shows on more than one card: a deletion of CFHR3 and CFHR1 also lowers segment B's copy number, and the CFH gene cluster card holds this segment's fusions too."
+      }
+    },
+    {
+      "region_id": "cfh_segment_b",
+      "display_name": "CFH cluster segment B",
+      "genes": [
+        "CFHR3",
+        "CFHR1",
+        "CFHR4",
+        "CFHR2"
+      ],
+      "aliases": [
+        "cfhr3"
+      ],
+      "summary": "Segment B of the CFH gene cluster: the end of CFHR3, the stretch after it and most of CFHR1, with its copy from the end of CFHR4 into CFHR2. Paraphase's CFHR3 result.",
+      "clinical_priority": 16,
+      "key_copy_number_fields": [
+        "total_cn",
+        "highest_total_cn"
+      ],
+      "chromosome": "autosome",
+      "expected_copy_number": {
+        "total_cn": 2
+      },
+      "key_read_fields": [],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
+      "field_descriptions": {
+        "total_cn": "Copies of segment B, from CFHR3 into CFHR1, and of its copy from CFHR4 into CFHR2, together. Four, two per chromosome, is normal. A deletion of CFHR3 and CFHR1, or of CFHR1 and CFHR4, on one chromosome leaves three."
+      },
+      "disorders": [
+        {
+          "name": "Atypical hemolytic uremic syndrome",
+          "omim_url": "https://www.omim.org/search?index=entry&search=CFH%20CFHR%20atypical%20hemolytic%20uremic%20syndrome"
+        }
+      ],
+      "clinical": {
+        "interpretation": "A fusion here has its breakpoint in segment B: a deletion removes CFHR1 and CFHR4. A fusion, or a copy number other than four, reads Review. Read it with the CFH gene cluster card.",
+        "caveats": "One event shows on more than one card: a deletion of CFHR1 and CFHR4 also lowers segment A's copy number, and the CFH gene cluster card holds this segment's fusions too."
       }
     }
   ],
