@@ -11,9 +11,11 @@ A per-sample cfDNA callset stores every low-level Mutect2 call, so a read or two
 crossed over from another sample of the run would make a true de novo candidate "recurrent".
 A sample therefore counts only with a call of at least 5 alt reads and 1% of the reads, the
 quality filter's floors; a call without allele depths counts on its genotype. The father
-explains a call only with a call of his own of at least 20 reads, 5 alt reads, 20% of the
-reads and a quality of 20: a low-level or low-quality paternal call does not. The index
-family's own calls never count, and a family stored under two projects counts once.
+explains a call only with a call of his own of at least 20 reads and 5 alt reads: a
+HaplotypeCaller call (a GQ, no TLOD) by its genotype, with a QUAL of 50 and a GQ of 20,
+whatever its allele fraction; any other by 20% of the reads and a quality (TLOD) of 20. A
+low-level or low-quality paternal call does not. The index family's own calls never count,
+and a family stored under two projects counts once.
 
 The rows are synthetic, written by the importer's own writer as a monogenic NIPT import
 stores them: one row per variant and family in the ``nipt`` callset, the plasma's and the
@@ -42,32 +44,51 @@ _INDEX_FAMILY = "e2e-nipt-index"
 _SITE = "7-1000-A-G"
 _CROSSED_OVER_ONLY = "7-2000-C-T"
 # The cfDNA samples of the assay; CFDNA10 has no data on the assembly.
-_CFDNA = [f"CFDNA{index}" for index in range(1, 11)]
+_CFDNA = [f"CFDNA{index}" for index in range(1, 14)]
 
-Call = tuple[str, str, list[int], dict[str, float]]
+# (sample, gt, ad, metrics, gq): a HaplotypeCaller call has a GQ, the others none.
+Call = tuple[str, str, list[int], dict[str, float], float | None]
 
-# One row per family and variant: (family, variant, [(sample, gt, ad, metrics), ...]).
+
+def _call(sample: str, gt: str, ad: list[int], metrics: dict[str, float] | None = None) -> Call:
+    return (sample, gt, ad, metrics or {}, None)
+
+
+def _hc(sample: str, gt: str, ad: list[int], *, qual: float, gq: float) -> Call:
+    """A HaplotypeCaller call of a father's gDNA: a genotype, its GQ and the record's QUAL."""
+    return (sample, gt, ad, {"QUAL": qual}, gq)
+
+
+# One row per family and variant: (family, variant, [call, ...]).
 _ROWS: list[tuple[str, str, list[Call]]] = [
     # A low fraction (10%) the father carries (50% of 100 reads): his allele, in the fetus.
-    ("e2e-nipt-other-1", _SITE, [("CFDNA2", "0/1", [900, 100], {}), ("FATHER2", "0/1", [50, 50], {"TLOD": 80.0})]),
+    ("e2e-nipt-other-1", _SITE, [_call("CFDNA2", "0/1", [900, 100]), _call("FATHER2", "0/1", [50, 50], {"TLOD": 80.0})]),
     # Crossed-over reads: 2 alt reads. Not a carrier.
-    ("e2e-nipt-other-2", _SITE, [("CFDNA3", "0/1", [998, 2], {})]),
+    ("e2e-nipt-other-2", _SITE, [_call("CFDNA3", "0/1", [998, 2])]),
     # 10 alt reads, but 0.5% of the reads. Not a carrier.
-    ("e2e-nipt-other-3", _SITE, [("CFDNA4", "0/1", [1990, 10], {})]),
+    ("e2e-nipt-other-3", _SITE, [_call("CFDNA4", "0/1", [1990, 10])]),
     # No allele depths: a carrier on its genotype, in none of the three groups.
-    ("e2e-nipt-other-4", _SITE, [("CFDNA5", "0/1", [], {})]),
+    ("e2e-nipt-other-4", _SITE, [_call("CFDNA5", "0/1", [])]),
     # 2%, no paternal call: unexplained. Stored under two projects, it counts once.
-    ("e2e-nipt-other-5", _SITE, [("CFDNA6", "0/1", [980, 20], {})]),
+    ("e2e-nipt-other-5", _SITE, [_call("CFDNA6", "0/1", [980, 20])]),
     # 1.5%, and the father has only a low-level call (1%): unexplained.
-    ("e2e-nipt-other-6", _SITE, [("CFDNA7", "0/1", [985, 15], {}), ("FATHER7", "0/1", [990, 10], {"TLOD": 30.0})]),
+    ("e2e-nipt-other-6", _SITE, [_call("CFDNA7", "0/1", [985, 15]), _call("FATHER7", "0/1", [990, 10], {"TLOD": 30.0})]),
     # 40%: that mother carries it.
-    ("e2e-nipt-other-7", _SITE, [("CFDNA8", "0/1", [600, 400], {})]),
+    ("e2e-nipt-other-7", _SITE, [_call("CFDNA8", "0/1", [600, 400])]),
     # 3%, and the father's het call has a quality below 20: unexplained.
-    ("e2e-nipt-other-8", _SITE, [("CFDNA9", "0/1", [970, 30], {}), ("FATHER9", "0/1", [50, 50], {"TLOD": 5.0})]),
+    ("e2e-nipt-other-8", _SITE, [_call("CFDNA9", "0/1", [970, 30]), _call("FATHER9", "0/1", [50, 50], {"TLOD": 5.0})]),
+    # 12%, and the father's HaplotypeCaller genotype is het, though at 10% of his reads:
+    # his allele (his caller's genotype decides).
+    ("e2e-nipt-other-9", _SITE, [_call("CFDNA11", "0/1", [880, 120]), _hc("FATHER11", "0/1", [52, 6], qual=61.0, gq=25.0)]),
+    # 4%, and the father's HaplotypeCaller het call has a QUAL below 50: unexplained (his
+    # allele fraction and quality would have explained a Mutect2 call).
+    ("e2e-nipt-other-10", _SITE, [_call("CFDNA12", "0/1", [960, 40]), _hc("FATHER12", "0/1", [30, 28], qual=31.0, gq=99.0)]),
+    # 5%, and the father's HaplotypeCaller het call has a GQ below 20: unexplained.
+    ("e2e-nipt-other-11", _SITE, [_call("CFDNA13", "0/1", [950, 50]), _hc("FATHER13", "0/1", [30, 28], qual=812.0, gq=12.0)]),
     # The index family's own call.
-    (_INDEX_FAMILY, _SITE, [("CFDNA1", "0/1", [980, 20], {})]),
+    (_INDEX_FAMILY, _SITE, [_call("CFDNA1", "0/1", [980, 20])]),
     # Another variant, carried only by crossed-over reads.
-    ("e2e-nipt-other-1", _CROSSED_OVER_ONLY, [("CFDNA2", "0/1", [997, 3], {})]),
+    ("e2e-nipt-other-1", _CROSSED_OVER_ONLY, [_call("CFDNA2", "0/1", [997, 3])]),
 ]
 
 
@@ -90,8 +111,8 @@ def _record(variant_id: str, calls: list[Call]):
         gene_symbols=[],
         annotations=[],
         calls=[
-            SmallVariantCall(sample=sample, gt=gt, gq=None, dp=None, af=[], ad=ad, ps=None, metrics=metrics)
-            for sample, gt, ad, metrics in calls
+            SmallVariantCall(sample=sample, gt=gt, gq=gq, dp=None, af=[], ad=ad, ps=None, metrics=metrics)
+            for sample, gt, ad, metrics, gq in calls
         ],
     )
 
@@ -154,18 +175,21 @@ def counts() -> dict[str, dict[str, Any]]:
 
 @pytest.mark.parametrize("state", ["stored", "merged"])
 def test_only_real_calls_of_other_families_count(counts, state: str) -> None:
-    # CFDNA2, 5, 6, 7, 8 and 9; not the crossed-over reads (CFDNA3), the 0.5% call (CFDNA4)
-    # or the index family's own call. Each row has its own sort key, so the merge keeps them.
-    assert counts[state]["recurrence"][_SITE].carriers == 6
+    # CFDNA2, 5, 6, 7, 8, 9, 11, 12 and 13; not the crossed-over reads (CFDNA3), the 0.5%
+    # call (CFDNA4) or the index family's own call. Each row has its own sort key, so the
+    # merge keeps them.
+    assert counts[state]["recurrence"][_SITE].carriers == 9
 
 
 @pytest.mark.parametrize("state", ["stored", "merged"])
 def test_each_call_is_read_as_maternal_paternal_or_unexplained(counts, state: str) -> None:
     recurrence = counts[state]["recurrence"][_SITE]
-    # CFDNA8 at 40%; CFDNA2 beside its father's het call; CFDNA6, 7 and 9 (2%, 1.5%, 3%)
-    # with no father's call that explains them, at a median of 2%. CFDNA5 has no allele depths.
-    assert (recurrence.maternal, recurrence.paternal_low_vaf, recurrence.unexplained_low_vaf) == (1, 1, 3)
-    assert recurrence.unexplained_median_vaf == pytest.approx(0.02)
+    # CFDNA8 at 40%; CFDNA2 and CFDNA11 beside their father's het call (CFDNA11's by his
+    # HaplotypeCaller genotype, at 10% of his reads); CFDNA6, 7, 9, 12 and 13 (2%, 1.5%, 3%,
+    # 4%, 5%) with no father's call that explains them (12's and 13's fathers' genotypes fall
+    # below QUAL 50 and GQ 20), at a median of 3%. CFDNA5 has no allele depths.
+    assert (recurrence.maternal, recurrence.paternal_low_vaf, recurrence.unexplained_low_vaf) == (1, 2, 5)
+    assert recurrence.unexplained_median_vaf == pytest.approx(0.03)
 
 
 @pytest.mark.parametrize("state", ["stored", "merged"])
@@ -175,5 +199,6 @@ def test_a_variant_only_crossed_over_reads_carry_is_not_listed(counts, state: st
 
 @pytest.mark.parametrize("state", ["stored", "merged"])
 def test_the_other_samples_are_those_of_the_assay_with_a_call_on_the_assembly(counts, state: str) -> None:
-    # CFDNA2 to CFDNA9: not the index family's CFDNA1, nor CFDNA10, which has no data.
-    assert counts[state]["other_samples"] == 8
+    # CFDNA2 to CFDNA9 and 11 to 13: not the index family's CFDNA1, nor CFDNA10, which has no
+    # data.
+    assert counts[state]["other_samples"] == 11

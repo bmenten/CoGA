@@ -932,8 +932,9 @@ const VariantSummaryNipt: React.FC<{ familyId: string; projectId?: string | null
             The plasma calls through the analysis’s quality filter and artefact list, and the
             caller’s own FILTER: for a NIPT pair, Mutect2’s somatic filters, which flag many
             germline calls (clustered_events, multiallelic, weak_evidence); the analysis does not
-            use it as a gate. The father’s genotype is read from his allele fraction (het from
-            0.20, hom alt from 0.80).
+            use it as a gate. The father’s genotype is his HaplotypeCaller genotype (QUAL 50 and
+            GQ 20 or more); a call without a GQ is read from his allele fraction (het from 0.20, hom
+            alt from 0.80).
           </p>
           <CallsAndFather stats={stats} />
         </>

@@ -86,7 +86,8 @@ export const niptGeneTerms = (gene?: string): string[] =>
 export const pct = (value?: number | null): string =>
   value == null ? '—' : `${(value * 100).toFixed(1)}%`;
 
-// The father's genotype classes (nipt_analysis.FATHER_STATES), read from his allele depths.
+// The father's genotype classes (nipt_analysis.FATHER_STATES): his HaplotypeCaller genotype, or
+// his allele depths for a call without a GQ (nipt_service.derive_father_state).
 export const FATHER_STATE_LABELS: Record<string, string> = {
   hom_ref: 'reference',
   absent: 'no call (reference)',

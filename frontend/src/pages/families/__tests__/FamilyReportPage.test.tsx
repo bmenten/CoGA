@@ -2276,7 +2276,7 @@ describe('FamilyReportPage', () => {
       expect(nipt).toHaveTextContent('Per-target coverage: CFDNA1: cfdna.targets.tsv, 3 targets, loaded 2026-10-01 09:00 UTC');
       expect(nipt).toHaveTextContent(
         'Artifact list: nipt_cfdna, 2 alleles, digest abcdef01abcd; 1 left out of this analysis; ' +
-          'kept in by the family’s annotation: 1-500-G-A (clinvar)',
+          'kept in for this family: 1-500-G-A (clinvar)',
       );
       expect(nipt).toHaveTextContent('Model: R NIPT-M v0.5.1 validation (6 families with trio exomes).');
       // With a per-target table the coverage check reads its targets: it noted no coverage track.

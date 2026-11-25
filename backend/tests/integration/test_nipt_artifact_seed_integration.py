@@ -165,9 +165,15 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
                 str(uuid4()),
                 [str(uuid4())],
                 [
-                    record("1-300-A-G", panel_cfdna + wgs),
+                    record("1-300-A-G", panel_cfdna),
                     record("1-500-A-G", [cf1]),
                 ],
+            )
+            # The WGS samples carry it too, in a family of their own: a sample of the plasmas'
+            # own row outside the assay would be read as their father, and his genotyped call
+            # would explain their calls.
+            await insert_small_variant_records(
+                assembly_name, str(uuid4()), [str(uuid4())], [record("1-300-A-G", wgs)]
             )
 
             async with sm() as session:

@@ -804,7 +804,7 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
                   nipt.artifactList.digest ? `, digest ${nipt.artifactList.digest.slice(0, 12)}` : ''
                 }; ${formatCount(nipt.artifactList.removed ?? 0)} left out of this analysis${
                   nipt.artifactList.kept.length
-                    ? `; kept in by the family’s annotation: ${nipt.artifactList.kept
+                    ? `; kept in for this family: ${nipt.artifactList.kept
                         .map((entry) => `${entry.variantId} (${entry.reason})`)
                         .join(', ')}`
                     : ''

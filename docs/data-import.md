@@ -2337,8 +2337,10 @@ pregnancy's own (`nipt_p…`, [above](#several-analyses-in-one-family))
 - **The father's noise.** The father's file is mostly low-level noise: nearly all its calls sit
   below 20% alt reads. The importer keeps a paternal record when one of its calls reaches 15% alt
   reads (`NIPT_PATERNAL_KEEP_MIN_VAF`, below the 20% of a heterozygous call, so no genotype is
-  lost; the alt reads over all the record's reads, or the caller's AF without allele depths), or
-  when it lies on a position where the plasma has a call (an MNV over any of its bases). The
+  lost; the alt reads over all the record's reads, or the caller's AF without allele depths), when
+  his caller genotyped one of its calls as carrying the allele (a GQ and no TLOD, as HaplotypeCaller
+  writes: the analysis reads such a call from its GT, whatever its allele fraction), or when it lies
+  on a position where the plasma has a call (an MNV over any of its bases). The
   dataset summary counts, per sample, the records it left out (`skipped_by_filter`).
 - **Caller metrics.** Each file holds one sample, so a record's FILTER values and caller metrics
   (Mutect2's TLOD, FS, mapping quality, mismatches, repeat units and so on) are that one call's.
@@ -3200,6 +3202,9 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
   no annotation there to check, and is listed. Each family's analysis checks its listed alleles
   again with its own annotation, and keeps a common or ClinVar-pathogenic one, flagged
   `artifact_list_protected`. An allele without any annotation is not protected: review the list.
+- The table's count matters: a family's analysis also keeps a listed allele its father carries, at
+  most 30% of the plasma's reads (or no plasma call), when the list counts it in at most 3 cfDNA
+  samples ([monogenic-nipt.md](monogenic-nipt.md#the-artifact-list)).
 - The answer counts the rows read, those the table does not flag (`not_flagged`), those it could
   not read (`invalid`, such as a multi-allelic `ALT`), the alleles listed (`imported`), and those
   refused as common (`protected_common`) or for ClinVar (`protected_clinvar`).

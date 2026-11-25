@@ -355,7 +355,7 @@ def test_service_nipt_database_error_is_rolled_back_to_its_savepoint(monkeypatch
     _patch_nipt_family(monkeypatch)
 
     async def _reads_the_artifact_list(session, *, family_id, user, project_id=None, **kwargs):
-        await nipt_artifact_pg.load_nipt_artifact_ids(session, assembly_id="asm", assay_key="default")
+        await nipt_artifact_pg.load_nipt_artifacts(session, assembly_id="asm", assay_key="default")
         raise AssertionError("the artifact list was read")
 
     _run_nipt_analysis_as(monkeypatch, _reads_the_artifact_list)

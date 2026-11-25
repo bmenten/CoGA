@@ -374,7 +374,7 @@ def test_the_record_holds_the_nipt_results_the_page_showed(signed) -> None:
     )
     # No per-target coverage table in the demo.
     assert nipt["target_coverage"] is None and nipt["inputs"]["target_tables"] == []
-    assert nipt["model"]["reference"].startswith("R NIPT-M v0.5.1")
+    assert nipt["model"]["reference"].startswith("R NIPT-M v0.7.3")
     # The variant summary's NIPT-M statistics are descriptive: the record does not hold them.
     assert not {"groups", "chromosomes", "caller_filters", "father_genotypes"} & set(nipt)
 
@@ -384,11 +384,18 @@ def test_the_record_holds_the_artifact_list_the_analysis_applied(signed) -> None
 
     ok_json(signed, "artifact_added")
     # The list of the run's own assay panel, as the admin API read it back in the same run.
-    listed = sorted(entry["variant_id"] for entry in ok_json(signed, "artifacts"))
-    assert listed == [ARTIFACT]
+    entries = sorted(
+        (entry["variant_id"], entry["recurrence_count"]) for entry in ok_json(signed, "artifacts")
+    )
+    assert [variant_id for variant_id, _count in entries] == [ARTIFACT]
     frozen = _nipt(signed)["inputs"]["artifact_list"]
     assert frozen["assay_key"] == signed["ids"]["panel"]
-    assert (frozen["entries"], frozen["digest"]) == (len(listed), canonical_hash(listed))
+    # The digest covers each allele with its recurrence on the list (a count decides whether
+    # an allele the father carries stays in).
+    assert (frozen["entries"], frozen["digest"]) == (
+        len(entries),
+        canonical_hash([[variant_id, count] for variant_id, count in entries]),
+    )
     # The plasma carries the listed allele: the analysis left it out, as its funnel counts it,
     # and the family's annotation protects none of it.
     assert frozen["removed"] == ok_json(signed, "summary")["filter_counts"]["failed_artifact"] == 1

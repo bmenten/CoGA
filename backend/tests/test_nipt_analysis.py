@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from backend.app.services.nipt_analysis import (
+    is_genotyped_call,
     FetalFractionEstimate,
     NiptQualityThresholds,
     NiptSiteObservation,
@@ -557,14 +558,27 @@ from backend.app.services.nipt_analysis import (  # noqa: E402
 
 
 def test_the_model_constants_are_the_validated_ones() -> None:
-    assert "v0.5.1" in NIPT_MODEL_REFERENCE
-    assert OVERDISPERSION == pytest.approx(0.003721)
-    assert MATERNAL_HET_BIAS == pytest.approx(-0.01123)
+    # The R NIPT-M v0.7.3 validation: the 22 families' leave-one-family-out fits and the
+    # fixed quality filter (TLOD >= 15, VAF >= 1%, 5 alt reads, FS <= 20, 0.25 x FF/2).
+    assert "v0.7.3" in NIPT_MODEL_REFERENCE and "22 families" in NIPT_MODEL_REFERENCE
+    assert OVERDISPERSION == pytest.approx(0.003684)
+    assert MATERNAL_HET_BIAS == pytest.approx(-0.010627)
     qc = NiptQualityThresholds()
-    assert (qc.min_qual, qc.min_cf_alt_reads, qc.min_vaf, qc.vaf_ff_fraction, qc.max_fs) == (20.0, 5, 0.01, 0.25, 20.0)
+    assert (qc.min_qual, qc.min_cf_alt_reads, qc.min_vaf, qc.vaf_ff_fraction, qc.max_fs) == (15.0, 5, 0.01, 0.25, 20.0)
     assert (qc.father_het_min_vaf, qc.father_hom_alt_min_vaf, qc.min_father_dp, qc.min_father_alt_reads) == (
         0.20, 0.80, 20, 5,
     )
+    # The father's HaplotypeCaller genotype: QUAL >= 50 and GQ >= 20.
+    assert (qc.min_father_genotyped_qual, qc.min_father_gq) == (50.0, 20.0)
+
+
+def test_a_call_with_a_gq_and_no_tlod_is_a_genotyped_call() -> None:
+    assert is_genotyped_call(99.0, {"QUAL": 812.6})  # HaplotypeCaller
+    assert is_genotyped_call(0.0, {})  # a GQ of 0 is still a genotype quality
+    assert not is_genotyped_call(None, {"TLOD": 40.2})  # Mutect2 tumour-only
+    assert not is_genotyped_call(99.0, {"TLOD": 40.2})
+    assert not is_genotyped_call(None, {"QUAL": 60.0, "SBF": 0.5})  # VarDict
+    assert not is_genotyped_call(None, None)
 
 
 def _call_site(variant_id: str, **kwargs) -> NiptSiteObservation:

@@ -40,6 +40,7 @@ from backend.app.services.nipt import NiptTrio
 from backend.app.services.nipt_analysis import NIPT_MODEL_REFERENCE, NiptQualityThresholds
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
 from backend.app.services.sample_integrity_qc import evaluate_nipt_category_qc
+from backend.tests._nipt_service_fakes import listed_artifact_recurrence
 from backend.tests._query_results import MappingRows as _Result
 
 FATHER = "FATHER1"
@@ -209,7 +210,7 @@ def _wire(
     *,
     sites: list[SmallVariantRecord] | None = None,
     targets: list[TargetCoverageRow] | None = None,
-    artifacts: set[str] | None = None,
+    artifacts: set[str] | dict[str, int] | None = None,
     recurrence: dict[str, CfdnaRecurrence] | None = None,
     roi: FamilyRegionOfInterestOut | None = None,
     coverage: dict[str, str] | None = None,
@@ -259,7 +260,7 @@ def _wire(
 
     async def listed_artifacts(_session, *, assembly_id, assay_key):
         assert assay_key == "panel-v2"  # the plasma's assay panel scopes the list
-        return set(artifacts or ())
+        return listed_artifact_recurrence(artifacts)
 
     async def no_hydration(_session, *, context, variants):
         return None
@@ -281,7 +282,7 @@ def _wire(
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_tracks)
-    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", listed_artifacts)
+    monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
     monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", carriers)
     monkeypatch.setattr(nipt_service, "count_cfdna_recurrence", count_recurrence)
@@ -549,7 +550,7 @@ async def test_the_recessive_risk_of_the_reported_variants_genes(monkeypatch: py
 @pytest.mark.asyncio
 async def test_the_inputs_the_analysis_ran_with(monkeypatch: pytest.MonkeyPatch) -> None:
     protected = _record("7-700-A-G", [_call(PLASMA, [1360, 140])], genes=["GENEE"], annotations=[{"clinvar": "Pathogenic"}])
-    _wire(monkeypatch, sites=[*_gene_sites(), protected], artifacts={"7-300-A-G", "7-700-A-G", "8-1-C-T"})
+    _wire(monkeypatch, sites=[*_gene_sites(), protected], artifacts={"7-300-A-G": 4, "7-700-A-G": 9, "8-1-C-T": 0})
     session = _Session()
     inputs = (await _section([], session))["inputs"]
     assert inputs["target_tables"] == [
@@ -566,8 +567,9 @@ async def test_the_inputs_the_analysis_ran_with(monkeypatch: pytest.MonkeyPatch)
     assert "ANY(CAST(:samples AS text[]))" in sql and "src.source = :source" in sql
     artifacts = inputs["artifact_list"]
     assert artifacts["entries"] == 3
-    # The list states no version: its alleles' digest names it.
-    assert artifacts["digest"] == canonical_hash(sorted({"7-300-A-G", "7-700-A-G", "8-1-C-T"}))
+    # The list states no version: the digest of its alleles and their recurrence names it
+    # (a count decides whether an allele the father carries stays in).
+    assert artifacts["digest"] == canonical_hash([["7-300-A-G", 4], ["7-700-A-G", 9], ["8-1-C-T", 0]])
     assert artifacts["removed"] == 1
     assert artifacts["kept"] == [{"variant_id": "7-700-A-G", "reason": "clinvar"}]
 
@@ -1016,7 +1018,7 @@ async def test_a_sign_out_reads_one_nipt_analysis_for_its_sample_qc_and_its_reco
 
     async def curated_meanwhile(_session, *, assembly_id, assay_key):
         list_reads.append(assay_key)
-        return {"1-1000-A-G"} if len(list_reads) == 1 else set()
+        return {"1-1000-A-G": 10} if len(list_reads) == 1 else {}
 
     analyses: list[str] = []
     analyse = nipt_service._analyse_family_sites
@@ -1025,7 +1027,7 @@ async def test_a_sign_out_reads_one_nipt_analysis_for_its_sample_qc_and_its_reco
         analyses.append(trio.father_sample_id)
         return analyse(data, trio, qc, artifact_lookup)
 
-    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", curated_meanwhile)
+    monkeypatch.setattr(nipt_service, "load_nipt_artifacts", curated_meanwhile)
     monkeypatch.setattr(nipt_service, "_analyse_family_sites", counted)
 
     snapshot = await rss.build_report_snapshot(_SignOutSession(), family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
@@ -1128,7 +1130,7 @@ async def test_a_database_error_in_the_sample_qc_nipt_step_leaves_the_sign_out_r
     _wire(monkeypatch)
     _wire_sign_out(monkeypatch)
     # The list read as the analysis reads it: by its own query.
-    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", nipt_artifact_pg.load_nipt_artifact_ids)
+    monkeypatch.setattr(nipt_service, "load_nipt_artifacts", nipt_artifact_pg.load_nipt_artifacts)
     reads_after_the_qc: list[str] = []
 
     async def reported(session, _family_uuid, _scope=None):

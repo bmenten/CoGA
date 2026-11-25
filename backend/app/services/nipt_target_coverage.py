@@ -37,7 +37,7 @@ from .nipt_analysis import _quantile
 TARGET_COVERAGE_TRACK_TYPE = "target_coverage"
 TARGET_COVERAGE_SOURCE = "coverage_table"
 
-# The R NIPT-M pipeline's target QC (v0.5.1): a target is weak when its mean depth is below
+# The R NIPT-M pipeline's target QC (v0.7.3): a target is weak when its mean depth is below
 # the critical threshold or any of its bases has no coverage; below the advisory threshold
 # it is reported, not flagged.
 CRITICAL_MEAN_DEPTH = 300.0

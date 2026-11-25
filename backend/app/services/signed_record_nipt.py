@@ -532,9 +532,13 @@ def nipt_section(
             "artifact_list": {
                 "assay_key": assay_key,
                 "entries": len(analysis.listed_artifacts),
-                # Its alleles' digest: the list states no version, and it changes as the
-                # lab curates it (every change is on the system:nipt-artifacts audit chain).
-                "digest": canonical_hash(sorted(analysis.listed_artifacts)),
+                # The digest of its alleles and their recurrence counts (a count decides
+                # whether an allele the father carries stays in): the list states no
+                # version, and it changes as the lab curates it (every change is on the
+                # system:nipt-artifacts audit chain).
+                "digest": canonical_hash(
+                    [[variant_id, count] for variant_id, count in sorted(analysis.listed_artifacts.items())]
+                ),
                 "removed": len(analysis.removed_artifacts),
                 "kept": [
                     {"variant_id": variant_id, "reason": reason}

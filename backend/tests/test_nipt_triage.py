@@ -1,4 +1,4 @@
-"""The monogenic NIPT de novo triage (the R NIPT-M v0.5.1 rules) and the recessive fetal
+"""The monogenic NIPT de novo triage (the R NIPT-M v0.7.3 rules) and the recessive fetal
 risk. Synthetic sites only."""
 
 from __future__ import annotations

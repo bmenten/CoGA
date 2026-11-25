@@ -1,6 +1,6 @@
 """Monogenic NIPT: the de novo triage and the recessive fetal risk (pure, no I/O).
 
-**De novo triage** (the R NIPT-M v0.5.1 pipeline's, paternal_only_recall.R). A de novo
+**De novo triage** (the R NIPT-M v0.7.3 pipeline's, paternal_only_recall.R). A de novo
 candidate is a cfDNA call that passes the quality filter, where the father has no
 supported call (no call, or a low-level or thin one), in the family's fetal window: the
 5th to 95th percentile of the allele fractions of the paternal alleles the fetus inherited
@@ -46,7 +46,7 @@ from .nipt_analysis import (
     has_own_plasma_call,
 )
 
-# R NIPT-M v0.5.1 de novo triage settings (config de_novo_triage and the hard-coded weights).
+# R NIPT-M v0.7.3 de novo triage settings (config de_novo_triage and the hard-coded weights).
 _WINDOW_MIN_VAF = 0.005
 _WINDOW_MAX_VAF = 0.35
 _LOOSE_LOW_FACTOR = 0.75
