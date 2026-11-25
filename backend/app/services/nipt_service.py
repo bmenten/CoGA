@@ -98,6 +98,7 @@ from .nipt_analysis import (
     NiptQualityThresholds,
     NiptSiteObservation,
     trusted_father_state,
+    FATHER_X_HET_FLAG,
     PATERNAL_X_IN_SON_FLAG,
     classify_site,
     combined_fetal_sex,
@@ -1266,19 +1267,21 @@ def _maternal_view(
 def _recessive_view(
     classified: list[NiptClassifiedVariant], qc: NiptQualityThresholds
 ) -> tuple[list[NiptClassifiedVariant], list[RecessiveGeneRisk]]:
-    """The genes where both parents carry an allele, each with the fetal risk, and every
-    carrier variant in them, highest-risk gene first.
+    """The genes where both parents carry an allele, and the X-linked genes in which a son's
+    mother carries one, each with the fetal status and its probabilities (nipt_triage), and
+    every carrier variant in them, most likely affected gene first.
 
-    A variant marks the mother a carrier when her inferred genotype is het (categories
-    2-4), and the father a carrier when his genotype is het (nipt_triage: a homozygous
-    parent is not a carrier). Run the gene, consequence and frequency filters first so the
-    carriers are plausibly causal.
+    A variant marks the mother a carrier when her inferred genotype is het or hom (categories
+    2-6), and the father when his genotype is het or hom-alt (a homozygous or hemizygous
+    parent always passes the allele). Run the gene, consequence and frequency filters first
+    so the carriers are plausibly causal.
     """
     candidates: list[RecessiveCandidate] = []
     by_variant: dict[str, NiptClassifiedVariant] = {}
     for item in classified:
-        father = _trusted_father(item, qc)
-        if item.classification.maternal_state != "het" and father != "het":
+        # A het call of a man's X is an artefact, read as no call (classify_site).
+        father = "missing" if FATHER_X_HET_FLAG in item.classification.flags else _trusted_father(item, qc)
+        if item.classification.maternal_state not in ("het", "hom") and father not in ("het", "hom_alt"):
             continue
         candidates.append(
             RecessiveCandidate(

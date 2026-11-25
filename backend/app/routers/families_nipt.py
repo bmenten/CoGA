@@ -234,6 +234,10 @@ def _recessive_gene_out(gene: RecessiveGeneRisk) -> NiptRecessiveGeneOut:
         maternal_variant_id=gene.maternal_variant_id,
         paternal_variant_id=gene.paternal_variant_id,
         risk_uses_prior=gene.risk_uses_prior,
+        status=gene.status,  # type: ignore[arg-type]
+        carrier_probability=gene.carrier_probability,
+        unaffected_probability=gene.unaffected_probability,
+        mode=gene.mode,  # type: ignore[arg-type]
     )
 
 

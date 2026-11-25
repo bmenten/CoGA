@@ -2221,7 +2221,11 @@ describe('FamilyReportPage', () => {
       recessive_genes: [
         {
           gene: 'GENE_RECESS',
+          status: 'affected',
+          mode: 'autosomal',
           risk: 0.86,
+          carrier_probability: 0.13,
+          unaffected_probability: 0.01,
           risk_uses_prior: false,
           maternal_variant_id: '1-3001-A-G',
           paternal_variant_id: '1-10000-A-G',
@@ -2272,7 +2276,7 @@ describe('FamilyReportPage', () => {
         '1-1001-A-G (GENE_DENOVO): Category 1 (de novo in fetus), confidence 0.98: maternal hom_ref, fetal de_novo; VAF 6.0% (expected 6.0%); plasma reads 30 of 500; father reference · 0.0% · 50×. de novo: high priority (14). Flags: father_no_call.',
       );
       expect(nipt).toHaveTextContent('9-999-A-G: not classified — it was not in the family’s NIPT data.');
-      expect(nipt).toHaveTextContent('GENE_RECESS: 86.0% (maternal 1-3001-A-G, paternal 1-10000-A-G)');
+      expect(nipt).toHaveTextContent('GENE_RECESS: Affected: affected 86.0%, carrier 13.0%, unaffected 1.0% (maternal 1-3001-A-G, paternal 1-10000-A-G)');
       expect(nipt).toHaveTextContent('Per-target coverage: CFDNA1: cfdna.targets.tsv, 3 targets, loaded 2026-10-01 09:00 UTC');
       expect(nipt).toHaveTextContent(
         'Artifact list: nipt_cfdna, 2 alleles, digest abcdef01abcd; 1 left out of this analysis; ' +

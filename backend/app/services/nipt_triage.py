@@ -22,15 +22,21 @@ window. An allele another cfDNA sample carries is excluded as recurrent. In the 
 validation most shortlisted (high and medium) candidates were not true de novo variants:
 the triage ranks; the annotation filters narrow.
 
-**Recessive fetal risk** (CoGA's own; the R pipeline has no gene-level logic). In a gene
-where the mother is a heterozygous carrier of an allele and the father of one, the fetus is
-affected when it inherited one of each (assuming both are pathogenic and the maternal
-alleles in trans of the paternal ones). A parent homozygous for an allele is not a carrier
-(for a recessive disease such a parent would be affected; mostly it is a common variant),
-so homozygous parental sites are left out. For a maternal allele m and a paternal allele p at different sites
-the inheritances are independent meioses, so P(affected via m, p) =
-P(m inherited) x P(p inherited); at a site both parents carry it is P(fetus hom-alt). The
-gene's risk is the highest of these over its alleles; a carrier couple's prior is 25%.
+**Recessive fetal status** (the R NIPT-M v0.7.3 gene pairing, with CoGA's probabilities). In a
+gene where the mother carries an allele and the father one, the fetus is affected when it
+inherited one of each (assuming both are pathogenic and the maternal alleles in trans of the
+paternal ones). A homozygous (or, on a man's X, hemizygous) parent always passes the allele, as
+the R pairing reads it. For a maternal allele m and a paternal allele p at different sites the
+inheritances are independent meioses: P(affected) = P(m) x P(p), P(carrier) = P(m)(1 - P(p)) +
+(1 - P(m)) P(p), P(unaffected) = (1 - P(m))(1 - P(p)); at a site both parents carry they are the
+fetal genotype posterior's hom-alt, het and hom-ref. The gene's pair is the one most likely to
+make the fetus affected. Its status: ``undetermined`` when an inheritance the pair rests on lies
+between 0.2 and 0.8 or was not told (the R validation's band: a coin flip must not drop a gene),
+else ``affected`` when both were inherited (0.8 or more), else ``carrier`` or ``unaffected``.
+
+**X-linked** (``mode``): on chrX outside the pseudo-autosomal regions a son has his mother's X
+only, so her allele alone makes him affected (``x_linked_son``: P(affected) = P(m), never a
+carrier); a daughter is paired as above, her father's X always passed (``x_linked_daughter``).
 """
 
 from __future__ import annotations
@@ -41,6 +47,7 @@ from typing import Sequence
 from .nipt_analysis import (
     FATHER_CALL_OVERLAPS,
     FATHER_X_HET_FLAG,
+    X_FEMALE_FLAG,
     X_MALE_FLAG,
     FetalFractionEstimate,
     NiptClassification,
@@ -283,14 +290,23 @@ class RecessiveGeneRisk:
     gene: str
     maternal: list[RecessiveAllele]
     paternal: list[RecessiveAllele]
-    # P(the fetus inherited a maternal and a paternal allele), the highest over the
-    # gene's allele pairs (recessive_gene_risks always sets it: an inheritance the cfDNA
-    # did not tell is read with the 1/2 prior, risk_uses_prior below).
+    # P(the fetus is affected): it inherited a maternal and a paternal allele (a son's X: the
+    # maternal one), the highest over the gene's allele pairs (recessive_gene_risks always sets
+    # it: an inheritance the cfDNA did not tell is read with the 1/2 prior, risk_uses_prior).
     risk: float | None
     maternal_variant_id: str | None
     paternal_variant_id: str | None
     # A pair's probability read with the 1/2 prior for an inheritance the cfDNA did not tell.
     risk_uses_prior: bool = False
+    # The fetal status of that pair: affected, carrier, unaffected or undetermined, and the
+    # probabilities of a carrier (one allele) and of neither.
+    status: str = "undetermined"
+    carrier_probability: float | None = None
+    unaffected_probability: float | None = None
+    # How the gene was read: autosomal; x_linked_daughter (chrX outside the pseudo-autosomal
+    # regions, paired as an autosome, her father's X always passed); or x_linked_son (his
+    # mother's allele alone, never a carrier).
+    mode: str = "autosomal"
 
 
 @dataclass(slots=True)
@@ -321,11 +337,23 @@ def _notes(*notes: str | None) -> str | None:
     return "; ".join(note for note in notes if note) or None
 
 
+# The R validation's undetermined band: an inheritance between these is no call either way.
+UNDETERMINED_BAND = (0.2, 0.8)
+
+
 def _maternal_allele(candidate: RecessiveCandidate) -> RecessiveAllele | None:
-    """The mother's allele when she is a heterozygous carrier (categories 2-4)."""
+    """The mother's allele when she carries it: heterozygous (categories 2-4) or homozygous
+    (5-6, always passed)."""
     classification = candidate.classification
-    if classification.maternal_state != "het":
+    if classification.maternal_state not in ("het", "hom"):
         return None
+    if classification.maternal_state == "hom":
+        return RecessiveAllele(
+            variant_id=candidate.variant_id,
+            inherited_probability=1.0,
+            category=classification.category,
+            note=_notes("mother homozygous", _frequency_note(candidate)),
+        )
     model_note = None
     if "maternal_inference_indel" in classification.flags:
         model_note = "indel: the maternal model is less accurate"
@@ -340,10 +368,24 @@ def _maternal_allele(candidate: RecessiveCandidate) -> RecessiveAllele | None:
 
 
 def _paternal_allele(candidate: RecessiveCandidate) -> RecessiveAllele | None:
-    """The father's allele when he is a heterozygous carrier."""
-    if candidate.father_state != "het":
-        return None
+    """The father's allele when he carries it: heterozygous, or homozygous (on his X,
+    hemizygous), which he always passes. A son never inherits his father's X."""
     classification = candidate.classification
+    if candidate.father_state not in ("het", "hom_alt") or X_MALE_FLAG in classification.flags:
+        return None
+    if candidate.father_state == "hom_alt":
+        probability_hom = (
+            classification.paternal_transmission_probability
+            if classification.maternal_state == "hom_ref" and classification.paternal_transmission_probability is not None
+            else 1.0
+        )
+        note = "father hemizygous (his X)" if X_FEMALE_FLAG in classification.flags else "father homozygous"
+        return RecessiveAllele(
+            variant_id=candidate.variant_id,
+            inherited_probability=probability_hom,
+            category=classification.category,
+            note=_notes(note, _frequency_note(candidate)),
+        )
     probability: float | None
     if classification.maternal_state == "het":
         # Both parents carry it: a heterozygous fetus has either parent's allele.
@@ -365,51 +407,139 @@ def _paternal_allele(candidate: RecessiveCandidate) -> RecessiveAllele | None:
     )
 
 
+def _in_band(probability: float | None) -> bool:
+    return probability is None or UNDETERMINED_BAND[0] < probability < UNDETERMINED_BAND[1]
+
+
+def _pair_status(maternal: float | None, paternal: float | None) -> str:
+    """A pair's fetal status from its two inheritances (R's rule with its band)."""
+    if _in_band(maternal) or _in_band(paternal):
+        return "undetermined"
+    assert maternal is not None and paternal is not None
+    inherited = (maternal >= UNDETERMINED_BAND[1]) + (paternal >= UNDETERMINED_BAND[1])
+    return {2: "affected", 1: "carrier", 0: "unaffected"}[inherited]
+
+
+@dataclass(slots=True)
+class _Pair:
+    affected: float
+    carrier: float
+    unaffected: float
+    status: str
+    maternal_variant_id: str
+    paternal_variant_id: str | None
+    uses_prior: bool
+
+
+def _two_site_pair(maternal: RecessiveAllele, paternal: RecessiveAllele) -> _Pair:
+    m = 0.5 if maternal.inherited_probability is None else maternal.inherited_probability
+    p = 0.5 if paternal.inherited_probability is None else paternal.inherited_probability
+    return _Pair(
+        affected=m * p,
+        carrier=m * (1 - p) + (1 - m) * p,
+        unaffected=(1 - m) * (1 - p),
+        status=_pair_status(maternal.inherited_probability, paternal.inherited_probability),
+        maternal_variant_id=maternal.variant_id,
+        paternal_variant_id=paternal.variant_id,
+        uses_prior=maternal.inherited_probability is None or paternal.inherited_probability is None,
+    )
+
+
+def _shared_site_pair(allele: RecessiveAllele, genotype: dict[str, float] | None, hom_alt: float | None) -> _Pair:
+    """A site both parents carry: the fetal genotype posterior (hom-alt affected, het a
+    carrier); without one, the hom-alt probability alone, and the Mendelian 1/4 without that."""
+    if genotype is not None:
+        affected, carrier, unaffected = genotype.get("hom_alt", 0.0), genotype.get("het", 0.0), genotype.get("hom_ref", 0.0)
+        uses_prior = False
+    elif hom_alt is not None:
+        affected, carrier, unaffected = hom_alt, 1.0 - hom_alt, 0.0
+        uses_prior = False
+    else:
+        affected, carrier, unaffected = 0.25, 0.5, 0.25
+        uses_prior = True
+    if uses_prior or UNDETERMINED_BAND[0] < affected < UNDETERMINED_BAND[1]:
+        status = "undetermined"
+    elif affected >= UNDETERMINED_BAND[1]:
+        status = "affected"
+    else:
+        status = "carrier" if carrier >= unaffected else "unaffected"
+    return _Pair(affected, carrier, unaffected, status, allele.variant_id, allele.variant_id, uses_prior)
+
+
+def _son_x_pair(maternal: RecessiveAllele) -> _Pair:
+    """A son's X: his mother's allele alone makes him affected; he is never a carrier."""
+    m = maternal.inherited_probability
+    value = 0.5 if m is None else m
+    if _in_band(m):
+        status = "undetermined"
+    else:
+        status = "affected" if value >= UNDETERMINED_BAND[1] else "unaffected"
+    return _Pair(value, 0.0, 1.0 - value, status, maternal.variant_id, None, m is None)
+
+
+def _gene_risk(gene: str, maternal: list[RecessiveAllele], paternal: list[RecessiveAllele], pair: _Pair, mode: str) -> RecessiveGeneRisk:
+    return RecessiveGeneRisk(
+        gene=gene,
+        maternal=maternal,
+        paternal=paternal,
+        risk=pair.affected,
+        maternal_variant_id=pair.maternal_variant_id,
+        paternal_variant_id=pair.paternal_variant_id,
+        risk_uses_prior=pair.uses_prior,
+        status=pair.status,
+        carrier_probability=pair.carrier,
+        unaffected_probability=pair.unaffected,
+        mode=mode,
+    )
+
+
 def recessive_gene_risks(candidates: Sequence[RecessiveCandidate]) -> list[RecessiveGeneRisk]:
-    """The genes where the mother and the father each carry an allele among
-    ``candidates``, with the fetal risk, highest first."""
+    """The genes where the mother and the father each carry an allele among ``candidates``,
+    and the X-linked genes in which a son's mother carries one, each with the fetal status
+    and its probabilities, most likely affected first."""
     maternal_by_gene: dict[str, list[RecessiveAllele]] = {}
     paternal_by_gene: dict[str, list[RecessiveAllele]] = {}
-    shared_hom_alt: dict[str, dict[str, float | None]] = {}
+    son_x_by_gene: dict[str, list[RecessiveAllele]] = {}
+    daughter_x_genes: set[str] = set()
+    shared: dict[str, dict[str, tuple[dict[str, float] | None, float | None]]] = {}
     for candidate in candidates:
         maternal = _maternal_allele(candidate)
         paternal = _paternal_allele(candidate)
+        flags = candidate.classification.flags
+        son_x = X_MALE_FLAG in flags
         for gene in dict.fromkeys(gene.upper() for gene in candidate.genes if gene):
+            if X_FEMALE_FLAG in flags:
+                daughter_x_genes.add(gene)
+            if maternal is not None and son_x:
+                son_x_by_gene.setdefault(gene, []).append(maternal)
+                continue
             if maternal is not None:
                 maternal_by_gene.setdefault(gene, []).append(maternal)
             if paternal is not None:
                 paternal_by_gene.setdefault(gene, []).append(paternal)
             if maternal is not None and paternal is not None:
-                shared_hom_alt.setdefault(gene, {})[candidate.variant_id] = (
-                    candidate.classification.fetal_hom_alt_probability
+                shared.setdefault(gene, {})[candidate.variant_id] = (
+                    candidate.classification.fetal_genotype_posterior,
+                    candidate.classification.fetal_hom_alt_probability,
                 )
     risks: list[RecessiveGeneRisk] = []
     for gene in sorted(set(maternal_by_gene) & set(paternal_by_gene)):
-        best: tuple[float, str, str, bool] | None = None
+        best: _Pair | None = None
         for maternal in maternal_by_gene[gene]:
             for paternal in paternal_by_gene[gene]:
                 if maternal.variant_id == paternal.variant_id:
-                    value = shared_hom_alt.get(gene, {}).get(maternal.variant_id)
-                    uses_prior = value is None
-                    probability = 0.25 if value is None else value
+                    genotype, hom_alt = shared.get(gene, {}).get(maternal.variant_id, (None, None))
+                    pair = _shared_site_pair(maternal, genotype, hom_alt)
                 else:
-                    uses_prior = maternal.inherited_probability is None or paternal.inherited_probability is None
-                    probability = (
-                        (0.5 if maternal.inherited_probability is None else maternal.inherited_probability)
-                        * (0.5 if paternal.inherited_probability is None else paternal.inherited_probability)
-                    )
-                if best is None or probability > best[0]:
-                    best = (probability, maternal.variant_id, paternal.variant_id, uses_prior)
-        risks.append(
-            RecessiveGeneRisk(
-                gene=gene,
-                maternal=maternal_by_gene[gene],
-                paternal=paternal_by_gene[gene],
-                risk=best[0] if best is not None else None,
-                maternal_variant_id=best[1] if best is not None else None,
-                paternal_variant_id=best[2] if best is not None else None,
-                risk_uses_prior=best[3] if best is not None else False,
-            )
-        )
+                    pair = _two_site_pair(maternal, paternal)
+                if best is None or pair.affected > best.affected:
+                    best = pair
+        assert best is not None
+        mode = "x_linked_daughter" if gene in daughter_x_genes else "autosomal"
+        risks.append(_gene_risk(gene, maternal_by_gene[gene], paternal_by_gene[gene], best, mode))
+    for gene in sorted(son_x_by_gene):
+        pairs = [_son_x_pair(maternal) for maternal in son_x_by_gene[gene]]
+        best = max(pairs, key=lambda pair: pair.affected)
+        risks.append(_gene_risk(gene, son_x_by_gene[gene], [], best, "x_linked_son"))
     risks.sort(key=lambda item: (-(item.risk if item.risk is not None else -1.0), item.gene))
     return risks

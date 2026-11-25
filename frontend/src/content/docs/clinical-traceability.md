@@ -239,7 +239,7 @@ SHA-256 content hash), the version the clinical report in the EPD refers to. It 
   - each variant tagged *report*, as the NIPT analysis classifies it: its category, the reads behind
     it, its recurrence in the assay's other cfDNA samples (the counts), the chance the fetus
     inherited it and, for a de novo candidate, its priority;
-  - the recessive fetal risk of the reported variants' genes;
+  - the recessive fetal status, with its probabilities, of the reported variants' genes;
   - what the analysis ran with (the coverage tables, the artifact list and the model);
 - what each **coverage track** of the family's samples held, per sample and caller: read depth, a log2
   ratio or unknown. For a coverage BED this is what it declared when it was loaded; for another

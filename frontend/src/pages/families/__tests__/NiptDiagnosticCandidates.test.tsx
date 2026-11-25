@@ -35,7 +35,32 @@ const DATA = {
   paternal: [candidate('7-200-C-T', 'GENEA', { flags: ['clinvar_pathogenic'] })],
   maternal: [],
   recessive_genes: [
-    { gene: 'GENEA', risk: 0.24, risk_uses_prior: false, maternal: [], paternal: [], maternal_variant_id: null, paternal_variant_id: null },
+    {
+      gene: 'GENEA',
+      risk: 0.24,
+      carrier_probability: 0.52,
+      unaffected_probability: 0.24,
+      status: 'undetermined',
+      mode: 'autosomal',
+      risk_uses_prior: false,
+      maternal: [],
+      paternal: [],
+      maternal_variant_id: null,
+      paternal_variant_id: null,
+    },
+    {
+      gene: 'GENEX',
+      risk: 0.95,
+      carrier_probability: 0,
+      unaffected_probability: 0.05,
+      status: 'affected',
+      mode: 'x_linked_son',
+      risk_uses_prior: false,
+      maternal: [],
+      paternal: [],
+      maternal_variant_id: null,
+      paternal_variant_id: null,
+    },
   ],
   recessive_variants: [],
 } as unknown as NiptDiagnosticCandidatesOut;
@@ -67,7 +92,10 @@ describe('NiptDiagnosticCandidatesSection', () => {
     const maternal = screen.getByRole('heading', { name: 'Maternal, inherited by the fetus (0)' })
       .parentElement as HTMLElement;
     expect(within(maternal).getByText('None.')).toBeInTheDocument();
-    expect(screen.getByText('GENEA: fetal risk 24.0%')).toBeInTheDocument();
+    expect(
+      screen.getByText('GENEA: Undetermined (affected 24.0%, carrier 52.0%, unaffected 24.0%)'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('GENEX (X-linked): Affected (affected 95.0%, unaffected 5.0%)')).toBeInTheDocument();
   });
 
   it('says when the lists may be incomplete', () => {

@@ -292,7 +292,8 @@ def test_an_untold_inheritance_uses_the_half_prior_and_says_so() -> None:
     assert risk.risk_uses_prior
 
 
-def test_a_homozygous_parent_is_not_a_carrier() -> None:
+def test_a_homozygous_parent_always_passes_the_allele() -> None:
+    # The R pairing: a homozygous (on his X, hemizygous) parent's allele always reaches the fetus.
     maternal = _candidate("mat", "absent", _classification(3, maternal_state="het", maternal_allele_probability=0.99))
     both_hom = _candidate(
         "both_hom", "hom_alt", _classification(6, maternal_state="hom", fetal_hom_alt_probability=1.0)
@@ -300,8 +301,11 @@ def test_a_homozygous_parent_is_not_a_carrier() -> None:
     father_hom = _candidate(
         "father_hom", "hom_alt", _classification(7, maternal_state="hom_ref", paternal_transmission_probability=1.0)
     )
-    assert recessive_gene_risks([both_hom]) == []
-    assert recessive_gene_risks([maternal, father_hom]) == []
+    [shared] = recessive_gene_risks([both_hom])
+    assert (shared.risk, shared.status, shared.mode) == (1.0, "affected", "autosomal")
+    assert shared.maternal[0].note == "mother homozygous" and shared.paternal[0].note == "father homozygous"
+    [pair] = recessive_gene_risks([maternal, father_hom])
+    assert pair.risk == pytest.approx(0.99) and pair.status == "affected"
 
 
 def test_the_fathers_allele_at_a_site_the_mother_is_homozygous_for() -> None:
@@ -320,7 +324,73 @@ def test_the_fathers_allele_at_a_site_the_mother_is_homozygous_for() -> None:
     )
     [risk] = recessive_gene_risks([maternal, paternal])
     assert risk.paternal[0].inherited_probability == pytest.approx(0.02)
-    assert risk.risk == pytest.approx(0.99 * 0.02)
+    # The shared site's genotype posterior is the likeliest affected pair (0.02 hom-alt, just
+    # above 0.99 x 0.02 across the two sites): a heterozygous fetus, a carrier.
+    assert risk.risk == pytest.approx(0.02)
+    assert (risk.status, risk.carrier_probability) == ("carrier", pytest.approx(0.98))
+
+
+@pytest.mark.parametrize(
+    ("maternal_p", "paternal_p", "status"),
+    [
+        (0.97, 0.99, "affected"),
+        (0.97, 0.03, "carrier"),
+        (0.05, 0.03, "unaffected"),
+        (0.5, 0.99, "undetermined"),  # the R band: 0.2 < p < 0.8 is no call
+        (0.97, 0.21, "undetermined"),
+        (None, 0.99, "undetermined"),  # an inheritance the cfDNA did not tell
+    ],
+)
+def test_the_fetal_status_of_a_pair_and_its_probabilities(
+    maternal_p: float | None, paternal_p: float, status: str
+) -> None:
+    maternal = _candidate("mat", "absent", _classification(3, maternal_state="het", maternal_allele_probability=maternal_p))
+    paternal = _candidate("pat", "het", _classification(7, paternal_transmission_probability=paternal_p))
+    [risk] = recessive_gene_risks([maternal, paternal])
+    m = 0.5 if maternal_p is None else maternal_p
+    assert risk.status == status
+    assert risk.risk == pytest.approx(m * paternal_p)
+    assert risk.carrier_probability == pytest.approx(m * (1 - paternal_p) + (1 - m) * paternal_p)
+    assert risk.unaffected_probability == pytest.approx((1 - m) * (1 - paternal_p))
+
+
+def test_a_sons_maternal_x_allele_alone_makes_him_affected() -> None:
+    # X-linked: a son has his mother's X only, so her allele alone makes him affected; he is
+    # never a carrier, and his father's X allele is never his.
+    son = ["x_nonpar_male_fetus"]
+    inherited = _candidate(
+        "x1", "absent", _classification(4, maternal_state="het", maternal_allele_probability=0.95, flags=list(son)),
+        genes=("GENEX",),
+    )
+    father_x = _candidate(
+        "x2", "hom_alt", _classification(1, maternal_state="hom_ref", paternal_transmission_probability=0.0, flags=list(son)),
+        genes=("GENEX",),
+    )
+    [risk] = recessive_gene_risks([inherited, father_x])
+    assert (risk.gene, risk.mode, risk.status, risk.paternal) == ("GENEX", "x_linked_son", "affected", [])
+    assert (risk.risk, risk.carrier_probability, risk.unaffected_probability) == (
+        pytest.approx(0.95), 0.0, pytest.approx(0.05),
+    )
+    not_told = _candidate(
+        "x3", "absent", _classification(2, maternal_state="het", maternal_allele_probability=0.4, flags=list(son)),
+        genes=("GENEY",),
+    )
+    [risk] = recessive_gene_risks([not_told])
+    assert risk.status == "undetermined"
+    # A daughter is paired as an autosome: her father's X allele always reaches her.
+    daughter = ["x_nonpar_female_fetus"]
+    maternal = _candidate(
+        "d1", "absent", _classification(3, maternal_state="het", maternal_allele_probability=0.9, flags=list(daughter)),
+        genes=("GENEX",),
+    )
+    paternal = _candidate(
+        "d2", "hom_alt", _classification(7, maternal_state="hom_ref", paternal_transmission_probability=0.999,
+                                         flags=list(daughter)),
+        genes=("GENEX",),
+    )
+    [risk] = recessive_gene_risks([maternal, paternal])
+    assert (risk.mode, risk.status) == ("x_linked_daughter", "affected")
+    assert risk.paternal[0].note == "father hemizygous (his X)"
 
 
 def test_an_allele_without_a_population_frequency_says_so() -> None:

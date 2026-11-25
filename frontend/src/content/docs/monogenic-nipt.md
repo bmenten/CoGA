@@ -395,22 +395,33 @@ those inherited with a probability of 50% or more; the same check box adds the r
 
 ### Recessive: both parents carriers
 
-The genes where the mother and the father are each **heterozygous** for an allele among the matching
-variants. A parent homozygous for an allele is not a carrier: for a recessive disease that parent would
-be affected, and mostly the variant is common. The fetus then always inherits that parent's allele, so
-read the other parent's allele in the paternal or maternal view.
+The genes where the mother and the father each carry an allele among the matching variants, and, for
+a son, the X-linked genes in which his mother carries one. A parent may be heterozygous or homozygous:
+a homozygous parent (or a father with the allele on his one X) always passes it on. A son inherits his
+X from his mother alone: her allele makes him affected, and his father's X never reaches him. A
+daughter's X-linked gene is paired as an autosome: her father's X always reaches her.
 
-The table **Recessive fetal risk by gene** gives, per gene, every maternal and paternal allele with the
-probability that the fetus inherited it, and the **fetal risk**: the probability that it inherited a
-maternal and a paternal allele.
+The table **Recessive fetal status by gene** gives, per gene, every maternal and paternal allele with the
+probability that the fetus inherited it. For the pair most likely to make the fetus affected it gives
+the **fetal status** and three probabilities: **affected** (the fetus inherited a maternal and a
+paternal allele), **carrier** (one of the two) and **unaffected** (neither).
 
-- For a maternal allele and a paternal allele at different sites: the product of the two probabilities.
-- For a site both parents carry: the probability that the fetus is homozygous for it.
-- The gene's risk is the highest pair, which the table highlights. A carrier couple's prior is 25%.
-- An inheritance the cfDNA could not tell is read at its 50% prior, and the table says so.
+- For a maternal allele and a paternal allele at different sites, the two inheritances are independent:
+  affected is their product, carrier the chance of exactly one.
+- For a site both parents carry, the probabilities are the fetal genotype's: homozygous, heterozygous
+  and reference.
+- For a son's X-linked gene, affected is the probability that he inherited his mother's allele. He is
+  never a carrier.
+- The table highlights the pair. A carrier couple's prior is 25%.
 
-The risk assumes both alleles are pathogenic and, for two sites, that the maternal and paternal alleles
-are in trans. An allele without any population frequency is noted: the frequency filters let it
+The status follows the R validation's rule. An inheritance of 80% or more counts as inherited, one of
+20% or less as not inherited. The fetus is affected when both alleles were inherited, a carrier when
+one was, and unaffected when neither was. An inheritance between 20% and 80% leaves the status
+**undetermined**: a coin flip must not drop a gene. So does one the cfDNA could not tell; its
+probability is then read at its 50% prior, and the table says so.
+
+The status assumes both alleles are pathogenic and, for two sites, that the maternal and paternal
+alleles are in trans. An allele without any population frequency is noted: the frequency filters let it
 through. An MNV never has one (gnomAD lists its SNVs) and is often a common haplotype. The variant list
 below the table holds every carrier variant of the listed genes.
 
@@ -555,7 +566,7 @@ sign-out use these.
 | De novo in the fetus | A de novo candidate in the fetal window, at most 25%, that no other cfDNA sample of the assay carries (unless ClinVar calls it pathogenic), rare and protein-altering |
 | Paternal, inherited | The father's allele the fetus inherited (probability 50% or more), rare and protein-altering |
 | Maternal, inherited | The mother's allele the fetus inherited (probability 50% or more), rare and protein-altering |
-| Recessive | A gene in which both parents carry an allele that is rare at 1% and protein-altering, with the fetal risk |
+| Recessive | A gene in which both parents carry an allele that is rare at 1% and protein-altering (for a son, an X-linked gene in which his mother carries one), with the fetal status and its probabilities |
 
 - **Rare:** the highest population frequency CoGA holds for the allele (gnomAD, its exomes and
   genomes, popmax, TopMed) is 0.1% or less (1% for the recessive pairing). An allele without a
@@ -630,7 +641,7 @@ signed version shows them:
 - each variant tagged *report*, as this analysis classifies it (its category, reads, inheritance
   probabilities, how its allele recurred in the assay's other cfDNA samples and, for a de novo
   candidate in the fetal window, its priority);
-- the recessive fetal risk of the reported variants' genes;
+- the recessive fetal status, with its probabilities, of the reported variants' genes;
 - what the analysis ran with (the coverage tables, the artifact list and the model).
 
 Sign-out stops at the family's checks. Besides the Sample QC, a failed NIPT quality check stops it until
@@ -643,7 +654,7 @@ variants tagged *report*, with every other filter cleared (the inheritance view,
 minimum confidence too), each as this analysis classifies it. N counts the variants tagged *report*.
 
 - A variant counts as tagged when its own review or its compound-het pair review holds the tag. This
-  holds here, in the live report and in what the sign-out freezes, and so in the recessive fetal risk
+  holds here, in the live report and in what the sign-out freezes, and so in the recessive fetal status
   the record computes from them.
 - A tagged variant the analysis does not classify is in no list: not in the family's NIPT data, on the
   assay's artifact list, or without a call in the plasma. The page names it above the list with that

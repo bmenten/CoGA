@@ -86,6 +86,36 @@ export const niptGeneTerms = (gene?: string): string[] =>
 export const pct = (value?: number | null): string =>
   value == null ? '—' : `${(value * 100).toFixed(1)}%`;
 
+// The fetal status of a recessive gene (nipt_triage): affected, carrier, unaffected or
+// undetermined (an inheritance between 20% and 80%, or one the cfDNA did not tell).
+export const RECESSIVE_STATUS_LABELS: Record<string, string> = {
+  affected: 'Affected',
+  carrier: 'Carrier',
+  unaffected: 'Unaffected',
+  undetermined: 'Undetermined',
+};
+
+export const recessiveStatusTone = (status?: string | null): string => {
+  if (status === 'affected') return 'table-chip table-chip--critical';
+  if (status === 'undetermined') return 'table-chip table-chip--warning';
+  if (status === 'unaffected' || status === 'carrier') return 'table-chip table-chip--success';
+  return 'table-chip table-chip--neutral';
+};
+
+/**
+ * "affected 92.0%, carrier 7.0%, unaffected 1.0%": a recessive gene's fetal probabilities. A
+ * son's X-linked gene has no carrier state: his mother's allele alone makes him affected.
+ */
+export const recessiveProbabilitiesText = (
+  affected: number | null | undefined,
+  carrier: number | null | undefined,
+  unaffected: number | null | undefined,
+  xLinked: boolean,
+): string =>
+  [`affected ${pct(affected)}`, xLinked ? null : `carrier ${pct(carrier)}`, `unaffected ${pct(unaffected)}`]
+    .filter(Boolean)
+    .join(', ');
+
 // The father's genotype classes (nipt_analysis.FATHER_STATES): his HaplotypeCaller genotype, or
 // his allele depths for a call without a GQ (nipt_service.derive_father_state).
 export const FATHER_STATE_LABELS: Record<string, string> = {

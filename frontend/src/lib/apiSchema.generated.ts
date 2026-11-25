@@ -2957,8 +2957,9 @@ export interface NiptRecessiveAlleleOut {
 }
 
 /**
- * A gene where both parents carry an allele: whether the fetus inherited each, and
- * the probability it inherited one of each (a carrier couple's prior is 25%).
+ * A gene where both parents carry an allele (or, X-linked, a son's mother carries one):
+ * whether the fetus inherited each, the probability it is affected (``risk``; a carrier
+ * couple's prior is 25%), a carrier or neither, and its fetal status.
  */
 export interface NiptRecessiveGeneOut {
   gene: string;
@@ -2968,6 +2969,10 @@ export interface NiptRecessiveGeneOut {
   maternal_variant_id: string | null;
   paternal_variant_id: string | null;
   risk_uses_prior: boolean;
+  status: "affected" | "carrier" | "unaffected" | "undetermined";
+  carrier_probability: number | null;
+  unaffected_probability: number | null;
+  mode: "autosomal" | "x_linked_daughter" | "x_linked_son";
 }
 
 /**

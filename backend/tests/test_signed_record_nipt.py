@@ -564,6 +564,12 @@ async def test_the_recessive_risk_of_the_reported_variants_genes(monkeypatch: py
     [gene] = section["recessive_genes"]
     assert gene["gene"] == "GENEA"
     assert gene["risk"] == page["GENEA"].risk and gene["risk"] > 0.9
+    # The fetal status and its probabilities, as the page gives them.
+    assert (gene["status"], gene["mode"]) == (page["GENEA"].status, page["GENEA"].mode) == ("affected", "autosomal")
+    assert (gene["carrier_probability"], gene["unaffected_probability"]) == (
+        page["GENEA"].carrier_probability, page["GENEA"].unaffected_probability,
+    )
+    assert gene["risk"] + gene["carrier_probability"] + gene["unaffected_probability"] == pytest.approx(1.0)
     assert (gene["maternal_variant_id"], gene["paternal_variant_id"]) == ("7-100-A-G", "7-200-C-T")
     assert [allele["variant_id"] for allele in gene["maternal"]] == ["7-100-A-G"]
     assert [allele["variant_id"] for allele in gene["paternal"]] == ["7-200-C-T"]

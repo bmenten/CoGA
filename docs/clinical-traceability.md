@@ -634,8 +634,10 @@ backend's code (`nipt_service`, `nipt_quality_checks`), never the browser:
   novo view leaves out as recurrent;
 - each reported variant it does not classify, with why (`not_classified`: not in the data, on the
   artifact list, no plasma call);
-- the recessive fetal risk of the genes the reported variants make both parents carriers in, as the
-  recessive view computes it over them (`recessive_genes`);
+- the recessive fetal status of the genes the reported variants make both parents carriers in (and,
+  for a son, of the X-linked genes his mother carries), with its probabilities (`status`, `risk`,
+  `carrier_probability`, `unaffected_probability`, `mode`), as the recessive view computes them over
+  them (`recessive_genes`);
 - the analysis's diagnostic gene panel (`diagnostic_panel`, REQ-NIPT-019): the panel's id, name,
   version, source release and gene count, and a digest of its gene list (`genes_digest`); null when
   the analysis had none, which stops the sign-out until a reason is recorded
@@ -742,7 +744,7 @@ signed out from does not change what is frozen.
 - A NIPT variant whose review, or compound-het pair review, is tagged `report` is frozen in
   `reported_variants` and `variant_descriptions` like any reported small variant, with its
   classification, and in `nipt` with its category, reads and probabilities. The recessive fetal
-  risk in `nipt` is computed over them, so it equals the NIPT page's recessive view over *Show
+  status in `nipt` is computed over them, so it equals the NIPT page's recessive view over *Show
   reported*.
 - The Sample QC's NIPT checks and the NIPT section read one run of the NIPT analysis
   (`nipt_service.SharedNiptAnalysis`): the same artifact list (which the lab curates apart from the
@@ -1218,7 +1220,7 @@ nothing else (`frontend/src/pages/families/signedReportRecord.ts` reads it). It 
   on each coverage track it did not read as depth, word for word, with what the check ran for
   (*Coverage tracks not read as depth: … The coverage check ran without a gene or panel, over the
   family’s region of interest …*); the funnel and the categories; each reported variant as the NIPT
-  analysis classified it; the recessive fetal risk; and what the analysis ran with. No other
+  analysis classified it; the recessive fetal status; and what the analysis ran with. No other
   family's record shows or mentions PGT or NIPT results;
 - in a conventional NIPT family, its results (*Conventional NIPT results*): per maternal plasma the
   verdict of chromosomes 21, 18 and 13, the sex chromosomes and the segmental CNVs, then every other
@@ -1494,7 +1496,7 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 **NIPT**
 
 - A NIPT family's record freezes the NIPT classification of the variants tagged `report`, not every
-  candidate the NIPT report or a view of the NIPT page lists, and their recessive fetal risk over
+  candidate the NIPT report or a view of the NIPT page lists, and their recessive fetal status over
   the reported variants alone.
 - It freezes the coverage of every capture target and each gene with a weak target, not the
   coverage of a search's gene panel or genes as the NIPT page's coverage card reads it. Without a
