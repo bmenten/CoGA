@@ -191,9 +191,15 @@ const frozenCalls = (kind: 'repeat' | 'paraphase', evidence: Json): SignedFindin
     : objects(evidence.samples).map((sample) => {
         const metric = objects(sample.copy_number)[0];
         const value = metric ? number(metric.value) : null;
+        // A region read by its alleles (RCCX) froze them too: they are the call as much as the copy number.
+        const reading = parseAlleleReading(sample.allele_reading);
+        const parts = [
+          metric ? `${text(metric.label) ?? 'copy number'} ${value ?? 'no call'}` : null,
+          reading ? describeAlleleReading(reading) : null,
+        ].filter((part): part is string => Boolean(part));
         return {
           sample: text(sample.sample) ?? 'a sample',
-          call: metric ? `${text(metric.label) ?? 'copy number'} ${value ?? 'no call'}` : null,
+          call: parts.length ? parts.join(' · ') : null,
           status: text(sample.status),
         };
       });
@@ -661,11 +667,21 @@ export interface SignedRepeatExpansions {
   loci: SignedRepeatLocus[];
 }
 
+/** What a region's allele rule read of a call (RCCX). */
+export interface SignedParaphaseAlleleReading {
+  /** Paraphase's label for each chromosome; null where it gave none. */
+  alleles: string[] | null;
+  /** Whether Paraphase joined the copies into chromosomes; null where it did not say. */
+  phasingSuccess: boolean | null;
+}
+
 export interface SignedParaphaseResult {
   sample: string;
   status: string | null;
   copyNumberSignal: boolean;
   copyNumber: { label: string; value: number | null }[];
+  /** Null where the region has no allele rule. */
+  alleleReading: SignedParaphaseAlleleReading | null;
 }
 
 export interface SignedParaphaseGene {
@@ -673,6 +689,8 @@ export interface SignedParaphaseGene {
   region: string | null;
   /** How the catalogue reads the status ("status by smn1_cn: pathogenic = 0, …"), when it has a rule. */
   statusRule: string | null;
+  /** How the catalogue reads the alleles ("review unless phasing_success and 2 labels …"), when it has a rule. */
+  alleleRule: string | null;
   results: SignedParaphaseResult[];
 }
 
@@ -1827,12 +1845,47 @@ const describeStatusRule = (rule: unknown): string | null => {
   return `status by ${String(rule.field)}: ${parts.join(', ')}`;
 };
 
+/**
+ * A Paraphase allele rule as words: "review unless phasing_success and 2 labels in
+ * annotated_alleles, each one of WT, …, duplication_WT_plus_…".
+ */
+const describeAlleleRule = (rule: unknown): string | null => {
+  if (!isObject(rule) || !text(rule.field)) return null;
+  const normal = [...strings(rule.normal), ...strings(rule.normal_prefixes).map((prefix) => `${prefix}…`)].join(', ');
+  const count = number(rule.alleles);
+  const phasing = text(rule.phasing_field);
+  const labels =
+    count === null
+      ? `every label in ${String(rule.field)} one of ${normal}`
+      : `${count} labels in ${String(rule.field)}, each one of ${normal}`;
+  return `review unless ${phasing ? `${phasing} and ` : ''}${labels}`;
+};
+
+const parseAlleleReading = (value: unknown): SignedParaphaseAlleleReading | null =>
+  isObject(value)
+    ? {
+        alleles: Array.isArray(value.alleles) ? strings(value.alleles) : null,
+        phasingSuccess: typeof value.phasing_success === 'boolean' ? value.phasing_success : null,
+      }
+    : null;
+
+/**
+ * What an allele rule read of a call, in words: "alleles WT / Q319X", and ", phasing failed"
+ * or ", phasing not given" where Paraphase did not join the copies or did not say. A label can
+ * hold commas of its own (deletion_P31L,G111Vfs), so the labels are joined by a slash.
+ */
+export const describeAlleleReading = (reading: SignedParaphaseAlleleReading): string =>
+  `alleles ${reading.alleles?.length ? reading.alleles.join(' / ') : 'not given'}${
+    reading.phasingSuccess === false ? ', phasing failed' : reading.phasingSuccess === null ? ', phasing not given' : ''
+  }`;
+
 const parseParaphase = (value: Json): SignedParaphase => ({
   catalogue: parseCatalogue(value.catalogue, 'regions'),
   genes: objects(value.genes).map((gene) => ({
     gene: text(gene.gene),
     region: text(gene.region),
     statusRule: describeStatusRule(gene.status_rule),
+    alleleRule: describeAlleleRule(gene.allele_rule),
     results: objects(gene.samples).map((result) => ({
       sample: text(result.sample) ?? 'a sample',
       status: text(result.status),
@@ -1841,6 +1894,7 @@ const parseParaphase = (value: Json): SignedParaphase => ({
         label: text(metric.label) ?? text(metric.key) ?? 'copy number',
         value: number(metric.value),
       })),
+      alleleReading: parseAlleleReading(result.allele_reading),
     })),
   })),
 });

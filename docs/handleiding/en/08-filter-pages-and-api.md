@@ -283,7 +283,10 @@ Which checks run depends on the application (family with parents, PGT, NIPT, con
 
 Some important genes lie in regions with near-identical copies, such as *SMN1/SMN2* or *PMS2*; ordinary variant calling fails there. **Paraphase** (an external tool) determines for those regions the copy number, the reads per distinguishing position and the haplotypes. CoGA stores the result in `sample_paraphase_results` and interprets it with a catalogue of medical regions (`data/ref-data/paraphase-medical-regions.json`). That catalogue records per locus which fields count clinically and which disorders belong to it.
 
+The catalogue also records how to read a region: what each field means (`field_descriptions`, with default texts at the top of the file that a region can replace) and, where the interpretation needs more, a reading guide (`guide`), for the RCCX module Paraphase's allele labels and the CYP21A2 variants. The card shows it under *How to read*. A region's genes (`genes`) are HGNC symbols, because the card links each to its gene page; Paraphase's own key (`RCCX`) is among the aliases.
+
 - **Interpretation.** Where possible, the catalogue gives a rule that derives *normal*, *carrier* or *pathogenic* from the copy number; without a rule, a deviating signal becomes *review*. Deviating means: outside the normal copy number that the catalogue records per locus and per chromosome copy (NEB 6, a gene with a pseudogene 4, ...).
+- **Alleles.** A region can also have an allele rule (`allele_rule`); the RCCX module has one. It reads the label Paraphase gives per chromosome (`annotated_alleles`): a label that is not a normal allele, another number of labels than two, or failed phasing makes the call *review*, whatever the copy number. A *pathogenic* or *carrier* from the copy number stands. The signed record freezes the rule and, per call, what it read.
 - **chrX.** A male counts one copy and a female two, with the sex that Paraphase determines itself (otherwise the one from the pedigree); without a sex, a chrX value is not called normal.
 - **No change.** A field without a fixed norm (*highest_total_cn*) and a no-call do not count as a change.
 

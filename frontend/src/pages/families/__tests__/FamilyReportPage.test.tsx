@@ -1858,6 +1858,11 @@ describe('FamilyReportPage', () => {
         'SMN1 (SMN1/SMN2) — status by smn1_cn: pathogenic = 0, carrier = 1, normal ≥ 2. PROBAND: Carrier (SMN1 CN 1), copy-number change',
       );
       expect(section('Paraphase')).toHaveTextContent('GBA (GBA/GBAP1) — no automatic call. No sample has a result.');
+      // A region read by its alleles names its rule and what it read of each call.
+      expect(section('Paraphase')).toHaveTextContent(
+        'RCCX (RCCX module) — review unless phasing_success and 2 labels in annotated_alleles, each one of WT, ' +
+          'pseudogene_deletion, duplication_WT_plus_…. PROBAND: Review (Total CN 4), alleles WT / deletion_P31L,G111Vfs',
+      );
       const reference = section('Reference-data releases');
       expect(reference).toHaveTextContent(
         'Gene reference, for the reported variants’ genes: ClinGen dosage 2026-09-30 and 2026-08-30 · HGNC 2026-09-01',

@@ -57,6 +57,7 @@ import {
   describeCompoundHetPair,
   describeCoverageContent,
   describeCoverageFiles,
+  describeAlleleReading,
   describeCoverageTracks,
   describeCountCorrections,
   describeCountUnitMargin,
@@ -1192,7 +1193,10 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
                 <li key={`${gene.gene ?? 'gene'}-${index}`}>
                   <strong>{gene.gene ?? 'A gene'}</strong>
                   {gene.region ? ` (${gene.region})` : ''}
-                  {gene.statusRule ? ` — ${gene.statusRule}` : ' — no automatic call'}.{' '}
+                  {gene.statusRule || gene.alleleRule
+                    ? ` — ${[gene.statusRule, gene.alleleRule].filter(Boolean).join('; ')}`
+                    : ' — no automatic call'}
+                  .{' '}
                   {gene.results
                     .map(
                       (result) =>
@@ -1202,7 +1206,9 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
                                 .map((metric) => `${metric.label} ${metric.value ?? 'no call'}`)
                                 .join(', ')})`
                             : ''
-                        }${result.copyNumberSignal ? ', copy-number change' : ''}`,
+                        }${result.copyNumberSignal ? ', copy-number change' : ''}${
+                          result.alleleReading ? `, ${describeAlleleReading(result.alleleReading)}` : ''
+                        }`,
                     )
                     .join('; ') || 'No sample has a result.'}
                 </li>

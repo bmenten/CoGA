@@ -447,6 +447,20 @@ class ParaphaseClinicalOut(BaseModel):
     caveats: Optional[str] = None
 
 
+class ParaphaseGuideTermOut(BaseModel):
+    term: str
+    text: str
+
+
+class ParaphaseGuideSectionOut(BaseModel):
+    """A section of a region's reading guide: a heading, its text and a list of terms
+    (labels Paraphase writes, variant names) each with what it means."""
+
+    heading: str
+    text: Optional[str] = None
+    terms: List[ParaphaseGuideTermOut] = Field(default_factory=list)
+
+
 class ParaphaseRegionInfoOut(BaseModel):
     region_id: str
     display_name: str
@@ -461,6 +475,9 @@ class ParaphaseRegionInfoOut(BaseModel):
     field_descriptions: Dict[str, str] = Field(default_factory=dict)
     notes: List[str] = Field(default_factory=list)
     disorders: List[ParaphaseDisorderOut] = Field(default_factory=list)
+    # How to read the region beyond its clinical block (the RCCX module's allele labels):
+    # explanation, the same for every family.
+    guide: List[ParaphaseGuideSectionOut] = Field(default_factory=list)
 
 
 class ParaphaseExtraFieldOut(BaseModel):

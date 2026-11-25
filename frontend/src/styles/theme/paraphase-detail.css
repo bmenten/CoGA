@@ -90,6 +90,11 @@
   overflow-wrap: anywhere;
 }
 
+/* A list value (one RCCX allele per chromosome): one item per line. */
+.paraphase-extra-list span {
+  display: block;
+}
+
 .paraphase-haplotype-groups {
   display: grid;
   gap: 0.25rem;

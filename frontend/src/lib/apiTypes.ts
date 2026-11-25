@@ -673,6 +673,18 @@ export interface ApiParaphaseClinical {
   caveats?: string | null;
 }
 
+export interface ApiParaphaseGuideTerm {
+  term: string;
+  text: string;
+}
+
+// A section of a region's reading guide: its heading, a text, the terms it explains.
+export interface ApiParaphaseGuideSection {
+  heading: string;
+  text?: string | null;
+  terms: ApiParaphaseGuideTerm[];
+}
+
 export interface ApiParaphaseRegionInfo {
   region_id: string;
   display_name: string;
@@ -687,6 +699,7 @@ export interface ApiParaphaseRegionInfo {
   field_descriptions: Record<string, string>;
   notes: string[];
   disorders: ApiParaphaseDisorder[];
+  guide: ApiParaphaseGuideSection[];
 }
 
 export interface ApiParaphaseExtraField {
