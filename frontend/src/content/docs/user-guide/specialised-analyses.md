@@ -142,6 +142,10 @@ member: the copy number, and a status read from a catalogue of medical regions.
   label that is not a normal allele, a number of labels other than two, or failed phasing reads as
   *Review*, whatever the copy number. CoGA never calls a carrier or an affected person there. Paraphase's
   own *TNXB* result, TNXB counted apart from its pseudogene TNXA, has a card of its own.
+- The *CFH gene cluster* has three cards: one for each of the two segments Paraphase counts there,
+  *CFH cluster segment A* and *CFH cluster segment B*, and one for the cluster as a whole, which holds
+  both segments' fusions. One deletion or duplication shows on more than one of them, each with its
+  own review.
 
 **Copy-number changes and abnormal calls only**, ticked when the page opens, shows the regions with such
 a change or with a member's call that reads *Pathogenic*, *Carrier* or *Review*: a fusion, or an RCCX
@@ -152,7 +156,8 @@ links each gene in its name, and the *RCCX module* links *CYP21A2*, *TNXB*, *C4A
 **Genes**. **How to read** opens, under the card, what the region is and how its calls read: what
 *Normal*, *Carrier* and *Pathogenic* mean there, the caveat, and what each copy number and extra field
 holds. For the RCCX module it adds how the module is built, Paraphase's allele labels, the CYP21A2
-variant names with the form of CAH each usually gives, what failed phasing means, TNXB and C4. The guide
+variant names with the form of CAH each usually gives, what failed phasing means, TNXB and C4; for the
+CFH gene cluster, how its two segments lie and which genes a fusion in each removes. The guide
 explains; it calls nothing. **Extra info** shows each member's technical readout, a list one item per
 line, such as one RCCX allele per chromosome.
 
