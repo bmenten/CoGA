@@ -1049,7 +1049,8 @@ with a fixed sentence. A folder that changed while it was checked is left to the
 end in step 6), which for a genome's package over a share takes minutes to an hour. So a round
 does not wait for the checks of the new deliveries it finds: it hands them over and goes on, and
 they run beside the rounds, `FAMILY_IMPORT_WATCH_CHECKS` at a time, the smallest folder (the bytes
-its files hold) first. One large package then holds neither the smaller ones behind it nor what
+its files hold) first. A round hands over every new delivery of a watched folder before any of
+them starts, so the smallest of them goes first, not the one it lists first. One large package then holds neither the smaller ones behind it nor what
 the rounds do every interval: an import job's end recorded, a failed import offered again, a
 folder followed after its import. A folder is checked once at a time: a round that finds it again
 as it is being checked leaves it to that check, and one that finds it changed has it checked again

@@ -945,6 +945,84 @@ async def test_a_round_hands_its_new_deliveries_to_the_watchers_checks_and_does_
     assert (done.deliveries, done.checks_waiting, done.checks_running) == ({"ready": 1}, 0, 0)
 
 
+@pytest.mark.asyncio
+async def test_a_round_hands_over_every_new_delivery_before_any_check_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The VM's first round: a large package that sorts first by name took a check at once, before
+    # the round had listed the small ones behind it. The smallest of all a round finds goes first.
+    from backend.app.services import import_delivery_review
+
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+    monkeypatch.setattr(settings, "family_import_watch_checks", 1)
+    sizes = {"A_LARGE": 300, "B_MEDIUM": 200, "C_SMALL": 10}
+    for name in sizes:
+        _package(tmp_path, name)
+    started: list[str] = []
+
+    async def no_jobs(_factory: Any) -> int:
+        return 0
+
+    async def mark_missing(*_args: Any, **_kwargs: Any) -> int:
+        return 0
+
+    async def look(_factory: Any, root: Path, folder: Path, _seen: Any = None, *, checks: Any = None) -> None:
+        checks.submit(_new(root, folder.name, sizes[folder.name]))
+        # The round awaits between folders: a check could start meanwhile.
+        await _settle()
+
+    async def fingerprint(folder: Path) -> str:
+        return _new(tmp_path, folder.name, sizes[folder.name]).fingerprint
+
+    async def check(_factory: Any, new: watcher.NewDelivery) -> str:
+        started.append(new.folder.name)
+        return "ready"
+
+    monkeypatch.setattr(import_delivery_review, "sync_delivery_jobs", no_jobs)
+    monkeypatch.setattr(import_delivery_review, "offer_failed_deliveries_again", _nothing_failed)
+    monkeypatch.setattr(watcher, "look_at_folder", look)
+    monkeypatch.setattr(watcher, "mark_missing", mark_missing)
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "check_new_delivery", check)
+    monkeypatch.setattr(package_changed_after_import, "follow_imported_deliveries", _follow_nothing)
+
+    done = await watcher.run_watch_round(None, [tmp_path])  # type: ignore[arg-type]
+
+    assert started == ["C_SMALL", "B_MEDIUM", "A_LARGE"]
+    assert done.deliveries == {"ready": 3}
+
+
+@pytest.mark.asyncio
+async def test_no_check_starts_while_new_deliveries_are_gathered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    news = {name: _new(tmp_path, name, size) for name, size in (("FIRST", 300), ("NEXT", 100), ("LAST", 10))}
+    release = asyncio.Event()
+    started: list[str] = []
+
+    async def fingerprint(folder: Path) -> str:
+        return news[folder.name].fingerprint
+
+    async def check(_factory: Any, new: watcher.NewDelivery) -> str:
+        started.append(new.folder.name)
+        await release.wait()
+        return "ready"
+
+    monkeypatch.setattr(watcher, "_fingerprint", fingerprint)
+    monkeypatch.setattr(watcher, "check_new_delivery", check)
+    checks = watcher.DeliveryChecks(None, limit=1)  # type: ignore[arg-type]
+    checks.submit(news["FIRST"])
+    await _settle()
+    with checks.gathering():
+        checks.submit(news["NEXT"])
+        # A check that ends while a round gathers starts no other: the round has not found them all.
+        release.set()
+        await _settle()
+        assert (started, checks.running, checks.waiting) == (["FIRST"], 0, 1)
+        checks.submit(news["LAST"])
+    await checks.drain()
+
+    assert started == ["FIRST", "LAST", "NEXT"]
+
+
 # --- checking an open delivery again ----------------------------------------------------------
 
 

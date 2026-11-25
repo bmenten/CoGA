@@ -73,7 +73,8 @@ import json
 import logging
 import math
 import os
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1192,7 +1193,10 @@ class DeliveryChecks:
     under is left to that check; one found changed waits for it, as the folder is now (its check
     finds the change and stores nothing). A check that waited takes the folder's fingerprint again
     first, and leaves a folder changed or gone since it was found to the next round. Each check's
-    end is counted by state (``taken``): the round logs the new deliveries, never a folder."""
+    end is counted by state (``taken``): the round logs the new deliveries, never a folder.
+
+    A round hands over all it finds before any of them starts (``gathering``): so the smallest of
+    them goes first, not a large one the round happened to list first."""
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession], limit: int | None = None) -> None:
         self._session_factory = session_factory
@@ -1200,6 +1204,8 @@ class DeliveryChecks:
         self._waiting: dict[str, NewDelivery] = {}
         self._running: dict[str, tuple[str, asyncio.Task[None]]] = {}
         self._checked: dict[str, int] = {}
+        # Rounds handing their new deliveries over: no check starts meanwhile.
+        self._gathering = 0
 
     @property
     def waiting(self) -> int:
@@ -1221,7 +1227,20 @@ class DeliveryChecks:
         self._waiting[key] = new
         self._start()
 
+    @contextmanager
+    def gathering(self) -> Iterator[None]:
+        """Hold the start of checks while a round hands its new deliveries over (a check that ends
+        meanwhile starts no other), and start them, the smallest first, once it has."""
+        self._gathering += 1
+        try:
+            yield
+        finally:
+            self._gathering -= 1
+            self._start()
+
     def _start(self) -> None:
+        if self._gathering:
+            return
         while len(self._running) < self._limit:
             free = [new for key, new in self._waiting.items() if key not in self._running]
             if not free:
@@ -1848,9 +1867,12 @@ async def _watch_round(
             continue
         folders = listing.folders
         result.roots_watched += 1
-        for folder in folders:
-            looked = await look_at_folder(session_factory, root, folder, seen_fingerprints, checks=checks)
-            if looked is not None:
+        # Every new delivery of the watched folder is handed over before any is checked.
+        with checks.gathering():
+            for folder in folders:
+                looked = await look_at_folder(session_factory, root, folder, seen_fingerprints, checks=checks)
+                if looked is None:
+                    continue
                 kind, state = looked
                 if kind == "superseded":
                     result.superseded_for_run += int(state)
