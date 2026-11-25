@@ -19,12 +19,51 @@ from ..schemas import (
     ParaphaseMetricOut,
     ParaphaseSampleResultOut,
 )
+from .family_identifiers import visible
 from .family_metadata_context import FamilyMetadataContext
 from .stored_values import json_object as _json_object
 
 REPO_PARAPHASE_MEDICAL_REGIONS_PATH = (
     Path(__file__).resolve().parents[3] / "data" / "ref-data" / "paraphase-medical-regions.json"
 )
+
+
+# --- a result's fields, in either of Paraphase's layouts ---------------------------------------
+# Paraphase 3 writes the fields of a region's own analysis (``gene_cn``, ``fusions_called``,
+# SMN1's copy numbers, read counts and haplotypes, RCCX's alleles and phasing, …) at a result's
+# top level, beside ``total_cn``. Paraphase 4 writes them under the result's
+# ``region_specific_info``, which it always writes (``{}`` for a region without any). The
+# laboratory's pipeline runs either, so CoGA reads both.
+
+REGION_SPECIFIC_INFO = "region_specific_info"
+
+
+class ParaphaseLayoutError(ValueError):
+    """A Paraphase result in neither layout: a ``region_specific_info`` that is not an object, or
+    a field written both there and at the result's top level, where CoGA cannot tell which value
+    Paraphase meant. The message names the field, never a value."""
+
+
+def paraphase_result_fields(result: dict[str, Any]) -> dict[str, Any]:
+    """One Paraphase result's fields as CoGA reads them: a Paraphase 3 result as it is, a
+    Paraphase 4 result with the fields of its ``region_specific_info`` beside its top-level ones.
+
+    The import's copy-number columns, the page's statuses, copy numbers, reads, haplotypes and
+    extra fields, and the signed record all read a result through this, so a fusion, a gene copy
+    number or an RCCX allele reads the same in either layout."""
+    if REGION_SPECIFIC_INFO not in result:
+        return dict(result)
+    nested = result[REGION_SPECIFIC_INFO]
+    if not isinstance(nested, dict):
+        raise ParaphaseLayoutError(f"{REGION_SPECIFIC_INFO} is not an object")
+    fields = {key: value for key, value in result.items() if key != REGION_SPECIFIC_INFO}
+    for key, value in nested.items():
+        if key in fields:
+            raise ParaphaseLayoutError(
+                f"{visible(str(key))} is both at the top level and under {REGION_SPECIFIC_INFO}"
+            )
+        fields[key] = value
+    return fields
 
 
 def _count_items(value: Any) -> int:
@@ -670,7 +709,9 @@ async def get_family_paraphase_table_response(
                 "samples": {},
             },
         )
-        payload = _json_object(row.get("payload"))
+        # Paraphase's result as stored, with a Paraphase 4 result's region-specific fields beside
+        # its top-level ones; the import refused a result in neither layout.
+        payload = paraphase_result_fields(_json_object(row.get("payload")))
         region_depth = _json_object(row.get("region_depth"))
         sample_uuid = row["sample_uuid"]
         sample_name = context.sample_uuid_to_name.get(sample_uuid, sample_uuid)

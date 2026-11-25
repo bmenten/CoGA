@@ -1725,6 +1725,68 @@ async def test_a_paraphase_copy_number_at_the_integer_columns_bounds_is_stored_a
     assert (smn1[_uuid("S1")]["total_cn"], smn1[_uuid("S2")]["gene_cn"]) == (2**31 - 1, -(2**31))
 
 
+@pytest.mark.asyncio
+async def test_a_paraphase_4_gene_copy_number_no_integer_column_holds_is_refused_as_paraphase_3s_is(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    # Paraphase 4 writes gene_cn under the result's region_specific_info.
+    stores.paraphase[_uuid("S1")] = 3
+    result = {"total_cn": 2, "highest_total_cn": 2, "region_specific_info": {"gene_cn": 2**31}}
+    dataset = ManifestDataset(per_sample={"S1": {"json": _file(tmp_path, "paraphase/S1.json", json.dumps({"SMN1": result}))}})
+
+    with pytest.raises(RuntimeError) as refused:
+        await _run(_job(stores, tmp_path, "paraphase", dataset))
+
+    assert str(refused.value) == _paraphase_refusal("S1", "gene_cn of SMN1")
+    assert stores.paraphase == {_uuid("S1"): 3}
+    assert stores.deletes == []
+
+
+# --- a Paraphase result in neither of Paraphase's layouts --------------------------------
+#
+# Paraphase 3 writes a region's own fields (gene_cn, fusions_called, …) at a result's top level,
+# Paraphase 4 under its region_specific_info. A result whose region_specific_info is no object,
+# or that writes a field in both places, could hide a fusion or a gene copy number: it is
+# refused before any sample's results are replaced.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gba", "reason"),
+    [
+        pytest.param(
+            {"total_cn": 4, "region_specific_info": None}, "region_specific_info is not an object", id="not-an-object"
+        ),
+        pytest.param(
+            {"total_cn": 4, "fusions_called": {}, "region_specific_info": {"fusions_called": {"gba_hap2": {"type": "deletion"}}}},
+            "fusions_called is both at the top level and under region_specific_info",
+            id="a-field-in-both",
+        ),
+    ],
+)
+async def test_a_later_samples_paraphase_result_in_neither_layout_fails_the_dataset_with_every_samples_results(
+    stores: _Stores, tmp_path: Path, gba: dict[str, Any], reason: str
+) -> None:
+    stores.paraphase = {_uuid("S1"): 3, _uuid("S2"): 4}
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"json": _file(tmp_path, "paraphase/S1.json", _paraphase_json())},
+            "S2": {"json": _file(tmp_path, "paraphase/S2.json", json.dumps({"GBA": gba}))},
+        }
+    )
+
+    with pytest.raises(RuntimeError) as refused:
+        await _run(_job(stores, tmp_path, "paraphase", dataset))
+
+    assert str(refused.value) == (
+        f"Paraphase JSON for S2 is in neither of Paraphase's layouts ({reason} in the result of GBA); "
+        "nothing was stored"
+    )
+    assert stores.paraphase == {_uuid("S1"): 3, _uuid("S2"): 4}
+    assert stores.deletes == []
+    assert stores.commits == 0
+
+
 # --- a BGZF file cut where one of its blocks ends -------------------------------------
 #
 # Cut exactly where one of its blocks ends, a BGZF file is whole gzip: its first blocks would

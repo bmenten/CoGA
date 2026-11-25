@@ -931,6 +931,20 @@ def test_paraphase_rows_store_gene_level_json_payload(tmp_path: Path) -> None:
     assert json.loads(row["payload_json"])["final_haplotypes"] == {"h1": "GBA_hap1"}
 
 
+def test_a_paraphase_4_result_stores_its_gene_copy_number_and_keeps_the_result_as_written(tmp_path: Path) -> None:
+    # Paraphase 4 writes gene_cn under region_specific_info; Paraphase 3 at the top level.
+    result = {"total_cn": 4, "highest_total_cn": 4, "sample_sex": "female", "region_specific_info": {"gene_cn": 1}}
+    rows = family_package_variants._paraphase_rows_for_sample(
+        sample_context=_sample_context("S1"),
+        path=tmp_path / "S1.paraphase.json",
+        payload={"TNXB": result},
+    )
+
+    [row] = rows
+    assert (row["total_cn"], row["gene_cn"], row["highest_total_cn"], row["sample_sex"]) == (4, 1, 4, "female")
+    assert json.loads(row["payload_json"]) == result
+
+
 
 @pytest.fixture(autouse=True)
 def _no_family_import_state(monkeypatch: pytest.MonkeyPatch) -> None:

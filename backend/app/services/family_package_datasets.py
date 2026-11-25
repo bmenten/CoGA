@@ -106,6 +106,7 @@ from .family_package_tracks import _delete_sample_interval_source, _import_apcad
 from .family_package_validation import _manifest_hpo_rows, _manifest_individuals, _pcf_role_path
 from .structural_variant_ingest import SkippedRecords
 from .family_package_variants import ParaphaseValueError, _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
+from .paraphase_pg import ParaphaseLayoutError
 from .import_progress import FilesReadInTurn
 from .ccnv_output import CCNV_CALL_GENOTYPE, CCNV_SOURCE, CcnvOutputError, ccnv_vcf_header_problems
 from .family_package_ccnv import ccnv_entry_paths, read_ccnv_qc_file
@@ -2161,6 +2162,13 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
             raise ImportRefused(
                 f"Paraphase JSON for {sample_id} holds a value that cannot be read where a number "
                 f"is expected ({error_text(exc)}); nothing was stored"
+            ) from exc
+        except ParaphaseLayoutError as exc:
+            # Refused before the sample's results are deleted: a result in neither of
+            # Paraphase's layouts could hide a fusion or a gene copy number.
+            raise ImportRefused(
+                f"Paraphase JSON for {sample_id} is in neither of Paraphase's layouts "
+                f"({error_text(exc)}); nothing was stored"
             ) from exc
         if not rows:
             # Paraphase reports every region it analysed: a JSON without one is no result.
