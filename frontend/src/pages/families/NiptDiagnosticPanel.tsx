@@ -77,7 +77,9 @@ const NiptDiagnosticPanel: React.FC<NiptDiagnosticPanelProps> = ({
       ) : current ? (
         <p>
           The analysis is read and reported within <strong>{describeDiagnosticPanel(current)}</strong>. The sign-out
-          freezes this version, its gene list and the coverage of its capture targets.{' '}
+          freezes this version, its gene list and the coverage of its capture targets. The NIPT report lists its
+          diagnostic candidates by the locked criteria of the R validation, which the sign-out freezes too; the
+          filters below are for exploring.{' '}
           {listPanelId !== current.panel_id ? (
             <button type="button" className="button-link" onClick={() => onShowPanel(current.panel_id)}>
               Show its variants below

@@ -513,6 +513,37 @@ targets of the genes they belong to.
 
 ---
 
+## Diagnostic candidates (locked criteria)
+
+The NIPT report lists, for its scope, the variants the R validation's blinded diagnostic analysis
+(NIPT-M version 0.7.3) leaves for further investigation, by criteria that are fixed in CoGA and named
+with their version. The NIPT page's own filters stay adjustable, for exploring; the report and the
+sign-out use these.
+
+| View | A candidate |
+| --- | --- |
+| De novo in the fetus | A de novo candidate in the fetal window, at most 25%, that no other cfDNA sample of the assay carries (unless ClinVar calls it pathogenic), rare and protein-altering |
+| Paternal, inherited | The father's allele the fetus inherited (probability 50% or more), rare and protein-altering |
+| Maternal, inherited | The mother's allele the fetus inherited (probability 50% or more), rare and protein-altering |
+| Recessive | A gene in which both parents carry an allele that is rare at 1% and protein-altering, with the fetal risk |
+
+- **Rare:** the highest population frequency CoGA holds for the allele (gnomAD, its exomes and
+  genomes, popmax, TopMed) is 0.1% or less (1% for the recessive pairing). An allele without a
+  population frequency is rare, unless it recurs in 3 cfDNA samples of the assay or more, this one
+  included: then it is an unannotated common allele (a paralogue, a VNTR).
+- **Protein-altering:** a HIGH or MODERATE impact, or a SpliceAI score of 0.2 or more.
+- **ClinVar:** a record calling the allele pathogenic or likely pathogenic, with no benign or
+  conflicting assertion and a population frequency of 5% or less, passes the protein-effect filter and
+  counts as rare for the recessive pairing (carrier frequencies of 1–5%). A de novo or dominant
+  candidate must still be rare itself: the wider override filled those lists with common alleles.
+- **Low confidence:** a de novo indel in a repeat (a repeat-unit count of 3 or more, or an inserted
+  or deleted sequence that is itself a tandem repeat): most such candidates were artefacts.
+
+Every candidate needs orthogonal confirmation. The sign-out freezes the criteria and the candidates
+of the analysis's diagnostic panel (see *Sign-out*).
+
+---
+
 ## The report
 
 The report uses only the gene panel and the gene of the NIPT page's search; without a panel in the
@@ -564,6 +595,7 @@ signed version shows them:
 - the coverage of the capture targets (without a per-target table, the coverage check's notes on the
   coverage tracks it did not read as depth, over the diagnostic panel's genes; see *Coverage*);
 - the diagnostic gene panel and the coverage of its targets (see *The diagnostic gene panel*);
+- the locked criteria and the diagnostic candidates of that panel (see *Diagnostic candidates*);
 - the filter funnel and the category counts;
 - each variant tagged *report*, as this analysis classifies it (its category, reads, inheritance
   probabilities, how its allele recurred in the assay's other cfDNA samples and, for a de novo

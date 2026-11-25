@@ -44,6 +44,7 @@ PANEL_SEARCHES: dict[str, str] = {
     "nipt_variants": "the NIPT variant search",
     "nipt_variants_export": "the NIPT variant export",
     "nipt_coverage": "the NIPT coverage",
+    "nipt_diagnostic_candidates": "the NIPT diagnostic candidates",
     "tracks": "the genome tracks",
 }
 

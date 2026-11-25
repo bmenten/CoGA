@@ -10,6 +10,9 @@ from ..core.csv_export import TRUNCATED_BY_CANDIDATE_LIMIT, csv_document, export
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import (
+    NiptDiagnosticCandidateOut,
+    NiptDiagnosticCandidatesOut,
+    NiptDiagnosticCriteriaOut,
     NiptDiagnosticPanelOut,
     NiptDiagnosticPanelStateOut,
     NiptDiagnosticPanelUpdate,
@@ -59,6 +62,8 @@ from ..services.nipt import multiple_pregnancy_note
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
 from ..services.nipt_quality_checks import nipt_quality_checks
 from ..services.nipt_service import (
+    NiptDiagnosticCandidate,
+    get_family_nipt_diagnostic_candidates,
     get_family_nipt_diagnostic_panel,
     set_family_nipt_diagnostic_panel,
     NIPT_VARIANT_FETCH_LIMIT,
@@ -725,6 +730,58 @@ async def put_nipt_diagnostic_panel(
         analysis=analysis,
     )
     return _diagnostic_panel_out(key, panel)
+
+
+def _diagnostic_candidate_out(candidate: NiptDiagnosticCandidate) -> NiptDiagnosticCandidateOut:
+    return NiptDiagnosticCandidateOut(
+        variant=_nipt_variant_out(candidate.item),
+        confidence=candidate.confidence,  # type: ignore[arg-type]
+        flags=list(candidate.flags),
+    )
+
+
+@router.get("/{family_id}/nipt/diagnostic-candidates", response_model=NiptDiagnosticCandidatesOut)
+async def get_nipt_diagnostic_candidates(
+    family_id: str,
+    project_id: str | None = None,
+    panel_id: str | None = None,
+    gene: str | None = None,
+    analysis: NiptAnalysisParam = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptDiagnosticCandidatesOut:
+    """The locked diagnostic candidates of the NIPT report's scope (REQ-NIPT-020): per view, the
+    variants the R validation's criteria leave for further investigation."""
+    result = await get_family_nipt_diagnostic_candidates(
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+        analysis=analysis,
+        panel_id=panel_id,
+        gene=gene,
+    )
+    candidates = result.candidates
+    trio = result.trio
+    criteria = candidates.criteria
+    return NiptDiagnosticCandidatesOut(
+        family_id=family_id,
+        trio=NiptTrioOut(
+            cfdna_sample_id=trio.cfdna_sample_id,
+            father_sample_id=trio.father_sample_id,
+            fetus_sample_ids=list(trio.fetus_sample_ids),
+        ),
+        fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
+        criteria=NiptDiagnosticCriteriaOut(**criteria.frozen()),
+        panel_id=panel_id,
+        gene=gene,
+        capped=candidates.capped,
+        de_novo=[_diagnostic_candidate_out(item) for item in candidates.de_novo],
+        paternal=[_diagnostic_candidate_out(item) for item in candidates.paternal],
+        maternal=[_diagnostic_candidate_out(item) for item in candidates.maternal],
+        recessive_genes=[_recessive_gene_out(gene_risk) for gene_risk in candidates.recessive_genes],
+        recessive_variants=[_diagnostic_candidate_out(item) for item in candidates.recessive_variants],
+    )
 
 
 @router.get("/{family_id}/nipt/coverage", response_model=NiptCoverageSummaryOut)

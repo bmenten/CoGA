@@ -2781,6 +2781,49 @@ export interface NiptDeNovoWindowOut {
 }
 
 /**
+ * A variant the locked criteria leave for further investigation in a view, with its
+ * confidence (``low``: a de novo indel in a repeat) and its flags (``repeat_context``,
+ * ``clinvar_pathogenic``).
+ */
+export interface NiptDiagnosticCandidateOut {
+  variant: NiptVariantOut;
+  confidence: "standard" | "low";
+  flags: string[];
+}
+
+/**
+ * The locked diagnostic candidates of a NIPT report's scope (its gene panel and gene), per
+ * view, against the analysis's fetal fraction. ``capped``: the scope held more variants than
+ * the analysis classifies at once, so the lists may be incomplete.
+ */
+export interface NiptDiagnosticCandidatesOut {
+  family_id: string;
+  trio: NiptTrioOut;
+  fetal_fraction: NiptFetalFractionOut;
+  criteria: NiptDiagnosticCriteriaOut;
+  panel_id: string | null;
+  gene: string | null;
+  capped: boolean;
+  de_novo: NiptDiagnosticCandidateOut[];
+  paternal: NiptDiagnosticCandidateOut[];
+  maternal: NiptDiagnosticCandidateOut[];
+  recessive_genes: NiptRecessiveGeneOut[];
+  recessive_variants: NiptDiagnosticCandidateOut[];
+}
+
+/** The locked diagnostic criteria of the R validation (REQ-NIPT-020) and their version. */
+export interface NiptDiagnosticCriteriaOut {
+  reference: string;
+  rare_max_af_dominant: number;
+  rare_max_af_recessive: number;
+  effect_impacts: string[];
+  min_spliceai: number;
+  clinvar_max_af: number;
+  cohort_common_min_samples: number;
+  repeat_min_units: number;
+}
+
+/**
  * A monogenic NIPT's diagnostic gene panel as it is now (REQ-NIPT-019): the panel, its local
  * version and the release of its source, and when the analysis took it.
  */

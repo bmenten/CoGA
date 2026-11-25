@@ -575,6 +575,48 @@ class NiptVariantOut(VariantOut):
     nipt: NiptClassificationOut
 
 
+class NiptDiagnosticCriteriaOut(BaseModel):
+    """The locked diagnostic criteria of the R validation (REQ-NIPT-020) and their version."""
+
+    reference: str
+    rare_max_af_dominant: float
+    rare_max_af_recessive: float
+    effect_impacts: List[str]
+    min_spliceai: float
+    clinvar_max_af: float
+    cohort_common_min_samples: int
+    repeat_min_units: float
+
+
+class NiptDiagnosticCandidateOut(BaseModel):
+    """A variant the locked criteria leave for further investigation in a view, with its
+    confidence (``low``: a de novo indel in a repeat) and its flags (``repeat_context``,
+    ``clinvar_pathogenic``)."""
+
+    variant: NiptVariantOut
+    confidence: Literal["standard", "low"]
+    flags: List[str] = Field(default_factory=list)
+
+
+class NiptDiagnosticCandidatesOut(BaseModel):
+    """The locked diagnostic candidates of a NIPT report's scope (its gene panel and gene), per
+    view, against the analysis's fetal fraction. ``capped``: the scope held more variants than
+    the analysis classifies at once, so the lists may be incomplete."""
+
+    family_id: str
+    trio: NiptTrioOut
+    fetal_fraction: NiptFetalFractionOut
+    criteria: NiptDiagnosticCriteriaOut
+    panel_id: Optional[str] = None
+    gene: Optional[str] = None
+    capped: bool = False
+    de_novo: List[NiptDiagnosticCandidateOut] = Field(default_factory=list)
+    paternal: List[NiptDiagnosticCandidateOut] = Field(default_factory=list)
+    maternal: List[NiptDiagnosticCandidateOut] = Field(default_factory=list)
+    recessive_genes: List[NiptRecessiveGeneOut] = Field(default_factory=list)
+    recessive_variants: List[NiptDiagnosticCandidateOut] = Field(default_factory=list)
+
+
 NiptVariantPage.model_rebuild()
 NiptClassificationOut.model_rebuild()
 NiptTargetCoverageGeneOut.model_rebuild()

@@ -80,6 +80,8 @@ from .nipt_coverage import TargetRegion
 from .nipt_quality_checks import NiptQualityChecks, nipt_quality_checks
 from .nipt_service import (
     NiptClassifiedVariant,
+    NiptDiagnosticCandidate,
+    NiptDiagnosticCandidates,
     NiptFamilyRecord,
     SharedNiptAnalysis,
     get_family_nipt_record,
@@ -395,6 +397,52 @@ def _panel_target_coverage(
     }
 
 
+def _diagnostic_candidate(candidate: NiptDiagnosticCandidate) -> dict[str, Any]:
+    """A locked diagnostic candidate as the record freezes it: what the criteria read of it and
+    what the analysis says of it."""
+    item = candidate.item
+    site = item.site
+    classification = item.classification
+    annotation = candidate.annotation
+    return {
+        "variant_id": item.record.variant_id,
+        "genes": sorted(item.record.gene_symbols or []),
+        "category": classification.category,
+        "cf_vaf": _number(site.cf_vaf) if site is not None else None,
+        "cf_alt_reads": site.cf_alt_reads if site is not None else None,
+        "cf_depth": site.cf_dp if site is not None else None,
+        "father_state": site.father_state if site is not None else None,
+        "paternal_transmission_probability": _number(classification.paternal_transmission_probability),
+        "maternal_allele_probability": _number(classification.maternal_allele_probability),
+        "max_population_af": _number(annotation.max_population_af),
+        "impact": annotation.impact,
+        "spliceai_max": _number(annotation.spliceai_max),
+        "clinvar_pathogenic": annotation.clinvar_pathogenic,
+        "other_cfdna_carriers": annotation.other_cfdna_carriers,
+        "confidence": candidate.confidence,
+        "flags": list(candidate.flags),
+    }
+
+
+def _diagnostic_candidates(
+    candidates: NiptDiagnosticCandidates | None, panel: AnalysisGenePanel | None
+) -> dict[str, Any] | None:
+    """The locked diagnostic candidates (REQ-NIPT-020): the criteria with their version, the
+    scope (the diagnostic panel; null: every variant), and each view's candidates."""
+    if candidates is None:
+        return None
+    return {
+        "criteria": candidates.criteria.frozen(),
+        "panel_id": panel.panel_id if panel is not None else None,
+        "capped": candidates.capped,
+        "de_novo": [_diagnostic_candidate(item) for item in candidates.de_novo],
+        "paternal": [_diagnostic_candidate(item) for item in candidates.paternal],
+        "maternal": [_diagnostic_candidate(item) for item in candidates.maternal],
+        "recessive_genes": [_recessive_gene(gene) for gene in candidates.recessive_genes],
+        "recessive_variants": [_diagnostic_candidate(item) for item in candidates.recessive_variants],
+    }
+
+
 def _variant(item: NiptClassifiedVariant) -> dict[str, Any]:
     """A reported variant as the NIPT variant list classifies it."""
     record = item.record
@@ -559,6 +607,8 @@ def nipt_section(
         # digest, null when it has none (a sign-out concern), and its targets' coverage.
         "diagnostic_panel": panel.frozen() if panel is not None else None,
         "panel_target_coverage": _panel_target_coverage(panel, analysis),
+        # The locked diagnostic candidates of that panel (REQ-NIPT-020).
+        "diagnostic_candidates": _diagnostic_candidates(analysis.diagnostic_candidates, panel),
         COVERAGE_NOTES_KEY: coverage_notes,
         "variants": variants,
         "not_classified": [
@@ -605,6 +655,9 @@ async def nipt_results(
         return {"unavailable": NIPT_TRIO_UNRESOLVED}
     trio, assay_key = resolved
     qc = NiptQualityThresholds()
+    panel = await load_analysis_gene_panel(
+        session, family_uuid=context.family_uuid, analysis=nipt_analysis_key(trio)
+    )
     analysis = await get_family_nipt_record(
         session,
         context=context,
@@ -613,9 +666,7 @@ async def nipt_results(
         variant_ids=reported_ids,
         qc=qc,
         shared_nipt=shared_nipt,
-    )
-    panel = await load_analysis_gene_panel(
-        session, family_uuid=context.family_uuid, analysis=nipt_analysis_key(trio)
+        diagnostic_panel_id=panel.panel_id if panel is not None else None,
     )
     target_tables = await _target_tables(session, context, trio)
     coverage_notes = await _coverage_notes(session, context, trio, analysis, panel)

@@ -21,6 +21,7 @@ from backend.app.services.nipt_service import (
     family_artifact_ids,
     listed_artifact_protection,
     get_family_nipt_coverage,
+    get_family_nipt_diagnostic_candidates,
     get_family_nipt_gene_targets,
     get_family_nipt_summary,
     get_family_nipt_variants,
@@ -433,6 +434,84 @@ async def test_the_de_novo_view_triages_the_candidates(monkeypatch: pytest.Monke
     with pytest.raises(HTTPException) as refused:
         await _variants(inheritance="de_novo", de_novo_priority="urgent")
     assert (refused.value.status_code, refused.value.detail) == (400, "Unsupported de novo priority: urgent")
+
+
+async def _diagnostic(**kwargs):
+    return (
+        await get_family_nipt_diagnostic_candidates(
+            session=None,  # type: ignore[arg-type]
+            family_id="NIPTFAM1",
+            user=None,  # type: ignore[arg-type]
+            **kwargs,
+        )
+    ).candidates
+
+
+def _annotated_gene_sites() -> list[SmallVariantRecord]:
+    """The gene sites, the inherited maternal (7-100) and paternal (7-200) alleles rare and
+    protein-altering, the paternal one the fetus did not inherit (7-400) too."""
+    sites = _gene_sites()
+    for index in (0, 1, 3):
+        sites[index].annotations = [{"impact": "HIGH", "gnomad_af": 0.0002}]
+    return sites
+
+
+@pytest.mark.asyncio
+async def test_the_locked_criteria_leave_the_rare_protein_altering_candidates_of_each_view(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # REQ-NIPT-020: de novo, paternal and maternal alleles the fetus inherited, rare (0.1%) and
+    # protein-altering; the recessive genes whose parents both carry a qualifying allele.
+    _wire(monkeypatch, filtered=_annotated_gene_sites())
+    candidates = await _diagnostic()
+    assert [c.item.record.variant_id for c in candidates.de_novo] == ["7-500-G-A"]
+    assert (candidates.de_novo[0].confidence, candidates.de_novo[0].flags) == ("standard", [])
+    assert [c.item.record.variant_id for c in candidates.paternal] == ["7-200-C-T"]
+    assert [c.item.record.variant_id for c in candidates.maternal] == ["7-100-A-G"]
+    # GENEA: both parents carry a qualifying allele. GENEB: the mother's (7-300) changes no
+    # protein, so only the father carries one.
+    assert [gene.gene for gene in candidates.recessive_genes] == ["GENEA"]
+    assert candidates.criteria.reference.startswith("R NIPT-M v0.7.3")
+    # Without an annotation the paternal and maternal alleles change no protein: left out.
+    bare = await _diagnostic_without_annotation(monkeypatch)
+    assert (bare.paternal, bare.maternal, bare.recessive_genes) == ([], [], [])
+
+
+async def _diagnostic_without_annotation(monkeypatch: pytest.MonkeyPatch):
+    _wire(monkeypatch, filtered=_gene_sites())
+    return await _diagnostic()
+
+
+@pytest.mark.asyncio
+async def test_a_de_novo_candidate_in_another_plasma_stays_only_when_clinvar_calls_it_pathogenic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recurrent = {"7-500-G-A": CfdnaRecurrence(carriers=1)}
+    _wire(monkeypatch, filtered=_annotated_gene_sites(), recurrence=recurrent)
+    assert (await _diagnostic()).de_novo == []
+    # A conflicting record is no strict ClinVar call (R): still left out.
+    sites = _annotated_gene_sites()
+    sites[4].annotations = [{"impact": "MODERATE", "clinvar": "Conflicting_classifications_of_pathogenicity"}]
+    _wire(monkeypatch, filtered=sites, recurrence=recurrent)
+    assert (await _diagnostic()).de_novo == []
+    sites[4].annotations = [{"impact": "MODERATE", "clinvar": "Pathogenic"}]
+    _wire(monkeypatch, filtered=sites, recurrence=recurrent)
+    [candidate] = (await _diagnostic()).de_novo
+    assert candidate.flags == ["clinvar_pathogenic"]
+
+
+@pytest.mark.asyncio
+async def test_a_de_novo_indel_in_a_repeat_is_a_low_confidence_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
+    sites = _annotated_gene_sites()
+    sites[4] = _record(
+        "7-500-G-GCAGCAG",
+        [_call(PLASMA, [1360, 140])],
+        genes=["GENEC"],
+        annotations=[{"impact": "MODERATE", "gnomad_af": None}],
+    )
+    _wire(monkeypatch, filtered=sites)
+    [candidate] = (await _diagnostic()).de_novo
+    assert (candidate.confidence, candidate.flags) == ("low", ["repeat_context"])
 
 
 @pytest.mark.asyncio

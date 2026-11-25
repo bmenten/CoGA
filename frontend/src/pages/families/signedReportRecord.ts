@@ -1111,6 +1111,25 @@ export interface SignedNiptDiagnosticPanel {
   genesDigest: string | null;
 }
 
+/** A locked diagnostic candidate as the record froze it. */
+export interface SignedNiptDiagnosticCandidate {
+  variantId: string;
+  genes: string[];
+  confidence: string | null;
+  flags: string[];
+}
+
+/** The locked diagnostic candidates as the record froze them, with the criteria's version. */
+export interface SignedNiptDiagnosticCandidates {
+  criteriaReference: string | null;
+  panelId: string | null;
+  capped: boolean;
+  deNovo: SignedNiptDiagnosticCandidate[];
+  paternal: SignedNiptDiagnosticCandidate[];
+  maternal: SignedNiptDiagnosticCandidate[];
+  recessiveGenes: { gene: string | null; risk: number | null }[];
+}
+
 /** The coverage of the diagnostic panel's capture targets as the record froze it. */
 export interface SignedNiptPanelTargetCoverage {
   panelGenes: number | null;
@@ -1147,6 +1166,8 @@ export interface SignedNipt {
   diagnosticPanel: SignedNiptDiagnosticPanel | null;
   /** The coverage of the diagnostic panel's capture targets; null without a panel or a table. */
   panelTargetCoverage: SignedNiptPanelTargetCoverage | null;
+  /** The locked diagnostic candidates of the diagnostic panel (REQ-NIPT-020). */
+  diagnosticCandidates: SignedNiptDiagnosticCandidates | null;
   /**
    * The coverage check's notes over the coverage tracks: recorded as null with a per-target table,
    * whose targets the check reads.
@@ -2308,6 +2329,14 @@ const parseNipt = (value: Json): SignedNipt => {
   const coverage = isObject(value.target_coverage) ? value.target_coverage : null;
   const panel = isObject(value.diagnostic_panel) ? value.diagnostic_panel : null;
   const panelCoverage = isObject(value.panel_target_coverage) ? value.panel_target_coverage : null;
+  const diagnostic = isObject(value.diagnostic_candidates) ? value.diagnostic_candidates : null;
+  const diagnosticCriteria = diagnostic && isObject(diagnostic.criteria) ? diagnostic.criteria : {};
+  const diagnosticCandidate = (entry: Json): SignedNiptDiagnosticCandidate => ({
+    variantId: text(entry.variant_id) ?? 'a variant',
+    genes: strings(entry.genes),
+    confidence: text(entry.confidence),
+    flags: strings(entry.flags),
+  });
   const inputs = isObject(value.inputs) ? value.inputs : {};
   const artifacts = isObject(inputs.artifact_list) ? inputs.artifact_list : null;
   const model = isObject(value.model) ? value.model : {};
@@ -2385,6 +2414,20 @@ const parseNipt = (value: Json): SignedNipt => {
             targets: number(gene.targets),
             weakTargets: number(gene.weak_targets),
             minMean: number(gene.min_mean),
+          })),
+        }
+      : null,
+    diagnosticCandidates: diagnostic
+      ? {
+          criteriaReference: text(diagnosticCriteria.reference),
+          panelId: text(diagnostic.panel_id),
+          capped: diagnostic.capped === true,
+          deNovo: objects(diagnostic.de_novo).map(diagnosticCandidate),
+          paternal: objects(diagnostic.paternal).map(diagnosticCandidate),
+          maternal: objects(diagnostic.maternal).map(diagnosticCandidate),
+          recessiveGenes: objects(diagnostic.recessive_genes).map((gene) => ({
+            gene: text(gene.gene),
+            risk: number(gene.risk),
           })),
         }
       : null,

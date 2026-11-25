@@ -152,6 +152,30 @@ describe('FamilyNiptReportPage', () => {
       if (url === '/panels/panel-1') {
         return Promise.resolve({ data: { _id: 'panel-1', name: 'Neurodevelopmental', version: 2 } });
       }
+      if (url === '/families/NIPT001/nipt/diagnostic-candidates') {
+        // The locked diagnostic candidates of the report's scope (REQ-NIPT-020).
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            criteria: {
+              reference: 'R NIPT-M v0.7.3 diagnostic criteria (blinded analysis, step 15)',
+              rare_max_af_dominant: 0.001,
+              rare_max_af_recessive: 0.01,
+              effect_impacts: ['HIGH', 'MODERATE'],
+              min_spliceai: 0.2,
+              clinvar_max_af: 0.05,
+              cohort_common_min_samples: 3,
+              repeat_min_units: 3,
+            },
+            capped: false,
+            de_novo: [{ variant: niptVariant('v1', 'ARID1B', 1, 'De novo in fetus'), confidence: 'standard', flags: [] }],
+            paternal: [],
+            maternal: [],
+            recessive_genes: [],
+            recessive_variants: [],
+          },
+        });
+      }
       return Promise.resolve({ data: {} });
     });
 
@@ -173,6 +197,12 @@ describe('FamilyNiptReportPage', () => {
     expect(screen.queryByText(/The candidate list is incomplete/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Incomplete —/)).not.toBeInTheDocument();
     expect(screen.getByText('De novo in fetus (1)')).toBeInTheDocument();
+
+    // The locked diagnostic candidates of the scope, with the criteria's version.
+    const diagnostic = screen.getByRole('region', { name: 'Diagnostic candidates' });
+    expect(within(diagnostic).getByText(/R NIPT-M v0\.7\.3 diagnostic criteria/)).toBeInTheDocument();
+    expect(within(diagnostic).getByText('De novo in the fetus (1)')).toBeInTheDocument();
+    expect(within(diagnostic).getByText('Recessive: both parents carriers (0)')).toBeInTheDocument();
 
     // Coverage QC flags the low-depth panel gene.
     expect(screen.getByText('Coverage QC')).toBeInTheDocument();

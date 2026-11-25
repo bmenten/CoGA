@@ -142,7 +142,7 @@ def _metric(site: NiptSiteObservation, *names: str) -> float | None:
     return None
 
 
-def _repeat_units(site: NiptSiteObservation) -> float | None:
+def repeat_units(site: NiptSiteObservation) -> float | None:
     """Mutect2: the reference's repeat-unit count at a short tandem repeat (1 elsewhere);
     VarDict: MSI."""
     if (site.cf_metrics or {}).get("STR"):
@@ -198,14 +198,14 @@ def triage_de_novo(
 
     mapping_quality = _metric(site, "MMQ", "MQ")
     mismatches = _metric(site, "NM")
-    repeat_units = _repeat_units(site)
+    units = repeat_units(site)
     unique = other_cfdna_carriers <= _MAX_OTHER_CFDNA_CARRIERS
     technical = (
         met(not site.cf_filters or site.cf_filters == ["PASS"], "caller FILTER not PASS")
         + met(mapping_quality is None or mapping_quality >= _MIN_ALT_MAPPING_QUALITY, "low alt mapping quality")
         + met(site.cf_fs is None or site.cf_fs <= _MAX_STRAND_BIAS_FS, "strand bias")
         + met(mismatches is None or mismatches <= _MAX_MISMATCHES, "many mismatches")
-        + met(repeat_units is None or repeat_units <= _MAX_REPEAT_UNITS, "repeat context")
+        + met(units is None or units <= _MAX_REPEAT_UNITS, "repeat context")
         + met(unique, f"in {other_cfdna_carriers} other cfDNA sample(s)")
     )
     paternal_signal = site.father_state in _UNCERTAIN_FATHER_STATES
@@ -220,7 +220,7 @@ def triage_de_novo(
     effective_class = site.variant_class
     class_score = _CLASS_SCORES.get(effective_class, 0)
     repeat_indel = (
-        effective_class == "indel" and repeat_units is not None and repeat_units >= _REPEAT_INDEL_MIN_UNITS
+        effective_class == "indel" and units is not None and units >= _REPEAT_INDEL_MIN_UNITS
     )
     if repeat_indel:
         class_score += _REPEAT_INDEL_PENALTY
