@@ -3,9 +3,9 @@
 A couple is at risk for a recessive condition when both partners carry a variant in the
 same gene. The search keeps, for such a gene, every variant either partner carries; a gene
 only one partner carries in is left out, and so is a mitochondrial gene, as mtDNA passes
-from the mother alone. For an X-linked condition the female partner's
-carrier status alone puts a son at risk, so on chrX outside the pseudo-autosomal regions a
-variant she carries is kept on its own. These tests pin the pure rule
+from the mother alone. On chrX outside the pseudo-autosomal regions a variant either
+partner carries is kept on its own: a woman's carrier status alone puts a son at risk of an
+X-linked condition, and a man passes his one X to every daughter. These tests pin the pure rule
 (``_filter_expanded_carrier_screening``) and how the couple is found
 (``_carrier_partners``); the search applies the rule after its SQL prefilter
 (``test_clickhouse_family_variants.py::test_fetch_small_variant_rows_prefilters_expanded_carrier_candidates``).
@@ -148,26 +148,22 @@ class TestXLinked:
         ]
         assert _kept(records, assembly_name="GRCh38") == ["dmd-chr", "dmd-23"]
 
-    def test_a_male_partners_x_linked_variant_alone_is_not_a_finding(self) -> None:
-        # He has one X: he does not carry an X-linked condition for his sons.
+    def test_a_male_partners_x_linked_variant_is_kept_on_its_own(self) -> None:
+        # He passes his one X to every daughter, whatever the female partner carries.
         records = [_variant("dmd-1", "DMD", man="1", chr="X", start=_DMD)]
-        assert _kept(records, assembly_name="GRCh38") == []
+        assert _kept(records, assembly_name="GRCh38") == ["dmd-1"]
 
-    def test_a_partner_without_a_recorded_sex_counts_as_female(self) -> None:
-        rows = [
-            {"sample_id": "WOMAN", "role": "mother", "sex": ""},
-            {"sample_id": "MAN", "role": "father", "sex": "male"},
-        ]
-        records = [_variant("otc-1", "OTC", woman="0/1", chr="X", start=38_400_000)]
-        assert _kept(records, rows, assembly_name="GRCh38") == ["otc-1"]
-
-    def test_each_female_partner_of_a_couple_counts(self) -> None:
-        rows = [
-            {"sample_id": "WOMAN", "role": "other", "sex": "female"},
-            {"sample_id": "MAN", "role": "other", "sex": "F"},
-        ]
-        records = [_variant("dmd-1", "DMD", man="0/1", chr="X", start=_DMD)]
-        assert _kept(records, rows, assembly_name="GRCh38") == ["dmd-1"]
+    def test_each_partners_x_linked_variant_counts_whatever_the_recorded_sex(self) -> None:
+        for sexes in (("", "male"), ("female", "F"), ("unknown", "")):
+            rows = [
+                {"sample_id": "WOMAN", "role": "other", "sex": sexes[0]},
+                {"sample_id": "MAN", "role": "other", "sex": sexes[1]},
+            ]
+            records = [
+                _variant("otc-1", "OTC", woman="0/1", chr="X", start=38_400_000),
+                _variant("dmd-1", "DMD", man="0/1", chr="X", start=_DMD),
+            ]
+            assert _kept(records, rows, assembly_name="GRCh38") == ["otc-1", "dmd-1"], sexes
 
     def test_the_pseudo_autosomal_region_follows_the_both_partners_rule(self) -> None:
         # In PAR1 X and Y pair like an autosome: one partner's variant is not enough.
@@ -177,12 +173,13 @@ class TestXLinked:
         assert _kept(both, assembly_name="GRCh38") == ["shox-1", "shox-2"]
 
     def test_an_assembly_without_known_pars_keeps_the_both_partners_rule(self) -> None:
-        records = [_variant("dmd-1", "DMD", woman="0/1", chr="X", start=_DMD)]
-        assert _kept(records, assembly_name="T2T-CHM13v1.0") == []
-        assert _kept(records) == []
+        for partner in ("woman", "man"):
+            records = [_variant("dmd-1", "DMD", chr="X", start=_DMD, **{partner: "0/1"})]
+            assert _kept(records, assembly_name="T2T-CHM13v1.0") == [], partner
+            assert _kept(records) == [], partner
 
     def test_t2t_reads_its_own_boundaries(self) -> None:
-        # T2T-CHM13v2.0's PAR1 ends at 2,394,410. A woman's variant just past it counts
+        # T2T-CHM13v2.0's PAR1 ends at 2,394,410. A partner's variant just past it counts
         # alone; one inside it follows the both-partners rule.
         past = [_variant("x-1", "GENEX", woman="0/1", chr="X", start=2_394_411)]
         assert _kept(past, assembly_name="T2T-CHM13v2.0") == ["x-1"]
@@ -197,6 +194,7 @@ class TestXLinked:
         assert _kept(records, assembly_name="GRCh38") == []
 
     def test_a_y_variant_is_never_kept_on_its_own(self) -> None:
+        # chrY follows the both-partners rule: only the male partner has one.
         records = [_variant("y-1", "GENEY", man="1", chr="Y", start=10_000_000)]
         assert _kept(records, assembly_name="GRCh38") == []
 
@@ -211,8 +209,9 @@ class TestXLinked:
             _variant("cftr-2", "CFTR", woman="0/1", chr="7", start=117_600_000),
             _variant("dmd-2", "DMD", woman="0/1", man="1", chr="X", start=_DMD + 100),
             _variant("gaa-1", "GAA", woman="0/1", chr="17", start=80_100_000),
+            _variant("otc-1", "OTC", man="1", chr="X", start=38_400_000),
         ]
-        assert _kept(records, assembly_name="GRCh38") == ["cftr-1", "dmd-1", "cftr-2", "dmd-2"]
+        assert _kept(records, assembly_name="GRCh38") == ["cftr-1", "dmd-1", "cftr-2", "dmd-2", "otc-1"]
 
 
 class TestWhoTheCoupleIs:
@@ -298,7 +297,7 @@ class TestWhoTheCoupleIs:
         # A partner none of whose samples the reading reads leaves no couple to screen.
         assert _carrier_partners(rows, same, left_out={"MAN"}) is None
 
-    def test_a_man_recorded_male_on_one_of_his_samples_is_male(self) -> None:
+    def test_an_x_linked_variant_on_either_sample_of_a_partner_counts(self) -> None:
         rows = [
             {"sample_id": "WOMAN", "role": "mother", "sex": "female"},
             {"sample_id": "MAN", "role": "father", "sex": "male"},
@@ -307,9 +306,9 @@ class TestWhoTheCoupleIs:
         same = [{"relationship_type": "same_individual", "sample_id_a": "MAN", "sample_id_b": "MAN2"}]
         his_x = _variant("dmd-1", "DMD", chr="X", start=_DMD)
         his_x.calls.append(_call("MAN2", "1"))
-        assert _kept([his_x], rows, same, assembly_name="GRCh38") == []
-        hers_x = _variant("dmd-2", "DMD", woman="0/1", chr="X", start=_DMD + 100)
-        assert _kept([hers_x], rows, same, assembly_name="GRCh38") == ["dmd-2"]
+        assert _kept([his_x], rows, same, assembly_name="GRCh38") == ["dmd-1"]
+        # Without the link MAN2 is a third person, neither partner: its call is not read.
+        assert _kept([his_x], rows, assembly_name="GRCh38") == []
 
     def test_no_couple_means_no_finding(self) -> None:
         rows = [{"sample_id": "A", "role": "proband"}, {"sample_id": "B", "role": "sibling"}, {"sample_id": "C"}]

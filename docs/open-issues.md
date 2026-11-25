@@ -27,7 +27,7 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | REG-16 | P2 | Add to TF-10 §8 the clinical behaviour no area covers; validate the two Major filter changes with it | developer, QA | RC |
 | REG-17 | P2 | Confirm the short-read WGS application's population and SNV/indel scope (TF-01 §3.6); define its TF-10 §3.6 study | owner, QA | validation |
 | REG-15 | P2 | Decide whether the variant summary's figures belong in the validation scope: no rule reads them, but its Mendelian table can point to UPD | QA | RC |
-| CLIN-9 | P2 | Confirm the carrier-screening preset and the chrM exclusion | QA | RC |
+| CLIN-9 | P2 | Confirm the carrier-screening preset, the chrM exclusion and a male partner's X-linked variant as a finding on its own | QA | RC |
 | CLIN-10 | P2 | Check the Sample QC's relationship reading on real families: parent–embryo IBS0 on an imputed PGT family, the GQ 20 floor and the parent–child cut on a raw joint callset | owner, lab director | validation |
 | CLIN-18 | P2 | Fill in what APCAD stands for (`user-guide/glossary.md`) | lab director | RC |
 | OPS-15 | P2 | Fix the clinical build's GitHub links (`build.yml` passes no `VITE_GITHUB_*`) | owner | RC |

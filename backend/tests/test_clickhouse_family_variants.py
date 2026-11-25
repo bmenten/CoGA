@@ -2783,12 +2783,12 @@ def _patch_small_candidate_path(monkeypatch: pytest.MonkeyPatch, *, candidates: 
 
 
 @pytest.mark.asyncio
-async def test_expanded_carrier_screening_keeps_a_female_partners_x_linked_variant(
+async def test_expanded_carrier_screening_keeps_each_partners_x_linked_variant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The search hands the family's assembly to the couple rule, so it can tell chrX
-    # outside the pseudo-autosomal regions: MOM's DMD variant is a finding on its own
-    # (REQ-CARR-002), DAD's chrX variant and MOM's autosomal one are not.
+    # outside the pseudo-autosomal regions: MOM's DMD variant and DAD's OTC variant are
+    # each a finding on their own (REQ-CARR-002), MOM's autosomal one is not.
     def _calls(**gts: str) -> list[SmallVariantCall]:
         return [_small_call(sample, gts.get(sample, "0/0")) for sample in ("PROBAND", "MOM", "DAD", "SIB")]
 
@@ -2821,8 +2821,8 @@ async def test_expanded_carrier_screening_keeps_a_female_partners_x_linked_varia
         expanded_carrier_screening=True,
     )
 
-    assert [str(variant.id) for variant in page.variants] == ["x-mom"]
-    assert page.total == 1
+    assert [str(variant.id) for variant in page.variants] == ["x-mom", "x-dad"]
+    assert page.total == 2
 
 
 @pytest.mark.asyncio

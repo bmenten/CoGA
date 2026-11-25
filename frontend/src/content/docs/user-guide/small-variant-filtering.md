@@ -163,13 +163,14 @@ one person, never a couple: a family of one person sampled twice has no couple. 
 carries what either of their samples in the analysis you read carries. It keeps:
 
 - the genes where both partners carry a rare (below 1%) high- or moderate-impact variant;
-- the variants a female partner carries on chrX outside the pseudo-autosomal regions, which put a son
-  at risk on their own.
+- the variants either partner carries on chrX outside the pseudo-autosomal regions, each on its own:
+  a woman's carrier status alone puts a son at risk of an X-linked condition, and a man passes his X
+  to every daughter.
 
 A ClinVar pathogenic or likely pathogenic call overrides the frequency cut-off, so a common founder
 variant stays in. A ClinVar benign or likely benign variant is left out, so it never makes a gene one
-both partners carry a variant in. A partner whose sex is not recorded counts as female. Mitochondrial variants are not
-part of it, as mtDNA passes from the mother alone.
+both partners carry a variant in. The X-linked rule does not read the partners' recorded sex.
+Mitochondrial variants are not part of it, as mtDNA passes from the mother alone.
 
 Your saved searches are shared with the monogenic NIPT page. A search saved there can carry filters
 that only the NIPT list applies: an inheritance view such as *De novo in the fetus*, the maternal/fetal

@@ -319,8 +319,7 @@ class _NoStructureVersionSession:
 
 def test_the_pedigree_read_from_the_context_covers_each_members_sex() -> None:
     # The structure hash covers each member's sex; the fallback did not. The X-linked rules
-    # read it: the segregation of a son's hemizygous call, and which chrX variants a carrier
-    # screen keeps (a female partner's on their own, REQ-CARR-002).
+    # read it: the segregation of a son's hemizygous call.
     def context(sex: str):
         return types.SimpleNamespace(
             family_uuid="u1",
