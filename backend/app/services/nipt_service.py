@@ -98,7 +98,10 @@ from .nipt_analysis import (
     NiptQualityThresholds,
     NiptSiteObservation,
     trusted_father_state,
+    PATERNAL_X_IN_SON_FLAG,
     classify_site,
+    combined_fetal_sex,
+    infer_fetal_sex,
     is_genotyped_call,
     filter_sites_and_estimate_ff,
     run_nipt_analysis,
@@ -1059,7 +1062,13 @@ def _analyse_family_sites(
         father_targets=data.father_targets,
         qc=qc,
     )
-    return run_nipt_analysis(sites, qc, artifact_lookup=artifact_lookup)
+    return run_nipt_analysis(sites, qc, artifact_lookup=artifact_lookup, chry_profile=_chry_profile(data))
+
+
+def _chry_profile(data: _FamilyData) -> str | None:
+    """The plasma's sex-chromosome profile from its per-target coverage (None without one):
+    with the father's X alleles it reads the fetal sex chrX is classified with."""
+    return sex_chromosome_coverage(data.plasma_targets).profile if data.plasma_targets else None
 
 
 def _estimate_cohort_fetal_fraction(
@@ -1067,11 +1076,11 @@ def _estimate_cohort_fetal_fraction(
     trio: NiptTrio,
     qc: NiptQualityThresholds,
     artifact_ids: set[str],
-) -> FetalFractionEstimate:
-    # The summary's computation, over the same filtered sites, so the variant list
-    # reports -- and classifies against -- the fetal fraction the summary shows. It used
-    # to estimate over every family site, listed artifacts included.
-    return filter_sites_and_estimate_ff(
+) -> tuple[FetalFractionEstimate, str]:
+    """The summary's fetal fraction and fetal sex (``combined_fetal_sex``), over the same
+    filtered sites, so the variant list reports -- and classifies against -- what the
+    summary shows."""
+    filtered = filter_sites_and_estimate_ff(
         _family_sites(
             data.records,
             trio,
@@ -1081,7 +1090,11 @@ def _estimate_cohort_fetal_fraction(
         ),
         qc,
         artifact_lookup=artifact_ids.__contains__,
-    ).fetal_fraction
+    )
+    ff_estimate = filtered.fetal_fraction
+    paternal_x = infer_fetal_sex(filtered.passed, ff_estimate, qc)
+    sex_call = combined_fetal_sex(paternal_x.inferred, _chry_profile(data), ff_estimate.ff_computed or 0.0)
+    return ff_estimate, sex_call
 
 
 def _classify_candidates(
@@ -1095,6 +1108,7 @@ def _classify_candidates(
     plasma_targets: list[TargetCoverageRow] | None = None,
     father_targets: list[TargetCoverageRow] | None = None,
     family_records: list[SmallVariantRecord] | None = None,
+    fetal_sex: str | None = None,
 ) -> list[NiptClassifiedVariant]:
     # The filtered records' calls are looked up in the family's every record: the other
     # representation of an allele, or a split record's sibling, need not pass the filter.
@@ -1128,7 +1142,7 @@ def _classify_candidates(
         observation = observations.get(record.variant_id)
         if observation is None:
             continue
-        classification = classify_site(observation, ff_estimate, qc)
+        classification = classify_site(observation, ff_estimate, qc, fetal_sex=fetal_sex)
         if protection is not None:
             # Listed, but the family's annotation or father says it is no artefact.
             classification.flags.append(ARTIFACT_LIST_PROTECTED_FLAG)
@@ -1496,7 +1510,7 @@ async def get_family_nipt_variants(
     # many sites, so they run in a worker thread.
     data = await _load_family_data(context, trio)
     removed, _protected = _family_artifacts(data.records, listed, trio, qc)
-    ff_estimate = await asyncio.to_thread(
+    ff_estimate, fetal_sex = await asyncio.to_thread(
         _estimate_cohort_fetal_fraction, data, trio, qc, removed
     )
 
@@ -1513,6 +1527,7 @@ async def get_family_nipt_variants(
             removed,
             ff_estimate,
             qc,
+            fetal_sex,
         )
     if review.matches_nothing:
         return NiptVariantsResult(fetal_fraction=ff_estimate, total=0, variants=[], trio=trio)
@@ -1561,6 +1576,7 @@ async def get_family_nipt_variants(
         plasma_targets=data.plasma_targets,
         father_targets=data.father_targets,
         family_records=data.records,
+        fetal_sex=fetal_sex,
     )
 
     recurrence_scope = await _recurrence_scope(session, context, assay_key, qc)
@@ -1711,11 +1727,16 @@ async def diagnostic_candidates(
         flags = flags_of(item, annotation)
         if is_repeat_context_indel(item.record.ref, item.record.alt, repeat_units(site), criteria):
             flags.insert(0, REPEAT_CONTEXT_FLAG)
+        if PATERNAL_X_IN_SON_FLAG in item.classification.flags:
+            # A son never inherits his father's X: the father's call beside it makes the
+            # de novo allele doubtful (the R validation's low-confidence rule).
+            flags.insert(0, PATERNAL_X_IN_SON_FLAG)
+        low = REPEAT_CONTEXT_FLAG in flags or PATERNAL_X_IN_SON_FLAG in flags
         de_novo.append(
             NiptDiagnosticCandidate(
                 item=item,
                 annotation=annotation,
-                confidence="low" if REPEAT_CONTEXT_FLAG in flags else "standard",
+                confidence="low" if low else "standard",
                 flags=flags,
             )
         )
@@ -1760,6 +1781,7 @@ async def _scoped_diagnostic_candidates(
     data: _FamilyData,
     listed: Mapping[str, int],
     ff_estimate: FetalFractionEstimate,
+    fetal_sex: str,
     panel_id: str | None,
     gene: str | None,
 ) -> tuple[NiptDiagnosticCandidates, SmallVariantQueryFilters]:
@@ -1789,6 +1811,7 @@ async def _scoped_diagnostic_candidates(
         plasma_targets=data.plasma_targets,
         father_targets=data.father_targets,
         family_records=data.records,
+        fetal_sex=fetal_sex,
     )
     scope = await _recurrence_scope(session, context, assay_key, qc)
     candidates = await diagnostic_candidates(classified, ff_estimate, qc, scope=scope)
@@ -1831,7 +1854,7 @@ async def get_family_nipt_diagnostic_candidates(
     listed = await _load_listed_artifacts(session, context, assay_key)
     data = await _load_family_data(context, trio)
     removed, _protected = _family_artifacts(data.records, listed, trio, qc)
-    ff_estimate = await asyncio.to_thread(_estimate_cohort_fetal_fraction, data, trio, qc, removed)
+    ff_estimate, fetal_sex = await asyncio.to_thread(_estimate_cohort_fetal_fraction, data, trio, qc, removed)
     candidates, filters = await _scoped_diagnostic_candidates(
         session,
         context,
@@ -1841,6 +1864,7 @@ async def get_family_nipt_diagnostic_candidates(
         data=data,
         listed=listed,
         ff_estimate=ff_estimate,
+        fetal_sex=fetal_sex,
         panel_id=panel_id,
         gene=gene,
     )
@@ -1899,6 +1923,7 @@ def _classify_selected(
     removed: set[str],
     ff_estimate: FetalFractionEstimate,
     qc: NiptQualityThresholds,
+    fetal_sex: str | None = None,
 ) -> tuple[list[NiptClassifiedVariant], dict[str, str]]:
     """``wanted`` among the family's variants, each classified as the variant list
     classifies it against ``ff_estimate`` (no filter, no minimum confidence), and why the
@@ -1916,6 +1941,7 @@ def _classify_selected(
         plasma_targets=data.plasma_targets,
         father_targets=data.father_targets,
         family_records=data.records,
+        fetal_sex=fetal_sex,
     )
     found = {record.variant_id for record in records}
     classified_ids = {item.record.variant_id for item in classified}
@@ -1967,6 +1993,7 @@ async def get_family_nipt_record(
         removed,
         summary.analysis.fetal_fraction,
         qc,
+        summary.analysis.fetal_sex_call,
     )
     # Each reported variant's recurrence, which the record freezes as the list showed it, in
     # one count that the de novo triage then reads.
@@ -1996,6 +2023,7 @@ async def get_family_nipt_record(
         data=data,
         listed=listed,
         ff_estimate=summary.analysis.fetal_fraction,
+        fetal_sex=summary.analysis.fetal_sex_call,
         panel_id=diagnostic_panel_id,
         gene=None,
     )

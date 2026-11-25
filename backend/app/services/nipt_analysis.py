@@ -375,6 +375,9 @@ class NiptAnalysisResult:
     fetal_sex: FetalSexResult = field(
         default_factory=lambda: FetalSexResult("indeterminate", 0, 0, 0)
     )
+    # The fetal sex chrX was classified with (``combined_fetal_sex`` of the father's X alleles
+    # and the plasma's chrY coverage): ``female``, ``male``, ``discordant`` or ``indeterminate``.
+    fetal_sex_call: str = "indeterminate"
     # The paternity evidence (see PaternalTransmissionEvidence): only sites with a
     # confident father call count. A missing or thin call lands in category 7 on the de
     # novo prior alone, which says nothing about who the father is, so
@@ -406,10 +409,23 @@ def _site_vaf(site: NiptSiteObservation) -> float:
     return (site.cf_alt_reads or 0) / dp
 
 
-def _expected_vaf(category: int, ff: float) -> float:
+def _expected_vaf(category: int, ff: float, *, hemizygous: bool = False) -> float:
     """The cfDNA allele fraction a category predicts. A maternal heterozygous site
     carries the consensus reference bias; the hom band and the fetal band do not (the
-    bias was measured at maternal het sites)."""
+    bias was measured at maternal het sites).
+
+    ``hemizygous``: chrX outside the pseudo-autosomal regions in a male fetus (the R
+    validation's model). The plasma then holds 2 (1 - FF) maternal and FF fetal X copies: a
+    maternal het allele the son did not inherit sits at (1 - FF) / (2 - FF) (category 2), one
+    he did at 1 / (2 - FF) (category 4, his one X), a de novo allele at FF / (2 - FF)."""
+    if hemizygous:
+        copies = 2.0 - ff
+        return {
+            1: ff / copies,
+            2: (1.0 - ff) / copies + MATERNAL_HET_BIAS,
+            4: 1.0 / copies + MATERNAL_HET_BIAS,
+            6: 1.0,
+        }[category]
     half = ff / 2.0
     return {
         1: half,
@@ -445,6 +461,44 @@ _CANDIDATE_PRIORS: dict[str, dict[int, float]] = {
     "hom_alt": {3: 0.5, 4: 0.5, 6: 1.0, 7: 1.0},
     "missing": {1: _DE_NOVO_PRIOR_WEIGHT, 2: 1 / 3, 3: 1 / 3, 4: 1 / 3, 5: 0.5, 6: 0.5, 7: 0.5},
 }
+
+
+# chrX outside the pseudo-autosomal regions in a male fetus: his one X is his mother's, so
+# the father's genotype bounds nothing and nothing is paternal (7). A het mother passes her
+# allele or not (1/2 each, whatever the father carries), a hom-alt one always; a fetal
+# allele beside a reference mother is de novo.
+_MALE_X_PRIORS: dict[int, float] = {1: _DE_NOVO_PRIOR_WEIGHT, 2: 0.5, 4: 0.5, 6: 1.0}
+_MALE_X_HET_BAND = (2, 4)
+
+# How a site's chromosome is classified (``chromosome_model``).
+AUTOSOMAL_MODEL = "autosomal"
+X_FEMALE_MODEL = "x_female"
+X_MALE_MODEL = "x_male"
+# The flags of a chrX site outside the pseudo-autosomal regions, by the fetal sex it was
+# classified with; a chrX site of a fetus whose sex is not known, a chrY or a mitochondrial
+# one is not classified (``sex_chromosome_unsupported``).
+X_FEMALE_FLAG = "x_nonpar_female_fetus"
+X_MALE_FLAG = "x_nonpar_male_fetus"
+FATHER_X_HET_FLAG = "father_het_call_on_x"
+PATERNAL_X_IN_SON_FLAG = "paternal_x_allele_in_male_fetus"
+
+
+def chromosome_model(site: NiptSiteObservation, fetal_sex: str | None) -> str | None:
+    """How ``site`` is classified: ``autosomal`` for an autosome and for chrX's
+    pseudo-autosomal regions (diploid in both sexes); chrX outside them ``x_female`` for a
+    daughter, ``x_male`` for a son; None (not classified) for chrX of a fetus whose sex is
+    not known (``indeterminate``, ``discordant``), chrY and the mitochondrion."""
+    if site.is_autosomal:
+        return AUTOSOMAL_MODEL
+    if site.chrom.lower().removeprefix("chr") != "x":
+        return None
+    if not _is_nonpar_x(site.chrom, site.pos):
+        return AUTOSOMAL_MODEL
+    if fetal_sex == "female":
+        return X_FEMALE_MODEL
+    if fetal_sex == "male":
+        return X_MALE_MODEL
+    return None
 
 
 def trusted_father_state(site: NiptSiteObservation, qc: NiptQualityThresholds) -> str:
@@ -689,13 +743,31 @@ def _band_posterior(
     categories: Sequence[int],
     priors: dict[int, float],
     overdispersion: float,
+    *,
+    hemizygous: bool = False,
 ) -> dict[int, float]:
     scores = {
-        category: math.log(priors[category]) + _log_beta_binom(k, n, _expected_vaf(category, ff), overdispersion)
+        category: math.log(priors[category])
+        + _log_beta_binom(k, n, _expected_vaf(category, ff, hemizygous=hemizygous), overdispersion)
         for category in categories
         if priors.get(category, 0.0) > 0
     }
     return _softmax(scores) if scores else {}
+
+
+def _male_x_maternal_probabilities(
+    best: int, k: int, n: int, ff: float, overdispersion: float
+) -> tuple[float | None, float | None, dict[str, float] | None]:
+    """(maternal allele inherited, son hemizygous for it, his genotype posterior) on chrX
+    outside the pseudo-autosomal regions: from the posterior over categories 2 and 4 at a
+    maternal het site (1/2 each), always at a hom-alt one. His one X reads as hom-alt."""
+    if best in _MALE_X_HET_BAND:
+        posterior = _band_posterior(k, n, ff, _MALE_X_HET_BAND, _MALE_X_PRIORS, overdispersion, hemizygous=True)
+        p2, p4 = posterior.get(2, 0.0), posterior.get(4, 0.0)
+        return p4, p4, {"hom_ref": p2, "het": 0.0, "hom_alt": p4}
+    if best == 6:
+        return 1.0, 1.0, None
+    return None, None, None
 
 
 def _maternal_probabilities(
@@ -787,11 +859,24 @@ def _absent_site(
     *,
     detect_min: int,
     overdispersion: float,
+    male_x: bool = False,
 ) -> NiptClassification:
     """A site without the allele in the plasma (no call, or fewer than ``min_cf_alt_reads``
-    alt reads): whether the fetus missed a paternal allele."""
+    alt reads): whether the fetus missed a paternal allele. A son never inherits his
+    father's X (``male_x``): his allele there is not transmitted, at probability 0."""
     n = site.cf_dp or 0
     k = site.cf_alt_reads or 0
+    if male_x:
+        if father_state in ("hom_alt", "het"):
+            return _classification(
+                site, category=None, maternal_state="hom_ref", fetal_inheritance="paternal_not_transmitted",
+                expected_vaf=0.0, confidence=1.0, flags=flags, paternal_transmission_probability=0.0,
+            )
+        flags.append("no_alt_signal")
+        return _classification(
+            site, category=None, maternal_state="hom_ref",
+            fetal_inheritance="unknown", expected_vaf=0.0, confidence=0.0, flags=flags,
+        )
     if father_state in ("hom_alt", "het"):
         if site.cf_dp is None or n <= 0:
             flags.append("no_plasma_depth")
@@ -854,13 +939,19 @@ def classify_site(
     min_separation: float = 0.90,
     detect_min: int = 3,
     ff_too_low: float = 0.01,
+    fetal_sex: str | None = None,
 ) -> NiptClassification:
+    """Classify ``site`` into a maternal/fetal category. ``fetal_sex`` (``combined_fetal_sex``:
+    ``female``, ``male``, else unknown) decides chrX outside the pseudo-autosomal regions
+    (``chromosome_model``): a daughter's as an autosome's, her father's one X always
+    transmitted; a son's by the hemizygous model, nothing of it paternal."""
     ff = ff_estimate.ff
     flags: list[str] = []
     if site.in_target is False:
         flags.append(OFF_TARGET_FLAG)
 
-    if not site.is_autosomal:
+    model = chromosome_model(site, fetal_sex)
+    if model is None:
         flags.append("sex_chromosome_unsupported")
         return _classification(
             site,
@@ -879,6 +970,14 @@ def classify_site(
     k = site.cf_alt_reads or 0
     present = bool(site.cf_present) and not site.cf_depth_estimated and n > 0 and k >= qc.min_cf_alt_reads
     father_state = trusted_father_state(site, qc)
+    male_x = model == X_MALE_MODEL
+    if model in (X_FEMALE_MODEL, X_MALE_MODEL):
+        flags.append(X_MALE_FLAG if male_x else X_FEMALE_FLAG)
+        if father_state == "het":
+            # A man has one X outside the pseudo-autosomal regions: a het call there is a
+            # genotyping artefact (a paralogue), no genotype of his (the R validation's rule).
+            flags.append(FATHER_X_HET_FLAG)
+            father_state = "missing"
     if site.father_state == "low_vaf":
         flags.append("father_low_level_signal")
     elif site.father_state == "absent":
@@ -890,18 +989,19 @@ def classify_site(
     # ---- Absence handling ------------------------------------------------- #
     if not present:
         classification = _absent_site(
-            site, father_state, ff, flags, qc, detect_min=detect_min, overdispersion=overdispersion
+            site, father_state, ff, flags, qc, detect_min=detect_min, overdispersion=overdispersion, male_x=male_x
         )
         classification.quality_failures = failures
         return classification
 
     # ---- Present: likelihood over the candidate categories ---------------- #
-    if father_state == "missing":
+    if father_state == "missing" and not male_x:
         flags.append("father_no_coverage")
 
-    priors = _CANDIDATE_PRIORS.get(father_state, _CANDIDATE_PRIORS["missing"])
+    priors = _MALE_X_PRIORS if male_x else _CANDIDATE_PRIORS.get(father_state, _CANDIDATE_PRIORS["missing"])
     log_scores = {
-        category: _log_beta_binom(k, n, _expected_vaf(category, ff), overdispersion) + math.log(prior)
+        category: _log_beta_binom(k, n, _expected_vaf(category, ff, hemizygous=male_x), overdispersion)
+        + math.log(prior)
         for category, prior in priors.items()
     }
     posteriors = _softmax(log_scores)
@@ -923,18 +1023,39 @@ def classify_site(
         flags.append("ff_too_low")
         fetal_inheritance = "unknown"
 
+    if male_x and best == 1 and father_state in ("het", "hom_alt"):
+        # The father calls the allele, but a son never inherits his X: a de novo allele, or
+        # one of his calls the plasma shares (the R validation reads it as a low-confidence
+        # de novo candidate).
+        flags.append(PATERNAL_X_IN_SON_FLAG)
+
     classification = _classification(
         site,
         category=best,
         maternal_state=maternal_state,
         fetal_inheritance=fetal_inheritance,
-        expected_vaf=_expected_vaf(best, ff),
+        expected_vaf=_expected_vaf(best, ff, hemizygous=male_x),
         confidence=confidence,
         flags=flags,
         runner_up_category=runner_up_category,
         runner_up_confidence=runner_up_confidence,
     )
     classification.quality_failures = failures
+
+    if male_x:
+        classification.paternal_transmission_probability = 0.0 if father_state in ("het", "hom_alt") else None
+        if best in (2, 4, 6) and ff >= ff_too_low:
+            maternal, hom_alt, genotype = _male_x_maternal_probabilities(best, k, n, ff, overdispersion)
+            classification.maternal_allele_probability = maternal
+            classification.fetal_hom_alt_probability = hom_alt
+            classification.fetal_genotype_posterior = genotype
+        if best in _MALE_X_HET_BAND:
+            if site.variant_class != "SNV":
+                flags.append("maternal_inference_indel")
+            z = _beta_binomial_z(k, n, _expected_vaf(best, ff, hemizygous=True), overdispersion)
+            if z > ALLELE_BALANCE_OUTLIER_Z:
+                flags.append("allele_balance_outlier")
+        return classification
 
     if best == 7 and father_state in ("het", "hom_alt"):
         classification.paternal_transmission_probability = paternal_transmission_probability(
@@ -1182,12 +1303,16 @@ def run_nipt_analysis(
     *,
     artifact_lookup: Callable[[str], bool] = lambda _variant_id: False,
     overdispersion: float = OVERDISPERSION,
+    chry_profile: str | None = None,
 ) -> NiptAnalysisResult:
-    """Filter, estimate FF, classify, and tally."""
+    """Filter, estimate FF, read the fetal sex (the father's X alleles and the plasma's chrY
+    coverage, ``chry_profile``), classify, and tally."""
     filtered = filter_sites_and_estimate_ff(sites, qc, artifact_lookup=artifact_lookup)
     ff_estimate = filtered.fetal_fraction
+    paternal_x = infer_fetal_sex(filtered.passed, ff_estimate, qc)
+    sex_call = combined_fetal_sex(paternal_x.inferred, chry_profile, ff_estimate.ff_computed or 0.0)
     classifications = [
-        classify_site(site, ff_estimate, qc, overdispersion=overdispersion)
+        classify_site(site, ff_estimate, qc, overdispersion=overdispersion, fetal_sex=sex_call)
         for site in filtered.passed
     ]
 
@@ -1201,7 +1326,8 @@ def run_nipt_analysis(
         category_counts=category_counts,
         filter_counts=filtered.filter_counts,
         classifications=classifications,
-        fetal_sex=infer_fetal_sex(filtered.passed, ff_estimate, qc),
+        fetal_sex=paternal_x,
+        fetal_sex_call=sex_call,
         paternal_transmission=paternal_transmission_evidence(
             filtered.passed, ff_estimate, qc, overdispersion=overdispersion
         ),

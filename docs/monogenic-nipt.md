@@ -318,6 +318,22 @@ pipeline's rule); None without a table or in a joint VCF. `_is_ff_site` and
 `off_target`. Paternity and the fetal sex already count no per-sample site without the plasma's
 target depth. The category counts and the funnel still count off-target sites.
 
+## chrX by the fetal sex
+
+`run_nipt_analysis` reads the fetal sex before it classifies (`combined_fetal_sex` of
+`infer_fetal_sex` and the plasma's chrY profile, `chry_profile`; `NiptAnalysisResult.fetal_sex_call`),
+and the variant list reads the same (`nipt_service._estimate_cohort_fetal_fraction` returns it beside
+the FF). `chromosome_model` picks the model: autosomal for an autosome and for chrX's
+pseudo-autosomal regions (`_is_nonpar_x`, the conservative bounds of the fetal-sex check); `x_female`
+and `x_male` for chrX outside them; none for chrX of a fetus whose sex is not known, chrY and the
+mitochondrion. A daughter's chrX is classified as an autosome, a het call of the father there read as
+no call (`father_het_call_on_x`). A son's uses `_MALE_X_PRIORS` (1, 2, 4, 6) and the hemizygous
+expected fractions (`_expected_vaf(..., hemizygous=True)`: `(1 - FF) / (2 - FF)`, `1 / (2 - FF)`,
+`FF / (2 - FF)`), the maternal probabilities of `_male_x_maternal_probabilities`, a paternal
+transmission probability of 0, and `paternal_x_allele_in_male_fetus` on a category-1 call his father
+also has. `nipt_triage.is_de_novo_candidate` admits a classified chrX site (a son's whatever the
+father calls); the diagnostic candidates mark a son's paternal-X call low confidence.
+
 ## The locked diagnostic candidates
 
 `nipt_diagnostic_filters.py` holds the R validation's blinded-analysis criteria (REQ-NIPT-020),

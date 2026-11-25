@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from backend.app.services import nipt_service
+from backend.app.services import nipt_analysis, nipt_service
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
@@ -29,6 +29,7 @@ from backend.app.services.nipt_service import (
     triage_annotation,
 )
 from backend.app.services.nipt_analysis import NiptQualityThresholds
+from backend.app.services.nipt_artifact_pg import recurrence_rules
 from backend.app.services.nipt_target_coverage import TargetCoverageRow, TargetDepthLookup
 from backend.tests._nipt_service_fakes import nipt_family, wire_nipt_reads
 
@@ -512,6 +513,34 @@ async def test_a_de_novo_indel_in_a_repeat_is_a_low_confidence_candidate(monkeyp
     _wire(monkeypatch, filtered=sites)
     [candidate] = (await _diagnostic()).de_novo
     assert (candidate.confidence, candidate.flags) == ("low", ["repeat_context"])
+
+
+@pytest.mark.asyncio
+async def test_a_de_novo_allele_on_a_sons_x_beside_his_fathers_call_is_a_low_confidence_candidate() -> None:
+    # The R validation's rule: a son never inherits his father's X, so a fetal-window call his
+    # father also calls is a doubtful de novo candidate.
+    qc = NiptQualityThresholds()
+    ff_sites = [
+        nipt_analysis.NiptSiteObservation(
+            variant_id=f"1-{100 + i}-A-G", chrom="1", pos=100 + i, is_autosomal=True, cf_present=True,
+            cf_dp=1000, cf_alt_reads=55 + i % 10, cf_vaf=(55 + i % 10) / 1000, cf_qual=None, cf_coverage_dp=1000,
+            father_state="het", father_dp=50, father_qual=60.0, ref="A", alt="G",
+        )
+        for i in range(40)
+    ]
+    ff = nipt_analysis.estimate_fetal_fraction(ff_sites, qc)
+    record = _record("X-50000000-C-T", [_call(PLASMA, [1880, 120]), _hc_call(FATHER, [0, 30], gt="1")],
+                     genes=["GENEX"], annotations=[{"impact": "HIGH", "gnomad_af": None}])
+    [site] = build_nipt_observations([record], father_sample_id=FATHER, cfdna_sample_id=PLASMA)
+    classification = nipt_analysis.classify_site(site, ff, qc, fetal_sex="male")
+    assert classification.category == 1 and "paternal_x_allele_in_male_fetus" in classification.flags
+    item = nipt_service.NiptClassifiedVariant(record=record, classification=classification, site=site)
+    scope = nipt_service._RecurrenceScope(
+        assembly_name=None, carrier_samples=[], family_uuid="family-uuid", rules=recurrence_rules(qc)
+    )
+    candidates = await nipt_service.diagnostic_candidates([item], ff, qc, scope=scope)
+    [candidate] = candidates.de_novo
+    assert (candidate.confidence, candidate.flags) == ("low", ["paternal_x_allele_in_male_fetus"])
 
 
 @pytest.mark.asyncio
