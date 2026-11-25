@@ -26,7 +26,7 @@ FROM node:22@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b7
 FROM fsouza/fake-gcs-server:1.56.1@sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef AS fake-gcs-server
 
 # The builder that ci/cloudbuild.backend.yaml and ci/cloudbuild.frontend.yaml run.
-FROM gcr.io/cloud-builders/docker:20.10.24@sha256:dccbdf9b7877dc1b66427d769a55fe9d82c21655a88301e5eba3d0754c76d146 AS cloud-build-docker
+FROM gcr.io/cloud-builders/docker:20.10.24@sha256:2d89b48c704ddcc4a199dd1cc70c21813fb675227600f19cb77e5bbf368012bc AS cloud-build-docker
 
 # The Terraform version .github/workflows/build.yml installs (terraform_version).
 FROM hashicorp/terraform:1.17.2@sha256:6e9c1e647c31a960dc9b59e13272f9111d90010c10b717f77ffb324767660475 AS terraform
