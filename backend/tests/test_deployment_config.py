@@ -103,6 +103,17 @@ def test_the_imports_run_in_a_service_of_their_own_from_the_backend_image() -> N
     assert dev["import-worker"]["volumes"] == code
 
 
+def test_the_vm_import_worker_keeps_its_temporary_files_on_srv() -> None:
+    # A whole-genome import's VEP annotation index takes tens of gigabytes in the worker's /tmp,
+    # and a container's own files are on the system disk, in containerd's image store
+    # (docs/deployment-vm.md, steps 3 and 5). Untagged, the list adds to the base file's
+    # ./data:/data, which the worker reads the packages from.
+    vm = yaml.safe_load((REPO / "docker-compose.vm.yml").read_text().replace("!override", ""))
+    assert vm["services"]["import-worker"]["volumes"] == ["/srv/coga-import-tmp:/tmp"]
+    guide = (REPO / "docs" / "deployment-vm.md").read_text()
+    assert "sudo install -d -m 0700 /srv/coga-import-tmp" in guide, "the guide does not make the folder"
+
+
 def test_the_frontend_does_not_receive_the_backend_secrets() -> None:
     frontend = _compose()["services"]["frontend"]
     assert "env_file" not in frontend, "the frontend container must not get the whole .env"

@@ -120,7 +120,9 @@ such as Ghent University's it is mandatory.
 
 3. **Install Docker** from Docker's own apt repository
    (<https://docs.docker.com/engine/install/>), not the distribution's `docker.io` package. Put
-   its data on `/srv` first, so nothing lands on the system disk:
+   its data on `/srv` first, so the volumes that hold the databases are not on the system disk.
+   The images and the containers' own files stay on the system disk, in containerd's image store
+   (`/var/lib/containerd`): a few gigabytes.
 
    ```bash
    sudo mkdir -p /etc/docker /srv/docker
@@ -307,6 +309,7 @@ with it.
 
 ```bash
 cd /srv/coga
+sudo install -d -m 0700 /srv/coga-import-tmp
 export GIT_SHA="$(git rev-parse --short=12 HEAD)"
 docker compose up --build -d
 docker compose logs -f backend
@@ -314,11 +317,17 @@ docker compose logs -f backend
 
 - Without `GIT_SHA` the backend refuses to start outside development: every report it signs
   names the commit.
-- [`docker-compose.vm.yml`](../docker-compose.vm.yml) binds the frontend to `127.0.0.1:3000`
-  and rotates the containers' logs. `COMPOSE_FILE` (step 4) applies it; without that setting,
-  pass `-f docker-compose.yml -f docker-compose.vm.yml` to every command. Check that
+- [`docker-compose.vm.yml`](../docker-compose.vm.yml) binds the frontend to `127.0.0.1:3000`,
+  rotates the containers' logs and gives the import worker `/srv/coga-import-tmp` as its `/tmp`.
+  `COMPOSE_FILE` (step 4) applies it; without that setting, pass
+  `-f docker-compose.yml -f docker-compose.vm.yml` to every command. Check that
   `docker compose ps` shows `127.0.0.1:3000->3000/tcp` for the frontend: without the override,
   port 3000 is open on every interface.
+- `/srv/coga-import-tmp` holds the import worker's temporary files. The largest is the index of a
+  package's separate VEP annotation table, about 1 KB per annotation row: tens of gigabytes for a
+  whole genome. Without the mount they would land on the system disk (step 3). Only root reads the
+  folder. An import removes its files when it ends, so files left there while no import runs
+  can go.
 - The first start downloads and loads the GRCh38 reference (its cytobands and genes), HPO's
   newest release and Monarch's, which takes several minutes. The backend turns healthy when they
   are loaded; the frontend and the import worker start after it. The gene reference sync, the
