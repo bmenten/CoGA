@@ -81,10 +81,11 @@ def clinvar_may_assert_pathogenic(clinvar: str | Iterable[str] | None) -> bool:
     Read on whole words, as ``pathogenicity_score`` reads ClinVar: any "pathogenic" token
     counts -- Pathogenic, Likely_pathogenic, Pathogenic/Likely_pathogenic, "Pathogenic,
     low penetrance", a VEP CLIN_SIG list such as ``uncertain_significance&pathogenic`` --
-    and "pathogenicity" does not. Unlike the score, a conflicting record counts too, whatever
-    its submitters' classifications (CLNSIGCONF): a conflict can hold a P/LP submission, and
-    no automatic step sets one aside. Takes a raw significance, or the normalised terms kept
-    in ``clinvar_terms``.
+    and "pathogenicity" does not. Unlike the score, a conflicting record counts too: a
+    conflict can hold a P/LP submission, and only ClinVar's aggregate significance is
+    imported (not its per-submission CLNSIGCONF breakdown), so no conflict can be shown
+    to lack one. Takes a raw significance, or the normalised terms kept in
+    ``clinvar_terms``.
     """
     values = [clinvar] if clinvar is None or isinstance(clinvar, str) else list(clinvar)
     for value in values:

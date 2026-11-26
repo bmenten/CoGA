@@ -403,7 +403,7 @@ export function evaluateAcmg(
   // never applied: ClinGen's SVI advises against counting another lab's assertion as evidence
   // (the owner's choice of 2026-11-06). The evidence names the review status (its stars) and
   // the conditions ClinVar gives.
-  const clinvar = clinvarClass(variant);
+  const clinvar = clinvarClass(variant.clinvar);
   const clinvarReport = describeClinvar(variant);
   if (clinvar === 'pathogenic') {
     add('PP5', 'supporting', `${clinvarReport} — review before applying.`, 'consider');

@@ -639,14 +639,12 @@ def test_the_clinvar_files_review_status_conditions_and_ids_are_read() -> None:
             "ClinVar_CLNSIG": "Pathogenic",
             "ClinVar_CLNREVSTAT": "criteria_provided&_multiple_submitters&_no_conflicts",
             "ClinVar_CLNDN": "Condition_A&not_provided",
-            "ClinVar_CLNSIGCONF": "Pathogenic(2)&Uncertain_significance(1)",
             "ClinVar_ALLELEID": "98765",
             "ClinVar": "12345",
         }
     )
     assert annotation["clinvar_review_status"] == "criteria provided, multiple submitters, no conflicts"
     assert annotation["clinvar_conditions"] == "Condition_A&not_provided"
-    assert annotation["clinvar_conflicts"] == "Pathogenic(2)&Uncertain_significance(1)"
     assert (annotation["clinvar_variation_id"], annotation["clinvar_allele_id"]) == ("12345", "98765")
     # An ID that is no VariationID is not kept as one.
     assert "clinvar_variation_id" not in normalize_small_variant_annotation_entry({"SYMBOL": "G", "ClinVar": "Pathogenic"})
@@ -673,21 +671,10 @@ def test_clinvar_stars(status, stars) -> None:
 
 
 def test_clinvar_conditions_are_listed_once_as_words() -> None:
-    from backend.app.services.clinvar_review_status import clinvar_listed
+    from backend.app.services.clinvar_review_status import clinvar_conditions
 
-    assert clinvar_listed("Condition_A|not_provided&Condition_A") == ["Condition A", "not provided"]
-    assert clinvar_listed(None) == []
-
-
-def test_a_clinvar_conflicts_classifications_are_listed_with_their_submissions() -> None:
-    # CLNSIGCONF, "|" in ClinVar's file and "&" in VEP's CSQ: served as words with the number of
-    # submissions, stored for the track's salient variants as the bare classifications.
-    from backend.app.services.clinvar_review_status import clinvar_conflict_terms, clinvar_conflicts
-
-    value = "Pathogenic(2)|Likely_pathogenic(1)&Uncertain_significance(1)"
-    assert clinvar_conflicts(value) == ["Pathogenic (2)", "Likely pathogenic (1)", "Uncertain significance (1)"]
-    assert clinvar_conflict_terms(value) == {"pathogenic", "likely pathogenic", "uncertain significance"}
-    assert clinvar_conflicts(None) == [] and clinvar_conflict_terms(None) == set()
+    assert clinvar_conditions("Condition_A|not_provided&Condition_A") == ["Condition A", "not provided"]
+    assert clinvar_conditions(None) == []
 
 
 def test_gnomads_allele_number_faf95_and_filters_and_vep_nmd_are_read() -> None:

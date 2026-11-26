@@ -194,7 +194,7 @@ export default function SmallVariantTable({
             return (
               <tr
                 key={variant._id}
-                className={`variant-table-row--clinvar-${getClinvarHighlightTone(variant)}${
+                className={`variant-table-row--clinvar-${getClinvarHighlightTone(variant.clinvar)}${
                   isExcluded ? ' variant-table-row--excluded' : ''
                 }`}
               >

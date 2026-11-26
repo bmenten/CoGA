@@ -44,7 +44,6 @@ const ABSENT_VARIANT_FIELDS: Omit<
   clinvar_review_status: null,
   clinvar_stars: null,
   clinvar_conditions: [],
-  clinvar_conflicts: [],
   clinvar_variation_id: null,
   rsid: null,
   hgvsc: null,

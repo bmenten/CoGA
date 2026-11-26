@@ -688,19 +688,8 @@ describe('ClinVar tones', () => {
     ['Conflicting_classifications_of_pathogenicity', 'neutral', 'neutral'],
     [undefined, 'neutral', 'neutral'],
   ])('reads %s as a %s chip and a %s row', (clinvar, tone, highlight) => {
-    expect(getClinvarTone({ clinvar })).toBe(tone);
-    expect(getClinvarHighlightTone({ clinvar })).toBe(highlight);
-  });
-
-  it('reads a conflict by the classifications its submitters gave', () => {
-    const conflict = { clinvar: 'Conflicting_classifications_of_pathogenicity' };
-    const withPathogenic = { ...conflict, clinvar_conflicts: ['Pathogenic (1)', 'Uncertain significance (2)'] };
-    expect([getClinvarTone(withPathogenic), getClinvarHighlightTone(withPathogenic)]).toEqual(['warning', 'warning']);
-    const withoutPathogenic = { ...conflict, clinvar_conflicts: ['Likely benign (1)', 'Uncertain significance (2)'] };
-    expect([getClinvarTone(withoutPathogenic), getClinvarHighlightTone(withoutPathogenic)]).toEqual([
-      'neutral',
-      'neutral',
-    ]);
+    expect(getClinvarTone(clinvar)).toBe(tone);
+    expect(getClinvarHighlightTone(clinvar)).toBe(highlight);
   });
 });
 

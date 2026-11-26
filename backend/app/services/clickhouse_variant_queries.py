@@ -79,7 +79,7 @@ from .variant_prioritization import (
     MODE_HOM_RECESSIVE,
     MODE_X_LINKED,
 )
-from .clinvar_review_status import clinvar_conflicts, clinvar_listed, clinvar_stars
+from .clinvar_review_status import clinvar_conditions, clinvar_stars
 from .clickhouse_variant_records import (
     CLINVAR_OVERRIDE_TERMS,
     Region,
@@ -1852,8 +1852,7 @@ def _small_variant_out(
         clinvar=_annotation_clinvar(annotation),
         clinvar_review_status=_annotation_text(annotation, "clinvar_review_status"),
         clinvar_stars=clinvar_stars(_annotation_text(annotation, "clinvar_review_status")),
-        clinvar_conditions=clinvar_listed(_annotation_text(annotation, "clinvar_conditions")),
-        clinvar_conflicts=clinvar_conflicts(_annotation_text(annotation, "clinvar_conflicts")),
+        clinvar_conditions=clinvar_conditions(_annotation_text(annotation, "clinvar_conditions")),
         clinvar_variation_id=_annotation_text(annotation, "clinvar_variation_id"),
         rsid=record.rsid or _annotation_text(annotation, "rsid"),
         transcript_id=_annotation_text(annotation, "transcript_id"),
@@ -3053,23 +3052,25 @@ def _small_salient_condition(
     """With ``salient_only``, the transcript rows (alias ``a``) of a variant the small-variant
     track marks as salient: a ClinVar diamond, or of HIGH or MODERATE impact and not ClinVar
     (likely) benign. ClinVar is read as the browser reads it (``clinvarClass``,
-    ``frontend/src/lib/clinvar.ts``), on every classification it lists: its own and, for a
-    conflict, its submitters' (CLNSIGCONF). A diamond lists a (likely) pathogenic
-    classification, red when it lists no other, orange beside one that disagrees; (likely)
-    benign lists no other classification. The impact is any transcript's, so the set holds
-    every variant the track would mark by its shown transcript, and no pathogenic variant is
-    left out for its impact.
+    ``frontend/src/lib/clinvar.ts``): a diamond lists a (likely) pathogenic classification, red
+    when it lists no other, orange beside one that disagrees; (likely) benign lists no other
+    classification; ClinVar's aggregate conflict is neither. The impact is any transcript's, so
+    the set holds every variant the track would mark by its shown transcript, and no
+    pathogenic variant is left out for its impact.
     """
     if not filters.salient_only:
         return None
     params["salient_impacts"] = _SALIENT_IMPACTS
-    listed = "arrayConcat(a.clinvar_terms, a.clinvar_conflict_terms)"
-    diamond = f"arrayExists(term -> position(term, 'pathogenic') > 0 AND position(term, 'conflict') = 0, {listed})"
+    diamond = (
+        "arrayExists(term -> position(term, 'pathogenic') > 0"
+        " AND position(term, 'conflict') = 0, a.clinvar_terms)"
+    )
     # Without a pathogenic term (the diamond's), benign beside an uncertain classification or a
     # conflict is a conflict.
     benign = (
-        f"(arrayExists(term -> position(term, 'benign') > 0, {listed})"
-        f" AND NOT arrayExists(term -> term = 'uncertain significance' OR position(term, 'conflict') > 0, {listed}))"
+        "(arrayExists(term -> position(term, 'benign') > 0, a.clinvar_terms)"
+        " AND NOT arrayExists(term -> term = 'uncertain significance'"
+        " OR position(term, 'conflict') > 0, a.clinvar_terms))"
     )
     return f"({diamond} OR (a.impact IN %(salient_impacts)s AND NOT {benign}))"
 

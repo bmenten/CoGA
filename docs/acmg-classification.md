@@ -115,8 +115,7 @@ Some pre-evaluation rules repeat a backend rule. Change both sides together:
   benign, as in the prioritiser (`variant_prioritization.py`) and the mtDNA status
   (`mitochondrial_analysis.py`). So is a list of classifications that disagree; those two read a list
   by its words, so one that names pathogenic counts as pathogenic there. The track's salient set
-  (`_small_salient_condition` in `clickhouse_variant_queries.py`) reads a list, and a conflict's
-  classifications by its submitters (CLNSIGCONF, `clinvar_conflict_terms`), as `clinvarClass` does.
+  (`_small_salient_condition` in `clickhouse_variant_queries.py`) reads a list as `clinvarClass` does.
 - **De novo (PM6 / PS2).** `evaluateFamily` in `evaluate.ts` follows the de novo filter in
   `clickhouse_variant_queries.py`:
   - the parents come from the pedigree links (`pedigree.ts` reads them as `_parent_child_links`

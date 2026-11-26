@@ -1368,47 +1368,6 @@ describe('SmallVariantCards', () => {
     expect(card).toHaveClass('small-variant-card', `variant-card--clinvar-${tone}`);
   });
 
-  it("colours ClinVar's conflict orange by its submitters' classifications, named on hover", () => {
-    const { container } = renderCards(
-      <SmallVariantCards
-        variants={[
-          smallVariant({
-            _id: 'conflict-var',
-            chr: '1',
-            start: 100,
-            end: 100,
-            type: 'SNV',
-            ref: 'A',
-            alt: 'G',
-            gene: 'GENE1',
-            clinvar: 'Conflicting_classifications_of_pathogenicity',
-            clinvar_review_status: 'criteria provided, conflicting classifications',
-            clinvar_stars: 1,
-            clinvar_conflicts: ['Pathogenic (2)', 'Uncertain significance (1)'],
-            clinvar_conditions: ['Condition A'],
-            genotypes: [],
-          }),
-        ]}
-        members={[]}
-        familyId="F1"
-        projectId="P1"
-        locationSearch=""
-        tags={[]}
-        onEditReview={vi.fn()}
-        onAcmgClassify={vi.fn()}
-        onToggleReviewTag={vi.fn(async () => undefined)}
-      />,
-    );
-
-    expect(container.querySelector('article.variant-card')).toHaveClass('variant-card--clinvar-warning');
-    const chip = screen.getByText('ClinVar').parentElement as HTMLElement;
-    expect(chip).toHaveClass('variant-card-chip--warning');
-    expect(chip).toHaveAttribute(
-      'title',
-      'criteria provided, conflicting classifications — Pathogenic (2), Uncertain significance (1) — Condition A',
-    );
-  });
-
   it.each([
     ['combined_score', /Priority 0.46/, ['Variant', '0.85']],
     ['variant_score', /Variant score 0.85/, ['Priority', '0.46']],

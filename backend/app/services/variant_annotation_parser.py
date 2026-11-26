@@ -76,12 +76,10 @@ _ANN_ALIASES = {
     "existing_outofframe_oorfs": ["Existing_OutOfFrame_oORFs"],
     "existing_uorfs": ["Existing_uORFs"],
     # The ClinVar file's review status (``criteria_provided,_multiple_submitters,…``, read as
-    # words: ``_clinvar_text``), conditions (CLNDN), a conflicting record's classifications with
-    # their submissions (CLNSIGCONF: ``Pathogenic(2)|Uncertain_significance(1)``), allele ID
-    # and, from VEP --custom, the matched record's ID: its VariationID (``ClinVar``, digits only).
+    # words: ``_clinvar_text``), conditions (CLNDN), allele ID and, from VEP --custom, the
+    # matched record's ID: its VariationID (``ClinVar``, digits only).
     "clinvar_review_status": ["ClinVar_CLNREVSTAT", "CLNREVSTAT"],
     "clinvar_conditions": ["ClinVar_CLNDN", "CLNDN"],
-    "clinvar_conflicts": ["ClinVar_CLNSIGCONF", "CLNSIGCONF"],
     "clinvar_allele_id": ["ClinVar_ALLELEID", "ALLELEID"],
     "clinvar_variation_id": ["ClinVar", "ClinVar_ID", "CLINVAR_ID"],
     # VEP's NMD plugin: ``NMD_escaping_variant`` for a variant predicted to escape
