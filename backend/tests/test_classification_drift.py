@@ -39,6 +39,18 @@ def test_build_evidence_snapshot_extracts_identity_and_clinvar() -> None:
     assert snap["captured_at"].startswith("2026-06-25")
 
 
+def test_build_evidence_snapshot_freezes_whether_clinvar_is_the_vep_caches() -> None:
+    # The signed record names a classification read from VEP's cache as the cache's.
+    assert _freeze(_record("123", "Pathogenic"))["clinvar_from_vep_cache"] is False
+    cached = types.SimpleNamespace(
+        annotation_version="v1",
+        annotation_set_hash="123",
+        annotations=[{"clinvar": "not_provided&pathogenic", "clinvar_from_vep_cache": True}],
+    )
+    snap = _freeze(cached)
+    assert (snap["clinvar"], snap["clinvar_from_vep_cache"]) == ("not_provided&pathogenic", True)
+
+
 def test_build_evidence_snapshot_treats_placeholder_as_no_clinvar() -> None:
     assert _freeze(_record("123", "-"))["clinvar"] is None
     assert _freeze(_record("123", "."))["clinvar"] is None

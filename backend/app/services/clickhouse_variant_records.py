@@ -17,6 +17,8 @@ _KNOWN_ANNOTATION_KEYS = {
     "clinvar_review_status",
     "clinvar_conditions",
     "clinvar_variation_id",
+    # Whether the ClinVar classification is VEP's cache's, served as a field of its own.
+    "clinvar_from_vep_cache",
     "nmd",
     "spliceai_dp_ag",
     "spliceai_dp_al",

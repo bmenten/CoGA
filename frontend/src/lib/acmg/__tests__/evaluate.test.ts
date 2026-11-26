@@ -244,6 +244,14 @@ describe('evaluateAcmg', () => {
     );
   });
 
+  it("names a ClinVar classification from VEP's cache as the cache's in the PP5 and BP6 evidence", () => {
+    const fromCache = evaluateAcmg({ clinvar: 'not_provided&pathogenic', clinvar_from_vep_cache: true });
+    expect(find(fromCache, 'PP5')?.evidence).toBe(
+      'ClinVar (VEP cache) reports not_provided&pathogenic — review before applying.',
+    );
+    expect(find(fromCache, 'BP6')?.evidence).toBe('ClinVar (VEP cache) reports not_provided&pathogenic, not benign.');
+  });
+
   it('offers PVS1 for review where LOFTEE flags the call or NMD is predicted to be escaped', () => {
     // A null variant in a haploinsufficient gene, HC, would be very strong; a LOFTEE flag or a
     // predicted escape from NMD makes it Consider (the owner's choice of 2026-11-06).

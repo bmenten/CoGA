@@ -162,7 +162,7 @@ def test_family_export_names_the_transcript_the_filters_held_on() -> None:
     # ...and the filter-matched transcript follows, after the row's own columns.
     assert labels[: labels.index("Genotypes") + 1] == [
         "Chromosome", "Start", "End", "Type", "Ref", "Alt", "rsID", "Gene", "Gene ID",
-        "Transcript", "Impact", "Effect", "HGVSg", "HGVSc", "HGVSp", "ClinVar", "gnomAD AF",
+        "Transcript", "Impact", "Effect", "HGVSg", "HGVSc", "HGVSp", "ClinVar", "ClinVar from VEP cache", "gnomAD AF",
         "gnomAD hom", "CADD", "REVEL", "SpliceAI", "SIFT", "PolyPhen", "Classification",
         "Classification text", "Tags", "Genotypes",
     ]
@@ -179,6 +179,15 @@ def test_family_export_names_the_transcript_the_filters_held_on() -> None:
         "Filter-matched SIFT": "deleterious(0.02)",
         "Filter-matched PolyPhen": "probably_damaging(0.95)",
     }
+
+
+def test_family_export_says_whether_clinvar_is_the_vep_caches() -> None:
+    # A classification read from VEP's cache (no ClinVar file annotated) is the known variant's,
+    # perhaps another allele's: the file says so beside it, as every view names it.
+    field = "clinvar_from_vep_cache"
+    cached = _variant().model_copy(update={"clinvar": "pathogenic", "clinvar_from_vep_cache": True})
+    assert _family_export_cell(cached, field) == "True"
+    assert _family_export_cell(_variant(), field) == "False"
 
 
 def test_family_export_names_the_members_without_calls_on_every_row_last() -> None:

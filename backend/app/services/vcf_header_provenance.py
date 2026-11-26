@@ -107,8 +107,7 @@ _CANONICAL: dict[str, str] = {
     "gnomade": "gnomad",
     "gnomadg": "gnomad",
     "clinvar": "clinvar",
-    # The ClinVar release of VEP's cache, never the ClinVar classification's
-    # (``clinvar_file_module``).
+    # The ClinVar release of VEP's cache (``clinvar_file_module``).
     "clinvarvepcache": "clinvar_vep_cache",
     "dbnsfp": "dbnsfp",
     "spliceai": "spliceai",
@@ -409,8 +408,8 @@ def extract_header_provenance(
     ``clinvar_file_name``: the records' ClinVar classification comes from a ClinVar file,
     which the ``##INFO`` lines name (``variant_annotation_parser.clinvar_file_annotated``);
     then ``clinvar`` is that file's release. The ClinVar release of VEP's cache is always
-    ``clinvar_vep_cache`` (``clinvar_file_module``). Best-effort: malformed lines are skipped,
-    never raised.
+    ``clinvar_vep_cache``, named as the cache's (``clinvar_file_module``). Best-effort:
+    malformed lines are skipped, never raised.
     """
     prov = HeaderProvenance()
     # The tools the ``##source`` lines name, and the first version a ``##source_version``
@@ -489,14 +488,15 @@ def extract_header_provenance(
 
 
 # --- The ClinVar file --------------------------------------------------------- #
-# The records' ClinVar classification is only ever the ClinVar file's the pipeline annotated
-# (VEP --custom, bcftools annotate; ``variant_annotation_parser``), so the manifest's ClinVar
-# release is that file's, and a callset annotated without one has none. The ClinVar release
-# of VEP's cache (``##VEP=… ClinVar="…"``) is a module of its own, ``clinvar_vep_cache``. VEP
+# The records' ClinVar classification is the ClinVar file's the pipeline annotated (VEP
+# --custom, bcftools annotate; ``variant_annotation_parser``), and VEP's cache's only where no
+# such file was annotated. ``clinvar`` is the ClinVar file's release alone; the ClinVar release
+# of VEP's cache (``##VEP=… ClinVar="…"``) is always a module of its own, ``clinvar_vep_cache``,
+# so a classification read from the cache is named as the cache's in the manifest too. VEP
 # names a --custom file in the description of its fields' INFO lines (``… CLNSIG field from
 # [PATH]/clinvar_20261101.vcf.gz``) and states no release: the release is the date ClinVar
 # names its weekly file by. A file named without one is recorded by its name, with no version.
-_CLINVAR_CACHE_DETAIL = "VEP cache; kept apart, not read as the ClinVar classification"
+_CLINVAR_CACHE_DETAIL = "VEP cache; the ClinVar classification only where no ClinVar file was annotated"
 _CLINVAR_FILE_RELEASE = re.compile(r"(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)")
 
 

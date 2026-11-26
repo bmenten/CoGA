@@ -586,6 +586,17 @@ def test_the_new_annotation_fields_are_served_as_fields_of_their_own() -> None:
     assert (variant.clinvar_variation_id, variant.nmd, variant.spliceai_dp_dg) == ("12345", "NMD_escaping_variant", -14)
     for key in ("clinvar_review_status", "clinvar_conditions", "clinvar_variation_id", "nmd", "spliceai_dp_dg"):
         assert key not in variant.annotation_extra
+    # A ClinVar file's classification: not VEP's cache's.
+    assert variant.clinvar_from_vep_cache is False
+
+
+def test_a_clinvar_classification_from_the_vep_cache_is_served_as_the_caches() -> None:
+    # Read where no ClinVar file was annotated: the known variant's, perhaps another allele's.
+    # Every view names it as the cache's, so it is served as such, not as an extra annotation.
+    cached = _transcript("ENST_SYN52_1", canonical=True, clinvar="pathogenic", clinvar_from_vep_cache=True)
+    variant = _small_variant_out(_record("1-100-C-T", [cached]), assembly_name="GRCh38", filter_annotation_hashes=None)
+    assert (variant.clinvar, variant.clinvar_from_vep_cache) == ("pathogenic", True)
+    assert "clinvar_from_vep_cache" not in variant.annotation_extra
 
 
 def test_vep_hgvsg_is_served_from_the_primary_transcripts_annotation() -> None:

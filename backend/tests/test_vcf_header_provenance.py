@@ -575,9 +575,9 @@ def test_the_clinvar_file_gives_the_clinvar_release_and_the_cache_goes_apart():
     ).as_modules()
     assert mods["clinvar"] == {"version": "20261101", "detail": "ClinVar file clinvar_20261101.vcf.gz"}
     assert mods["clinvar_vep_cache"]["version"] == "202301"
-    assert "not read as the ClinVar classification" in mods["clinvar_vep_cache"]["detail"]
-    # Without a ClinVar file the records have no ClinVar classification, so no ClinVar
-    # release: the cache's stays apart.
+    assert "only where no ClinVar file was annotated" in mods["clinvar_vep_cache"]["detail"]
+    # Without a ClinVar file the records' classification is the cache's: no ClinVar file's
+    # release, and the cache's under its own name.
     assert "clinvar" not in _modules(SNV_VEP_HEADER)
     assert _modules(SNV_VEP_HEADER)["clinvar_vep_cache"]["version"] == "202301"
 

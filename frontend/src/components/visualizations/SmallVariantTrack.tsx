@@ -10,6 +10,7 @@ import type {
 } from '../../lib/apiSchema.generated';
 import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { hasAltAllele } from '../../lib/genotypes';
+import { clinvarLabel } from '../../lib/clinvar';
 import { cssVar } from '../../lib/colors';
 import {
   SMALL_VARIANT_ALL_MARKS_MAX_SPAN,
@@ -445,7 +446,11 @@ const SmallVariantTrack: React.FC<Props> = ({
           {tooltip.variant.hgvsc ? <div>{tooltip.variant.hgvsc}</div> : null}
           {tooltip.variant.hgvsp ? <div>{tooltip.variant.hgvsp}</div> : null}
           {tooltip.variant.impact ? <div>Impact: {tooltip.variant.impact}</div> : null}
-          {tooltip.variant.clinvar ? <div>ClinVar: {tooltip.variant.clinvar}</div> : null}
+          {tooltip.variant.clinvar ? (
+            <div>
+              {clinvarLabel(tooltip.variant.clinvar_from_vep_cache)}: {tooltip.variant.clinvar}
+            </div>
+          ) : null}
           {tooltip.variant.review?.tags?.length ? (
             <div>
               Tags:{' '}

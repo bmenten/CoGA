@@ -743,7 +743,7 @@ describe('buildLiteraturePubmedHref', () => {
 });
 
 // The card's ClinVar link where the annotation matched no ClinVar record. ClinVar knows no
-// Ensembl accession, so the search is by the MANE RefSeq transcript, the rsID, the position or
+// Ensembl accession, so the search is by the rsID, the MANE RefSeq transcript, the position or
 // the gene — never by an Ensembl transcript's c. change.
 describe('clinvarSearchTerm', () => {
   const brca1 = smallVariant({
@@ -759,25 +759,36 @@ describe('clinvarSearchTerm', () => {
     hgvsc: 'ENST00000357654.9:c.68_69del',
   });
 
-  it('searches the c. change on the MANE RefSeq transcript, not the Ensembl one', () => {
+  it('searches the rsIDs first, also where a RefSeq HGVSc is known', () => {
+    // A classification from VEP's cache is the rsID's, and ClinVar may name an indel in a
+    // repeat otherwise than VEP's HGVSc: the rsID finds the records either way.
     expect(
       clinvarSearchTerm({
         variant: { ...brca1, mane_refseq_id: 'NM_007294.4', rsid: 'rs80357914' },
         assemblyName: 'GRCh38',
       }),
-    ).toBe('NM_007294.4:c.68_69del');
-  });
-
-  it('searches the HGVSc of a RefSeq transcript as it stands', () => {
+    ).toBe('rs80357914');
     expect(
       clinvarSearchTerm({
         variant: { ...brca1, hgvsc: 'NM_001407571.1:c.-123_-122del', rsid: 'rs80357914' },
         assemblyName: 'GRCh38',
       }),
+    ).toBe('rs80357914');
+  });
+
+  it('searches the c. change on the MANE RefSeq transcript without an rsID, not the Ensembl one', () => {
+    expect(clinvarSearchTerm({ variant: { ...brca1, mane_refseq_id: 'NM_007294.4' }, assemblyName: 'GRCh38' })).toBe(
+      'NM_007294.4:c.68_69del',
+    );
+  });
+
+  it('searches the HGVSc of a RefSeq transcript as it stands without an rsID', () => {
+    expect(
+      clinvarSearchTerm({ variant: { ...brca1, hgvsc: 'NM_001407571.1:c.-123_-122del' }, assemblyName: 'GRCh38' }),
     ).toBe('NM_001407571.1:c.-123_-122del');
   });
 
-  it('searches the rsIDs of a transcript in no MANE pair, other identifiers left out', () => {
+  it('searches the rsIDs alone, other identifiers left out', () => {
     expect(
       clinvarSearchTerm({ variant: { ...brca1, rsid: 'rs80357914&CM940165&COSV58787000' }, assemblyName: 'GRCh38' }),
     ).toBe('rs80357914');

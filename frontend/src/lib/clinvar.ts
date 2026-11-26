@@ -27,3 +27,17 @@ export const clinvarClass = (clinvar?: string | null): ClinvarClass | undefined 
   if (value.includes('benign')) return 'benign';
   return undefined;
 };
+
+/**
+ * The name a ClinVar classification is shown under. One read from VEP's cache
+ * (`clinvar_from_vep_cache`: the callset was annotated without a ClinVar file) is the known
+ * variant's, the dbSNP rsID's: this allele's where the cache holds one per allele, else every
+ * allele's of the rsID, and the annotation does not say which. Every view names it as the
+ * cache's (`VEP_CACHE_CLINVAR_NOTE` says why on hover).
+ */
+export const clinvarLabel = (fromVepCache?: boolean | null): string =>
+  fromVepCache ? 'ClinVar (VEP cache)' : 'ClinVar';
+
+export const VEP_CACHE_CLINVAR_NOTE =
+  "From VEP's cache (CLIN_SIG), as no ClinVar file was annotated: the classification of the " +
+  'known variant (dbSNP rsID), which may be that of another allele at this position. Check it in ClinVar.';

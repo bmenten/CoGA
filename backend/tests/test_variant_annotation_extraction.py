@@ -56,8 +56,10 @@ def test_extract_small_variant_annotations_from_csq() -> None:
             "mane_select": True,
             "hgvsc": "ENST1:c.101A>G",
             "hgvsp": "ENSP1:p.Lys34Arg",
-            # VEP's cache CLIN_SIG, kept apart: no ClinVar file was annotated.
-            "clinvar_vep_cache": "Pathogenic",
+            # VEP's cache CLIN_SIG, read where no ClinVar file was annotated, and named as the
+            # cache's.
+            "clinvar": "Pathogenic",
+            "clinvar_from_vep_cache": True,
             "gnomad_hom_count": 1,
             "gene_pli": 0.982,
             "gene_missense_z": 4.12,
@@ -198,7 +200,7 @@ def test_normalize_small_variant_annotation_entry_from_vep_tsv() -> None:
     assert annotation["effect"] == "missense_variant"
     assert annotation["canonical"] is True
     assert annotation["mane_select"] is True
-    assert "clinvar" not in annotation and annotation["clinvar_vep_cache"] == "Pathogenic"
+    assert (annotation["clinvar"], annotation["clinvar_from_vep_cache"]) == ("Pathogenic", True)
     assert annotation["lof"] == "HC"
     assert annotation["population_frequencies"] == {
         "gnomad_exomes_af": 0.0002,
@@ -375,7 +377,7 @@ def test_a_maximum_gnomad_count_keeps_a_variant_whose_only_count_is_unprefixed(k
 
 
 # --------------------------------------------------------------------------- #
-# ClinVar: the ClinVar file the pipeline annotated, never VEP's cache
+# ClinVar: the ClinVar file the pipeline annotated, before VEP's cache
 # --------------------------------------------------------------------------- #
 
 _CLINVAR_CSQ_HEADER = (
@@ -404,6 +406,7 @@ def test_the_clinvar_files_classification_is_read_and_the_vep_caches_kept_apart(
     )
     assert annotation["clinvar"] == "Benign"
     assert annotation["clinvar_vep_cache"] == "uncertain_significance&pathogenic"
+    assert "clinvar_from_vep_cache" not in annotation
 
 
 def test_a_variant_the_clinvar_file_has_no_record_of_has_no_clinvar_classification() -> None:
@@ -415,19 +418,20 @@ def test_a_variant_the_clinvar_file_has_no_record_of_has_no_clinvar_classificati
     assert annotation["clinvar_vep_cache"] == "pathogenic"
 
 
-def test_without_a_clinvar_file_a_record_has_no_clinvar_classification() -> None:
+def test_without_a_clinvar_file_the_vep_caches_classification_is_read_and_named_as_the_caches() -> None:
     # The cache's CLIN_SIG is the known variant's (the dbSNP rsID's): of the record's allele
     # where the cache holds one per allele, else of every allele the rsID groups, and the
     # record does not say which. A one-unit deletion in a tandem repeat is listed under the
-    # rsID of that repeat, whose ClinVar records may be of another of its lengths.
+    # rsID of that repeat, whose ClinVar records may be of another of its lengths: the
+    # classification is read, and marked as the cache's for every view to name.
     state = _clinvar_state(
         '##INFO=<ID=CSQ,Number=.,Type=String,Description="Format: Allele|Consequence|SYMBOL|Feature|CLIN_SIG">'
     )
     [annotation] = extract_small_variant_annotations(
         {"CSQ": "-|intron_variant|GENE1|ENST1|not_provided&pathogenic"}, state
     )
-    assert "clinvar" not in annotation
-    assert annotation["clinvar_vep_cache"] == "not_provided&pathogenic"
+    assert (annotation["clinvar"], annotation["clinvar_from_vep_cache"]) == ("not_provided&pathogenic", True)
+    assert "clinvar_vep_cache" not in annotation
     assert not clinvar_file_annotated(state)
 
 
@@ -443,6 +447,7 @@ def test_an_info_clnsig_from_a_clinvar_file_is_not_overwritten_by_the_caches() -
         state,
     )
     assert [annotation["clinvar"] for annotation in annotations] == ["Likely_benign", "Likely_benign"]
+    assert not any("clinvar_from_vep_cache" in annotation for annotation in annotations)
     assert annotations[0]["clinvar_vep_cache"] == "pathogenic"
     assert "clinvar_vep_cache" not in annotations[1]
     # A record without the INFO key, in a file whose header declares it: not in ClinVar.
@@ -462,11 +467,17 @@ def test_the_header_names_the_clinvar_file_vep_annotated() -> None:
     assert file_in_description("CLNSIG. CLNSIG field from /data/ref/clinvar.vcf.gz") == "clinvar.vcf.gz"
 
 
-def test_a_vep_table_row_reads_clinvar_from_the_clinvar_file_alone() -> None:
-    # A row without a ClinVar file's value has no ClinVar classification, whatever the cache's
-    # CLIN_SIG.
+def test_a_vep_table_row_reads_clinvar_by_what_the_table_declares() -> None:
+    # A ClinVar file declared in the table: a row without its value has no ClinVar
+    # classification, whatever the cache's CLIN_SIG.
+    declared = normalize_small_variant_annotation_entry(
+        {"SYMBOL": "GENE1", "CLIN_SIG": "pathogenic"}, clinvar_file_annotated=True
+    )
+    assert "clinvar" not in declared and declared["clinvar_vep_cache"] == "pathogenic"
+    # None declared: the cache's, named as such.
     cache_only = normalize_small_variant_annotation_entry({"SYMBOL": "GENE1", "CLIN_SIG": "pathogenic"})
-    assert "clinvar" not in cache_only and cache_only["clinvar_vep_cache"] == "pathogenic"
+    assert (cache_only["clinvar"], cache_only["clinvar_from_vep_cache"]) == ("pathogenic", True)
+    assert "clinvar_vep_cache" not in cache_only
     both = normalize_small_variant_annotation_entry(
         {"SYMBOL": "GENE1", "CLIN_SIG": "pathogenic", "ClinVar_CLNSIG": "Benign"}
     )
@@ -620,9 +631,15 @@ def test_the_short_read_annotations_names_for_vep_caches_fields_are_read_as_vep_
     )
     assert annotation["population_frequencies"]["max_af"] == pytest.approx(0.0123)
     assert _annotation_columns(annotation).gnomad_popmax_af == pytest.approx(0.0123)
-    # The ClinVar file's classification is read; the cache's stays apart.
+    # A ClinVar file was annotated: the cache's classification stays apart.
     assert annotation["clinvar"] == "Uncertain_significance"
     assert annotation["clinvar_vep_cache"] == "benign"
+    # Without a ClinVar file, the cache's is the record's ClinVar classification, named as such.
+    state = _clinvar_state(
+        '##INFO=<ID=CSQ,Number=.,Type=String,Description="Format: Allele|Consequence|SYMBOL|Feature|CLIN_SIG_VEP_CACHE">'
+    )
+    [annotation] = extract_small_variant_annotations({"CSQ": "G|missense_variant|GENE1|ENST1|pathogenic"}, state)
+    assert (annotation["clinvar"], annotation["clinvar_from_vep_cache"]) == ("pathogenic", True)
 
 
 # --------------------------------------------------------------------------- #

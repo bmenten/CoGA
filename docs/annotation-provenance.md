@@ -73,11 +73,11 @@ never an error, so capture cannot fail an import.
 
 ### The ClinVar release
 
-A record's ClinVar classification comes only from the ClinVar file the pipeline annotated it with
-(VEP `--custom`'s `ClinVar_CLNSIG`, the `CLNSIG` that bcftools annotate or vcfanno write), never
-from VEP's cache (`CLIN_SIG`)
+A record's ClinVar classification comes from the ClinVar file the pipeline annotated it with
+(VEP `--custom`'s `ClinVar_CLNSIG`, the `CLNSIG` that bcftools annotate or vcfanno write), and
+from VEP's cache (`CLIN_SIG`) only when no such file was annotated, named as the cache's
 ([variant_annotation_parser.py](../backend/app/services/variant_annotation_parser.py)). The two
-ClinVar modules follow that:
+ClinVar modules keep the two sources apart:
 
 - **`clinvar`** is the ClinVar file's release, and only a callset annotated with a ClinVar file has
   one. A ClinVar file is annotated when the header declares one of its fields, as an `##INFO` key or
@@ -88,7 +88,7 @@ ClinVar modules follow that:
   recorded by its name, with no version: the cache's release never stands in for the file's.
 - **`clinvar_vep_cache`** (*ClinVar (VEP cache)*) is the ClinVar release of VEP's cache, from the
   `##VEP=` line (`ClinVar="…"`) or a VEP table's `## ClinVar version …`, with or without a ClinVar
-  file.
+  file. Without one it is the release of the records' classification, named as the cache's.
 
 ## How it is stored
 

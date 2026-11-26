@@ -69,7 +69,9 @@ Taken on every ACMG save, with the time. It holds:
 - the variant's annotation version and annotation-set hash. The hash changes with any annotation of
   the variant, so it is the drift key;
 - its ClinVar significance, with the record's review status (`clinvar_review_status`), which the
-  PP5/BP6 evidence names;
+  PP5/BP6 evidence names, and whether it is VEP's cache's (`clinvar_from_vep_cache`: read where no
+  ClinVar file was annotated, the known variant's and perhaps another allele's), which the signed
+  record names;
 - the values the classification rests on, as the ACMG dialog reads them: from the primary
   transcript (MANE Select, then canonical, then most severe impact; its id in `transcript_id`),
   through the variant list's own helpers (`small_variant_review_acmg.small_variant_evidence`).

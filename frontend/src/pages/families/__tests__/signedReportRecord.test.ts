@@ -326,6 +326,7 @@ describe('parseSignedReport', () => {
     // missense Z: none is read.
     expect(classified.evidence).toEqual({
       clinvar: 'Likely_pathogenic',
+      clinvarFromVepCache: false,
       clinvarReviewStatus: null,
       annotationVersion: 'v1',
       capturedAt: '2026-06-20T08:30:00+00:00',
@@ -346,6 +347,23 @@ describe('parseSignedReport', () => {
     expect(unreadable.variantId).toBeNull();
     // Reported by their own tag: no compound-het pair review is frozen with them.
     expect([classified.compoundHet, tagged.compoundHet, unreadable.compoundHet]).toEqual([null, null, null]);
+  });
+
+  it("reads a ClinVar classification frozen from VEP's cache as the cache's", () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '1-100-A-G',
+          acmg_class: null,
+          acmg: null,
+          tags: ['report'],
+          note: null,
+          evidence_snapshot: { clinvar: 'not_provided&pathogenic', clinvar_from_vep_cache: true },
+        },
+      ],
+    })!;
+    expect(record.reportedVariants![0].evidence?.clinvarFromVepCache).toBe(true);
   });
 
   it('reads the compound-het pair review that reports a variant', () => {

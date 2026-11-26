@@ -5,6 +5,7 @@ import InfoTip from '../../components/InfoTip';
 import ModalDialog from '../../components/ModalDialog';
 import api from '../../lib/api';
 import type { GeneProfileOut, GeneTranscriptOut } from '../../lib/apiSchema.generated';
+import { clinvarLabel, VEP_CACHE_CLINVAR_NOTE } from '../../lib/clinvar';
 import { genotypeZygosity } from '../../lib/genotypes';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -564,10 +565,10 @@ const CARD_CONSUMED_EXTRA_KEYS = new Set([
 
 // annotation_extra keys the disclosure names in words rather than by the raw key. The VCF's own
 // MISSENSE_Z is stored under the annotation's gene_missense_z: as a raw key it read like the gene
-// profile's Missense Z in the In silico column, which PP2 reads first. VEP's cache
-// classification is kept apart under clinvar_vep_cache: the known variant's (the dbSNP rsID's),
-// of this allele or of every allele the rsID groups. Shown, never read as the ClinVar
-// classification, which comes from the ClinVar file alone.
+// profile's Missense Z in the In silico column, which PP2 reads first. Where the pipeline
+// annotated a ClinVar file, VEP's cache classification is kept apart under clinvar_vep_cache:
+// the known variant's (the dbSNP rsID's), of this allele or of every allele the rsID groups.
+// Shown, never read as the ClinVar classification, which is the file's.
 const EXTRA_KEY_LABELS: Record<string, string> = {
   gene_missense_z: 'Missense Z (gnomAD, from the VCF)',
   clinvar_vep_cache: "ClinVar in the VEP cache (the rsID's, maybe another allele's; not read as ClinVar)",
@@ -807,12 +808,19 @@ export function SmallVariantCard({
     ? buildVariantDetailData(variant)
     : null;
   const { scoreItems = [], additionalAnnotations = [] } = detailData ?? {};
-  // ClinVar's classification with its review stars; the status and conditions on hover.
+  // ClinVar's classification with its review stars; the status and conditions on hover. One
+  // read from VEP's cache is named as the cache's, and says on hover why.
   const clinvarStars = formatClinvarStars(variant.clinvar_stars);
   const clinvarSummary = `${formatTokenLabel(variant.clinvar)}${clinvarStars ? ` ${clinvarStars}` : ''}`;
+  const clinvarKey = clinvarLabel(variant.clinvar_from_vep_cache);
   const clinvarTitle =
-    [variant.clinvar_review_status, (variant.clinvar_conditions ?? []).join('; ')].filter(Boolean).join(' — ') ||
-    undefined;
+    [
+      variant.clinvar_from_vep_cache ? VEP_CACHE_CLINVAR_NOTE : null,
+      variant.clinvar_review_status,
+      (variant.clinvar_conditions ?? []).join('; '),
+    ]
+      .filter(Boolean)
+      .join(' — ') || undefined;
   const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], list.tagMap);
   const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
   const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
@@ -978,7 +986,7 @@ export function SmallVariantCard({
                   variant.clinvar,
                 )}`}
               >
-                <span className="variant-card-chip-key">ClinVar</span>
+                <span className="variant-card-chip-key">{clinvarKey}</span>
                 {clinvarSummary}
               </a>
             ) : (
@@ -986,7 +994,7 @@ export function SmallVariantCard({
                 className={`variant-card-chip variant-card-chip--${getClinvarTone(variant.clinvar)}`}
                 title={clinvarTitle}
               >
-                <span className="variant-card-chip-key">ClinVar</span>
+                <span className="variant-card-chip-key">{clinvarKey}</span>
                 {clinvarSummary}
               </span>
             )

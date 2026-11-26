@@ -277,6 +277,8 @@ export interface SignedEvidenceValue {
 /** What `build_evidence_snapshot` froze when the variant was classified. */
 export interface SignedEvidence {
   clinvar: string | null;
+  /** That classification is VEP's cache's, read where no ClinVar file was annotated. */
+  clinvarFromVepCache: boolean;
   /** The review status of that ClinVar record, where the annotation had it. */
   clinvarReviewStatus: string | null;
   annotationVersion: string | null;
@@ -1473,6 +1475,7 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
     evidence: evidence
       ? {
           clinvar: text(evidence.clinvar),
+          clinvarFromVepCache: evidence.clinvar_from_vep_cache === true,
           clinvarReviewStatus: text(evidence.clinvar_review_status),
           annotationVersion: text(evidence.annotation_version),
           capturedAt: text(evidence.captured_at),

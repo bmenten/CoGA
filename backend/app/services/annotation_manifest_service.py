@@ -472,8 +472,8 @@ async def call_annotation_manifest(
     )
 
 
-# The ClinVar modules: the ClinVar file the pipeline annotated (``clinvar``), the release of
-# the records' classification, and VEP's cache (``clinvar_vep_cache``;
+# The ClinVar modules: the ClinVar file the pipeline annotated (``clinvar``) and VEP's cache
+# (``clinvar_vep_cache``, whose classification is read where no file was annotated;
 # ``vcf_header_provenance.clinvar_file_module``). A new import's module replaces the stored
 # version and detail together, and a version it does not state drops the modality's. Merged
 # field by field, an earlier file's release would stay beside a ClinVar file named without a
