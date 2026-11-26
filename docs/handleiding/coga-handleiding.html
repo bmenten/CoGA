@@ -2653,7 +2653,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li>een markering als een <strong>structurele variant</strong> hetzelfde gen raakt (de "tweede hit", hieronder).</li>
 </ul>
 <h3>De weergave</h3>
-<p><code>SmallVariantResults.tsx</code> toont de teller, de keuze tussen tabel en kaarten ("Auto" kiest kaarten voor een klein aantal, anders een tabel), de CSV-export met dezelfde querystring, een waarschuwing als de zoekopdracht maar een deel van de callset las, en een melding als de rangschikking uit de cache komt. Die waarschuwing (<code>CandidateCapNotice.tsx</code>) komt uit twee vlaggen van het antwoord:</p>
+<p><code>SmallVariantResults.tsx</code> toont de teller, de keuze tussen tabel en kaarten (tot de gebruiker kiest, toont een klein aantal als kaarten, anders als tabel), de CSV-export met dezelfde querystring, een waarschuwing als de zoekopdracht maar een deel van de callset las, en een melding als de rangschikking uit de cache komt. Die waarschuwing (<code>CandidateCapNotice.tsx</code>) komt uit twee vlaggen van het antwoord:</p>
 <ul>
 <li><code>candidates_capped</code>: compound-het, recessief of dragerscreening las een begrensd kandidatenvenster, tussen 1.000 en 5.000 rijen naargelang de gevraagde pagina, met prioritering altijd 5.000;</li>
 <li><code>ranking_truncated</code>: de prioritering rangschikte alleen haar venster. Bij een gerangschikte zoekopdracht met paren of dragerscreening staan dan beide vlaggen aan.</li>
@@ -7644,7 +7644,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li>a mark if a <strong>structural variant</strong> hits the same gene (the "second hit", below).</li>
 </ul>
 <h3>The display</h3>
-<p><code>SmallVariantResults.tsx</code> shows the counter, the choice between table and cards ("Auto" picks cards for a small number, otherwise a table), the CSV export with the same query string, a warning if the search read only part of the callset, and a notice if the ranking comes from the cache. That warning (<code>CandidateCapNotice.tsx</code>) comes from two flags in the response:</p>
+<p><code>SmallVariantResults.tsx</code> shows the counter, the choice between table and cards (until the user picks one, a small number shows as cards, otherwise as a table), the CSV export with the same query string, a warning if the search read only part of the callset, and a notice if the ranking comes from the cache. That warning (<code>CandidateCapNotice.tsx</code>) comes from two flags in the response:</p>
 <ul>
 <li><code>candidates_capped</code>: compound het, recessive or carrier screening read a bounded candidate window, between 1,000 and 5,000 rows depending on the requested page, and always 5,000 with prioritisation;</li>
 <li><code>ranking_truncated</code>: the prioritisation ranked only its window. For a ranked search with pairs or carrier screening, both flags are then on.</li>

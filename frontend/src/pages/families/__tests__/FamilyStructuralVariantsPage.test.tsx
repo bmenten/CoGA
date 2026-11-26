@@ -166,6 +166,20 @@ describe('FamilyStructuralVariantsPage', () => {
     expect(screen.getByPlaceholderText('Gene or region')).toHaveValue('BRCA2');
   });
 
+  it('opens a short list as cards and toggles only between table and cards', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText(factText(/Showing 1/))).toBeInTheDocument());
+
+    const toggle = screen.getByRole('tablist', { name: 'SV display mode' });
+    expect(within(toggle).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Table', 'Cards']);
+    expect(within(toggle).getByRole('tab', { name: 'Cards' })).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(within(toggle).getByRole('tab', { name: 'Table' }));
+    expect(within(toggle).getByRole('tab', { name: 'Table' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(toggle).getByRole('tab', { name: 'Cards' })).toHaveAttribute('aria-selected', 'false');
+    expect(await screen.findByRole('columnheader', { name: /^Source/ })).toBeInTheDocument();
+  });
+
   it('shows the Source column by default, since several callers call one SV under one id', async () => {
     // Each caller's call is a row of its own, with its own evidence and drift: the
     // table hid the column that tells them apart.

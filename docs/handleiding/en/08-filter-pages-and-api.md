@@ -147,7 +147,7 @@ For each page the rows are supplemented with:
 
 ### The display
 
-`SmallVariantResults.tsx` shows the counter, the choice between table and cards ("Auto" picks cards for a small number, otherwise a table), the CSV export with the same query string, a warning if the search read only part of the callset, and a notice if the ranking comes from the cache. That warning (`CandidateCapNotice.tsx`) comes from two flags in the response:
+`SmallVariantResults.tsx` shows the counter, the choice between table and cards (until the user picks one, a small number shows as cards, otherwise as a table), the CSV export with the same query string, a warning if the search read only part of the callset, and a notice if the ranking comes from the cache. That warning (`CandidateCapNotice.tsx`) comes from two flags in the response:
 
 - `candidates_capped`: compound het, recessive or carrier screening read a bounded candidate window, between 1,000 and 5,000 rows depending on the requested page, and always 5,000 with prioritisation;
 - `ranking_truncated`: the prioritisation ranked only its window. For a ranked search with pairs or carrier screening, both flags are then on.
