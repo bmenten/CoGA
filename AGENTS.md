@@ -153,3 +153,20 @@
   `CHANGELOG.md` entry with its TF-18 level and a TF-18 §8 row.
 - The end-to-end harness (API contract, import, sign-out, Playwright journeys) backs the IVDR
   verification records — see `docs/regulatory/TF-09c` and `TF-09d`.
+
+## Agent Specific Instructions
+
+- **GitHub Actions:** Ensure github actions are using the latest version at all times, updating the workflow files as needed. Reverting to older versions is strictly forbidden.
+- **Surgical Updates:** When fixing bugs, prioritize small, targeted changes and adding a corresponding test case.
+- **Mandatory `/thermo-nuclear-code-quality-review`**
+Before executing `git commit`, pushing code, or opening a PR:
+- Execute the `thermo-nuclear-code-quality-review` skill (.agents/thermo-nuclear-code-quality-review).
+- Conduct an extremely rigorous, uncompromising review of staged changes against the baseline standards:
+  1. **Structural Simplification ("Code Judo")**: Actively seek structural reframings that delete branches, helpers, and layers altogether while preserving behavior. Prefer solutions that make the code feel inevitable.
+  2. **1,000-Line File Boundary**: Never push a file from under 1,000 lines to over 1,000 lines without decomposing into subcomponents, helpers, or modules first.
+  3. **Zero Spaghetti Condition Growth**: Forbid ad-hoc conditionals, scattered special-case flags, or one-off branches inserted into existing flows. Push branching logic into dedicated policy objects, state machines, or distinct modules.
+  4. **Direct & Boring over Magical**: Eliminate thin wrappers, generic mechanisms that hide simple structures, and pass-through abstractions that add indirection without clarity.
+  5. **Type & Boundary Cleanliness**: Reject unnecessary `any`, `unknown`, casts, or fuzzy optionality that paper over invariants. Enforce typed contracts at boundaries.
+  6. **Canonical Layer Placement**: Prevent feature logic from leaking into shared paths. Reuse existing canonical utilities instead of writing near-duplicate helpers.
+  7. **Atomic & Clean Execution**: Flag unjustified sequential async orchestration and non-atomic state updates. Strip leftover debug statements (`console.log`, `print`, `debugger`).
+- **High Approval Bar**: "It works" is not sufficient. If maintainability or structural clarity is degraded, block the commit and apply code-judo simplifications first.
