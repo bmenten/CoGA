@@ -58,7 +58,7 @@ _LOCUS = {"chr": "9", "start": 136_700_000, "end": 136_701_000}
 
 _CSQ_FORMAT = (
     "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
-    "|MANE_PLUS_CLINICAL|LoF|REVEL|CADD_PHRED|gnomADe_AF|CLIN_SIG"
+    "|MANE_PLUS_CLINICAL|LoF|REVEL|CADD_PHRED|gnomADe_AF|ClinVar_CLNSIG"
 )
 
 

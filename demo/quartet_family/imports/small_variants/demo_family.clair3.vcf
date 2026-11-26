@@ -1,6 +1,6 @@
 ##fileformat=VCFv4.2
 ##source=CoGADemoFamilyClair3VEP
-##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|BIOTYPE|EXON|INTRON|HGVSc|HGVSp|Existing_variation|CLIN_SIG|CANONICAL|MANE_SELECT|gnomAD_AF|gnomAD_Hom|PLI|MISSENSE_Z|CADD_PHRED|REVEL|SpliceAI_pred_DS_AG|SpliceAI_pred_DS_AL|SpliceAI_pred_DS_DG|SpliceAI_pred_DS_DL">
+##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|BIOTYPE|EXON|INTRON|HGVSc|HGVSp|Existing_variation|ClinVar_CLNSIG|CANONICAL|MANE_SELECT|gnomAD_AF|gnomAD_Hom|PLI|MISSENSE_Z|CADD_PHRED|REVEL|SpliceAI_pred_DS_AG|SpliceAI_pred_DS_AL|SpliceAI_pred_DS_DG|SpliceAI_pred_DS_DL">
 ##INFO=<ID=AC,Number=A,Type=Integer,Description="Alternate allele count">
 ##INFO=<ID=AN,Number=1,Type=Integer,Description="Total number of alleles">
 ##INFO=<ID=OMIM,Number=1,Type=String,Description="OMIM gene identifier">

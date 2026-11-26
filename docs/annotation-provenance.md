@@ -73,22 +73,22 @@ never an error, so capture cannot fail an import.
 
 ### The ClinVar release
 
-A record's ClinVar classification comes from the ClinVar file the pipeline annotated it with
-(VEP `--custom`'s `ClinVar_CLNSIG`, the `CLNSIG` that bcftools annotate or vcfanno write), and
-from VEP's cache (`CLIN_SIG`) only when no such file was annotated
-([variant_annotation_parser.py](../backend/app/services/variant_annotation_parser.py)). The
-`clinvar` module follows the classification:
+A record's ClinVar classification comes only from the ClinVar file the pipeline annotated it with
+(VEP `--custom`'s `ClinVar_CLNSIG`, the `CLNSIG` that bcftools annotate or vcfanno write), never
+from VEP's cache (`CLIN_SIG`)
+([variant_annotation_parser.py](../backend/app/services/variant_annotation_parser.py)). The two
+ClinVar modules follow that:
 
-- **Without a ClinVar file** it is the cache's release, from the `##VEP=` line (`ClinVar="…"`) or a
-  VEP table's `## ClinVar version …`.
-- **With a ClinVar file** it is that file's release, and the cache's release becomes a module of its
-  own, `clinvar_vep_cache` (*ClinVar (VEP cache)*). A ClinVar file is annotated when the header
-  declares one of its fields, as an `##INFO` key or a CSQ field (in a VEP table: a column, or a
-  described Extra key). VEP names a `--custom` file only in the description of its fields' INFO
-  lines (`… CLNSIG field from [PATH]/clinvar_20261101.vcf.gz`) and states no release, so the release
-  is the date in ClinVar's file name (`20261101`). A ClinVar version line of its own
-  (`##ClinVarVersion=…`) wins over the name. A file named without a date is recorded by its name,
-  with no version: the cache's release never stands in for the file's.
+- **`clinvar`** is the ClinVar file's release, and only a callset annotated with a ClinVar file has
+  one. A ClinVar file is annotated when the header declares one of its fields, as an `##INFO` key or
+  a CSQ field (in a VEP table: a column, or a described Extra key). VEP names a `--custom` file only
+  in the description of its fields' INFO lines (`… CLNSIG field from [PATH]/clinvar_20261101.vcf.gz`)
+  and states no release, so the release is the date in ClinVar's file name (`20261101`). A ClinVar
+  version line of its own (`##ClinVarVersion=…`) wins over the name. A file named without a date is
+  recorded by its name, with no version: the cache's release never stands in for the file's.
+- **`clinvar_vep_cache`** (*ClinVar (VEP cache)*) is the ClinVar release of VEP's cache, from the
+  `##VEP=` line (`ClinVar="…"`) or a VEP table's `## ClinVar version …`, with or without a ClinVar
+  file.
 
 ## How it is stored
 

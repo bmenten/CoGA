@@ -456,6 +456,15 @@ describe('preset frequency ceilings bound popmax', () => {
     }
   });
 
+  it('lists Any affected with the compound-het pairs grouped by gene', async () => {
+    const { result } = renderSearch();
+    await waitFor(() => expect(result.current.filters).toBeTruthy());
+
+    act(() => result.current.applyPreset('any_affected'));
+
+    expect(result.current.draftFilters.inheritance).toBe('all_compound_het_grouped');
+  });
+
   it('keeps the strictest preset strict', async () => {
     const { result } = renderSearch();
     await waitFor(() => expect(result.current.filters).toBeTruthy());

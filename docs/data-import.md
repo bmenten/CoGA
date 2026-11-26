@@ -2653,7 +2653,8 @@ reports that it was left out. Field names as VEP writes them: a `--custom` file'
 
 | What CoGA shows and reads | Field names read | Used by |
 | --- | --- | --- |
-| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR`; VEP cache `CLIN_SIG` (`CLIN_SIG_VEP_CACHE`) only without those | card, filters, ranking, PP5/BP6 |
+| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR` | card, filters, ranking, PP5/BP6 |
+| ClinVar in VEP's cache, kept apart | `CLIN_SIG`, `CLIN_SIG_VEP_CACHE` | the card's *More annotations* only |
 | ClinVar review status (stars) | `ClinVar_CLNREVSTAT`, `CLNREVSTAT` | card, PP5/BP6 evidence, frozen evidence |
 | ClinVar conditions | `ClinVar_CLNDN`, `CLNDN` | card, PP5/BP6 evidence |
 | ClinVar conflict's classifications | `ClinVar_CLNSIGCONF`, `CLNSIGCONF` (each with its submissions: `Pathogenic(2)`) | card (orange when one is P/LP, named on hover), the small-variant track |
@@ -2692,9 +2693,10 @@ What the workflow should hold to:
 - **ClinVar release.** Keep the date in the ClinVar file's name (`clinvar_YYYYMMDD.vcf.gz`):
   the annotation manifest reads the release from it.
 - **ClinVar as a `--custom` file.** Use the short name `ClinVar`, so the fields are
-  `ClinVar_CLNSIG`, `ClinVar_CLNREVSTAT` and so on, and the VariationID is `ClinVar`. Include
-  `CLNSIGCONF`: without it ClinVar's *Conflicting classifications of pathogenicity* names no
-  classification, and a conflict with a pathogenic or likely pathogenic submission is not shown
+  `ClinVar_CLNSIG`, `ClinVar_CLNREVSTAT` and so on, and the VariationID is `ClinVar`. Without a
+  ClinVar file a callset has no ClinVar classification: VEP's cache `CLIN_SIG` is not read as one.
+  Include `CLNSIGCONF`: without it ClinVar's *Conflicting classifications of pathogenicity* names
+  no classification, and a conflict with a pathogenic or likely pathogenic submission is not shown
   orange.
 - **gnomAD genomes.** Annotate gnomAD's genomes (`--af_gnomadg`, or its genomes or joint file
   with `--custom`), not its exomes alone: a variant without a gnomAD frequency is then read as
@@ -2760,13 +2762,18 @@ the same way:
   Filters still read the record's annotations together (an allele's value keeps the record): split
   multi-allelic records upstream (`bcftools norm -m -any`) to filter, rank and classify each allele
   on its own.
-- **ClinVar.** The classification is the ClinVar file's that the pipeline annotated
-  (`ClinVar_CLNSIG` from VEP `--custom`, or `CLNSIG`), and VEP's cache `CLIN_SIG` only when the
-  header declares no such field. The cache holds an older ClinVar release, read for the known
-  variants at the position, joined with `&`. With a ClinVar file declared, the cache's
-  classification is kept apart as `clinvar_vep_cache` (shown in the card's *More annotations*,
-  never read as ClinVar's), also for a variant the file has no record of; a `CLNSIG` in INFO is
-  not replaced by an entry's `CLIN_SIG`. The annotation manifest records that file's release
+- **ClinVar.** The classification is only the ClinVar file's that the pipeline annotated
+  (`ClinVar_CLNSIG` from VEP `--custom`, or `CLNSIG`), which VEP matches to the record's own
+  allele. VEP's cache `CLIN_SIG` is always kept apart as `clinvar_vep_cache` (shown in the card's
+  *More annotations*, never read as ClinVar's): it is the classification of the known variant
+  (the dbSNP rsID) that `--check_existing` finds at the position. With VEP's default
+  `--clin_sig_allele 1` it is the record's allele's where the cache holds one per allele, else
+  every allele's the rsID groups, in the same field, and the record does not say which. Read as
+  ClinVar's, it would give a one-unit deletion in a tandem repeat, listed under the repeat's
+  rsID, the classification of another of the repeat's lengths. A callset annotated without a
+  ClinVar file has no ClinVar classification: no ClinVar on the card, no ClinVar filter match or
+  override, no ranking from ClinVar, no PP5/BP6, no ClinVar protection of an NIPT artifact list.
+  The annotation manifest records the file's release
   ([annotation-provenance.md](annotation-provenance.md#the-clinvar-release)).
 
 ## 5. Pedigrees and phenotypes

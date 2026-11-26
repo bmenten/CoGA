@@ -32,16 +32,14 @@ _FLOAT_PATTERN = re.compile(r"-?\d+(?:\.\d+)?(?:e[+-]?\d+)?", re.IGNORECASE)
 # plugin with "," or ";".
 _LIST_SEPARATORS = re.compile(r"[&,;]")
 
-# A record's ClinVar classification is read from the ClinVar file the pipeline annotated it
-# with (VEP --custom's ClinVar_CLNSIG, the CLNSIG of bcftools annotate or vcfanno), and from
-# VEP's cache (CLIN_SIG) only where no ClinVar file was annotated. The cache holds an older
-# ClinVar release, read for the known variants at the record's position, and joins their
-# classifications with "&" (``uncertain_significance&likely_pathogenic``). Where a ClinVar
-# file was annotated, the cache's classification is kept apart (``clinvar_vep_cache``) and
-# never read as ClinVar's, also for a variant the file has no record of: ClinVar's file
-# holds every variant ClinVar classifies at a precise location.
+# A record's ClinVar classification is read only from the ClinVar file the pipeline annotated
+# it with (VEP --custom's ClinVar_CLNSIG, the CLNSIG of bcftools annotate or vcfanno), which
+# matches the record's own allele. VEP's cache CLIN_SIG is kept apart (``clinvar_vep_cache``)
+# and never read as ClinVar's: it is the classification of the known variant (the dbSNP rsID)
+# at the record's position, of the record's allele where the cache holds one per allele, else
+# of every allele the rsID groups, and the record does not say which. A callset annotated
+# without a ClinVar file has no ClinVar classification.
 CLINVAR_FILE_ALIASES = ("ClinVar_CLNSIG", "CLNSIG", "CLINVAR")
-_CLINVAR_CACHE_KEY = "clinvar_vep_cache"
 
 _ANN_ALIASES = {
     "gene": ["SYMBOL", "Gene_Name", "GENE", "gene"],
@@ -60,7 +58,7 @@ _ANN_ALIASES = {
     "intron": ["INTRON"],
     "clinvar": list(CLINVAR_FILE_ALIASES),
     # The short-read WGS annotation names VEP's cache fields after their source.
-    _CLINVAR_CACHE_KEY: ["CLIN_SIG", "CLIN_SIG_VEP_CACHE"],
+    "clinvar_vep_cache": ["CLIN_SIG", "CLIN_SIG_VEP_CACHE"],
     "rsid": ["Existing_variation", "DBSNP", "RSID", "ID"],
     "lof": ["LoF", "LOF"],
     "lof_filter": ["LoF_filter", "LOF_FILTER"],
@@ -534,8 +532,8 @@ def update_annotation_header_state(state: AnnotationHeaderState, line: str) -> N
 
 def clinvar_file_annotated(state: AnnotationHeaderState) -> bool:
     """Whether the header declares a ClinVar file's classification, as an INFO key or a CSQ or
-    ANN field: then the records' ClinVar classification is that file's, and the VEP cache's
-    is kept apart."""
+    ANN field: the records' ClinVar classification, whose release the manifest records as
+    ClinVar's (``vcf_header_provenance``)."""
     declared = state.info_ids.union(state.csq_fields or (), state.ann_fields or ())
     return not declared.isdisjoint(CLINVAR_FILE_ALIASES)
 
@@ -772,22 +770,10 @@ def _tidy_clinvar(annotation: Dict[str, Any]) -> None:
         annotation.pop("clinvar_variation_id")
 
 
-def _settle_clinvar(annotation: Dict[str, Any], *, clinvar_file_annotated: bool) -> None:
-    """Without a ClinVar file annotated, the VEP cache's classification is the record's ClinVar
-    classification, the only one there is; with one, it stays apart (``clinvar_vep_cache``)."""
-    if clinvar_file_annotated or "clinvar" in annotation:
-        return
-    cached = annotation.pop(_CLINVAR_CACHE_KEY, None)
-    if cached is not None:
-        annotation["clinvar"] = cached
-
-
 def _normalize_annotation_entry(
     raw_entry: Dict[str, str],
     base_annotation: Dict[str, Any],
     tables: _AliasTables = _ALL_ALIASES,
-    *,
-    clinvar_file_annotated: bool = False,
 ) -> Dict[str, Any]:
     annotation = dict(base_annotation)
 
@@ -819,11 +805,6 @@ def _normalize_annotation_entry(
         extra_seed=annotation.get("extra", {}),
         population_seed=base_annotation.get("population_frequencies", {}),
         tables=tables,
-    )
-    _settle_clinvar(
-        annotation,
-        clinvar_file_annotated=clinvar_file_annotated
-        or not raw_entry.keys().isdisjoint(CLINVAR_FILE_ALIASES),
     )
     _tidy_clinvar(annotation)
 
@@ -898,11 +879,6 @@ def extract_small_variant_annotations(
     (``alt_allele``). Each names the gnomAD datasets the header declares
     (``GNOMAD_ANNOTATED_KEY``)."""
     base_annotation = _base_info_annotation(info)
-    # A ClinVar file declared in the header (VEP --custom describes its fields as INFO keys),
-    # or a ClinVar file's key in the record's INFO; an entry may name one of its own.
-    clinvar_file_in_info = not state.info_ids.isdisjoint(
-        CLINVAR_FILE_ALIASES
-    ) or not info.keys().isdisjoint(CLINVAR_FILE_ALIASES)
     fields, raw_entries = _annotation_entries(info, state)
 
     if raw_entries:
@@ -911,9 +887,7 @@ def extract_small_variant_annotations(
         vep = state.csq_fields is not None and fields == state.csq_fields
         annotations = []
         for raw_entry in raw_entries:
-            annotation = _normalize_annotation_entry(
-                raw_entry, base_annotation, tables, clinvar_file_annotated=clinvar_file_in_info
-            )
+            annotation = _normalize_annotation_entry(raw_entry, base_annotation, tables)
             if annotation and alts is not None and ref:
                 allele = entry_alt_allele(raw_entry, ref, alts, vep=vep)
                 if allele is not None:
@@ -922,19 +896,15 @@ def extract_small_variant_annotations(
                 annotations.append(annotation)
         return _mark_gnomad_datasets(annotations, gnomad_datasets(state))
 
-    _settle_clinvar(base_annotation, clinvar_file_annotated=clinvar_file_in_info)
     return _mark_gnomad_datasets([base_annotation] if base_annotation else [], gnomad_datasets(state))
 
 
 def normalize_small_variant_annotation_entry(
     raw_entry: Dict[str, str],
     *,
-    clinvar_file_annotated: bool = False,
     gnomad_annotated: Sequence[str] = (),
 ) -> Dict[str, Any]:
-    """A VEP table row's annotation. ``clinvar_file_annotated``: the table declares a ClinVar
-    file's field, as a column or an Extra key, which a row without a value leaves out.
-    ``gnomad_annotated``: the gnomAD datasets whose allele frequency the table declares
-    (``declared_gnomad_datasets``), which the annotation names."""
-    annotation = _normalize_annotation_entry(raw_entry, {}, clinvar_file_annotated=clinvar_file_annotated)
+    """A VEP table row's annotation. ``gnomad_annotated``: the gnomAD datasets whose allele
+    frequency the table declares (``declared_gnomad_datasets``), which the annotation names."""
+    annotation = _normalize_annotation_entry(raw_entry, {})
     return _mark_gnomad_datasets([annotation], gnomad_annotated)[0] if annotation else annotation

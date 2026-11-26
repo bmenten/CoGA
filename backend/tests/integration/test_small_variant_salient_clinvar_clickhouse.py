@@ -27,7 +27,7 @@ _CONFLICT = "Conflicting_classifications_of_pathogenicity"
 _CASES = [
     ("Pathogenic", "", "low", True),
     ("Pathogenic/Likely_pathogenic", "", "modifier", True),
-    # VEP's cache lists the classifications of every ClinVar record at the position.
+    # An annotation that joins several ClinVar records' classifications.
     ("uncertain_significance&likely_pathogenic", "", "low", True),
     ("benign&pathogenic", "", "modifier", True),
     (_CONFLICT, "", "low", False),

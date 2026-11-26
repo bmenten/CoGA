@@ -53,7 +53,8 @@ and **Collapse all** open or close every row.
 
 - **Inheritance** has the inheritance model as its quick choice. *All, compound het grouped* keeps
   every variant the other filters keep, as *All* does, and lists the compound-het pairs among them by
-  gene, as *Compound heterozygous* does. Every other variant stays a single result.
+  gene, as *Compound heterozygous* does. Every other variant stays a single result. The *Any
+  affected* preset sets it.
 - **Annotations** groups the VEP consequences as seqr does: nonsense, essential splice site,
   frameshift, missense, in frame, synonymous, extended splice site, other, motif feature and regulatory
   feature. A group's own box ticks or clears all its terms. Beside them are the VEP impacts (HIGH,
@@ -161,13 +162,13 @@ pairs: each paternal variant with each maternal one. Two variants from one paren
 no pair.
 
 A card takes its colour from ClinVar, here and on the monogenic NIPT page: light red when ClinVar calls
-the variant pathogenic or likely pathogenic, light green when it calls it benign or likely benign.
-Classifications that disagree, such as *uncertain significance & likely pathogenic*, are a conflict:
-light orange when one of them is pathogenic or likely pathogenic. ClinVar's own *Conflicting
-classifications of pathogenicity* is read by the classifications its submitters gave, which the
-ClinVar chip names on hover. Any other conflicting, uncertain or
-other ClinVar status, or none, leaves the card white. In the table a row is tinted the same way, more
-faintly, and the ClinVar chip takes the same colour.
+the variant pathogenic or likely pathogenic, light green when it calls it benign or likely benign. A
+conflict, ClinVar's *Conflicting classifications of pathogenicity* or a value that lists
+classifications that disagree, is light orange when one of the classifications is pathogenic or likely
+pathogenic. For ClinVar's own conflict these are the classifications its submitters gave, which the
+ClinVar chip names on hover. Any other conflicting, uncertain or other ClinVar status, or none, leaves
+the card white. In the table a row is tinted the same way, more faintly, and the ClinVar chip takes
+the same colour.
 
 Under its heading, a card names up to three diseases its gene is linked to: Monarch's causal links,
 those more sources back first; else the gene's OMIM diseases; else Monarch's associations, marked *not

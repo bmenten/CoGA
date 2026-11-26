@@ -120,7 +120,8 @@ def test_snv_vep_extracts_caller_engine_and_db_versions():
     # Database releases embedded in the VEP header.
     # gnomADe and gnomADg are both gnomAD: both releases, joined.
     assert mods["gnomad"]["version"] == "r2.1.1, v3.1.2"
-    assert mods["clinvar"]["version"] == "202301"
+    # VEP's cache's ClinVar release, never the records' classification's.
+    assert mods["clinvar_vep_cache"]["version"] == "202301"
     assert mods["dbnsfp"]["version"] == "4.3a"
     assert mods["spliceai"]["version"] == "1.3"
     assert mods["dbsnp"]["version"] == "154"
@@ -203,7 +204,8 @@ def test_vep_tab_header_extracts_database_versions():
     mods = extract_vep_tab_provenance(VEP_TAB_HEADER.splitlines())
     assert mods["vep"]["version"] == "115.1"
     assert "115_GRCh38" in mods["vep"]["detail"]  # cache dir
-    assert mods["clinvar"]["version"] == "202502"
+    assert mods["clinvar_vep_cache"]["version"] == "202502"
+    assert "clinvar" not in mods
     assert mods["gnomad"]["version"] == "v4.1"  # gnomADe/gnomADg → gnomad
     assert mods["dbsnp"]["version"] == "156"
     assert mods["cosmic"]["version"] == "101"
@@ -564,7 +566,7 @@ def test_dragens_small_variant_caller_is_dragen() -> None:
 
 def test_the_clinvar_file_gives_the_clinvar_release_and_the_cache_goes_apart():
     # The records' ClinVar classification comes from the file, so its release is the
-    # manifest's ClinVar release; it was the cache's (ClinVar="202301" on the ##VEP line).
+    # manifest's ClinVar release; the cache's (ClinVar="202301" on the ##VEP line) is apart.
     mods = extract_header_provenance(
         SNV_VEP_HEADER.splitlines(),
         modality="snv",
@@ -574,9 +576,10 @@ def test_the_clinvar_file_gives_the_clinvar_release_and_the_cache_goes_apart():
     assert mods["clinvar"] == {"version": "20261101", "detail": "ClinVar file clinvar_20261101.vcf.gz"}
     assert mods["clinvar_vep_cache"]["version"] == "202301"
     assert "not read as the ClinVar classification" in mods["clinvar_vep_cache"]["detail"]
-    # Without a ClinVar file, the cache's is the ClinVar release, as before.
-    assert _modules(SNV_VEP_HEADER)["clinvar"] == {"version": "202301"}
-    assert "clinvar_vep_cache" not in _modules(SNV_VEP_HEADER)
+    # Without a ClinVar file the records have no ClinVar classification, so no ClinVar
+    # release: the cache's stays apart.
+    assert "clinvar" not in _modules(SNV_VEP_HEADER)
+    assert _modules(SNV_VEP_HEADER)["clinvar_vep_cache"]["version"] == "202301"
 
 
 def test_a_clinvar_file_named_without_a_date_is_recorded_without_a_version():

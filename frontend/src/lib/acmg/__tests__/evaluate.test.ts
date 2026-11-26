@@ -282,7 +282,7 @@ describe('evaluateAcmg', () => {
   });
 
   // "Conflicting classifications of pathogenicity" contains "pathogenic": read as a
-  // substring, it applied PP5 and argued against BP6. The VEP cache's list of classifications
+  // substring, it applied PP5 and argued against BP6. A value that lists classifications
   // that disagree is a conflict too.
   it.each([
     'Conflicting_classifications_of_pathogenicity',

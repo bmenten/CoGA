@@ -1,7 +1,7 @@
 // The app's one reading of a ClinVar record as a class. The ACMG evaluators matched
 // "pathogenic" as a substring, so "Conflicting classifications of pathogenicity" suggested PP5
-// and argued against BP6; a list of classifications that disagree, as the VEP cache gives one,
-// was read as pathogenic and tinted red.
+// and argued against BP6; a value that lists classifications that disagree was read as pathogenic
+// and tinted red.
 
 import { describe, expect, it } from 'vitest';
 

@@ -5,7 +5,7 @@
  *
  * A significance can list several classifications: ClinVar's own aggregate
  * (Pathogenic/Likely_pathogenic), a classification with what it adds (Pathogenic|risk_factor,
- * Pathogenic,_low_penetrance), or the VEP cache's list of every ClinVar record at the position
+ * Pathogenic,_low_penetrance), or those of several ClinVar records the annotation joins
  * (uncertain_significance&likely_pathogenic). A conflicting record also names the
  * classifications its submitters gave (CLNSIGCONF: Pathogenic (2), Uncertain significance (1)).
  * The record is (likely) pathogenic or (likely) benign only when every classification it lists
