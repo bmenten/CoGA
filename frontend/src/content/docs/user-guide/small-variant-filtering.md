@@ -53,7 +53,8 @@ and **Collapse all** open or close every row.
 
 - **Inheritance** has the inheritance model as its quick choice. *All, compound het grouped* keeps
   every variant the other filters keep, as *All* does, and lists the compound-het pairs among them by
-  gene, as *Compound heterozygous* does. Every other variant stays a single result.
+  gene, as *Compound heterozygous* does. Every other variant stays a single result. The *Any
+  affected* preset sets it.
 - **Annotations** groups the VEP consequences as seqr does: nonsense, essential splice site,
   frameshift, missense, in frame, synonymous, extended splice site, other, motif feature and regulatory
   feature. A group's own box ticks or clears all its terms. Beside them are the VEP impacts (HIGH,
