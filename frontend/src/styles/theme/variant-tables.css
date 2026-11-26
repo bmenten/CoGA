@@ -194,24 +194,6 @@
   color: var(--color-text-muted);
 }
 
-.variant-card-banner {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--control-height-sm);
-  border-radius: var(--radius-control);
-  border: 1px solid var(--color-border);
-  padding: 0 0.5rem;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-.variant-card-banner--strong {
-  border-color: rgba(124, 144, 157, 0.18);
-  background: rgba(124, 144, 157, 0.12);
-  color: #36444f;
-}
-
 /* A chromosome in the genome overview's chromosome strip opens with Enter or Space. */
 .genome-overview-chrom:focus-visible {
   outline: 2px solid var(--color-link);

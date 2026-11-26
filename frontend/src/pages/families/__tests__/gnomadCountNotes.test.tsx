@@ -100,7 +100,7 @@ describe('gnomadCountNote', () => {
     );
   });
 
-  it('counts a compound-het pair member once, with the single variants', () => {
+  it('counts each variant of a compound-het gene once, with the single variants', () => {
     const note = gnomadCountNote(
       'max_gnomad_hom_count=10',
       page([uncounted], {
@@ -111,9 +111,8 @@ describe('gnomadCountNote', () => {
             gene: 'GENE1',
             gene_id: null,
             variants: [uncounted, counted],
-            review: null,
-            phase: 'unknown',
-            phase_evidence: null,
+            pairs: [],
+            inherited_from: {},
           },
         ],
       }),

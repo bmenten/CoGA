@@ -25,8 +25,9 @@ from ..schemas import (
     MemberWithoutCallsOut,
     PhenotypeTermRefOut,
     CarrierPartnerOut,
+    CompoundHetPairOut,
     SmallVariantCarrierGeneOut,
-    SmallVariantGroupOut,
+    SmallVariantCompoundHetGeneOut,
     SmallVariantResultGroupOut,
     SmallVariantSampleSummaryOut,
     SmallVariantSummaryOut,
@@ -87,6 +88,7 @@ from .clickhouse_variant_records import (
     SmallSegregationFlags,
     SmallVariantCall,
     SmallVariantCarrierGene,
+    SmallVariantCompoundHetGene,
     SmallVariantCompoundHetPair,
     SmallVariantRecord,
     StructuralVariantCall,
@@ -3371,19 +3373,17 @@ class _SmallVariantScope:
         }
 
 
-# One result of a small-variant search: ("group", a compound-het pair), served as a group of
-# its two variants, as _inheritance_result_items gives it; ("carrier_gene", a gene of an
-# expanded carrier screen), served as a group of its variants (_carrier_gene_items); or
-# ("variant", a variant).
-_SmallResultItem = tuple[str, SmallVariantCompoundHetPair | SmallVariantCarrierGene | SmallVariantRecord]
+# One result of a small-variant search: ("group", a gene's compound-het pairs), served as a
+# group of the gene's variants and pairs, as _inheritance_result_items gives it;
+# ("carrier_gene", a gene of an expanded carrier screen), served as a group of its variants
+# (_carrier_gene_items); or ("variant", a variant).
+_SmallResultItem = tuple[str, SmallVariantCompoundHetGene | SmallVariantCarrierGene | SmallVariantRecord]
 
 
 def _item_members(item: _SmallResultItem) -> tuple[SmallVariantRecord, ...]:
-    """The variants of a result item: a pair's two, a carrier gene's, or the single variant."""
+    """The variants of a result item: a gene's (compound-het or carrier), or the single variant."""
     _item_type, value = item
-    if isinstance(value, SmallVariantCompoundHetPair):
-        return (value.left, value.right)
-    if isinstance(value, SmallVariantCarrierGene):
+    if isinstance(value, (SmallVariantCompoundHetGene, SmallVariantCarrierGene)):
         return value.records
     return (value,)
 
@@ -3502,9 +3502,9 @@ async def _small_item_outs(
     priorities: Mapping[str, VariantPriorityOut] | None = None,
 ) -> tuple[list[VariantOut], list[SmallVariantResultGroupOut]]:
     """A page's items as the response carries them: the single variants, each
-    compound-het pair as a group of its two variants with its phase and pair review, and
-    each carrier screen's gene as a group of its variants with the partner who carries
-    each. In a ranked search each variant carries its priority. Each variant names the
+    compound-het gene as a group of its variants with its pairs (each with its phase and
+    pair review) and the parent each variant traces to, and each carrier screen's gene as a
+    group of its variants with the partner who carries each. In a ranked search each variant carries its priority. Each variant names the
     transcript the search's ``filters`` held on, when its primary one does not meet them.
     Hydrated like every page."""
 
@@ -3523,7 +3523,7 @@ async def _small_item_outs(
         return variant
 
     groups: list[SmallVariantResultGroupOut] = []
-    pairs: list[SmallVariantGroupOut] = []
+    compound_het_genes: list[SmallVariantCompoundHetGeneOut] = []
     group_variants: list[VariantOut] = []
     singles: list[VariantOut] = []
     for _item_type, value in items:
@@ -3549,21 +3549,30 @@ async def _small_item_outs(
                     x_linked=value.x_linked,
                 )
             )
-        elif isinstance(value, SmallVariantCompoundHetPair):
-            left_variant = variant_out(value.left)
-            right_variant = variant_out(value.right)
-            group_variants.extend([left_variant, right_variant])
-            phase, phase_evidence = _pair_phase(value)
-            pair = SmallVariantGroupOut(
-                group_key=value.pair_key,
+        elif isinstance(value, SmallVariantCompoundHetGene):
+            gene_variants = [variant_out(record) for record in value.records]
+            group_variants.extend(gene_variants)
+            pairs: list[CompoundHetPairOut] = []
+            for pair in value.pairs:
+                phase, phase_evidence = _pair_phase(pair)
+                pairs.append(
+                    CompoundHetPairOut(
+                        pair_key=pair.pair_key,
+                        variant_ids=[pair.left.variant_id, pair.right.variant_id],
+                        phase=phase,
+                        phase_evidence=phase_evidence,
+                    )
+                )
+            gene = SmallVariantCompoundHetGeneOut(
+                group_key=value.group_key,
                 gene=value.gene,
                 gene_id=value.gene_id,
-                variants=[left_variant, right_variant],
-                phase=phase,
-                phase_evidence=phase_evidence,
+                variants=gene_variants,
+                pairs=pairs,
+                inherited_from=dict(value.inherited_from),
             )
-            pairs.append(pair)
-            groups.append(pair)
+            compound_het_genes.append(gene)
+            groups.append(gene)
         else:
             singles.append(variant_out(value))
     await _hydrate_small_variant_outs(
@@ -3571,9 +3580,13 @@ async def _small_item_outs(
         context=context,
         variants=[*group_variants, *singles],
     )
-    # A carrier gene has no review of its own: each of its variants keeps its own.
-    for pair in pairs:
-        pair.review = _group_review_for_pair(pair.variants[0], pair.variants[1])
+    # A pair's review is held by its variants, read once they are hydrated. A carrier gene has
+    # no review of its own: each of its variants keeps its own.
+    for compound_het_gene in compound_het_genes:
+        by_id = {str(variant.id): variant for variant in compound_het_gene.variants}
+        for pair_out in compound_het_gene.pairs:
+            left_id, right_id = pair_out.variant_ids
+            pair_out.review = _group_review_for_pair(by_id[left_id], by_id[right_id])
     return singles, groups
 
 

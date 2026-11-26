@@ -126,15 +126,18 @@ button.sv-second-hit-badge--del:hover {
   gap: 0.5rem;
 }
 
-/* The pair review or the couple: white on the group's muted ground. */
-.variant-group-panel {
-  background: var(--color-surface);
+/* A group's own lines under the gene's: plain lines, not a box, as the cards below are boxed. */
+.variant-group-lines {
+  display: grid;
+  gap: 0.375rem;
 }
 
-/* The panel's facts side by side where the card is wide enough. */
+/* The parents a compound-het gene's variants came from, or the couple's partners, side by side
+   where the card is wide enough. */
 .variant-group-summary {
+  display: grid;
   grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-  column-gap: 1rem;
+  gap: 0.25rem 1rem;
 }
 
 .variant-group-summary .variant-compound-het-summary-row {
@@ -149,24 +152,42 @@ button.sv-second-hit-badge--del:hover {
   white-space: nowrap;
 }
 
-/* A carrier screen's two partners, each in a colour of their own: in the couple panel and on
-   the card of each variant they carry. */
-.variant-group-partner--1 {
+/* Each pair of a compound-het gene on a line of its own: its variants, its phase and the pair
+   review it holds. */
+.variant-group-pairs {
+  display: grid;
+  gap: 0.1875rem;
+}
+
+.variant-group-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  font-size: var(--fs-xs);
+}
+
+.variant-group-pair-name {
+  font-weight: 600;
+  color: var(--color-heading);
+}
+
+.variant-group-pair-recorded {
+  color: var(--color-text-muted);
+}
+
+/* Two people of a group, each in a colour of their own: the parents of a compound-het gene's
+   variants, or a carrier screen's partners, on the lines and on the card of each variant. */
+.variant-group-person--1 {
   border-color: rgba(52, 96, 150, 0.22);
   background: rgba(82, 111, 161, 0.14);
   color: #3f618f;
 }
 
-.variant-group-partner--2 {
+.variant-group-person--2 {
   border-color: rgba(135, 111, 61, 0.18);
   background: rgba(205, 179, 125, 0.16);
   color: #816939;
-}
-
-.variant-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3125rem;
 }
 
 .variant-card-chip-row {
@@ -873,14 +894,6 @@ a.variant-card-gene:hover {
   font-weight: 600;
 }
 
-.variant-card-inline-link {
-  display: inline-flex;
-  align-items: center;
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--color-link);
-}
-
 /* The gene's ID, over the transcript accession: monospace like it, in the text colour, as
    it opens nothing. */
 .variant-card-gene-id {
@@ -933,11 +946,6 @@ a.variant-card-gene:hover {
 
 .variant-card-id-link:hover,
 .variant-card-id-link:focus-visible {
-  color: var(--color-link-hover);
-  text-decoration: underline;
-}
-
-.variant-card-inline-link:hover {
   color: var(--color-link-hover);
   text-decoration: underline;
 }
@@ -1013,23 +1021,6 @@ a.variant-card-gene:hover {
   font-size: var(--fs-xs);
   line-height: 1.45;
   color: var(--color-text-muted);
-}
-
-.variant-card-review-panel {
-  display: grid;
-  gap: 0.25rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface-muted);
-  padding: 0.375rem 0.5rem;
-}
-
-.variant-card-review-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.3125rem;
 }
 
 .variant-table-review-actions {

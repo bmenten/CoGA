@@ -566,8 +566,10 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
             {
                 "gene": g.gene,
                 "n": len(g.variants),
-                "phase": g.phase,
-                "phase_evidence": getattr(g, "phase_evidence", None),
+                "pairs": [
+                    {"variant_ids": pair.variant_ids, "phase": pair.phase, "phase_evidence": pair.phase_evidence}
+                    for pair in g.pairs
+                ],
             }
             for g in getattr(ch_page, "variant_groups", [])
         ]

@@ -77,7 +77,7 @@ De prioritering draait bij `GET /api/families/{family_id}/small-variants?priorit
 
 **De prioritering verandert de volgorde, niet wat een zoekopdracht vindt.** Dat geldt voor een overervingsmodel dat varianten paart (compound-het, recessief) en voor dragerscreening. Een gerangschikte zoekopdracht houdt dan precies over wat dezelfde zoekopdracht zonder prioritering overhoudt: dezelfde regels op dezelfde kandidaten (de paren, met hun fase; de homozygote en X-gebonden varianten, als vlag van de SQL; de genregel van het koppel, hoofdstuk 8). Alleen die varianten worden gerangschikt, met de segregatie die ze onderling hebben.
 
-- Een paar blijft een paar en staat op de plaats van zijn best gerangschikte variant. Deelt het die variant met een ander item, dan beslist de volgende.
+- De paren van een gen blijven één resultaat en staan op de plaats van de best gerangschikte variant van het gen. Deelt het die variant met een ander item, dan beslist de volgende.
 - Elke variant toont zijn eigen rang.
 - Zo'n zoekopdracht leest één venster van 5.000 kandidaten, het grootste dat de zoekopdracht zonder prioritering leest. Loopt het over, dan zijn de rangschikking en de kandidaten allebei begrensd (`ranking_truncated` en `candidates_capped`). De telling is dan wat binnen het venster gevonden werd: een ondergrens.
 

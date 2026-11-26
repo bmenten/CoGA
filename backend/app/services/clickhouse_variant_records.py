@@ -156,6 +156,21 @@ class SmallVariantCompoundHetPair:
 
 
 @dataclass(slots=True)
+class SmallVariantCompoundHetGene:
+    """A gene's compound-het candidates, served as one result: every variant of its pairs, in
+    genomic order, and each pair the search keeps among them."""
+
+    group_key: str
+    gene: str | None
+    gene_id: str | None
+    records: tuple[SmallVariantRecord, ...]
+    pairs: tuple[SmallVariantCompoundHetPair, ...]
+    # Per variant id, the parent sample it traces to in every affected individual
+    # (``compound_het_phase.hit_origin``); a variant not in it is not traced.
+    inherited_from: dict[str, str]
+
+
+@dataclass(slots=True)
 class SmallVariantCarrierGene:
     """A gene of a couple's expanded carrier screen (REQ-CARR-002): every variant the screen
     keeps in it, in the order the search read them, and which partner carries each."""

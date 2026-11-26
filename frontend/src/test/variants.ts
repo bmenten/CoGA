@@ -7,7 +7,8 @@ import type {
 } from '../lib/apiSchema.generated';
 import type {
   SmallVariant,
-  SmallVariantGroup,
+  CompoundHetPair,
+  SmallVariantCompoundHetGene,
   SmallVariantReview,
   SmallVariantTranscript,
 } from '../pages/families/smallVariantSearch';
@@ -168,19 +169,32 @@ export const review = (
 });
 
 /**
- * A compound-het pair as the family's list serves it, the fields a test leaves out absent: no
- * gene, no review, and a phase neither the reads nor the parents resolved.
+ * A compound-het gene as the family's list serves it, the fields a test leaves out absent: no
+ * gene, no variants, no pairs and no variant traced to a parent.
  */
-export const smallVariantGroup = (
-  fields: Pick<SmallVariantGroup, 'group_key'> & Partial<SmallVariantGroup>,
-): SmallVariantGroup => ({
+export const compoundHetGene = (
+  fields: Pick<SmallVariantCompoundHetGene, 'group_key'> & Partial<SmallVariantCompoundHetGene>,
+): SmallVariantCompoundHetGene => ({
   group_type: 'compound_het',
   gene: null,
   gene_id: null,
   variants: [],
-  review: null,
+  pairs: [],
+  inherited_from: {},
+  ...fields,
+});
+
+/** A pair of a compound-het gene, the fields a test leaves out absent: no review, and a phase
+ * neither the reads nor the parents resolved. */
+export const compoundHetPair = (
+  variantIds: [string, string],
+  fields: Partial<CompoundHetPair> = {},
+): CompoundHetPair => ({
+  pair_key: variantIds.join('::'),
+  variant_ids: variantIds,
   phase: 'unknown',
   phase_evidence: null,
+  review: null,
   ...fields,
 });
 

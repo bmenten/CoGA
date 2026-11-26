@@ -284,22 +284,38 @@ class VariantOut(ApiDocumentModel):
     sv_second_hit: Optional[SvSecondHitOut] = None
 
 
-class SmallVariantGroupOut(BaseModel):
-    """A compound-het pair: two variants of one gene, served as one result."""
+class CompoundHetPairOut(BaseModel):
+    """Two variants of a compound-het gene that can be the recessive cause together."""
+
+    pair_key: str
+    # The pair's two variants, in genomic order.
+    variant_ids: List[str] = Field(default_factory=list)
+    # Phase derived from the calls, not the curator's judgement (which is
+    # `review.phase_status`). "trans" means the two alts were placed on opposite
+    # haplotypes: by the reads (one phase set) or by the parents' genotypes (one hit
+    # traced to each parent); `phase_evidence` says which. "unknown" means neither
+    # resolved them. Cis pairs are excluded from the results, so they never appear here.
+    phase: Literal["trans", "unknown"]
+    phase_evidence: Optional[Literal["read", "segregation"]] = None
+    # The pair's review, when one of its two variants holds it.
+    review: Optional[SmallVariantCompoundHetReviewOut] = None
+
+
+class SmallVariantCompoundHetGeneOut(BaseModel):
+    """A gene's compound-het candidates as one result: every variant of its pairs, and each
+    pair the search keeps among them. Two variants from the father and three from the
+    mother are one gene with five variants and six pairs."""
 
     group_type: Literal["compound_het"] = "compound_het"
     group_key: str
     gene: Optional[str] = None
     gene_id: Optional[str] = None
     variants: List[VariantOut] = Field(default_factory=list)
-    review: Optional[SmallVariantCompoundHetReviewOut] = None
-    # Phase derived from the calls, not the curator's judgement (which is
-    # `review.phase_status`). "trans" means the two alts were placed on opposite
-    # haplotypes: by the reads (one phase set) or by the parents' genotypes (one hit
-    # traced to each parent); `phase_evidence` says which. "unknown" means neither
-    # resolved them. Cis pairs are excluded from the results, so they never appear here.
-    phase: Literal["trans", "unknown"] = "unknown"
-    phase_evidence: Optional[Literal["read", "segregation"]] = None
+    pairs: List[CompoundHetPairOut] = Field(default_factory=list)
+    # Per variant id, the parent sample it traces to in every affected individual, as the
+    # pairs' phase traces each hit; a variant not listed is not traced (no parents, a
+    # parent without a confident call, or affected individuals who disagree).
+    inherited_from: Dict[str, str] = Field(default_factory=dict)
 
 
 class CarrierPartnerOut(BaseModel):
@@ -333,7 +349,7 @@ class SmallVariantCarrierGeneOut(BaseModel):
 
 # A grouped result of a small-variant search, told apart by its ``group_type``.
 SmallVariantResultGroupOut = Annotated[
-    Union[SmallVariantGroupOut, SmallVariantCarrierGeneOut],
+    Union[SmallVariantCompoundHetGeneOut, SmallVariantCarrierGeneOut],
     Field(discriminator="group_type"),
 ]
 
@@ -499,7 +515,7 @@ class VariantPage(BaseModel):
     # not ranked.
     ranked_by: Optional[Literal["combined_score", "variant_score"]] = None
     variants: List[VariantOut] = Field(default_factory=list)
-    # The grouped results: compound-het pairs, or an expanded carrier screen's genes.
+    # The grouped results: compound-het genes, or an expanded carrier screen's genes.
     variant_groups: List[SmallVariantResultGroupOut] = Field(default_factory=list)
     summary: Optional[Dict[str, Dict[str, int]]] = None
     small_variant_summary: Optional[SmallVariantSummaryOut] = None

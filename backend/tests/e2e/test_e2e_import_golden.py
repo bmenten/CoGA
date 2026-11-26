@@ -82,8 +82,11 @@ def test_compound_het_pair_is_traced_through_the_parents(facts, expected) -> Non
     group = next(
         g for g in facts["comp_het_groups"] if g["gene"] == expected["snv"]["compound_het_gene"]
     )
-    assert group["phase"] == expected["snv"]["compound_het_phase"], group
-    assert group["phase_evidence"] == expected["snv"]["compound_het_phase_evidence"], group
+    # The gene's one pair, listed with its two variants.
+    assert group["n"] == 2, group
+    [pair] = group["pairs"]
+    assert pair["phase"] == expected["snv"]["compound_het_phase"], group
+    assert pair["phase_evidence"] == expected["snv"]["compound_het_phase_evidence"], group
 
 
 def test_structural_variants_ingested(facts, expected) -> None:

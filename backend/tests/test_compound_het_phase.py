@@ -25,6 +25,7 @@ import pytest
 
 from backend.app.services.clickhouse_variant_queries import (
     MODE_COMPOUND_HET,
+    _compound_het_genes,
     _compound_het_pair_verdict,
     _compound_het_pairs,
     _family_pedigree,
@@ -36,6 +37,7 @@ from backend.app.services.compound_het_phase import (
     NON_CARRIER,
     UNKNOWN_CARRIAGE,
     FamilyPedigree,
+    hit_origin,
     phased_alt_haplotype,
     segregation_phase,
     small_variant_carriage,
@@ -734,3 +736,120 @@ def test_a_pair_traced_to_one_parent_no_longer_counts_towards_the_compound_het_m
     context = _trio_context()
     modes = _segregation_modes_by_variant(flag(traced_apart, **members_of(context)), context=context)
     assert MODE_COMPOUND_HET in modes["first"] and MODE_COMPOUND_HET in modes["second"]
+
+
+# =========================================================================================
+# The pairs of a gene, as one result
+# =========================================================================================
+
+
+class TestHitOrigin:
+    """The parent one hit traces to, by the rule each hit of a pair is traced with."""
+
+    @staticmethod
+    def _origin(gts: dict[str, str], parents_of: dict[str, set[str]] | None, dp: int = 30) -> str | None:
+        return hit_origin(
+            affected=["P"],
+            carriage=lambda sample: small_variant_carriage(gts.get(sample), dp) if sample in gts else UNKNOWN_CARRIAGE,
+            pedigree=_pedigree(parents_of),
+            locus=("1", 100),
+        )
+
+    def test_the_parent_who_carries_it_when_the_other_confidently_does_not(self) -> None:
+        assert self._origin({"P": "0/1", "M": "0/1", "F": "0/0"}, {"P": {"M", "F"}}) == "M"
+        assert self._origin({"P": "0/1", "M": "0/0", "F": "0/1"}, {"P": {"M", "F"}}) == "F"
+
+    def test_not_traced_when_both_parents_carry_it_or_neither_is_sure(self) -> None:
+        assert self._origin({"P": "0/1", "M": "0/1", "F": "0/1"}, {"P": {"M", "F"}}) is None
+        # A reference call below the confident depth is not "does not carry it": with neither
+        # parent known to carry it, no one is named.
+        assert self._origin({"P": "0/1", "M": "0/0", "F": "0/0"}, {"P": {"M", "F"}}, dp=3) is None
+        # Failing a confident absence, the only parent known to carry it is named, as a pair's
+        # hit is traced.
+        assert self._origin({"P": "0/1", "M": "0/1", "F": "0/0"}, {"P": {"M", "F"}}, dp=3) == "M"
+        assert self._origin({"P": "0/1", "M": "./.", "F": "0/1"}, {"P": {"M", "F"}}) == "F"
+
+    def test_not_traced_without_parents(self) -> None:
+        assert self._origin({"P": "0/1"}, None) is None
+        assert self._origin({"P": "0/1"}, {}) is None
+
+    def test_one_named_parent_who_lacks_it_names_no_one(self) -> None:
+        # The copy came from the parent the pedigree does not name.
+        assert self._origin({"P": "0/1", "M": "0/0"}, {"P": {"M"}}) is None
+        assert self._origin({"P": "0/1", "M": "0/1"}, {"P": {"M"}}) == "M"
+
+    def test_affected_siblings_trace_it_to_one_parent_or_to_no_one(self) -> None:
+        def origin(gts: dict[str, str], parents_of: dict[str, set[str]]) -> str | None:
+            return hit_origin(
+                affected=["P1", "P2"],
+                carriage=lambda sample: small_variant_carriage(gts.get(sample), 30),
+                pedigree=_pedigree(parents_of),
+                locus=("1", 100),
+            )
+
+        siblings = {"P1": {"M", "F"}, "P2": {"M", "F"}}
+        assert origin({"P1": "0/1", "P2": "0/1", "M": "0/1", "F": "0/0"}, siblings) == "M"
+        # Half-siblings who each got it from their own father: no one parent for both.
+        half_siblings = {"P1": {"M", "F"}, "P2": {"M", "G"}}
+        assert origin({"P1": "0/1", "P2": "0/1", "M": "0/0", "F": "0/1", "G": "0/1"}, half_siblings) is None
+
+
+class TestPairsByGene:
+    """Two variants from the father and three from the mother: one gene, five variants and the
+    six pairs of a paternal with a maternal one, each traced to its parent."""
+
+    @staticmethod
+    def _records() -> list[SmallVariantRecord]:
+        paternal = {"P": "0/1", "M": "0/0", "F": "0/1"}
+        maternal = {"P": "0/1", "M": "0/1", "F": "0/0"}
+        return [
+            _record("f1", 100, paternal, {}),
+            _record("m1", 200, maternal, {}),
+            _record("f2", 300, paternal, {}),
+            _record("m2", 400, maternal, {}),
+            _record("m3", 500, maternal, {}),
+        ]
+
+    def _genes(self):
+        pedigree = _pedigree({"P": {"M", "F"}})
+        pairs = _compound_het_pairs(
+            self._records(), affected_samples=["P"], unaffected_samples=["M", "F"], pedigree=pedigree
+        )
+        return _compound_het_genes(pairs, affected_samples=["P"], pedigree=pedigree)
+
+    def test_one_gene_holds_every_variant_once_and_each_paternal_with_each_maternal(self) -> None:
+        [gene] = self._genes()
+        assert [record.variant_id for record in gene.records] == ["f1", "m1", "f2", "m2", "m3"]
+        assert sorted((pair.left.variant_id, pair.right.variant_id) for pair in gene.pairs) == [
+            ("f1", "m1"),
+            ("f1", "m2"),
+            ("f1", "m3"),
+            ("f2", "m2"),
+            ("f2", "m3"),
+            ("m1", "f2"),
+        ]
+        # The two paternal ones, and the maternal ones among themselves, are in cis.
+        assert {(pair.phase, pair.phase_evidence) for pair in gene.pairs} == {("trans", "segregation")}
+
+    def test_each_variant_is_traced_to_its_parent(self) -> None:
+        [gene] = self._genes()
+        assert gene.inherited_from == {"f1": "F", "f2": "F", "m1": "M", "m2": "M", "m3": "M"}
+
+    def test_two_genes_stay_apart(self) -> None:
+        pedigree = _pedigree({"P": {"M", "F"}})
+        other_gene = [
+            _record("x1", 10_000, {"P": "0/1", "M": "0/0", "F": "0/1"}, {}),
+            _record("x2", 10_100, {"P": "0/1", "M": "0/1", "F": "0/0"}, {}),
+        ]
+        for record in other_gene:
+            record.gene_symbols = ["OTHER"]
+            record.annotations = [{"gene": "OTHER"}]
+        pairs = _compound_het_pairs(
+            [*self._records(), *other_gene], affected_samples=["P"], unaffected_samples=["M", "F"], pedigree=pedigree
+        )
+        genes = _compound_het_genes(pairs, affected_samples=["P"], pedigree=pedigree)
+        assert [[record.variant_id for record in gene.records] for gene in genes] == [
+            ["f1", "m1", "f2", "m2", "m3"],
+            ["x1", "x2"],
+        ]
+        assert [len(gene.pairs) for gene in genes] == [6, 1]

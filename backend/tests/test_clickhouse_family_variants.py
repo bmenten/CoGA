@@ -107,8 +107,7 @@ def _inheritance_filter_records(
         unaffected_samples=unaffected_samples,
     ):
         if kind == "group":
-            matched_ids.add(payload.left.variant_id)
-            matched_ids.add(payload.right.variant_id)
+            matched_ids.update(record.variant_id for record in payload.records)
         else:
             matched_ids.add(payload.variant_id)
     return [record for record in records if record.variant_id in matched_ids]

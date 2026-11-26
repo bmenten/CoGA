@@ -135,15 +135,22 @@ transcript the row describes.
 The built-in presets are *Phenotype priority*, *Dominant strict*, *Dominant relaxed*, *Expanded carrier
 screening*, *Compound het*, *Recessive hom*, *Recessive broad*, *Any affected* and *ClinVar review*. A
 preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous
-candidates are shown as pairs, and *Expanded carrier screening* lists its findings by gene. Up to 100
-results show as cards, more as a table; *Table* and *Cards* above the list switch between the two. A
-pair or a gene counts as one result.
+candidates and the findings of *Expanded carrier screening* are listed by gene. Up to 100 results show
+as cards, more as a table; *Table* and *Cards* above the list switch between the two. A gene counts as
+one result.
 
-A pair or a gene is a frame headed by the gene, with its diseases and inheritance once, and holds each
-of its variants as the list of single variants shows it: as its full card, headed by its place (*Variant
-1 of 2*) and its change, or as a row of the table. A pair's frame gives the pair review and the phase:
-what the reads or the parents say, apart from the phase you record. Fold the frame to its heading and
-the changes of its variants, or fold one card inside it.
+A gene is a frame headed by the gene, as a single card is, with its diseases and inheritance once, and
+holds each of its variants as the list of single variants shows it: as its full card, headed by its
+place (*Variant 1 of 3*) and its change, or as a row of the table. Fold the frame to its heading and the
+changes of its variants, or fold one card inside it.
+
+A compound-het gene holds every variant of its pairs once. Its lines say which parent each variant came
+from (*Paternal*, *Maternal*; *Parent not traced* where the parents' genotypes cannot tell), and each
+card carries the same label. Then each pair that can be the recessive cause has a line of its own: its
+phase, as the reads or the parents place it, and the pair review it holds, with the phase recorded
+there. Two variants from the father and three from the mother are one gene with five variants and six
+pairs: each paternal variant with each maternal one. Two variants from one parent are in cis and form
+no pair.
 
 A card takes its colour from ClinVar, here and on the monogenic NIPT page: light red when ClinVar calls
 the variant pathogenic or likely pathogenic, light green when it calls it benign or likely benign. A
@@ -227,8 +234,7 @@ compatible inheritance modes and the matched phenotypes.
 - Without HPO terms on the affected members, the ranking uses the variant evidence only.
 - The ranking changes the order of a search, not what it finds. With an inheritance mode or
   *Expanded carrier screening* it ranks the same variants and compound-het pairs the search finds
-  without it. A pair stays a pair, listed where its better-ranked variant ranks; each variant shows
-  its own rank.
+  without it. A gene is listed where its best-ranked variant ranks; each variant shows its own rank.
 - The score orders candidates within the family; it is not a probability of pathogenicity.
 - A warning that *"Ranking may be incomplete"* means more candidates matched than CoGA ranks at once
   (it says how many were ranked), so the best one may be missing. Narrow the filters: a region, a
