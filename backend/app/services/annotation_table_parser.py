@@ -251,8 +251,8 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
     # (before "## Column descriptions:"); buffer it for provenance capture.
     provenance_header: list[str] = []
     # Whether the table holds a ClinVar file's classification (a column, or a described Extra
-    # key, which a row without a value leaves out), and the file VEP describes it from: then a
-    # row's ClinVar classification is that file's, never the cache's CLIN_SIG.
+    # key, which a row without a value leaves out), and the file VEP describes it from: the
+    # manifest's ClinVar release is that file's.
     clinvar_file_annotated = False
     clinvar_file_name: str | None = None
     # The columns and Extra keys the table describes, each with the file its description names
@@ -295,9 +295,7 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
         # columns ``--tab`` writes, a column of the row's own winning.
         for key, value in _vep_extra_fields(row.pop("Extra", "")).items():
             row.setdefault(key, value)
-        annotation = normalize_small_variant_annotation_entry(
-            row, clinvar_file_annotated=clinvar_file_annotated, gnomad_annotated=gnomad_annotated
-        )
+        annotation = normalize_small_variant_annotation_entry(row, gnomad_annotated=gnomad_annotated)
         if not annotation:
             continue
         row_count += 1

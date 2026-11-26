@@ -55,7 +55,7 @@ _CSQ_FIELDS = (
     "MANE_SELECT", "MANE_PLUS_CLINICAL", "HGVSc", "HGVSp", "Existing_variation", "LoF", "SIFT",
     "PolyPhen", "CADD_PHRED", "REVEL", "SpliceAI_pred_DS_AG", "SpliceAI_pred_DS_AL",
     "SpliceAI_pred_DS_DG", "SpliceAI_pred_DS_DL", "gnomADe_AF", "gnomADg_AF", "gnomAD_AF_POPMAX",
-    "TOPMed_AF", "gnomAD_AC", "gnomAD_nhomalt", "gnomAD_Hemi", "CLIN_SIG",
+    "TOPMed_AF", "gnomAD_AC", "gnomAD_nhomalt", "gnomAD_Hemi", "ClinVar_CLNSIG",
 )
 _CONSEQUENCES = (
     ("missense_variant", "MODERATE"),
@@ -135,7 +135,7 @@ def _csq(rng: random.Random, variant_id: str) -> list[dict[str, str]]:
                 "SpliceAI_pred_DS_AL": splice,
                 "SpliceAI_pred_DS_DG": splice,
                 "SpliceAI_pred_DS_DL": splice,
-                "CLIN_SIG": rng.choice(_CLINVAR),
+                "ClinVar_CLNSIG": rng.choice(_CLINVAR),
                 # VEP writes a variant's frequencies on each of its transcripts; now and
                 # then a transcript holds others.
                 **(_frequencies(rng) if rng.random() < 0.1 else variant_frequencies),

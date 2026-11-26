@@ -1018,7 +1018,7 @@ def test_vep_default_output_reads_its_extra_column_as_tab_output_reads_its_colum
     assert default_annotation == tab_annotation
     assert (default_annotation["gene"], default_annotation["impact"]) == ("GENE1", "MODERATE")
     assert default_annotation.get("mane_select") is True
-    for key in ("sift", "polyphen", "clinvar", "hgvsc", "hgvsp"):
+    for key in ("sift", "polyphen", "clinvar_vep_cache", "hgvsc", "hgvsp"):
         assert default_annotation.get(key) not in (None, ""), key
     assert default_annotation["population_frequencies"]["gnomad_exomes_af"] == 0.0001
     assert default_annotation["gnomad_annotated"] == ["exomes"]

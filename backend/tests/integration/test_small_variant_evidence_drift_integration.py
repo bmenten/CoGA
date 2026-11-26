@@ -66,7 +66,7 @@ _CSQ_FIELDS = (
     "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
     "|SIFT|PolyPhen|REVEL|CADD_PHRED|am_class|am_pathogenicity|SpliceAI_pred_DS_AG"
     "|SpliceAI_pred_DS_AL|SpliceAI_pred_DS_DG|SpliceAI_pred_DS_DL|gnomADe_AF|gnomADg_AF|gnomADg_AF_grpmax"
-    "|gnomAD_AC|gnomAD_nhomalt|gnomAD_Hemi|TOPMed_AF|CLIN_SIG"
+    "|gnomAD_AC|gnomAD_nhomalt|gnomAD_Hemi|TOPMed_AF|ClinVar_CLNSIG"
 )
 
 
@@ -377,7 +377,7 @@ _GENE8_ID = "ENSG00000000108"
 _GENE8_REASON = "The gene's missense Z moved and LOFTEE now calls the stop gained HC; PP2 and PVS1 re-reviewed."
 _GENE8_CSQ_FIELDS = (
     "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
-    "|REVEL|gnomADe_AF|gnomADg_AF|LoF|CLIN_SIG"
+    "|REVEL|gnomADe_AF|gnomADg_AF|LoF|ClinVar_CLNSIG"
 )
 
 

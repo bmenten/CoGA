@@ -60,7 +60,7 @@ _SAMPLE_A, _SAMPLE_B = "EXPF_A1", "EXPF_B1"
 
 _CSQ_FORMAT = (
     "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
-    "|Existing_variation|CLIN_SIG|gnomADe_AF"
+    "|Existing_variation|ClinVar_CLNSIG|gnomADe_AF"
 )
 
 
