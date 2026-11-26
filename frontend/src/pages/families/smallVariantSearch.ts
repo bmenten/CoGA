@@ -507,7 +507,8 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
   {
     value: 'any_affected',
     label: 'Any affected',
-    description: 'Fast rare-coding search across all affected family members.',
+    description:
+      'Rare-coding search across all affected family members, with the compound-het pairs among the results grouped by gene.',
   },
   {
     value: 'clinvar_review',
@@ -1143,6 +1144,9 @@ const buildPresetState = (
     });
     setUnaffectedGenotypes([...REF_GT_GROUP, ...HET_GT_GROUP]);
   } else if (preset === 'any_affected') {
+    // Every rare coding variant the affected members carry, with the compound-het pairs among
+    // them listed by gene: the grouped view leaves no variant out.
+    filters.inheritance = 'all_compound_het_grouped';
     setFrequencyCeiling('0.01');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
