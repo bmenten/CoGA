@@ -1,6 +1,6 @@
 ##fileformat=VCFv4.2
 ##FILTER=<ID=PASS,Description="All filters passed">
-##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: Consequence|IMPACT|SYMBOL|Gene|Feature|gnomAD_AF|CADD_PHRED|CLIN_SIG">
+##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: Consequence|IMPACT|SYMBOL|Gene|Feature|gnomAD_AF|CADD_PHRED|ClinVar_CLNSIG">
 ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
 ##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">
 ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">

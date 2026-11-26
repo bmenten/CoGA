@@ -2,14 +2,14 @@
 
 A family sequenced short-read and then long-read on the same DNA holds two analyses, each imported
 from a package of its own and signed out on its own. Each import records the tool and database
-versions of its own analysis (VEP, ClinVar, the caller, the repeat caller), and keeps the other
-analysis's. Over real Postgres and ClickHouse, a new family each run:
+versions of its own analysis (VEP, its cache's ClinVar, the caller, the repeat caller), and keeps
+the other analysis's. Over real Postgres and ClickHouse, a new family each run:
 
 1. a short-read WGS package (``analysis_type: short_read_wgs``): the trio's joint GATK callset,
-   annotated with VEP 110 and a ClinVar release of 2024;
+   annotated with VEP 110, whose cache holds a ClinVar release of 2024;
 2. the short-read WGS is signed out (the family's only analysis: whole), and its check matches;
 3. a long-read WGS package (``analysis_type: long_read_wgs``) of the same members, imported with
-   update: a joint DeepVariant callset annotated with VEP 112 and a ClinVar release of 2026, and
+   update: a joint DeepVariant callset annotated with VEP 112, its cache's ClinVar of 2026, and
    the proband's TRGT call.
 
 Then:
@@ -249,7 +249,7 @@ def test_the_short_read_record_states_its_own_versions(run) -> None:
     assert snapshot["analysis_type"] == "short_read_wgs"
     versions = _versions(snapshot["modules"])
     assert versions["vep"] == "110"
-    assert versions["clinvar"] == "20240107"
+    assert versions["clinvar_vep_cache"] == "20240107"
     assert versions["gatk"] == "4.5.0.0"
     assert "deepvariant" not in versions and "trgt" not in versions
     # The record holds the repeat and Paraphase sections, without a call: the family had none.
@@ -272,7 +272,7 @@ def test_the_long_read_record_states_its_own_versions(run) -> None:
     assert snapshot["analysis_type"] == "long_read_wgs"
     versions = _versions(snapshot["modules"])
     assert versions["vep"] == "112"
-    assert versions["clinvar"] == "20260105"
+    assert versions["clinvar_vep_cache"] == "20260105"
     assert versions["deepvariant"] == "1.6.1"
     assert versions["trgt"] == "5.0.0"
     assert "gatk" not in versions

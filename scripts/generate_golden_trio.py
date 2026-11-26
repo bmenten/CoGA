@@ -33,7 +33,7 @@ SAMPLES = ["FATHER", "MOTHER", "PROBAND"]
 
 # CSQ subfields the annotation parser maps: SYMBOL->gene, Gene->gene_id,
 # Consequence->effect, gnomAD_AF->frequency, etc.
-CSQ_FIELDS = ["Consequence", "IMPACT", "SYMBOL", "Gene", "Feature", "gnomAD_AF", "CADD_PHRED", "CLIN_SIG"]
+CSQ_FIELDS = ["Consequence", "IMPACT", "SYMBOL", "Gene", "Feature", "gnomAD_AF", "CADD_PHRED", "ClinVar_CLNSIG"]
 
 
 def _gt(call: str, dp: int = 30) -> str:

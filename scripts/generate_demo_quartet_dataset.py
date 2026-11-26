@@ -1211,7 +1211,7 @@ def csq_fields() -> List[str]:
         "HGVSc",
         "HGVSp",
         "Existing_variation",
-        "CLIN_SIG",
+        "ClinVar_CLNSIG",
         "CANONICAL",
         "MANE_SELECT",
         "gnomAD_AF",

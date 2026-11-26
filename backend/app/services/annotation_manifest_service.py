@@ -472,11 +472,12 @@ async def call_annotation_manifest(
     )
 
 
-# The ClinVar modules name where a classification comes from: the ClinVar file the pipeline
-# annotated, or VEP's cache (``vcf_header_provenance.clinvar_file_module``). A new import's
-# module replaces the stored version and detail together, and a version it does not state
-# drops the modality's. Merged field by field, one import's cache release would stay beside a
-# ClinVar file named without a date, and read as that file's release.
+# The ClinVar modules: the ClinVar file the pipeline annotated (``clinvar``), the release of
+# the records' classification, and VEP's cache (``clinvar_vep_cache``;
+# ``vcf_header_provenance.clinvar_file_module``). A new import's module replaces the stored
+# version and detail together, and a version it does not state drops the modality's. Merged
+# field by field, an earlier file's release would stay beside a ClinVar file named without a
+# date, and read as that file's release.
 _SOURCE_BOUND_MODULES = frozenset({"clinvar", "clinvar_vep_cache"})
 
 

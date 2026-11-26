@@ -35,7 +35,7 @@ from backend.tests.e2e._harness import ensure_postgres_schema
 
 pytestmark = pytest.mark.integration
 
-_CSQ_FORMAT = "Allele|Consequence|IMPACT|SYMBOL|Gene|MAX_AF|CLIN_SIG"
+_CSQ_FORMAT = "Allele|Consequence|IMPACT|SYMBOL|Gene|MAX_AF|ClinVar_CLNSIG"
 
 
 def _header(column: str) -> str:

@@ -66,7 +66,7 @@ _CSQ_FIELDS = (
     "MANE_SELECT", "MANE_PLUS_CLINICAL", "HGVSc", "HGVSp", "Existing_variation", "LoF", "SIFT",
     "PolyPhen", "CADD_PHRED", "REVEL", "SpliceAI_pred_DS_AG", "SpliceAI_pred_DS_AL",
     "SpliceAI_pred_DS_DG", "SpliceAI_pred_DS_DL", "gnomADe_AF", "gnomADg_AF", "gnomAD_AF_POPMAX",
-    "TOPMed_AF", "gnomAD_AC", "gnomAD_nhomalt", "gnomAD_Hemi", "CLIN_SIG",
+    "TOPMed_AF", "gnomAD_AC", "gnomAD_nhomalt", "gnomAD_Hemi", "ClinVar_CLNSIG",
 )
 _NO_SPLICING = {
     "SpliceAI_pred_DS_AG": "0.00",
@@ -166,7 +166,7 @@ _VARIANTS: dict[str, _Variant] = {
                 CANONICAL="YES", MANE_SELECT="NM_SYNA.1",
                 HGVSc="ENST_SYNA_1:c.100C>T", HGVSp="ENSP_SYNA_1:p.Ala34Val",
                 SIFT="deleterious(0.01)", PolyPhen="probably_damaging(0.99)",
-                CADD_PHRED="25.3", REVEL="0.7", CLIN_SIG="uncertain_significance", **_NO_SPLICING,
+                CADD_PHRED="25.3", REVEL="0.7", ClinVar_CLNSIG="uncertain_significance", **_NO_SPLICING,
             )
         ],
         frequencies={
@@ -183,12 +183,12 @@ _VARIANTS: dict[str, _Variant] = {
         csq=[
             _csq(
                 "intron_variant", "MODIFIER", "SYNA", "ENST_SYNA_1",
-                CANONICAL="YES", MANE_SELECT="NM_SYNA.1", CADD_PHRED="35", CLIN_SIG="pathogenic",
+                CANONICAL="YES", MANE_SELECT="NM_SYNA.1", CADD_PHRED="35", ClinVar_CLNSIG="pathogenic",
             ),
             _csq(
                 "stop_gained", "HIGH", "SYNA", "ENST_SYNA_2",
                 HGVSc="ENST_SYNA_2:c.50G>A", HGVSp="ENSP_SYNA_2:p.Trp17Ter", LoF="HC",
-                CADD_PHRED="35", CLIN_SIG="pathogenic",
+                CADD_PHRED="35", ClinVar_CLNSIG="pathogenic",
             ),
         ],
         calls=_trio("1|0", ps=4321),
@@ -200,7 +200,7 @@ _VARIANTS: dict[str, _Variant] = {
             _csq(
                 "missense_variant&splice_region_variant", "MODERATE", "SYNB", "ENST_SYNB_1",
                 MANE_PLUS_CLINICAL="NM_SYNB.2", SIFT="tolerated(0.3)", PolyPhen="benign(0.01)",
-                CADD_PHRED="20", REVEL="0.69", CLIN_SIG="likely_pathogenic",
+                CADD_PHRED="20", REVEL="0.69", ClinVar_CLNSIG="likely_pathogenic",
                 **{**_NO_SPLICING, "SpliceAI_pred_DS_AG": "0.35"},
             )
         ],
@@ -232,7 +232,7 @@ _VARIANTS: dict[str, _Variant] = {
     # SYNC: a gene in which each parent carries a variant the son does not: the couple's
     # carrier finding. A common benign MNV from the mother, a likely benign one from the father.
     MATERNAL_MNV: _Variant(
-        csq=[_csq("missense_variant", "MODERATE", "SYNC", "ENST_SYNC_1", CANONICAL="YES", CLIN_SIG="benign")],
+        csq=[_csq("missense_variant", "MODERATE", "SYNC", "ENST_SYNC_1", CANONICAL="YES", ClinVar_CLNSIG="benign")],
         frequencies={
             "gnomADe_AF": "0.08", "gnomADg_AF": "0.09", "gnomAD_AF_POPMAX": "0.12",
             "TOPMed_AF": "0.07", "gnomAD_AC": "9000", "gnomAD_nhomalt": "300",
@@ -241,8 +241,8 @@ _VARIANTS: dict[str, _Variant] = {
     ),
     PATERNAL_SYNONYMOUS: _Variant(
         csq=[
-            _csq("synonymous_variant", "LOW", "SYNC", "ENST_SYNC_1", CANONICAL="YES", CLIN_SIG="likely_benign"),
-            _csq("missense_variant", "MODERATE", "SYNC", "ENST_SYNC_2", CLIN_SIG="likely_benign"),
+            _csq("synonymous_variant", "LOW", "SYNC", "ENST_SYNC_1", CANONICAL="YES", ClinVar_CLNSIG="likely_benign"),
+            _csq("missense_variant", "MODERATE", "SYNC", "ENST_SYNC_2", ClinVar_CLNSIG="likely_benign"),
         ],
         frequencies={"gnomADe_AF": "0.004"},
         calls=_trio("0/0", father="0/1"),
@@ -252,7 +252,7 @@ _VARIANTS: dict[str, _Variant] = {
         csq=[
             _csq(
                 "missense_variant", "MODERATE", "SYND", "ENST_SYND_1",
-                CANONICAL="YES", MANE_SELECT="NM_SYND.1", CLIN_SIG="Pathogenic/Likely_pathogenic",
+                CANONICAL="YES", MANE_SELECT="NM_SYND.1", ClinVar_CLNSIG="Pathogenic/Likely_pathogenic",
             )
         ],
         frequencies={

@@ -224,7 +224,7 @@ def _position_locus(position: int, gene: str | None = None) -> dict[str, Any]:
 def _clinical_significance(annotation: dict[str, Any]) -> str:
     status_text = " ".join(
         _list_texts(
-            _annotation_value(annotation, "clinical_significance", "clin_sig", "clinvar", "ClinVar_CLNSIG"),
+            _annotation_value(annotation, "clinical_significance", "clinvar", "ClinVar_CLNSIG"),
             _annotation_value(annotation, "mitomap_status", "mitomapClinicalSignificance", "status"),
             _annotation_value(annotation, "classification"),
             _annotation_value(annotation, "variant_status", "variantStatus"),

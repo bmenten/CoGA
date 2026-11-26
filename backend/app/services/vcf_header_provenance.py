@@ -107,8 +107,8 @@ _CANONICAL: dict[str, str] = {
     "gnomade": "gnomad",
     "gnomadg": "gnomad",
     "clinvar": "clinvar",
-    # The ClinVar release of VEP's cache, where the pipeline annotated a ClinVar file of its
-    # own (``clinvar_file_module``).
+    # The ClinVar release of VEP's cache, never the ClinVar classification's
+    # (``clinvar_file_module``).
     "clinvarvepcache": "clinvar_vep_cache",
     "dbnsfp": "dbnsfp",
     "spliceai": "spliceai",
@@ -171,10 +171,6 @@ class HeaderProvenance:
     """Normalised provenance harvested from one input's header."""
 
     modules: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # Whether the records' ClinVar classification comes from a ClinVar file of the pipeline's
-    # (``clinvar_file_module``), and that file's name as the header gives it.
-    clinvar_file_annotated: bool = False
-    clinvar_file_name: str | None = None
     caller: dict[str, str] | None = None
     reference: str | None = None
     fileformat: str | None = None
@@ -279,7 +275,7 @@ def _parse_vep_line(value: str, prov: HeaderProvenance) -> None:
             canonical = _VEP_DB_KEYS[low]
             if canonical == "assembly":
                 prov.reference = prov.reference or raw
-            elif canonical == "clinvar" and prov.clinvar_file_annotated:
+            elif canonical == "clinvar":
                 _set_module(
                     prov.modules, "clinvar_vep_cache", version=raw, detail=_CLINVAR_CACHE_DETAIL, join=True
                 )
@@ -412,12 +408,11 @@ def extract_header_provenance(
     so the same family can record one caller per modality. ``clinvar_file_annotated`` and
     ``clinvar_file_name``: the records' ClinVar classification comes from a ClinVar file,
     which the ``##INFO`` lines name (``variant_annotation_parser.clinvar_file_annotated``);
-    then ``clinvar`` is that file's release, and the cache's goes apart
-    (``clinvar_file_module``). Best-effort: malformed lines are skipped, never raised.
+    then ``clinvar`` is that file's release. The ClinVar release of VEP's cache is always
+    ``clinvar_vep_cache`` (``clinvar_file_module``). Best-effort: malformed lines are skipped,
+    never raised.
     """
-    prov = HeaderProvenance(
-        clinvar_file_annotated=clinvar_file_annotated, clinvar_file_name=clinvar_file_name
-    )
+    prov = HeaderProvenance()
     # The tools the ``##source`` lines name, and the first version a ``##source_version``
     # line states (Strelka).
     source_tools: list[str] = []
@@ -482,11 +477,11 @@ def extract_header_provenance(
             current = prov.modules[caller_key].get("detail")
             if not current or current == "caller":
                 prov.modules[caller_key]["detail"] = f"{modality} caller"
-    if prov.clinvar_file_annotated:
+    if clinvar_file_annotated:
         # A ClinVar version a line of its own states (not the ``##VEP=`` line's, which went
         # apart above) is the file's, and wins over the date in its name.
         stated = prov.modules.get("clinvar", {}).get("version")
-        module = clinvar_file_module(prov.clinvar_file_name)
+        module = clinvar_file_module(clinvar_file_name)
         if stated:
             module["version"] = stated
         prov.modules["clinvar"] = module
@@ -494,14 +489,13 @@ def extract_header_provenance(
 
 
 # --- The ClinVar file --------------------------------------------------------- #
-# Where a pipeline annotated a ClinVar file of its own (VEP --custom, bcftools annotate), the
-# records' ClinVar classification is that file's (``variant_annotation_parser``), so the
-# manifest's ClinVar release is that file's: before, it was the ClinVar release of VEP's cache
-# (``##VEP=… ClinVar="…"``), frozen into a sign-out for a classification from another file.
-# The cache's release is kept as a module of its own. VEP names a --custom file in the
-# description of its fields' INFO lines (``… CLNSIG field from [PATH]/clinvar_20261101.vcf.gz``)
-# and states no release: the release is the date ClinVar names its weekly file by. A file
-# named without one is recorded by its name, with no version.
+# The records' ClinVar classification is only ever the ClinVar file's the pipeline annotated
+# (VEP --custom, bcftools annotate; ``variant_annotation_parser``), so the manifest's ClinVar
+# release is that file's, and a callset annotated without one has none. The ClinVar release
+# of VEP's cache (``##VEP=… ClinVar="…"``) is a module of its own, ``clinvar_vep_cache``. VEP
+# names a --custom file in the description of its fields' INFO lines (``… CLNSIG field from
+# [PATH]/clinvar_20261101.vcf.gz``) and states no release: the release is the date ClinVar
+# names its weekly file by. A file named without one is recorded by its name, with no version.
 _CLINVAR_CACHE_DETAIL = "VEP cache; kept apart, not read as the ClinVar classification"
 _CLINVAR_FILE_RELEASE = re.compile(r"(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)")
 
@@ -541,7 +535,7 @@ _VEP_TAB_CACHE = re.compile(r"(?i)^##\s*Using cache in\s+(.+?)\s*$")
 # Canonical keys we keep from the VEP tab header — drop ensembl-internal/build noise
 # (ensembl-funcgen, genebuild, regbuild, "Using API", 1000genomes, …).
 _VEP_TAB_ALLOW = {
-    "vep", "clinvar", "gnomad", "dbsnp", "cosmic", "sift", "polyphen",
+    "vep", "gnomad", "dbsnp", "cosmic", "sift", "polyphen",
     "assembly", "gencode", "hgmd", "dbnsfp", "spliceai", "revel", "cadd", "mane",
 }
 
@@ -554,9 +548,10 @@ def extract_vep_tab_provenance(
 ) -> dict[str, dict[str, Any]]:
     """Parse a VEP tab-output (``--tab``) header into the ``modules`` shape.
 
-    Complements :func:`extract_header_provenance` (VCF ``##KEY=value`` headers). With
-    ``clinvar_file_annotated``, ``clinvar`` is the ClinVar file's release and the cache's goes
-    apart, as there. Best-effort: unrecognised lines are skipped, never raised.
+    Complements :func:`extract_header_provenance` (VCF ``##KEY=value`` headers). The cache's
+    ClinVar release is ``clinvar_vep_cache``; with ``clinvar_file_annotated``, ``clinvar`` is
+    the ClinVar file's release, as there. Best-effort: unrecognised lines are skipped, never
+    raised.
     """
     modules: dict[str, dict[str, Any]] = {}
     for raw_line in lines:
@@ -584,7 +579,7 @@ def extract_vep_tab_provenance(
             key = _canonical_key(name)
             if key == "hgmdpublic":
                 key = "hgmd"
-            if key == "clinvar" and clinvar_file_annotated:
+            if key == "clinvar":
                 _set_module(
                     modules, "clinvar_vep_cache", version=value, detail=_CLINVAR_CACHE_DETAIL, overwrite=False
                 )
