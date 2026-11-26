@@ -425,8 +425,8 @@ It drops:
 
 - variants with `is_gnomad_gt_5_percent`;
 - variants whose pooled `annotation_index.clinvar_terms` pass `clinvar_may_assert_pathogenic`
-  (`variant_prioritization.py`: a whole-word "pathogenic", or any conflicting record, because the
-  per-submission `CLNSIGCONF` breakdown is not imported).
+  (`variant_prioritization.py`: a whole-word "pathogenic", or any conflicting record, whatever
+  its submitters' classifications).
 
 The preview (`preview_auto_seed_nipt_artifacts`) reads what the seed would write now, by the same
 reading (`_auto_seed_candidates`: the same samples, rules, threshold and protections), and writes

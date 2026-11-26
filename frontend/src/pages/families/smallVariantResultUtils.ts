@@ -1,5 +1,5 @@
 import { compareChromosomes, normalizeChrom } from '../../lib/chromosomes';
-import { type ClinvarClass, clinvarClass } from '../../lib/clinvar';
+import { type ClinvarClass, type ClinvarRecord, clinvarClass } from '../../lib/clinvar';
 import { geneInfoHref } from '../../lib/geneInfo';
 import { omimGeneHref } from '../../lib/omim';
 import { humanAssemblyOf } from '../../lib/reference';
@@ -309,10 +309,10 @@ export const getImpactRank = (impact?: string | null) => {
 // The ClinVar chip, the card's rail and background, and the table row colour by the app's one
 // reading of ClinVar (clinvarClass): red for (likely) pathogenic alone, orange for a conflict
 // that lists a (likely) pathogenic classification, green for (likely) benign alone.
-export const getClinvarTone = (clinvar?: string) => {
-  const reading = clinvarClass(clinvar);
+export const getClinvarTone = (record: ClinvarRecord) => {
+  const reading = clinvarClass(record);
   if (reading === 'pathogenic') return 'critical';
-  if (reading === 'conflicting_pathogenic' || (clinvar || '').toLowerCase().includes('risk')) return 'warning';
+  if (reading === 'conflicting_pathogenic' || (record.clinvar || '').toLowerCase().includes('risk')) return 'warning';
   if (reading === 'benign') return 'success';
   return 'neutral';
 };
@@ -323,8 +323,8 @@ const CLINVAR_HIGHLIGHT = {
   benign: 'benign',
 } as const satisfies Record<ClinvarClass, string>;
 
-export const getClinvarHighlightTone = (clinvar?: string | null) => {
-  const reading = clinvarClass(clinvar);
+export const getClinvarHighlightTone = (record: ClinvarRecord) => {
+  const reading = clinvarClass(record);
   return reading ? CLINVAR_HIGHLIGHT[reading] : 'neutral';
 };
 

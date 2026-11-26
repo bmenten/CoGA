@@ -806,12 +806,18 @@ export function SmallVariantCard({
     ? buildVariantDetailData(variant)
     : null;
   const { scoreItems = [], additionalAnnotations = [] } = detailData ?? {};
-  // ClinVar's classification with its review stars; the status and conditions on hover.
+  // ClinVar's classification with its review stars; on hover the status, a conflict's
+  // classifications by its submitters and the conditions.
   const clinvarStars = formatClinvarStars(variant.clinvar_stars);
   const clinvarSummary = `${formatTokenLabel(variant.clinvar)}${clinvarStars ? ` ${clinvarStars}` : ''}`;
   const clinvarTitle =
-    [variant.clinvar_review_status, (variant.clinvar_conditions ?? []).join('; ')].filter(Boolean).join(' — ') ||
-    undefined;
+    [
+      variant.clinvar_review_status,
+      (variant.clinvar_conflicts ?? []).join(', '),
+      (variant.clinvar_conditions ?? []).join('; '),
+    ]
+      .filter(Boolean)
+      .join(' — ') || undefined;
   const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], list.tagMap);
   const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
   const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
@@ -927,9 +933,7 @@ export function SmallVariantCard({
   // other classification keeps the white card.
   return (
     <article
-      className={`variant-card finding-card small-variant-card variant-card--clinvar-${getClinvarHighlightTone(
-        variant.clinvar,
-      )}${isExcluded ? ' variant-card--excluded' : ''}${folded ? ' variant-card--collapsed' : ''}`}
+      className={`variant-card finding-card small-variant-card variant-card--clinvar-${getClinvarHighlightTone(variant)}${isExcluded ? ' variant-card--excluded' : ''}${folded ? ' variant-card--collapsed' : ''}`}
     >
       <div className="variant-card-head">
         <div className="variant-card-headline">
@@ -974,16 +978,14 @@ export function SmallVariantCard({
                 target="_blank"
                 rel="noreferrer"
                 title={clinvarTitle}
-                className={`variant-card-chip variant-card-chip--link variant-card-chip--${getClinvarTone(
-                  variant.clinvar,
-                )}`}
+                className={`variant-card-chip variant-card-chip--link variant-card-chip--${getClinvarTone(variant)}`}
               >
                 <span className="variant-card-chip-key">ClinVar</span>
                 {clinvarSummary}
               </a>
             ) : (
               <span
-                className={`variant-card-chip variant-card-chip--${getClinvarTone(variant.clinvar)}`}
+                className={`variant-card-chip variant-card-chip--${getClinvarTone(variant)}`}
                 title={clinvarTitle}
               >
                 <span className="variant-card-chip-key">ClinVar</span>

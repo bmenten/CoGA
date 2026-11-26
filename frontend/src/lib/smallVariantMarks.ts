@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 
-import { type ClinvarClass, clinvarClass } from './clinvar';
+import { type ClinvarClass, type ClinvarRecord, clinvarClass } from './clinvar';
 
 /**
  * How the small-variant track marks a variant:
@@ -58,11 +58,8 @@ const DRAW_RANK: Record<SmallVariantMarkKind, number> = {
   pathogenic: 5,
 };
 
-export const smallVariantMarkKind = (variant: {
-  clinvar?: string | null;
-  impact?: string | null;
-}): SmallVariantMarkKind => {
-  const clinvar = clinvarClass(variant.clinvar);
+export const smallVariantMarkKind = (variant: ClinvarRecord & { impact?: string | null }): SmallVariantMarkKind => {
+  const clinvar = clinvarClass(variant);
   if (clinvar) return clinvar;
   switch ((variant.impact || '').toUpperCase()) {
     case 'HIGH':

@@ -12,10 +12,11 @@ from .vcf_fields import field_int
 _KNOWN_ANNOTATION_KEYS = {
     # The ALT a multi-allelic record's annotation is of, served as a field of its own.
     "alt_allele",
-    # Served as fields of their own: ClinVar's review status, conditions and VariationID, the
-    # NMD prediction and SpliceAI's positions.
+    # Served as fields of their own: ClinVar's review status, conditions, a conflict's
+    # classifications and VariationID, the NMD prediction and SpliceAI's positions.
     "clinvar_review_status",
     "clinvar_conditions",
+    "clinvar_conflicts",
     "clinvar_variation_id",
     "nmd",
     "spliceai_dp_ag",

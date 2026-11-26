@@ -33,6 +33,13 @@ describe('smallVariantMarkKind', () => {
       'conflicting_pathogenic',
     );
     expect(smallVariantMarkKind({ clinvar: 'benign&uncertain_significance', impact: 'HIGH' })).toBe('high');
+    expect(
+      smallVariantMarkKind({
+        clinvar: 'Conflicting_classifications_of_pathogenicity',
+        clinvar_conflicts: ['Likely pathogenic (1)', 'Uncertain significance (1)'],
+        impact: 'MODIFIER',
+      }),
+    ).toBe('conflicting_pathogenic');
   });
 
   it('marks by impact otherwise', () => {

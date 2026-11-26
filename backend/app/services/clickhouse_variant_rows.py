@@ -6,6 +6,7 @@ import logging
 from typing import Any, Iterable, Sequence
 
 from .clickhouse_column_bounds import INT32, UINT16, UINT32, UINT64, column_float32, column_int
+from .clinvar_review_status import clinvar_conflict_terms
 from .data_scope import normalize_chromosome
 from .clickhouse_variant_ids import (
     build_small_variant_id,
@@ -196,6 +197,8 @@ class _AnnotationColumns:
     # row stores them sorted.
     effect_terms: set[str]
     clinvar_terms: set[str]
+    # A conflicting ClinVar record's classifications (CLNSIGCONF), without their submissions.
+    clinvar_conflict_terms: set[str]
     canonical: bool
     mane_select: bool
     mane_plus_clinical: bool
@@ -226,6 +229,7 @@ def _annotation_columns(annotation: dict[str, Any]) -> _AnnotationColumns:
         impact=_casefold(_annotation_text(annotation, "impact")),
         effect_terms=_annotation_terms(_annotation_effect(annotation)),
         clinvar_terms=_status_terms(_annotation_clinvar(annotation)),
+        clinvar_conflict_terms=clinvar_conflict_terms(_annotation_text(annotation, "clinvar_conflicts")),
         canonical=_annotation_bool(annotation, "canonical"),
         mane_select=_annotation_bool(annotation, "mane_select"),
         mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical"),
@@ -260,6 +264,7 @@ ENTRY_TRANSCRIPT_FIELDS: tuple[tuple[str, str], ...] = (
     ("impact", "LowCardinality(String)"),
     ("effects", "Array(String)"),
     ("clinvar_terms", "Array(String)"),
+    ("clinvar_conflict_terms", "Array(String)"),
     ("canonical", "Bool"),
     ("mane_select", "Bool"),
     ("mane_plus_clinical", "Bool"),
@@ -302,6 +307,7 @@ def _entry_transcripts(columns: Sequence[_AnnotationColumns]) -> list[dict[str, 
                 column.impact,
                 tuple(sorted(column.effect_terms)),
                 tuple(sorted(column.clinvar_terms)),
+                tuple(sorted(column.clinvar_conflict_terms)),
                 column.canonical,
                 column.mane_select,
                 column.mane_plus_clinical,
@@ -322,10 +328,11 @@ def _entry_transcripts(columns: Sequence[_AnnotationColumns]) -> list[dict[str, 
             ),
             None,
         )
+    # The array fields are held as tuples to be hashed, and written as lists.
     names = [name for name, _type in ENTRY_TRANSCRIPT_FIELDS]
     return [
-        dict(zip(names, (impact, list(effects), list(clinvar), *rest), strict=True))
-        for impact, effects, clinvar, *rest in distinct
+        {name: list(value) if isinstance(value, tuple) else value for name, value in zip(names, values, strict=True)}
+        for values in distinct
     ]
 
 
@@ -359,6 +366,7 @@ def _annotation_row_from_columns(
         columns.impact,
         sorted(columns.effect_terms),
         sorted(columns.clinvar_terms),
+        sorted(columns.clinvar_conflict_terms),
         columns.canonical,
         columns.mane_select,
         columns.mane_plus_clinical,

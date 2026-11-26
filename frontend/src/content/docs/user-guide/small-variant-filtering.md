@@ -159,7 +159,9 @@ no pair.
 A card takes its colour from ClinVar, here and on the monogenic NIPT page: light red when ClinVar calls
 the variant pathogenic or likely pathogenic, light green when it calls it benign or likely benign.
 Classifications that disagree, such as *uncertain significance & likely pathogenic*, are a conflict:
-light orange when one of them is pathogenic or likely pathogenic. Any other conflicting, uncertain or
+light orange when one of them is pathogenic or likely pathogenic. ClinVar's own *Conflicting
+classifications of pathogenicity* is read by the classifications its submitters gave, which the
+ClinVar chip names on hover. Any other conflicting, uncertain or
 other ClinVar status, or none, leaves the card white. In the table a row is tinted the same way, more
 faintly, and the ClinVar chip takes the same colour.
 

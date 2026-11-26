@@ -2656,6 +2656,7 @@ reports that it was left out. Field names as VEP writes them: a `--custom` file'
 | ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR`; VEP cache `CLIN_SIG` (`CLIN_SIG_VEP_CACHE`) only without those | card, filters, ranking, PP5/BP6 |
 | ClinVar review status (stars) | `ClinVar_CLNREVSTAT`, `CLNREVSTAT` | card, PP5/BP6 evidence, frozen evidence |
 | ClinVar conditions | `ClinVar_CLNDN`, `CLNDN` | card, PP5/BP6 evidence |
+| ClinVar conflict's classifications | `ClinVar_CLNSIGCONF`, `CLNSIGCONF` (each with its submissions: `Pathogenic(2)`) | card (orange when one is P/LP, named on hover), the small-variant track |
 | ClinVar VariationID | `ClinVar` (the matched record's ID, VEP `--custom`), digits only | the card's ClinVar link |
 | ClinVar AlleleID | `ClinVar_ALLELEID`, `ALLELEID` | card |
 | gnomAD AF (overall, exomes, genomes) | `gnomAD_AF`, `gnomADe_AF`, `gnomADg_AF` | filters, PM2 (with the gnomAD datasets the header declares them of) |
@@ -2691,7 +2692,10 @@ What the workflow should hold to:
 - **ClinVar release.** Keep the date in the ClinVar file's name (`clinvar_YYYYMMDD.vcf.gz`):
   the annotation manifest reads the release from it.
 - **ClinVar as a `--custom` file.** Use the short name `ClinVar`, so the fields are
-  `ClinVar_CLNSIG`, `ClinVar_CLNREVSTAT` and so on, and the VariationID is `ClinVar`.
+  `ClinVar_CLNSIG`, `ClinVar_CLNREVSTAT` and so on, and the VariationID is `ClinVar`. Include
+  `CLNSIGCONF`: without it ClinVar's *Conflicting classifications of pathogenicity* names no
+  classification, and a conflict with a pathogenic or likely pathogenic submission is not shown
+  orange.
 - **gnomAD genomes.** Annotate gnomAD's genomes (`--af_gnomadg`, or its genomes or joint file
   with `--custom`), not its exomes alone: a variant without a gnomAD frequency is then read as
   absent from gnomAD, and PM2 applies. A `--custom` file keeps its dataset in its name

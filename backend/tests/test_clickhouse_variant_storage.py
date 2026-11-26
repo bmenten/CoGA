@@ -685,6 +685,32 @@ async def test_an_entries_row_holds_its_annotation_rows_filtered_values_each_onc
 
 
 @pytest.mark.asyncio
+async def test_a_clinvar_conflicts_classifications_are_stored_for_the_salient_variants(
+    clickhouse: _ClickHouse,
+) -> None:
+    # ClinVar's aggregate conflict names no classification; the ones its submitters gave
+    # (CLNSIGCONF) are stored beside its terms, without their submissions, on the annotations
+    # row and the entries row's transcripts, where the track's salient condition reads them.
+    conflict = {
+        "gene": "GENE1",
+        "impact": "LOW",
+        "clinvar": "Conflicting_classifications_of_pathogenicity",
+        "clinvar_conflicts": "Pathogenic(2)&Uncertain_significance(1)",
+    }
+    await cvs.insert_small_variant_records(
+        "GRCh38", "family-1", ["project-1"], [_record("1-100-A-G", annotations=[conflict])]
+    )
+
+    [annotation_row] = _inserted_rows(clickhouse, "variants/annotations")
+    [entry] = _inserted_rows(clickhouse, "SNV_INDEL/entries")
+    assert annotation_row["clinvar_terms"] == ["conflicting classifications of pathogenicity"]
+    assert annotation_row["clinvar_conflict_terms"] == ["pathogenic", "uncertain significance"]
+    assert [transcript["clinvar_conflict_terms"] for transcript in entry["transcripts"]] == [  # type: ignore[attr-defined]
+        ["pathogenic", "uncertain significance"]
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("assembly", ["GRCh38", "GRCh37", "T2T-CHM13v2.0"])
 async def test_insert_small_variant_records_writes_both_mane_flags(clickhouse: _ClickHouse, assembly: str) -> None:
     # *MANE only* keeps a MANE Select or a MANE Plus Clinical transcript. The family

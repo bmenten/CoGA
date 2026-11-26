@@ -3175,6 +3175,7 @@ export interface NiptVariantOut {
   clinvar_review_status: string | null;
   clinvar_stars: number | null;
   clinvar_conditions: string[];
+  clinvar_conflicts: string[];
   clinvar_variation_id: string | null;
   rsid: string | null;
   hgvsc: string | null;
@@ -5111,6 +5112,7 @@ export interface VariantOut {
   clinvar_review_status: string | null;
   clinvar_stars: number | null;
   clinvar_conditions: string[];
+  clinvar_conflicts: string[];
   clinvar_variation_id: string | null;
   rsid: string | null;
   hgvsc: string | null;

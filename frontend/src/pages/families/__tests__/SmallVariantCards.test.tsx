@@ -1323,11 +1323,13 @@ describe('SmallVariantCards', () => {
   });
 
   // The card's class sets its rail and, on a small variant's card alone, its background
-  // (clinvarCardTintRules.test.ts): red for (likely) pathogenic, green for (likely) benign.
+  // (clinvarCardTintRules.test.ts): red for (likely) pathogenic, orange (warning) for a conflict
+  // that lists a (likely) pathogenic classification, green for (likely) benign.
   it.each([
     ['Pathogenic', 'pathogenic'],
     ['Likely_pathogenic', 'pathogenic'],
     ['Pathogenic,_low_penetrance', 'pathogenic'],
+    ['uncertain_significance&likely_pathogenic', 'warning'],
     ['Benign', 'benign'],
     ['Likely_benign', 'benign'],
     ['Uncertain_significance', 'neutral'],
@@ -1364,6 +1366,47 @@ describe('SmallVariantCards', () => {
 
     const card = container.querySelector('article.variant-card') as HTMLElement;
     expect(card).toHaveClass('small-variant-card', `variant-card--clinvar-${tone}`);
+  });
+
+  it("colours ClinVar's conflict orange by its submitters' classifications, named on hover", () => {
+    const { container } = renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: 'conflict-var',
+            chr: '1',
+            start: 100,
+            end: 100,
+            type: 'SNV',
+            ref: 'A',
+            alt: 'G',
+            gene: 'GENE1',
+            clinvar: 'Conflicting_classifications_of_pathogenicity',
+            clinvar_review_status: 'criteria provided, conflicting classifications',
+            clinvar_stars: 1,
+            clinvar_conflicts: ['Pathogenic (2)', 'Uncertain significance (1)'],
+            clinvar_conditions: ['Condition A'],
+            genotypes: [],
+          }),
+        ]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(container.querySelector('article.variant-card')).toHaveClass('variant-card--clinvar-warning');
+    const chip = screen.getByText('ClinVar').parentElement as HTMLElement;
+    expect(chip).toHaveClass('variant-card-chip--warning');
+    expect(chip).toHaveAttribute(
+      'title',
+      'criteria provided, conflicting classifications — Pathogenic (2), Uncertain significance (1) — Condition A',
+    );
   });
 
   it.each([

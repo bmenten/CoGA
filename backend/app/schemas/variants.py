@@ -200,11 +200,13 @@ class VariantOut(ApiDocumentModel):
     effect: Optional[str] = None
     clinvar: Optional[str] = None
     # The ClinVar file's review status, as words, and the stars ClinVar gives it (0–4); the
-    # conditions the record names; its VariationID (from VEP --custom). None (empty) where the
-    # annotation has no ClinVar file, or the file no record.
+    # conditions the record names; a conflicting record's classifications, each with its number
+    # of submissions (CLNSIGCONF: "Pathogenic (2)"); its VariationID (from VEP --custom). None
+    # (empty) where the annotation has no ClinVar file, or the file no record.
     clinvar_review_status: Optional[str] = None
     clinvar_stars: Optional[int] = None
     clinvar_conditions: List[str] = Field(default_factory=list)
+    clinvar_conflicts: List[str] = Field(default_factory=list)
     clinvar_variation_id: Optional[str] = None
     rsid: Optional[str] = None
     hgvsc: Optional[str] = None

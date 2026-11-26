@@ -162,7 +162,7 @@ export function evaluateMitoAcmg(
   // pathogenic nor benign. The backend already reads one as 'uncertain'.
   const disorders = (mito.disorders ?? []).filter(Boolean);
   const disorderNote = disorders.length ? ` Associated: ${disorders.slice(0, 3).join(', ')}.` : '';
-  const clinClass = clinvarClass(clinSig);
+  const clinClass = clinvarClass({ clinvar: clinSig });
   // Offered for review, never applied, as for a nuclear variant (the owner's choice of
   // 2026-11-06: ClinGen's SVI advises against counting another source's assertion).
   if (clinClass === 'pathogenic') {
