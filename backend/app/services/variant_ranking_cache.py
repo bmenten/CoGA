@@ -50,7 +50,7 @@ from .hpo_service import get_loaded_hpo_release
 # cached ranking's entry holds, so the rankings cached under the old logic are ignored. A change
 # to what the hash covers needs no bump: the hashed payload itself changes, so no row cached
 # under the old payload can match.
-_ALGORITHM_VERSION = "12"
+_ALGORITHM_VERSION = "13"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 

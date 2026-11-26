@@ -1623,6 +1623,7 @@ describe('FamilySmallVariantsPage', () => {
       'compound_het',
       'x_linked',
       'recessive',
+      'all_compound_het_grouped',
       'compound_heterozygous',
       'recessive_hom',
       'homozygous_recessive',

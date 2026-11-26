@@ -11,7 +11,9 @@ The page opens with the **Phenotype priority (Exomiser-style)** preset on the **
   pathogenic synonymous or splice-region variant and a common founder variant stay in;
 - ClinVar benign and likely benign left out;
 - carried (het or hom) by each affected member, with genotype quality (GQ) 20, depth 10, allele
-  balance 0.2 and 4 alt reads or more.
+  balance 0.2 and 4 alt reads or more;
+- inheritance *All, compound het grouped*: the compound-het pairs among the results are listed by
+  gene, each gene where its best-ranked variant ranks, and every other variant on its own.
 
 > **The default view hides variants.** A variant outside the Mendeliome, a common variant, a
 > low-quality call, or a variant an affected member does not carry is not shown. Press **Clear all
@@ -53,8 +55,8 @@ and **Collapse all** open or close every row.
 
 - **Inheritance** has the inheritance model as its quick choice. *All, compound het grouped* keeps
   every variant the other filters keep, as *All* does, and lists the compound-het pairs among them by
-  gene, as *Compound heterozygous* does. Every other variant stays a single result. The *Any
-  affected* preset sets it.
+  gene, as *Compound heterozygous* does. Every other variant stays a single result. The *Phenotype
+  priority* and *Any affected* presets set it.
 - **Annotations** groups the VEP consequences as seqr does: nonsense, essential splice site,
   frameshift, missense, in frame, synonymous, extended splice site, other, motif feature and regulatory
   feature. A group's own box ticks or clears all its terms. Beside them are the VEP impacts (HIGH,

@@ -470,7 +470,7 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'phenotype_priority',
     label: 'Phenotype priority (Exomiser-style)',
     description:
-      'Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch).',
+      'Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch), with the compound-het pairs among them grouped by gene.',
   },
   {
     value: 'dominant_strict',
@@ -1092,8 +1092,10 @@ const buildPresetState = (
     // Exomiser-style: rare candidate set ranked by gene-phenotype match. gnomAD
     // <1% + H/H <=10, but ClinVar P/LP overrules the impact and frequency cut-offs; ClinVar
     // benign / likely benign excluded; affected individuals must carry the
-    // variant (Hom or Het, not WT).
+    // variant (Hom or Het, not WT). The compound-het pairs among the results are listed by
+    // gene, each at its better-ranked variant: the grouped view leaves no variant out.
     filters.prioritize = 'true';
+    filters.inheritance = 'all_compound_het_grouped';
     filters.impact = 'HIGH, MODERATE';
     filters.max_gnomad_exomes_af = '0.01';
     filters.max_gnomad_genomes_af = '0.01';

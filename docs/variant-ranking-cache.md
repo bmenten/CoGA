@@ -9,9 +9,10 @@ CoGA caches the ranked order per family and reuses it until an input changes.
 
 `family_variant_ranking_cache` (in `03_assay.sql`) keeps, per family and query:
 
-- the ranked order, a list of `{variant_id, priority, gene_keys}`: the score breakdown, and the
+- the ranked order, a list of `{variant_id, priority, gene_keys, items}`: the score breakdown, the
   gene id and symbol each variant's gene is matched by, from which a page served from the cache
-  counts its genes;
+  counts its genes, and the results the variant is listed in (`_item_key`: the variant itself, or
+  the compound-het or carrier genes it is in), by which that page places and pages its results;
 - the total, and whether the ranking was truncated;
 - `provenance`: the query's filters and a digest of the genes and regions its panel filter
   applied (`panel_members`).
@@ -22,7 +23,7 @@ ranking never shows a stale annotation or review status.
 The ranking holds the same variants as the unranked search. A search that pairs (compound het,
 recessive, expanded carrier screening) ranks only its pairs' variants, its single variants and the
 couple's findings (see [A search that pairs](#a-search-that-pairs)). The pairs themselves
-are not cached.
+are not cached: a page served from the cache works them out again from its own variants.
 
 Each family keeps its six most recent queries; storing a new one removes older rows.
 
@@ -398,10 +399,21 @@ Python to a window of candidates (`_small_variants_candidate_page`). The ranked 
 same rules to the same window (`_prioritized_small_variants_page`), so it keeps the same variants
 and pairs and ranks only those, each with the segregation modes it has among them.
 
-The cache holds the order of the variants, not the pairs. On an exact hit such a search first
-fetches its candidates and works out its pairs. It then numbers its variants in the cached order,
-provided the row holds every one of them with the segregation modes they have now; otherwise it is
-computed again.
+On an exact hit such a search reads no candidates. The row holds, for each variant, the results it
+is listed in: a gene's pairs, a couple's gene or the variant alone. The page places those results
+in the cached order, each where its best-ranked variant ranks, as a computed page places them
+(`_item_placement`), and fetches only its own variants, by id. It then works out its results again
+from them (`_ranked_search_items`, the rules a computed ranking applies to its candidates): a pair,
+or a couple's gene, depends on its own variants and the pedigree only, whatever else the search
+kept. A result that does not come out with the variants the row recorded sends the search to be
+computed again; no page is served without it (`_serve_ranking_from_cache`).
+
+Measured on the benchmark's synthetic whole-genome trio (6.3 M rows) and singleton (4.8 M rows),
+with the default view's filters on a Mendeliome-size panel (5,323 genes) and the grouped view (*All,
+compound het grouped*): a first page of 100 results served from the cache took 0.29 s for the trio
+(36 genes with pairs, 137 variants) and 0.36 s for the singleton, the same page without grouping
+0.30 s and 0.21 s. A computed page reads the candidates first: 2.7 s for the trio and 1.5 s for the
+singleton, before any scoring.
 
 The single-variant modes a variant fits (de novo / dominant, homozygous recessive, X-linked), which
 its segregation weight reads and the recessive search keeps alongside its pairs, come from the SQL
