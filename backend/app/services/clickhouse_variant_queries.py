@@ -203,9 +203,15 @@ _DE_NOVO_DOMINANT_INHERITANCE = "de_novo_dominant"
 _X_LINKED_INHERITANCE = "x_linked"
 
 
+# Every variant the other filters keep, as with no mode, with the compound-het pairs among them
+# listed by gene, as the compound-het mode lists them (``_inheritance_result_items``).
+_ALL_COMPOUND_HET_GROUPED_INHERITANCE = "all_compound_het_grouped"
+
+
 _PAIR_BASED_SMALL_INHERITANCE = {
     _COMPOUND_HET_INHERITANCE,
     _RECESSIVE_INHERITANCE,
+    _ALL_COMPOUND_HET_GROUPED_INHERITANCE,
 }
 
 
@@ -240,6 +246,7 @@ _SMALL_INHERITANCE_ALIASES = {
 _SUPPORTED_SMALL_INHERITANCE = {
     _COMPOUND_HET_INHERITANCE,
     _RECESSIVE_INHERITANCE,
+    _ALL_COMPOUND_HET_GROUPED_INHERITANCE,
     _RECESSIVE_HOMOZYGOUS_INHERITANCE,
     _DE_NOVO_DOMINANT_INHERITANCE,
     _X_LINKED_INHERITANCE,
@@ -2294,7 +2301,9 @@ def _small_native_inheritance_clauses(
         params["carrier_screen_mito_chromosomes"] = _MITOCHONDRIAL_CHROMOSOMES
         clauses.append("e.chrom NOT IN %(carrier_screen_mito_chromosomes)s")
 
-    if not inheritance:
+    # The grouped view keeps what the search without a mode keeps, an affected member or not:
+    # it only lists the compound-het pairs among those variants together.
+    if not inheritance or inheritance == _ALL_COMPOUND_HET_GROUPED_INHERITANCE:
         return clauses, params
 
     affected_samples, unaffected_samples = _family_affected_unaffected_sample_names(context)
@@ -3982,10 +3991,10 @@ def _can_use_structural_native_page(
 
 
 def _small_search_keeps_by_pairing(filters: SmallVariantQueryFilters) -> bool:
-    """Whether the search keeps a variant for what else it finds, not for the variant alone:
-    compound-het and recessive pairing, and the couple's gene rule of expanded carrier
-    screening. No SQL decides these: such a search reads a window of candidates and applies
-    them in Python, ranked or not."""
+    """Whether the search keeps or lists a variant for what else it finds, not for the variant
+    alone: compound-het and recessive pairing, the grouped view's compound-het genes, and the
+    couple's gene rule of expanded carrier screening. No SQL decides these: such a search reads
+    a window of candidates and applies them in Python, ranked or not."""
     return filters.inheritance in _PAIR_BASED_SMALL_INHERITANCE or filters.expanded_carrier_screening
 
 
@@ -4031,22 +4040,31 @@ def _inheritance_result_items(
     """What an inheritance mode keeps of ``records``: the compound-het pairs it finds among
     them, by gene (``_compound_het_genes``), and the variants a single-variant mode keeps, by
     the modes the SQL found each to fit (``SmallVariantRecord.segregation``). Recessive keeps
-    both kinds: the genes with pairs, and the homozygous recessive and X-linked variants."""
-    pair_items: list[tuple[str, SmallVariantCompoundHetGene | SmallVariantRecord]] = [
-        ("group", gene)
-        for gene in _compound_het_genes(
-            _compound_het_pairs(
-                records,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-                pedigree=pedigree,
-            ),
+    both kinds: the genes with pairs, and the homozygous recessive and X-linked variants. The
+    grouped view keeps every record: the genes with pairs, and each record in no pair as a
+    single variant."""
+    genes = _compound_het_genes(
+        _compound_het_pairs(
+            records,
             affected_samples=affected_samples,
+            unaffected_samples=unaffected_samples,
             pedigree=pedigree,
-        )
+        ),
+        affected_samples=affected_samples,
+        pedigree=pedigree,
+    )
+    pair_items: list[tuple[str, SmallVariantCompoundHetGene | SmallVariantRecord]] = [
+        ("group", gene) for gene in genes
     ]
     if inheritance == _COMPOUND_HET_INHERITANCE:
         return pair_items
+
+    if inheritance == _ALL_COMPOUND_HET_GROUPED_INHERITANCE:
+        paired = {record.variant_id for gene in genes for record in gene.records}
+        unpaired_items: list[tuple[str, SmallVariantCompoundHetGene | SmallVariantRecord]] = [
+            ("variant", record) for record in records if record.variant_id not in paired
+        ]
+        return sorted([*pair_items, *unpaired_items], key=_inheritance_item_sort_key)
 
     if inheritance == _DE_NOVO_DOMINANT_INHERITANCE:
         return [("variant", record) for record in records if _segregation_flags(record).de_novo_dominant]

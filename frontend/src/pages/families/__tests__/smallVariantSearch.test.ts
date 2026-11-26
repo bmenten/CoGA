@@ -16,6 +16,7 @@ import {
   deserializePresetFilters,
   hasLocationProblems,
   heldTagOptions,
+  inheritanceLeavesVariantsOut,
   niptAppliesFilterChip,
   normalizeReviewClassification,
   resolveCarrierScreeningCoupleMembers,
@@ -240,6 +241,16 @@ describe('smallVariantSearch preset helpers', () => {
     );
 
     expect(params.get('inheritance')).toBe('compound_het');
+  });
+
+  it('reads every inheritance mode as leaving variants out, but the grouped view', () => {
+    // The grouped view keeps what All keeps, so the members-without-calls warning, which is
+    // about variants a filter leaves out or cannot, is not raised for it.
+    expect(inheritanceLeavesVariantsOut('')).toBe(false);
+    expect(inheritanceLeavesVariantsOut('all_compound_het_grouped')).toBe(false);
+    for (const mode of ['compound_het', 'recessive', 'de_novo_dominant', 'recessive_homozygous', 'x_linked']) {
+      expect(inheritanceLeavesVariantsOut(mode)).toBe(true);
+    }
   });
 
   it('serializes excluded review tags into the query string', () => {

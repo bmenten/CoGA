@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -282,6 +282,15 @@ describe('SmallVariantCards', () => {
     expect(
       Array.from(head.querySelectorAll('.variant-card-gthead-num')).map((cell) => cell.textContent),
     ).toEqual(['DP', 'AD', 'AF']);
+    // Each abbreviated heading shows what it stands for on hover.
+    const hints = ['DP', 'AD', 'AF'].map((label) => {
+      const heading = within(head).getByText(label);
+      fireEvent.mouseEnter(heading);
+      const hint = screen.getByRole('tooltip').textContent?.split(':')[0];
+      fireEvent.mouseLeave(heading);
+      return hint;
+    });
+    expect(hints).toEqual(['Depth', 'Allelic depth', 'Allele fraction']);
     const line = container.querySelector('.variant-card-gtline') as HTMLElement;
     expect(line).toHaveTextContent('P1');
     expect(within(line).getByText('0/1')).toBeInTheDocument();
@@ -774,7 +783,8 @@ describe('SmallVariantCards', () => {
     // VEP's, 3′-shifted on its RefSeq accession, rather than the change derived from the record.
     expect(screen.getByText('NC_000013.11:g.32316463del')).toBeInTheDocument();
     expect(screen.queryByText('chr13:g.32316462del')).not.toBeInTheDocument();
-    expect(screen.getByText('HGVS.g')).toHaveAttribute('title', expect.stringMatching(/as VEP wrote it/));
+    fireEvent.mouseEnter(screen.getByText('HGVS.g'));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/as VEP wrote it/);
   });
 
   it('marks each prediction in seqr’s colours, and leaves the gene’s constraint unmarked', () => {
@@ -885,7 +895,9 @@ describe('SmallVariantCards', () => {
     expect(screen.getByText('chr13:g.32316461G>A')).toBeInTheDocument();
     expect(screen.getByText('(13q13.1)')).toBeInTheDocument();
     // Labelled HGVS.g beside HGVS.c and HGVS.p; its note says it is not HGVS-normalised.
-    expect(screen.getByText('HGVS.g')).toHaveAttribute('title', expect.stringMatching(/Not HGVS-normalised/));
+    fireEvent.mouseEnter(screen.getByText('HGVS.g'));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/Not HGVS-normalised/);
+    fireEvent.mouseLeave(screen.getByText('HGVS.g'));
     expect(screen.queryByText('Genomic change')).not.toBeInTheDocument();
     // HGVS.c without the transcript accession, which the transcript above names; and only
     // there, not beside the gene in the headline.

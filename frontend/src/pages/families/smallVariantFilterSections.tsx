@@ -17,6 +17,7 @@ import {
   type GenePanel,
   type LocationProblems,
   type SmallFilterState,
+  type SmallVariantInheritanceMode,
   type SmallVariantSampleFilter,
   type SmallVariantSearchState,
 } from './smallVariantSearch';
@@ -814,6 +815,62 @@ export const SvSecondHitFilterSection = ({ form }: { form: FilterSectionForm }) 
   );
 };
 
+const EVERY_GT_GROUP: ReadonlySet<GtGroupId> = new Set(['hom-group', 'het-group', 'ref-group']);
+
+/**
+ * The Inheritance row's quick choices, in the order its menu lists them. Each sets its mode (All
+ * sets none, as the grouped view keeps what All keeps), turns carrier screening off, and ticks
+ * the genotype groups `genotypes` gives each member. A mode none of them sets shows as Custom.
+ */
+const INHERITANCE_QUICK_CHOICES: ReadonlyArray<{
+  value: string;
+  label: string;
+  mode: '' | SmallVariantInheritanceMode;
+  genotypes: (member: FamilyMember) => ReadonlySet<GtGroupId>;
+}> = [
+  { value: 'all', label: 'All', mode: '', genotypes: () => EVERY_GT_GROUP },
+  {
+    value: 'all_compound_het_grouped',
+    label: 'All, compound het grouped',
+    mode: 'all_compound_het_grouped',
+    genotypes: () => EVERY_GT_GROUP,
+  },
+  {
+    value: 'de_novo_dominant',
+    label: 'De novo/dominant',
+    mode: 'de_novo_dominant',
+    genotypes: (member) => new Set<GtGroupId>([member.affected ? 'het-group' : 'ref-group']),
+  },
+  {
+    value: 'recessive_homozygous',
+    label: 'Recessive homozygous',
+    mode: 'recessive_homozygous',
+    genotypes: (member) => {
+      if (member.affected) return new Set<GtGroupId>(['hom-group']);
+      if (member.role === 'mother' || member.role === 'father') return new Set<GtGroupId>(['het-group']);
+      return new Set<GtGroupId>(['ref-group', 'het-group']);
+    },
+  },
+  {
+    value: 'compound_het',
+    label: 'Compound heterozygous',
+    mode: 'compound_het',
+    genotypes: (member) =>
+      new Set<GtGroupId>(member.affected ? ['het-group'] : ['ref-group', 'het-group']),
+  },
+  {
+    value: 'x_linked',
+    label: 'X-linked',
+    mode: 'x_linked',
+    genotypes: (member) => {
+      if (member.affected && member.sex === 'male') return new Set<GtGroupId>(['hom-group']);
+      if (member.affected) return new Set<GtGroupId>(['hom-group', 'het-group']);
+      if (member.role === 'mother') return new Set<GtGroupId>(['ref-group', 'het-group']);
+      return new Set<GtGroupId>(['ref-group']);
+    },
+  },
+];
+
 export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) => {
   const {
     carrierScreeningCouple,
@@ -833,76 +890,16 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
   const inheritanceFilterCount = SECTION_FILTER_COUNTS.inheritance(form);
 
   const applyInheritanceQuickFilter = (value: string) => {
-    if (value === 'all') {
-      setDraftFilterValue('inheritance', '');
-      setDraftFilterValue('expanded_carrier_screening', '');
-      updateInheritanceGenotypes(() => new Set<GtGroupId>(['hom-group', 'het-group', 'ref-group']));
-      return;
-    }
-
-    if (value === 'de_novo_dominant') {
-      setDraftFilterValue('inheritance', 'de_novo_dominant');
-      setDraftFilterValue('expanded_carrier_screening', '');
-      updateInheritanceGenotypes((member) =>
-        member.affected ? new Set<GtGroupId>(['het-group']) : new Set<GtGroupId>(['ref-group']),
-      );
-      return;
-    }
-
-    if (value === 'recessive_homozygous') {
-      setDraftFilterValue('inheritance', 'recessive_homozygous');
-      setDraftFilterValue('expanded_carrier_screening', '');
-      updateInheritanceGenotypes((member) => {
-        if (member.affected) return new Set<GtGroupId>(['hom-group']);
-        if (member.role === 'mother' || member.role === 'father') {
-          return new Set<GtGroupId>(['het-group']);
-        }
-        return new Set<GtGroupId>(['ref-group', 'het-group']);
-      });
-      return;
-    }
-
-    if (value === 'compound_heterozygous' || value === 'compound_het') {
-      setDraftFilterValue('inheritance', 'compound_het');
-      setDraftFilterValue('expanded_carrier_screening', '');
-      updateInheritanceGenotypes((member) =>
-        member.affected
-          ? new Set<GtGroupId>(['het-group'])
-          : new Set<GtGroupId>(['ref-group', 'het-group']),
-      );
-      return;
-    }
-
-    if (value === 'x_linked') {
-      setDraftFilterValue('inheritance', 'x_linked');
-      setDraftFilterValue('expanded_carrier_screening', '');
-      updateInheritanceGenotypes((member) => {
-        if (member.affected && member.sex === 'male') return new Set<GtGroupId>(['hom-group']);
-        if (member.affected) return new Set<GtGroupId>(['hom-group', 'het-group']);
-        if (member.role === 'mother') return new Set<GtGroupId>(['ref-group', 'het-group']);
-        return new Set<GtGroupId>(['ref-group']);
-      });
-    }
+    const choice = INHERITANCE_QUICK_CHOICES.find((entry) => entry.value === value);
+    // Custom keeps the members' own genotypes.
+    if (!choice) return;
+    setDraftFilterValue('inheritance', choice.mode);
+    setDraftFilterValue('expanded_carrier_screening', '');
+    updateInheritanceGenotypes(choice.genotypes);
   };
 
-  const selectedInheritanceQuickFilter = (() => {
-    if (!draftFilters.inheritance) {
-      return 'all';
-    }
-    if (draftFilters.inheritance === 'compound_het') {
-      return 'compound_het';
-    }
-    if (draftFilters.inheritance === 'de_novo_dominant') {
-      return 'de_novo_dominant';
-    }
-    if (draftFilters.inheritance === 'recessive_homozygous') {
-      return 'recessive_homozygous';
-    }
-    if (draftFilters.inheritance === 'x_linked') {
-      return 'x_linked';
-    }
-    return 'custom';
-  })();
+  const selectedInheritanceQuickFilter =
+    INHERITANCE_QUICK_CHOICES.find((entry) => entry.mode === draftFilters.inheritance)?.value ?? 'custom';
   return (
     <FilterSection
       title="Inheritance"
@@ -919,11 +916,11 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
               value={selectedInheritanceQuickFilter}
               onChange={(event) => applyInheritanceQuickFilter(event.target.value)}
             >
-              <option value="all">All</option>
-              <option value="de_novo_dominant">De novo/dominant</option>
-              <option value="recessive_homozygous">Recessive homozygous</option>
-              <option value="compound_het">Compound heterozygous</option>
-              <option value="x_linked">X-linked</option>
+              {INHERITANCE_QUICK_CHOICES.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
               <option value="custom">Custom</option>
             </select>
           </label>

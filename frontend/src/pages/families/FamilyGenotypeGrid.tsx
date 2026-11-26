@@ -1,4 +1,5 @@
 import React from 'react';
+import InfoTip from '../../components/InfoTip';
 
 /**
  * Each family member's call on one finding, the same grid on every variant card: the
@@ -21,6 +22,8 @@ export type GenotypeTone = 'alert' | 'warn' | 'info' | 'review' | 'ref' | 'na';
 export interface GenotypeColumn {
   key: string;
   label: string;
+  /** What an abbreviated heading stands for, its tooltip on hover or focus: DP is the depth. */
+  hint?: string;
   /** Right-aligned in tabular figures: a depth, a fraction, a count. */
   numeric?: boolean;
 }
@@ -78,7 +81,13 @@ const FamilyGenotypeGrid: React.FC<{
         <span>{callLabel}</span>
         {columns.map((column) => (
           <span key={column.key} className={column.numeric ? 'variant-card-gthead-num' : undefined}>
-            {column.label}
+            {column.hint ? (
+              <InfoTip staticChild label={column.hint} className="variant-card-term">
+                {column.label}
+              </InfoTip>
+            ) : (
+              column.label
+            )}
           </span>
         ))}
         {withStatus ? <span>Status</span> : null}

@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
+import InfoTip from '../../components/InfoTip';
 import ModalDialog from '../../components/ModalDialog';
 import api from '../../lib/api';
 import type { GeneProfileOut, GeneTranscriptOut } from '../../lib/apiSchema.generated';
@@ -69,9 +70,19 @@ import PredictorMark, {
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 const GENOTYPE_COLUMNS: GenotypeColumn[] = [
-  { key: 'dp', label: 'DP', numeric: true },
-  { key: 'ad', label: 'AD', numeric: true },
-  { key: 'af', label: 'AF', numeric: true },
+  { key: 'dp', label: 'DP', hint: 'Depth: the reads covering the position', numeric: true },
+  {
+    key: 'ad',
+    label: 'AD',
+    hint: 'Allelic depth: the reads supporting the reference allele, then each alternate allele',
+    numeric: true,
+  },
+  {
+    key: 'af',
+    label: 'AF',
+    hint: 'Allele fraction: the share of the reads carrying the alternate allele',
+    numeric: true,
+  },
 ];
 
 const ZYGOSITY_TONE: Record<ReturnType<typeof genotypeZygosity>, GenotypeTone> = {
@@ -1099,7 +1110,13 @@ export function SmallVariantCard({
                   {/* VEP's HGVSg where the annotation has it; else derived from the
                       VCF record, which the label's note says is not normalised. */}
                   <dt>
-                    <abbr title={variant.hgvsg ? VEP_HGVSG_NOTE : GENOMIC_CHANGE_NOTE}>HGVS.g</abbr>
+                    <InfoTip
+                      staticChild
+                      label={variant.hgvsg ? VEP_HGVSG_NOTE : GENOMIC_CHANGE_NOTE}
+                      className="variant-card-term"
+                    >
+                      HGVS.g
+                    </InfoTip>
                   </dt>
                   <dd>
                     {variant.hgvsg || genomicChange || '—'}

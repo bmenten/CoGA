@@ -275,8 +275,8 @@ const mitoGeneSymbol = (variant: ApiMitoDNAVariant): string | null =>
     : null;
 
 const MITO_GENOTYPE_COLUMNS: GenotypeColumn[] = [
-  { key: 'dp', label: 'DP', numeric: true },
-  { key: 'ad', label: 'AD', numeric: true },
+  { key: 'dp', label: 'DP', hint: 'Depth: the reads covering the position', numeric: true },
+  { key: 'ad', label: 'AD', hint: 'Allelic depth: the reads carrying the alternate allele', numeric: true },
 ];
 
 const ZYGOSITY_TONE: Record<ApiMitoDNAVariantSampleCall['zygosity'], GenotypeTone> = {

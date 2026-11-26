@@ -824,6 +824,13 @@ a.variant-card-gene:hover {
   text-align: right;
 }
 
+/* A term its tooltip explains (InfoTip): HGVS.g, a genotype heading such as DP. The dotted
+   underline says there is more on hover or focus. */
+.variant-card-term {
+  border-bottom: 1px dotted currentColor;
+  cursor: help;
+}
+
 .variant-card-gtline-value {
   color: var(--color-text-muted);
 }
