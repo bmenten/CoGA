@@ -117,7 +117,7 @@ De backend leest genotypes als **klassen**, niet als letterlijke tekst: *hom_alt
 
 - een **aanwezigheidscontrole** (`count_only`) voor het dashboard: "heeft deze familie small variants?";
 - eerst de **afbakening**: panel, reviewselecties, intervallen en uitgesloten regio's. Kan de vraag niets opleveren (bv. een panel zonder genen), dan volgt meteen een lege pagina. Een onleesbare intervalregel (bv. een BED-regel of een einde vóór het begin) krijgt `422`, met de regel bij naam; het formulier meldt zulke regels al vóór het zoeken;
-- de **fenotypeprioritering** (standaard aan), met een cache (hoofdstuk 12). Ze verandert de volgorde van een zoekopdracht, nooit wat die vindt: bij compound-het, recessief of dragerscreening past ze dezelfde regels toe als zonder prioritering (de paren, de genregel van het koppel, hieronder) en rangschikt ze alleen de varianten en paren die overblijven;
+- de **fenotypeprioritering** (standaard aan), met een cache (hoofdstuk 12). Ze verandert de volgorde van een zoekopdracht, nooit wat die vindt: bij compound-het, recessief of dragerscreening past ze dezelfde regels toe als zonder prioritering (de paren, de genregel van het koppel, hieronder) en rangschikt ze alleen de varianten, paren en genen die overblijven: een paar of een gen staat bij zijn best gerangschikte variant;
 - de **track-modus** voor de genoombrowser: boven een grens geeft die alleen de telling terug, zodat de track kan zeggen dat er te veel varianten zijn;
 - anders filtert en pagineert **ClickHouse** zelf, of haalt de service een begrensde kandidatenset op en past ze in Python toe wat ClickHouse niet kan (dragerscreening, overerving tussen varianten zoals compound-het).
 
@@ -147,18 +147,18 @@ Voor elke pagina worden de rijen aangevuld met:
 
 ### De weergave
 
-`SmallVariantResults.tsx` toont de teller, de keuze tussen tabel en kaarten (tot de gebruiker kiest, toont een klein aantal als kaarten, anders als tabel), de CSV-export met dezelfde querystring, een waarschuwing als de zoekopdracht maar een deel van de callset las, en een melding als de rangschikking uit de cache komt. Die waarschuwing (`CandidateCapNotice.tsx`) komt uit twee vlaggen van het antwoord:
+`SmallVariantResults.tsx` toont de teller (een paar of een gen van de dragerscreening telt als één resultaat), de keuze tussen tabel en kaarten (tot de gebruiker kiest, toont een klein aantal als kaarten, anders als tabel), de CSV-export met dezelfde querystring, een waarschuwing als de zoekopdracht maar een deel van de callset las, en een melding als de rangschikking uit de cache komt. Die waarschuwing (`CandidateCapNotice.tsx`) komt uit twee vlaggen van het antwoord:
 
 - `candidates_capped`: compound-het, recessief of dragerscreening las een begrensd kandidatenvenster, tussen 1.000 en 5.000 rijen naargelang de gevraagde pagina, met prioritering altijd 5.000;
 - `ranking_truncated`: de prioritering rangschikte alleen haar venster. Bij een gerangschikte zoekopdracht met paren of dragerscreening staan dan beide vlaggen aan.
 
-`candidate_limit` zegt na hoeveel kandidaten de zoekopdracht stopte. De teller is dan een ondergrens, en de waarschuwing vraagt de filters te verfijnen met een regio, een genpanel of een gen. Compound-heterozygote paren staan bovenaan als paarkaarten, ook bij prioritering: een paar staat dan op de plaats van zijn best gerangschikte variant, en elke variant toont zijn eigen rang. De tabel (`SmallVariantTable.tsx`) sorteert in de browser op positie, gen, impact en, bij prioritering, de score.
+`candidate_limit` zegt na hoeveel kandidaten de zoekopdracht stopte. De teller is dan een ondergrens, en de waarschuwing vraagt de filters te verfijnen met een regio, een genpanel of een gen. Compound-heterozygote paren en de genen van de dragerscreening staan bovenaan, elk in een kader met zijn varianten als kaarten of als rijen van de tabel, ook bij prioritering: een paar of een gen staat dan op de plaats van zijn best gerangschikte variant, en elke variant toont zijn eigen rang. De tabel (`SmallVariantTable.tsx`) sorteert in de browser op positie, gen, impact en, bij prioritering, de score.
 
 Een kaart, ook op de NIPT-pagina, noemt in een regel onder haar kop de ziekten van het gen met hun bron, en de overerving, de ClinGen-dosiscuratie en de ACMG SF-status van het gen (`VariantGeneDiseases.tsx`; hoofdstuk 13). *HGVS.g* is de HGVSg van VEP; heeft de annotatie er geen, dan leidt de kaart de verandering af uit het VCF-record, niet HGVS-genormaliseerd, en zegt dat in de tooltip. De voorspellers krijgen gekleurde punten op de grenzen van seqr (hoofdstuk 10). De achtergrond van de kaart volgt ClinVar zoals `clinvarClass` het leest: lichtrood bij (likely) pathogenic, lichtgroen bij (likely) benign; een conflicterende, onzekere of andere status laat de kaart wit (`getClinvarHighlightTone`, `.small-variant-card` in `variant-tables.css`).
 
 ### Compound heterozygoot, tweede hit en dragerscreening
 
-Bij een recessieve aandoening is één heterozygote variant meestal niet oorzakelijk. Twee verschillende heterozygote varianten in hetzelfde gen kunnen dat wel zijn, als ze **in trans** liggen (één op elk allel). CoGA toont zulke kandidaten daarom als **paar**, met hun fase: *in trans* of onbekend.
+Bij een recessieve aandoening is één heterozygote variant meestal niet oorzakelijk. Twee verschillende heterozygote varianten in hetzelfde gen kunnen dat wel zijn, als ze **in trans** liggen (één op elk allel). CoGA toont zulke kandidaten daarom als **paar**, met hun fase: *in trans* of onbekend. Een paar is één resultaat: een kader met het gen, zijn ziekten en zijn overerving één keer, de paarbeoordeling en de fase, en daarin elke variant zoals de lijst met losse varianten ze toont, als volledige kaart of als rij van de tabel (`SmallVariantGroupCards.tsx`).
 
 - **Een paar** ontstaat als beide varianten heterozygoot zijn bij alle aangedane leden en geen niet-aangedaan lid beide draagt.
 - **De fase** komt uit de reads (een gedeelde *phase set*), anders uit de ouders in de stamboom: gaat elke variant terug op een andere ouder, dan liggen ze in trans. Een halve call met één ontbrekend allel (bv. `.|1`) zegt niet op welk haplotype de variant ligt; de fase komt dan uit de ouders. Een familielid dat geen van beide varianten draagt en geen ouder is, zegt niets over de fase.
@@ -179,9 +179,11 @@ De uitleg bij de markering somt de SV's op, elk met haar fase. Een deletie is ee
 
 Een mitochondriale variant (chrM) telt niet mee: mtDNA erft alleen via de moeder, dus zegt een variant van beide partners in één chrM-gen niets over het risico van een kind.
 
+Het resultaat staat **per gen**, zoals een paar: elk gen is één resultaat, met elke variant die een van beide partners er draagt, twee, drie of meer. Het kader zegt waarom het gen een bevinding is (beide partners, of X-gebonden) en welke varianten elke partner draagt; elke kaart draagt de naam van de partner die de variant draagt. Varianten die een symbool of een gen-ID delen, horen bij één gen, zoals de regel ze vergelijkt (`_carrier_screening_genes`).
+
 Het ingebouwde preset *Expanded carrier screening* zet de keuze aan, samen met zeldzaam (onder 1%, ook popmax), impact HIGH of MODERATE, en ClinVar pathogeen of waarschijnlijk pathogeen als uitzondering op de impact- en de frequentiegrens. Zo blijft een frequente founder-variant (CFTR p.Phe508del) staan, net als een pathogene synonieme of splice-regionvariant. ClinVar benigne en waarschijnlijk benigne laat het preset weg: zo'n variant maakt een gen nooit tot een gen waarin beide partners een variant dragen. Zonder impactfilter bevat een long-read-genoom honderdduizenden zeldzame varianten: de zoekopdracht stopt dan aan haar kandidatengrens lang vóór chrX, en de X-gebonden regel ziet de varianten van de partners nooit.
 
-**Waar in de code:** de paren in `clickhouse_variant_queries.py` en `SmallVariantPairCards.tsx`; de faseregel via de ouders in `backend/app/services/compound_het_phase.py`; de SV-index in `backend/app/services/sv_gene_index_service.py`; de dragerscreening in `clickhouse_variant_queries.py` en `smallVariantSearch.ts`.
+**Waar in de code:** de paren in `clickhouse_variant_queries.py` en `SmallVariantGroupCards.tsx`; de faseregel via de ouders in `backend/app/services/compound_het_phase.py`; de SV-index in `backend/app/services/sv_gene_index_service.py`; de dragerscreening in `clickhouse_variant_queries.py`, `smallVariantSearch.ts` en `SmallVariantGroupCards.tsx`.
 
 ## Deel A — Structurele varianten
 

@@ -6,8 +6,9 @@ only one partner carries in is left out, and so is a mitochondrial gene, as mtDN
 from the mother alone. On chrX outside the pseudo-autosomal regions a variant either
 partner carries is kept on its own: a woman's carrier status alone puts a son at risk of an
 X-linked condition, and a man passes his one X to every daughter. These tests pin the pure rule
-(``_filter_expanded_carrier_screening``) and how the couple is found
-(``_carrier_partners``); the search applies the rule after its SQL prefilter
+(``_filter_expanded_carrier_screening``), how its findings are listed by gene
+(``_carrier_screening_genes``) and how the couple is found (``_carrier_partners``); the search
+applies the rule after its SQL prefilter
 (``test_clickhouse_family_variants.py::test_fetch_small_variant_rows_prefilters_expanded_carrier_candidates``).
 """
 
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 from backend.app.services.clickhouse_variant_queries import (
     _carrier_partners,
+    _carrier_screening_genes,
     _filter_expanded_carrier_screening,
 )
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
@@ -212,6 +214,120 @@ class TestXLinked:
             _variant("otc-1", "OTC", man="1", chr="X", start=38_400_000),
         ]
         assert _kept(records, assembly_name="GRCh38") == ["cftr-1", "dmd-1", "cftr-2", "dmd-2", "otc-1"]
+
+
+def _genes(records, sample_rows=_COUPLE, relationship_rows=None, *, assembly_name=None):
+    """Each gene as (its name, its variants, the woman's, the man's, both, X-linked)."""
+    return [
+        (
+            gene.group_key,
+            [record.variant_id for record in gene.records],
+            sorted(gene.carried[0]),
+            sorted(gene.carried[1]),
+            gene.both_partners,
+            gene.x_linked,
+        )
+        for gene in _carrier_screening_genes(records, sample_rows, relationship_rows, assembly_name=assembly_name)
+    ]
+
+
+class TestByGene:
+    """The search lists a carrier screen's findings by gene: each gene with every variant the
+    rule keeps in it, however many, and which partner carries each."""
+
+    def test_a_gene_lists_every_variant_either_partner_carries_in_it(self) -> None:
+        records = [
+            _variant("cftr-1", "CFTR", woman="0/1", start=100),
+            _variant("cftr-2", "CFTR", man="0/1", start=200),
+            _variant("cftr-3", "CFTR", woman="0/1", man="0/1", start=300),
+            _variant("cftr-4", "CFTR", woman="1/1", start=400),
+        ]
+        assert _genes(records) == [
+            (
+                "carrier-gene:gene:CFTR",
+                ["cftr-1", "cftr-2", "cftr-3", "cftr-4"],
+                ["cftr-1", "cftr-3", "cftr-4"],
+                ["cftr-2", "cftr-3"],
+                True,
+                False,
+            )
+        ]
+
+    def test_the_genes_come_in_the_order_of_their_first_variant(self) -> None:
+        records = [
+            _variant("hbb-1", "HBB", woman="0/1", start=100),
+            _variant("cftr-1", "CFTR", woman="0/1", start=200),
+            _variant("hbb-2", "HBB", man="0/1", start=300),
+            _variant("gaa-1", "GAA", woman="0/1", start=400),
+            _variant("cftr-2", "CFTR", man="0/1", start=500),
+        ]
+        assert [(key, ids) for key, ids, *_ in _genes(records)] == [
+            ("carrier-gene:gene:HBB", ["hbb-1", "hbb-2"]),
+            ("carrier-gene:gene:CFTR", ["cftr-1", "cftr-2"]),
+        ]
+
+    def test_a_renamed_gene_is_one_gene(self) -> None:
+        records = [
+            _variant("v-old", "OLDNAME", woman="0/1", gene_id="ENSG0001"),
+            _variant("v-new", "NEWNAME", man="0/1", gene_id="ENSG0001", start=200),
+        ]
+        assert _genes(records) == [
+            ("carrier-gene:gene_id:ENSG0001", ["v-old", "v-new"], ["v-old"], ["v-new"], True, False)
+        ]
+
+    def test_a_symbol_without_an_id_joins_the_gene_with_that_symbol(self) -> None:
+        records = [
+            _variant("v-id", "CFTR", woman="0/1", gene_id="ENSG0002"),
+            _variant("v-symbol", "CFTR", man="0/1", start=200),
+        ]
+        assert [(key, ids) for key, ids, *_ in _genes(records)] == [
+            ("carrier-gene:gene_id:ENSG0002", ["v-id", "v-symbol"])
+        ]
+
+    def test_an_x_linked_gene_one_partner_carries_in_is_listed_as_hers_alone(self) -> None:
+        records = [
+            _variant("dmd-1", "DMD", woman="0/1", chr="X", start=_DMD),
+            _variant("dmd-2", "DMD", woman="0/1", chr="X", start=_DMD + 100),
+        ]
+        assert _genes(records, assembly_name="GRCh38") == [
+            ("carrier-gene:gene:DMD", ["dmd-1", "dmd-2"], ["dmd-1", "dmd-2"], [], False, True)
+        ]
+
+    def test_an_x_linked_gene_both_partners_carry_in_says_both(self) -> None:
+        records = [
+            _variant("dmd-1", "DMD", woman="0/1", chr="X", start=_DMD),
+            _variant("dmd-2", "DMD", man="1", chr="X", start=_DMD + 100),
+        ]
+        assert _genes(records, assembly_name="GRCh38") == [
+            ("carrier-gene:gene:DMD", ["dmd-1", "dmd-2"], ["dmd-1"], ["dmd-2"], True, True)
+        ]
+
+    def test_the_rule_keeps_exactly_the_variants_of_its_genes(self) -> None:
+        records = [
+            _variant("cftr-1", "CFTR", man="0/1", chr="7", start=117_500_000),
+            _variant("dmd-1", "DMD", woman="0/1", chr="X", start=_DMD),
+            _variant("cftr-2", "CFTR", woman="0/1", chr="7", start=117_600_000),
+            _variant("gaa-1", "GAA", woman="0/1", chr="17", start=80_100_000),
+            _variant("mt-1", "MT-CYB", woman="1/1", man="1/1", chr="MT", start=15_000),
+            _variant("otc-1", "OTC", man="1", chr="X", start=38_400_000),
+        ]
+        listed = {variant_id for _key, ids, *_ in _genes(records, assembly_name="GRCh38") for variant_id in ids}
+        assert listed == set(_kept(records, assembly_name="GRCh38")) == {"cftr-1", "cftr-2", "dmd-1", "otc-1"}
+
+    def test_the_genes_of_the_kept_variants_are_the_genes_of_all_of_them(self) -> None:
+        # The search lists the genes of the variants the rule kept: the same genes.
+        records = [
+            _variant("cftr-1", "CFTR", man="0/1"),
+            _variant("gaa-1", "GAA", woman="0/1", start=150),
+            _variant("cftr-2", "CFTR", woman="0/1", start=200),
+            _variant("dmd-1", "DMD", woman="0/1", chr="X", start=_DMD),
+        ]
+        kept = _filter_expanded_carrier_screening(records, _COUPLE, assembly_name="GRCh38")
+        assert _genes(kept, assembly_name="GRCh38") == _genes(records, assembly_name="GRCh38")
+
+    def test_no_couple_means_no_gene(self) -> None:
+        rows = [{"sample_id": "A", "role": "proband"}, {"sample_id": "B", "role": "sibling"}, {"sample_id": "C"}]
+        assert _genes([_variant("cftr-1", "CFTR", woman="0/1", man="0/1")], rows) == []
 
 
 class TestWhoTheCoupleIs:

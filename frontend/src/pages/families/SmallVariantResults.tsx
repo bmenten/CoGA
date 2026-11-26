@@ -12,8 +12,8 @@ import {
 import AcmgClassificationModal from './AcmgClassificationModal';
 import CandidateCapNotice from './CandidateCapNotice';
 import ResultsPagination from './ResultsPagination';
-import SmallVariantCards from './SmallVariantCards';
-import SmallVariantPairCards from './SmallVariantPairCards';
+import SmallVariantCards, { type SmallVariantCardListProps } from './SmallVariantCards';
+import SmallVariantGroupCards from './SmallVariantGroupCards';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import SmallVariantTable from './SmallVariantTable';
 import { RankedByNote } from './RankByField';
@@ -105,10 +105,13 @@ export default function SmallVariantResults({
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportWarning, setExportWarning] = useState<string | null>(null);
-  const pairGroups = data?.variant_groups || [];
+  const resultGroups = data?.variant_groups || [];
+  const pairGroups = resultGroups.filter((group) => group.group_type === 'compound_het');
+  const carrierGenes = resultGroups.filter((group) => group.group_type === 'carrier_gene');
   const hasFlatVariants = Boolean(data?.variants.length);
   const hasGroupedPairs = Boolean(pairGroups.length);
-  const hasResults = hasFlatVariants || hasGroupedPairs;
+  const hasCarrierGenes = Boolean(carrierGenes.length);
+  const hasResults = hasFlatVariants || hasGroupedPairs || hasCarrierGenes;
   // A maximum gnomAD count filter cannot exclude a variant without that count.
   const countNote = gnomadCountNote(requestQueryString, data);
 
@@ -142,6 +145,30 @@ export default function SmallVariantResults({
   const resolvedViewMode: ResultViewMode =
     viewMode ?? ((data?.total ?? 0) <= CARD_VIEW_THRESHOLD ? 'cards' : 'table');
 
+  // What every card and row takes, the single variants' and the groups' alike.
+  const cardProps: SmallVariantCardListProps = {
+    members,
+    familyId,
+    projectId,
+    locationSearch,
+    speciesName,
+    assemblyName,
+    assemblyVersion,
+    tags,
+    reviewIsPending,
+    onEditReview: (variant) => {
+      onOpenReview?.();
+      setSelectedVariant(variant);
+    },
+    onAcmgClassify: (variant) => {
+      onOpenReview?.();
+      setAcmgVariant(variant);
+    },
+    onToggleReviewTag,
+    rankedBy: data?.ranked_by,
+    niptTrio: data?.trio,
+  };
+
   return (
     <FamilyReadOnlyContext.Provider value={readOnly}>
       <section className="surface-card space-y-4">
@@ -156,8 +183,9 @@ export default function SmallVariantResults({
               ) : null}
             </h2>
             <p className="table-subtle">
-              Up to {CARD_VIEW_THRESHOLD} variants show as cards, more as a paginated table, until
-              you pick a view. Compound-het matches stay grouped by pair.
+              Up to {CARD_VIEW_THRESHOLD} results show as cards, more as a paginated table, until
+              you pick a view. Compound-het matches stay grouped by pair, and a carrier screen&rsquo;s by
+              gene; a group counts as one result.
             </p>
           </div>
           <div className="variant-results-toolbar-actions">
@@ -237,22 +265,26 @@ export default function SmallVariantResults({
                     Pair-level search results aligned to the active inheritance filter.
                   </p>
                 </div>
-                <SmallVariantPairCards
-                  groups={pairGroups}
-                  members={members}
-                  familyId={familyId}
-                  projectId={projectId}
-                  locationSearch={locationSearch}
-                  tags={tags}
-                  onEditReview={setSelectedVariant}
-                  rankedBy={data?.ranked_by}
-                />
+                <SmallVariantGroupCards groups={pairGroups} memberView={resolvedViewMode} {...cardProps} />
+              </div>
+            ) : null}
+
+            {hasCarrierGenes ? (
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <h3 className="section-title">Carrier genes</h3>
+                  <p className="table-subtle">
+                    Each gene the couple is at risk in, with every variant either partner carries
+                    there.
+                  </p>
+                </div>
+                <SmallVariantGroupCards groups={carrierGenes} memberView={resolvedViewMode} {...cardProps} />
               </div>
             ) : null}
 
             {hasFlatVariants ? (
               <div className="space-y-3">
-                {hasGroupedPairs ? (
+                {hasGroupedPairs || hasCarrierGenes ? (
                   <div className="space-y-1">
                     <h3 className="section-title">Single variants</h3>
                     <p className="table-subtle">
@@ -261,50 +293,9 @@ export default function SmallVariantResults({
                   </div>
                 ) : null}
                 {resolvedViewMode === 'cards' ? (
-                  <SmallVariantCards
-                    variants={data?.variants || []}
-                    members={members}
-                    familyId={familyId}
-                    projectId={projectId}
-                    locationSearch={locationSearch}
-                    speciesName={speciesName}
-                    assemblyName={assemblyName}
-                    assemblyVersion={assemblyVersion}
-                    tags={tags}
-                    reviewIsPending={reviewIsPending}
-                    onEditReview={(variant) => {
-                      onOpenReview?.();
-                      setSelectedVariant(variant);
-                    }}
-                    onAcmgClassify={(variant) => {
-                      onOpenReview?.();
-                      setAcmgVariant(variant);
-                    }}
-                    onToggleReviewTag={onToggleReviewTag}
-                    rankedBy={data?.ranked_by}
-                    niptTrio={data?.trio}
-                  />
+                  <SmallVariantCards variants={data?.variants || []} {...cardProps} />
                 ) : (
-                  <SmallVariantTable
-                    variants={data?.variants || []}
-                    members={members}
-                    familyId={familyId}
-                    projectId={projectId}
-                    locationSearch={locationSearch}
-                    tags={tags}
-                    reviewIsPending={reviewIsPending}
-                    onEditReview={(variant) => {
-                      onOpenReview?.();
-                      setSelectedVariant(variant);
-                    }}
-                    onAcmgClassify={(variant) => {
-                      onOpenReview?.();
-                      setAcmgVariant(variant);
-                    }}
-                    onToggleReviewTag={onToggleReviewTag}
-                    rankedBy={data?.ranked_by}
-                    niptTrio={data?.trio}
-                  />
+                  <SmallVariantTable variants={data?.variants || []} {...cardProps} />
                 )}
               </div>
             ) : null}

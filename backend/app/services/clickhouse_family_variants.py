@@ -24,7 +24,10 @@ from ..schemas import (
     FamilyGenePhenotypeScoreOut,
     MemberWithoutCallsOut,
     PhenotypeTermRefOut,
+    CarrierPartnerOut,
+    SmallVariantCarrierGeneOut,
     SmallVariantGroupOut,
+    SmallVariantResultGroupOut,
     SmallVariantSampleSummaryOut,
     SmallVariantSummaryOut,
     VariantInternalCohortOut,
@@ -83,6 +86,7 @@ from .clickhouse_variant_records import (
     Region,
     SmallSegregationFlags,
     SmallVariantCall,
+    SmallVariantCarrierGene,
     SmallVariantCompoundHetPair,
     SmallVariantRecord,
     StructuralVariantCall,
@@ -100,6 +104,7 @@ from .clickhouse_variant_queries import (
     _append_limit_offset,
     _can_use_small_native_page,
     _can_use_structural_native_page,
+    _carrier_screening_genes,
     _clamp_small_variant_page,
     _clickhouse_sample_ids,
     _collect_annotations,
@@ -2922,9 +2927,10 @@ async def _prioritized_items_page(
     ``_priorities_in_order``), each variant with its priority and its rank in that order.
 
     An item is placed where its best-ranked variant ranks: a compound-het pair at the better
-    of its two variants, and among items that share their best variant (a variant in two
-    pairs, or an X-linked variant that also pairs), by their next one, a single variant
-    first. Paged by item, as the unranked search pages: a pair is one item. ``capped`` says
+    of its two variants, a carrier screen's gene at the best of its variants, and among
+    items that share their best variant (a variant in two pairs, or an X-linked variant
+    that also pairs), by their next one, a single variant first. Paged by item, as the
+    unranked search pages: a pair is one item, and so is a carrier gene. ``capped`` says
     the candidate window overflowed: the ranking covers only the window, and a search that
     pairs (``pairing``) also missed any pair or carrier gene beyond it.
     """
@@ -2991,7 +2997,8 @@ async def _prioritized_small_variants_page(
     carrier-screening search lists only what it keeps, not every candidate the SQL prefilter
     lets through. Only the variants kept are ranked, with the segregation modes
     they have among themselves, and a pair is listed as a group of its two variants, placed
-    at its better-ranked one (``_prioritized_items_page``).
+    at its better-ranked one, and a carrier screen's gene as a group of its variants, placed
+    at its best-ranked one (``_prioritized_items_page``).
 
     Such a search reads one window of candidates, ``_PRIORITIZE_CANDIDATE_LIMIT`` (the
     largest the unranked search reads). When it overflows, the page flags the ranking
@@ -3083,12 +3090,12 @@ async def _prioritized_small_variants_page(
     if capped:
         records = records[:_PRIORITIZE_CANDIDATE_LIMIT]
 
-    # What the unranked search keeps of these candidates: the couple's gene rule, and an
-    # inheritance mode's pairs and single variants.
+    # What the unranked search keeps of these candidates, listed as it lists them: an
+    # inheritance mode's pairs and single variants, or the couple's genes.
     kept = _kept_small_candidates(records, filters, context)
     items: list[_SmallResultItem] = (
-        _small_inheritance_items(context, filters.inheritance, kept)
-        if pairing and filters.inheritance
+        _small_result_items(context, filters, kept)
+        if pairing
         else [("variant", record) for record in kept]
     )
     ranked_records = _item_records(items)
@@ -3364,16 +3371,20 @@ class _SmallVariantScope:
         }
 
 
-# One result of a small-variant search, as _inheritance_result_items gives it: ("group", a
-# compound-het pair), served as a group of its two variants, or ("variant", a variant).
-_SmallResultItem = tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord]
+# One result of a small-variant search: ("group", a compound-het pair), served as a group of
+# its two variants, as _inheritance_result_items gives it; ("carrier_gene", a gene of an
+# expanded carrier screen), served as a group of its variants (_carrier_gene_items); or
+# ("variant", a variant).
+_SmallResultItem = tuple[str, SmallVariantCompoundHetPair | SmallVariantCarrierGene | SmallVariantRecord]
 
 
 def _item_members(item: _SmallResultItem) -> tuple[SmallVariantRecord, ...]:
-    """The variants of a result item: a pair's two, or the single variant."""
+    """The variants of a result item: a pair's two, a carrier gene's, or the single variant."""
     _item_type, value = item
     if isinstance(value, SmallVariantCompoundHetPair):
         return (value.left, value.right)
+    if isinstance(value, SmallVariantCarrierGene):
+        return value.records
     return (value,)
 
 
@@ -3423,13 +3434,51 @@ def _small_inheritance_items(
     """What an inheritance mode keeps of ``records``, with the family's pedigree: its
     compound-het pairs and single variants (``_inheritance_result_items``)."""
     affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
-    return _inheritance_result_items(
-        inheritance=inheritance,
-        records=records,
-        affected_samples=affected_sample_names,
-        unaffected_samples=unaffected_sample_names,
-        pedigree=_family_pedigree(context),
+    return list(
+        _inheritance_result_items(
+            inheritance=inheritance,
+            records=records,
+            affected_samples=affected_sample_names,
+            unaffected_samples=unaffected_sample_names,
+            pedigree=_family_pedigree(context),
+        )
     )
+
+
+def _carrier_gene_items(
+    context: FamilyMetadataContext,
+    records: Sequence[SmallVariantRecord],
+) -> list[_SmallResultItem]:
+    """An expanded carrier screen's results: the couple's genes (``_carrier_screening_genes``),
+    each one item with every variant the screen keeps in it, however many. ``records`` are
+    the candidates the screen kept (``_kept_small_candidates``), so the genes hold exactly
+    them: the couple rule finds the same genes among the variants it kept."""
+    return [
+        ("carrier_gene", gene)
+        for gene in _carrier_screening_genes(
+            records,
+            context.sample_rows,
+            context.relationship_rows,
+            assembly_name=context.assembly_name,
+            left_out=context.scope.left_out_members,
+        )
+    ]
+
+
+def _small_result_items(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    records: Sequence[SmallVariantRecord],
+) -> list[_SmallResultItem]:
+    """What a search that keeps a variant for what else it finds lists of the candidates it
+    kept (``_kept_small_candidates``): an inheritance mode's pairs and single variants; else,
+    with expanded carrier screening, the couple's genes. The unranked and the ranked search
+    both list these."""
+    if filters.inheritance:
+        return _small_inheritance_items(context, filters.inheritance, records)
+    if filters.expanded_carrier_screening:
+        return _carrier_gene_items(context, records)
+    return [("variant", record) for record in records]
 
 
 def _pair_phase(
@@ -3451,11 +3500,12 @@ async def _small_item_outs(
     filters: SmallVariantQueryFilters,
     items: Sequence[_SmallResultItem],
     priorities: Mapping[str, VariantPriorityOut] | None = None,
-) -> tuple[list[VariantOut], list[SmallVariantGroupOut]]:
-    """A page's items as the response carries them: the single variants, and each
-    compound-het pair as a group of its two variants with its phase and pair review. In a
-    ranked search each variant carries its priority. Each variant names the transcript the
-    search's ``filters`` held on, when its primary one does not meet them.
+) -> tuple[list[VariantOut], list[SmallVariantResultGroupOut]]:
+    """A page's items as the response carries them: the single variants, each
+    compound-het pair as a group of its two variants with its phase and pair review, and
+    each carrier screen's gene as a group of its variants with the partner who carries
+    each. In a ranked search each variant carries its priority. Each variant names the
+    transcript the search's ``filters`` held on, when its primary one does not meet them.
     Hydrated like every page."""
 
     # Which transcripts the filters held on, as the SQL decides it: one query for the page.
@@ -3472,25 +3522,48 @@ async def _small_item_outs(
             variant.priority = priority.model_copy(deep=True)
         return variant
 
-    groups: list[SmallVariantGroupOut] = []
+    groups: list[SmallVariantResultGroupOut] = []
+    pairs: list[SmallVariantGroupOut] = []
     group_variants: list[VariantOut] = []
     singles: list[VariantOut] = []
     for _item_type, value in items:
-        if isinstance(value, SmallVariantCompoundHetPair):
+        if isinstance(value, SmallVariantCarrierGene):
+            gene_variants = [variant_out(record) for record in value.records]
+            group_variants.extend(gene_variants)
+            groups.append(
+                SmallVariantCarrierGeneOut(
+                    group_key=value.group_key,
+                    gene=value.gene,
+                    gene_id=value.gene_id,
+                    variants=gene_variants,
+                    partners=[
+                        CarrierPartnerOut(
+                            samples=list(samples),
+                            variant_ids=[
+                                record.variant_id for record in value.records if record.variant_id in carried
+                            ],
+                        )
+                        for samples, carried in zip(value.partners, value.carried, strict=True)
+                    ],
+                    both_partners_carry=value.both_partners,
+                    x_linked=value.x_linked,
+                )
+            )
+        elif isinstance(value, SmallVariantCompoundHetPair):
             left_variant = variant_out(value.left)
             right_variant = variant_out(value.right)
             group_variants.extend([left_variant, right_variant])
             phase, phase_evidence = _pair_phase(value)
-            groups.append(
-                SmallVariantGroupOut(
-                    group_key=value.pair_key,
-                    gene=value.gene,
-                    gene_id=value.gene_id,
-                    variants=[left_variant, right_variant],
-                    phase=phase,
-                    phase_evidence=phase_evidence,
-                )
+            pair = SmallVariantGroupOut(
+                group_key=value.pair_key,
+                gene=value.gene,
+                gene_id=value.gene_id,
+                variants=[left_variant, right_variant],
+                phase=phase,
+                phase_evidence=phase_evidence,
             )
+            pairs.append(pair)
+            groups.append(pair)
         else:
             singles.append(variant_out(value))
     await _hydrate_small_variant_outs(
@@ -3498,9 +3571,9 @@ async def _small_item_outs(
         context=context,
         variants=[*group_variants, *singles],
     )
-    for group in groups:
-        if len(group.variants) >= 2:
-            group.review = _group_review_for_pair(group.variants[0], group.variants[1])
+    # A carrier gene has no review of its own: each of its variants keeps its own.
+    for pair in pairs:
+        pair.review = _group_review_for_pair(pair.variants[0], pair.variants[1])
     return singles, groups
 
 
@@ -3768,12 +3841,12 @@ async def _small_variants_candidate_page(
         unfiltered_total = None
     else:
         unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
-    if filters.inheritance:
-        return await _small_variants_inheritance_page(
+    # A track draws variants, not results: a carrier screen's are sampled as they are.
+    if filters.inheritance or (filters.expanded_carrier_screening and not track_mode):
+        return await _small_variants_items_page(
             session,
             context,
-            filters.inheritance,
-            filtered,
+            _small_result_items(context, filters, filtered),
             filters=filters,
             page=page,
             page_size=page_size,
@@ -3810,11 +3883,10 @@ async def _small_variants_candidate_page(
     )
 
 
-async def _small_variants_inheritance_page(
+async def _small_variants_items_page(
     session: AsyncSession,
     context: FamilyMetadataContext,
-    inheritance: str,
-    filtered: list[SmallVariantRecord],
+    items: Sequence[_SmallResultItem],
     *,
     filters: SmallVariantQueryFilters,
     page: int,
@@ -3825,14 +3897,14 @@ async def _small_variants_inheritance_page(
     unfiltered_total: int | None,
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage:
-    """The candidates that fit the inheritance mode, paged by item: a compound-het pair is
-    one item, served as a group of its two variants."""
-    inheritance_items = _small_inheritance_items(context, inheritance, filtered)
-    total = len(inheritance_items)
+    """What the search lists of its candidates (``_small_result_items``), paged by item: a
+    compound-het pair is one item, served as a group of its two variants, and so is a
+    carrier screen's gene, with every variant it keeps there."""
+    total = len(items)
     reported_total = min(total, _SMALL_COUNT_LIMIT)
     total_is_estimated = candidates_capped or total >= _SMALL_COUNT_LIMIT
     skip = max(page - 1, 0) * page_size if page_size else 0
-    page_items = inheritance_items[skip: skip + page_size] if page_size else inheritance_items[skip:]
+    page_items = items[skip: skip + page_size] if page_size else items[skip:]
     page_single_variants, page_variant_groups = await _small_item_outs(
         session, context=context, filters=filters, items=page_items
     )
@@ -4145,8 +4217,8 @@ async def export_family_small_variants(
 
     Reuses :func:`get_family_small_variants_page` with the same filters as the
     table so the export always matches what the user sees, but requests a single
-    large page instead of paginating. Compound-het pair groups are flattened in
-    alongside single variants.
+    large page instead of paginating. The groups (compound-het pairs, a carrier screen's
+    genes) are flattened in alongside single variants, in the order the page lists them.
 
     The page function clamps page_size to MAX_VARIANT_PAGE_SIZE (10,000) for HTTP
     callers, which would cut this export at 10,000 rows without a trace. The export lifts
@@ -4170,7 +4242,7 @@ async def export_family_small_variants(
         **filters,
     )
     # A row is a variant, listed once: one in two compound-het pairs is in both groups, and
-    # the file says nothing of pairs, so a second row would only repeat the first.
+    # the file says nothing of groups, so a second row would only repeat the first.
     rows: list[VariantOut] = []
     listed: set[str] = set()
     for variant in [*(variant for group in page.variant_groups for variant in group.variants), *page.variants]:

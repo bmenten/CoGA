@@ -313,7 +313,8 @@ def _open(*, prioritize: bool, page: int = 1, page_size: int = 100, **filters: A
 
 
 def _kept(page) -> dict[str, Any]:
-    """What a page keeps: its single variants, its pairs and its total."""
+    """What a page keeps: its single variants, its pairs, a carrier screen's genes and its
+    total."""
     return {
         "variants": sorted(str(variant.id) for variant in page.variants),
         "pairs": sorted(
@@ -324,10 +325,40 @@ def _kept(page) -> dict[str, Any]:
                 group.phase_evidence,
             )
             for group in page.variant_groups
+            if group.group_type == "compound_het"
+        ),
+        "carrier_genes": sorted(
+            (
+                group.group_key,
+                tuple(str(variant.id) for variant in group.variants),
+                tuple(tuple(partner.variant_ids) for partner in group.partners),
+                group.both_partners_carry,
+                group.x_linked,
+            )
+            for group in page.variant_groups
+            if group.group_type == "carrier_gene"
         ),
         "total": page.total,
         "total_is_estimated": page.total_is_estimated,
     }
+
+
+def _carrier_gene(
+    gene: str,
+    *records: SmallVariantRecord,
+    mother: tuple[SmallVariantRecord, ...],
+    father: tuple[SmallVariantRecord, ...],
+    x_linked: bool = False,
+) -> tuple[str, tuple[str, ...], tuple[tuple[str, ...], ...], bool, bool]:
+    """A carrier screen's gene as _kept lists it: its variants, and those the mother and the
+    father, the couple, each carry."""
+    return (
+        f"carrier-gene:gene:{gene}",
+        tuple(record.variant_id for record in records),
+        (tuple(r.variant_id for r in mother), tuple(r.variant_id for r in father)),
+        bool(mother) and bool(father),
+        x_linked,
+    )
 
 
 def _pair(left: SmallVariantRecord, right: SmallVariantRecord) -> tuple[str, tuple[str, str], str, str]:
@@ -350,11 +381,19 @@ SEARCHES = {
         {"inheritance": "recessive"},
         {"variants": [C1.variant_id, X1.variant_id], "pairs": [_pair(A1, A2), _pair(B1, B2), _pair(B1, B3)]},
     ),
+    # Each gene the couple is at risk in, with every variant either partner carries there:
+    # GENE_B's three, and the mother's X-linked variant on its own.
     "expanded_carrier_screening": (
         {"expanded_carrier_screening": True},
         {
-            "variants": sorted(r.variant_id for r in (A1, A2, B1, B2, B3, C1, X1)),
+            "variants": [],
             "pairs": [],
+            "carrier_genes": [
+                _carrier_gene("GENE_A", A1, A2, mother=(A1,), father=(A2,)),
+                _carrier_gene("GENE_B", B1, B2, B3, mother=(B1,), father=(B2, B3)),
+                _carrier_gene("GENE_C", C1, mother=(C1,), father=(C1,)),
+                _carrier_gene("GENE_X", X1, mother=(X1,), father=(), x_linked=True),
+            ],
         },
     ),
     "carrier_screening_and_compound_het": (
@@ -381,9 +420,10 @@ SEARCHES = {
 
 @pytest.mark.parametrize("name", list(SEARCHES))
 def test_a_ranked_search_keeps_what_the_unranked_search_keeps(world, name: str) -> None:
-    filters, expected = SEARCHES[name]
+    filters, listed = SEARCHES[name]
+    expected = {"variants": [], "pairs": [], "carrier_genes": [], **listed}
     unranked = _kept(_open(prioritize=False, **filters))
-    assert {key: unranked[key] for key in ("variants", "pairs")} == expected
+    assert {key: unranked[key] for key in ("variants", "pairs", "carrier_genes")} == expected
 
     ranked = _open(prioritize=True, **filters)
     assert ranked.ranking_cached is False
@@ -413,7 +453,11 @@ def test_a_gene_filter_keeps_a_variant_of_the_gene_outside_its_loci_in_every_vie
 def _item(page) -> tuple[str, tuple[str, ...], tuple[int, ...]]:
     """The one item of a page of one item: its kind, its variants and their ranks."""
     entries = [
-        ("pair", tuple(str(v.id) for v in group.variants), tuple(v.priority.rank for v in group.variants))
+        (
+            "pair" if group.group_type == "compound_het" else "gene",
+            tuple(str(v.id) for v in group.variants),
+            tuple(v.priority.rank for v in group.variants),
+        )
         for group in page.variant_groups
     ] + [("variant", (str(v.id),), (v.priority.rank,)) for v in page.variants]
     assert len(entries) == 1, entries
@@ -470,19 +514,16 @@ def test_a_ranked_compound_het_search_ranks_its_pairs_variants_only(world) -> No
 
 
 def test_a_ranked_carrier_screen_ranks_the_couple_s_findings_only(world) -> None:
-    ranked = _open(prioritize=True, expanded_carrier_screening=True)
-    order = [(str(v.id), v.priority.rank) for v in ranked.variants]
-    assert order == [
-        (B3.variant_id, 1),
-        (B2.variant_id, 2),
-        (B1.variant_id, 3),
-        (C1.variant_id, 4),
-        (X1.variant_id, 5),
-        (A2.variant_id, 6),
-        (A1.variant_id, 7),
+    # A gene is placed at its best-ranked variant, its variants listed in the order read.
+    items = _items_in_order(expanded_carrier_screening=True)
+    assert items == [
+        ("gene", (B1.variant_id, B2.variant_id, B3.variant_id), (3, 2, 1)),
+        ("gene", (C1.variant_id,), (4,)),
+        ("gene", (X1.variant_id,), (5,)),
+        ("gene", (A1.variant_id, A2.variant_id), (7, 6)),
     ]
     # E1, the mother's alone in its gene, is no finding, and is not ranked.
-    assert E1.variant_id not in {variant_id for variant_id, _rank in order}
+    assert E1.variant_id not in {variant_id for _kind, variant_ids, _ranks in items for variant_id in variant_ids}
 
 
 def _without_a1(ranking: list[dict[str, Any]]) -> list[dict[str, Any]]:

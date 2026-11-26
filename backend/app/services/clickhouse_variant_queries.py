@@ -4,7 +4,7 @@ import json
 import re
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Any, Collection, Final, Iterable, Protocol, Sequence, cast
+from typing import Any, Collection, Final, Iterable, NamedTuple, Protocol, Sequence, cast
 
 from fastapi import HTTPException
 
@@ -86,6 +86,7 @@ from .clickhouse_variant_records import (
     SmallSegregationFlags,
     SmallVariantCall,
     SmallVariantRecord,
+    SmallVariantCarrierGene,
     SmallVariantCompoundHetPair,
     StructuralVariantRecord,
     _casefold,
@@ -1437,17 +1438,33 @@ def _is_mitochondrial_chromosome(chromosome: str | None) -> bool:
 _MITOCHONDRIAL_CHROMOSOMES = ("M", "MT", "chrM", "chrMT")
 
 
-def _filter_expanded_carrier_screening(
+class _CarrierCandidate(NamedTuple):
+    """A variant at least one partner carries, as the couple rule reads it."""
+
+    record: SmallVariantRecord
+    gene: str | None
+    gene_id: str | None
+    # The gene id and the symbol the rule matches the variant's gene by.
+    keys: tuple[tuple[str, str], ...]
+    # The partners (0, 1) with a call with the allele.
+    carriers: frozenset[int]
+    # On chrX outside the pseudo-autosomal regions.
+    x_linked: bool
+
+
+def _carrier_screening_genes(
     records: Sequence[SmallVariantRecord],
     sample_rows: Sequence[dict[str, Any]],
     relationship_rows: Sequence[dict[str, Any]] | None = None,
     *,
     assembly_name: str | None = None,
     left_out: Collection[str] = frozenset(),
-) -> list[SmallVariantRecord]:
-    """The couple's at-risk findings (REQ-CARR-002), in the order given. A partner is read on
-    each of their samples the reading reads (``_carrier_partners``, ``left_out`` the samples it
-    does not): a partner sampled twice carries what either sample carries.
+) -> list[SmallVariantCarrierGene]:
+    """The couple's at-risk findings (REQ-CARR-002), by gene: each gene with the variants the
+    rule keeps in it, in the order given, and the genes in the order of their first variant.
+    A partner is read on each of their samples the reading reads (``_carrier_partners``,
+    ``left_out`` the samples it does not): a partner sampled twice carries what either
+    sample carries.
 
     A gene in which both partners carry a variant: every variant either of them carries
     in it (a recessive condition needs a variant from each). On chrX outside the
@@ -1460,12 +1477,15 @@ def _filter_expanded_carrier_screening(
     never a finding, and neither is a mitochondrial one: mtDNA passes from the mother
     alone, so two partners carrying a variant in one chrM gene says nothing of a child's
     risk (the mtDNA analysis reads the female partner's chrM calls).
+
+    A gene is matched by its gene id and by its symbol, each on its own: a renamed gene
+    whose annotations carry the old and the new symbol under one id is one gene. The
+    variants kept that share either are listed as one gene.
     """
     partners = _carrier_partners(sample_rows, relationship_rows, left_out=left_out)
     if partners is None:
         return []
-    qualifying_ids: set[str] = set()
-    carrier_variants: dict[tuple[str, str], list[SmallVariantRecord]] = {}
+    candidates: list[_CarrierCandidate] = []
     carrier_sets: dict[tuple[str, str], set[int]] = {}
     for record in records:
         if _is_mitochondrial_chromosome(record.chr):
@@ -1479,22 +1499,93 @@ def _filter_expanded_carrier_screening(
         if not keys:
             continue
         call_map = {call.sample: call.gt for call in record.calls}
-        carriers = {
+        carriers = frozenset(
             index
             for index, samples in enumerate(partners)
             if any(genotype_has_alt(call_map.get(sample, "./.")) for sample in samples)
-        }
+        )
         if not carriers:
             continue
-        if hemizygous_chromosome(assembly_name, record.chr, record.start) == "X":
-            qualifying_ids.add(record.variant_id)
+        candidates.append(
+            _CarrierCandidate(
+                record=record,
+                gene=gene,
+                gene_id=gene_id,
+                keys=tuple(keys),
+                carriers=carriers,
+                x_linked=hemizygous_chromosome(assembly_name, record.chr, record.start) == "X",
+            )
+        )
         for key in keys:
             carrier_sets.setdefault(key, set()).update(carriers)
-            carrier_variants.setdefault(key, []).append(record)
-    for key, carriers in carrier_sets.items():
-        if len(carriers) == len(partners):
-            qualifying_ids.update(record.variant_id for record in carrier_variants.get(key, []))
-    return [record for record in records if record.variant_id in qualifying_ids]
+    both_partners_keys = {key for key, carriers in carrier_sets.items() if len(carriers) == len(partners)}
+    kept = [
+        candidate
+        for candidate in candidates
+        if candidate.x_linked or any(key in both_partners_keys for key in candidate.keys)
+    ]
+
+    # The kept variants that share a gene id or a symbol, joined into one gene.
+    joined: dict[tuple[str, str], tuple[str, str]] = {}
+
+    def gene_of(key: tuple[str, str]) -> tuple[str, str]:
+        while joined.setdefault(key, key) != key:
+            key = joined[key]
+        return key
+
+    for candidate in kept:
+        first = gene_of(candidate.keys[0])
+        for key in candidate.keys[1:]:
+            other = gene_of(key)
+            if other != first:
+                joined[other] = first
+    genes: dict[tuple[str, str], list[_CarrierCandidate]] = {}
+    for candidate in kept:
+        genes.setdefault(gene_of(candidate.keys[0]), []).append(candidate)
+    return [_carrier_gene(members, partners) for members in genes.values()]
+
+
+def _carrier_gene(
+    members: Sequence[_CarrierCandidate],
+    partners: tuple[tuple[str, ...], tuple[str, ...]],
+) -> SmallVariantCarrierGene:
+    """One gene of a carrier screen, named by its first variant's gene id or symbol: no
+    other gene of the screen shares either (``_carrier_screening_genes``)."""
+    kind, value = members[0].keys[0]
+    carried = tuple(
+        frozenset(member.record.variant_id for member in members if index in member.carriers)
+        for index in range(len(partners))
+    )
+    return SmallVariantCarrierGene(
+        group_key=f"carrier-gene:{kind}:{value}",
+        gene=next((member.gene for member in members if member.gene), None),
+        gene_id=next((member.gene_id for member in members if member.gene_id), None),
+        records=tuple(member.record for member in members),
+        partners=partners,
+        carried=(carried[0], carried[1]),
+        both_partners=all(carried),
+        x_linked=any(member.x_linked for member in members),
+    )
+
+
+def _filter_expanded_carrier_screening(
+    records: Sequence[SmallVariantRecord],
+    sample_rows: Sequence[dict[str, Any]],
+    relationship_rows: Sequence[dict[str, Any]] | None = None,
+    *,
+    assembly_name: str | None = None,
+    left_out: Collection[str] = frozenset(),
+) -> list[SmallVariantRecord]:
+    """The couple's at-risk findings (REQ-CARR-002), in the order given: the variants of
+    the genes ``_carrier_screening_genes`` finds."""
+    kept = {
+        record.variant_id
+        for gene in _carrier_screening_genes(
+            records, sample_rows, relationship_rows, assembly_name=assembly_name, left_out=left_out
+        )
+        for record in gene.records
+    }
+    return [record for record in records if record.variant_id in kept]
 
 
 def _coerce_numeric_metric(value: Any) -> float | None:

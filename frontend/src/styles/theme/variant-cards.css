@@ -104,27 +104,63 @@ button.sv-second-hit-badge--del:hover {
   pointer-events: none;
 }
 
-.variant-card-subtitle {
-  /* The HGVS beside the gene: a long-read insertion spells out its inserted bases, so the
-     line breaks anywhere rather than widening the card past the page. */
-  margin: 0;
-  min-width: 0;
-  font-size: var(--fs-xs);
-  color: var(--color-text-muted);
-  overflow-wrap: anywhere;
+/* A group of results (a compound-het pair, a carrier screen's gene): a frame headed by its
+   gene, holding each of its variants as the single-variant list shows it. Its muted ground and
+   accent rail set it apart from the white cards it holds. */
+.variant-group-card {
+  border-left-color: var(--color-accent);
+  background: var(--color-surface-muted);
 }
 
+/* The open group: the gene's lines, its panel and its variants, one under the other. */
 .variant-card-body {
   display: grid;
   gap: 0.5rem;
-  grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr) minmax(240px, 0.78fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
 
-.variant-card-column {
+.variant-group-members {
   display: grid;
-  gap: 0.4375rem;
-  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+/* The pair review or the couple: white on the group's muted ground. */
+.variant-group-panel {
+  background: var(--color-surface);
+}
+
+/* The panel's facts side by side where the card is wide enough. */
+.variant-group-summary {
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  column-gap: 1rem;
+}
+
+.variant-group-summary .variant-compound-het-summary-row {
+  justify-content: flex-start;
+}
+
+/* A card's place in its group ("Variant 1 of 2"), before the change that heads it. */
+.variant-card-group-place {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* A carrier screen's two partners, each in a colour of their own: in the couple panel and on
+   the card of each variant they carry. */
+.variant-group-partner--1 {
+  border-color: rgba(52, 96, 150, 0.22);
+  background: rgba(82, 111, 161, 0.14);
+  color: #3f618f;
+}
+
+.variant-group-partner--2 {
+  border-color: rgba(135, 111, 61, 0.18);
+  background: rgba(205, 179, 125, 0.16);
+  color: #816939;
 }
 
 .variant-card-actions {
@@ -972,15 +1008,6 @@ a.variant-card-gene:hover {
   overflow-wrap: break-word;
 }
 
-.variant-card-note-box {
-  display: grid;
-  gap: 0.375rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface-muted);
-  padding: 0.375rem 0.5rem;
-}
-
 .variant-card-empty-note {
   margin: 0;
   font-size: var(--fs-xs);
@@ -1248,10 +1275,6 @@ a.variant-card-gene:hover {
 }
 
 @media (max-width: 1180px) {
-  .variant-card-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .app-header-inner,
   .app-main-inner,
   .app-footer-inner,

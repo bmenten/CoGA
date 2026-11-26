@@ -8,6 +8,7 @@ import type {
   GenotypeOut,
   NiptClassificationOut,
   NiptVariantPage,
+  SmallVariantCarrierGeneOut,
   SmallVariantFilterPresetOut,
   SmallVariantGroupOut,
   SmallVariantReviewOut,
@@ -150,14 +151,14 @@ export type SmallVariantPage = Pick<VariantPage, 'total' | 'total_is_estimated' 
   > &
   Partial<Pick<NiptVariantPage, 'recessive_genes' | 'not_classified' | 'trio'>> & {
     variants: SmallVariant[];
-    variant_groups?: SmallVariantGroup[];
+    variant_groups?: SmallVariantResultGroup[];
   };
 
 // A page of the family's small-variant list (VariantPage) and of the monogenic NIPT list
 // (NiptVariantPage), their variants read as SmallVariant.
 export type FamilySmallVariantPage = Omit<VariantPage, 'variants' | 'variant_groups'> & {
   variants: SmallVariant[];
-  variant_groups: SmallVariantGroup[];
+  variant_groups: SmallVariantResultGroup[];
 };
 export type NiptSmallVariantPage = Omit<NiptVariantPage, 'variants'> & { variants: SmallVariant[] };
 
@@ -167,6 +168,15 @@ export type NiptSmallVariantPage = Omit<NiptVariantPage, 'variants'> & { variant
 export type SmallVariantGroup = Omit<SmallVariantGroupOut, 'variants'> & {
   variants: SmallVariant[];
 };
+
+// A gene of an expanded carrier screen: every variant the screen keeps in it, one or more, and
+// which partner of the couple carries each (`partners`, in the order the screen found them).
+export type SmallVariantCarrierGene = Omit<SmallVariantCarrierGeneOut, 'variants'> & {
+  variants: SmallVariant[];
+};
+
+// A grouped result of the list, told apart by its group_type.
+export type SmallVariantResultGroup = SmallVariantGroup | SmallVariantCarrierGene;
 
 export type SmallVariantReviewSavePayload = {
   // null clears the stored classification; left out, the save clears it too, so a client

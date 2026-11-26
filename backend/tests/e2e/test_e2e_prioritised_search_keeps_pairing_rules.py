@@ -66,6 +66,17 @@ def _page(resp) -> dict:
             group.get("phase_evidence"),
         )
         for group in body.get("variant_groups") or []
+        if group["group_type"] == "compound_het"
+    )
+    # A carrier screen's genes: each gene's variants, and whether both partners carry one.
+    out["carrier_genes"] = sorted(
+        (
+            group.get("gene"),
+            sorted(str(variant["_id"]) for variant in group.get("variants") or []),
+            group["both_partners_carry"],
+        )
+        for group in body.get("variant_groups") or []
+        if group["group_type"] == "carrier_gene"
     )
     out["total"] = body.get("total")
     out["flags"] = {
@@ -154,7 +165,7 @@ def run(tmp_path_factory, request) -> dict:
 
 def _kept(page: dict) -> dict:
     assert page["status"] == 200, page["text"]
-    return {key: page[key] for key in ("variants", "pairs", "total", "flags")}
+    return {key: page[key] for key in ("variants", "pairs", "carrier_genes", "total", "flags")}
 
 
 @pytest.mark.parametrize("name", list(SEARCHES))
@@ -182,7 +193,8 @@ def test_a_ranked_pairing_search_keeps_the_gene_ch_pair_alone(run, name: str) ->
 
 def test_a_ranked_carrier_screen_keeps_the_gene_both_parents_carry_in(run) -> None:
     ranked = run["searches"]["carrier_screening"]["ranked"]
-    assert ranked["variants"] == _GENE_CH_PAIR, ranked
+    assert ranked["carrier_genes"] == [("GENE_CH", _GENE_CH_PAIR, True)], ranked
+    assert ranked["variants"] == []
     assert ranked["pairs"] == []
     assert sorted(ranked["ranks"].values()) == [1, 2]
     assert not ranked["flags"]["candidates_capped"]
