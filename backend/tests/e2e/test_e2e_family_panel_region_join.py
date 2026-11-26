@@ -457,7 +457,10 @@ def test_the_paths_find_pairs_carriers_and_the_track_s_variants(run: dict[str, A
     assert [sorted(v for v, _p in group[0]) for group in regions["compound het"]["join"]["groups"]] == [sorted(pair)]
     assert len(genes["compound het"]["join"]["groups"]) == 2
     assert {v for v, _p in regions["recessive"]["join"]["variants"]} == {_HOMOZYGOUS_IN_RB}
-    assert {v for v, _p in regions["carrier screening"]["join"]["variants"]} == {
+    # A carrier screen lists its findings by gene.
+    carrier_screen = regions["carrier screening"]["join"]
+    assert carrier_screen["variants"] == []
+    assert {v for group in carrier_screen["groups"] for v, _p in group[0]} == {
         *pair, _HOMOZYGOUS_IN_RB, _CARRIER_FATHER, _CARRIER_MOTHER,
     }
     assert {v for v, _p in regions["track"]["join"]["variants"]} == _EXPECTED["PanelApp regions"]

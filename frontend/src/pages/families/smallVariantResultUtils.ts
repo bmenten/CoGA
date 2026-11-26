@@ -208,6 +208,20 @@ export const formatGenomicChange = (
   return `${chr}:g.${span}delins${altRest}`;
 };
 
+/**
+ * The change that tells two variants in one gene apart: HGVS.c and HGVS.p without their
+ * accessions; else VEP's HGVS.g, the change written from the VCF record, or the locus. A folded
+ * card shows it under its gene, and a card in a group (a compound-het pair, a carrier gene) is
+ * headed by it.
+ */
+export const formatVariantChange = (
+  variant: Pick<SmallVariant, 'chr' | 'start' | 'end' | 'ref' | 'alt' | 'hgvsc' | 'hgvsp' | 'hgvsg'>,
+): string =>
+  [hgvsWithoutAccession(variant.hgvsc), hgvsWithoutAccession(variant.hgvsp)].filter(Boolean).join(' · ') ||
+  variant.hgvsg ||
+  formatGenomicChange(variant) ||
+  formatLocus(variant);
+
 export interface VariantIdLink {
   id: string;
   source: string | null;

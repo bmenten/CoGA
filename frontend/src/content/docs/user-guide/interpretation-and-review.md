@@ -15,7 +15,8 @@ its row is dimmed.
 To go through the list one card at a time, fold each card when you are done with it: **Collapse**, at
 the foot of the card, folds it to its heading and the change (HGVS.c and HGVS.p), and the next card is
 the first open one. The caret before a card's heading folds and opens it too, an excluded card's
-included; a compound-het pair card folds from its caret. A fold changes no review and is saved nowhere:
+included; a compound-het pair or a carrier screen's gene folds from its caret to its heading and the
+changes of its variants, and each card in it folds on its own. A fold changes no review and is saved nowhere:
 the cards you folded open again when you load the page anew. The small-variant and monogenic NIPT
 cards fold alike.
 

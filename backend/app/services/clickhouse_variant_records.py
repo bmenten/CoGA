@@ -156,6 +156,25 @@ class SmallVariantCompoundHetPair:
 
 
 @dataclass(slots=True)
+class SmallVariantCarrierGene:
+    """A gene of a couple's expanded carrier screen (REQ-CARR-002): every variant the screen
+    keeps in it, in the order the search read them, and which partner carries each."""
+
+    group_key: str
+    gene: str | None
+    gene_id: str | None
+    records: tuple[SmallVariantRecord, ...]
+    # The couple, each partner as the samples of that person the reading reads.
+    partners: tuple[tuple[str, ...], tuple[str, ...]]
+    # Per partner, the ids of the gene's variants that partner carries.
+    carried: tuple[frozenset[str], frozenset[str]]
+    # Both partners carry a variant in the gene.
+    both_partners: bool
+    # A variant of the gene lies on chrX outside the pseudo-autosomal regions.
+    x_linked: bool
+
+
+@dataclass(slots=True)
 class StructuralVariantCall:
     sample: str
     gt: str

@@ -23,7 +23,8 @@ backend/requirements-dev.txt as CI does. With other versions the script warns, a
 `--check` that passes there can fail in CI.
 
 Only the JSON-Schema forms the backend's schema uses are supported (plain types, arrays,
-objects with properties or additionalProperties, anyOf/oneOf/allOf, enum, const, $ref);
+objects with properties or additionalProperties, anyOf/oneOf/allOf, a oneOf's discriminator,
+enum, const, $ref);
 anything else raises, so a new form cannot be generated wrongly without notice.
 """
 
@@ -56,6 +57,9 @@ KNOWN_KEYS = {
     "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength",
     "pattern", "minItems", "maxItems", "uniqueItems", "deprecated", "readOnly", "writeOnly",
     "contentMediaType", "contentEncoding",
+    # A tagged union's discriminator (Pydantic's Field(discriminator=...)): each member's own
+    # literal property already tells the members apart in TypeScript.
+    "discriminator",
 }
 
 
@@ -159,6 +163,8 @@ def ts_type(node: dict, indent: str = "") -> str:
     unknown = set(node) - KNOWN_KEYS
     if unknown:
         raise ValueError(f"unsupported schema keys {sorted(unknown)} in {node}")
+    if "discriminator" in node and "oneOf" not in node:
+        raise ValueError(f"a discriminator without a oneOf in {node}")
     if "$ref" in node:
         return type_name(node["$ref"].rsplit("/", 1)[-1])
     if "const" in node:

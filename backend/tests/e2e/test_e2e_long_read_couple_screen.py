@@ -311,13 +311,56 @@ def test_the_two_files_are_one_callset(run) -> None:
     assert snv["excluded_calls_kept"] == 1
 
 
+def _screen_genes(page: dict, samples: dict) -> list[tuple[str | None, list[str], dict[str, list[str]], bool, bool]]:
+    """A carrier screen's genes as the page lists them: each gene's variants, those each
+    partner carries (by role, whichever the couple link names first), whether both
+    partners carry one, and X-linked."""
+    role_of = {samples["mother"]: "mother", samples["father"]: "father"}
+
+    def locus(variant: dict) -> str:
+        return f"{variant['chr']}-{variant['start']}-{variant['ref']}-{variant['alt']}"
+
+    genes = []
+    for group in page["json"]["variant_groups"]:
+        assert group["group_type"] == "carrier_gene", group
+        loci = {variant["_id"]: locus(variant) for variant in group["variants"]}
+        genes.append(
+            (
+                group["gene"],
+                sorted(loci.values()),
+                {
+                    role_of[sample]: sorted(loci[variant_id] for variant_id in partner["variant_ids"])
+                    for partner in group["partners"]
+                    for sample in partner["samples"]
+                },
+                group["both_partners_carry"],
+                group["x_linked"],
+            )
+        )
+    return sorted(genes, key=lambda gene: str(gene[0]))
+
+
+# GENE1, which both partners carry a variant in, with each partner's; each partner's
+# X-linked gene on its own.
+_SCREEN_GENES = [
+    (
+        "GENE1",
+        ["7-117500100-G-A", "7-117600200-C-T"],
+        {"mother": ["7-117500100-G-A"], "father": ["7-117600200-C-T"]},
+        True,
+        False,
+    ),
+    ("GENEX", ["X-31000100-T-C"], {"mother": ["X-31000100-T-C"], "father": []}, False, True),
+    ("GENEY", ["X-40000100-A-G"], {"mother": [], "father": ["X-40000100-A-G"]}, False, True),
+]
+
+
 def test_the_carrier_screen_keeps_the_shared_gene_and_each_partners_x_linked_variant(run) -> None:
     screen = run["screen"]
     assert screen["status"] == 200, screen["json"]
-    found = sorted(
-        f"{variant['chr']}-{variant['start']}-{variant['ref']}-{variant['alt']}" for variant in screen["json"]["variants"]
-    )
-    assert found == ["7-117500100-G-A", "7-117600200-C-T", "X-31000100-T-C", "X-40000100-A-G"]
+    assert screen["json"]["variants"] == []
+    assert _screen_genes(screen, run["samples"]) == _SCREEN_GENES
+    assert screen["json"]["total"] == 3
     assert not screen["json"].get("candidates_capped")
 
 
@@ -326,17 +369,13 @@ def test_the_ranked_carrier_screen_keeps_the_same_findings(run) -> None:
     # mother's two GENE2 variants, a gene only she carries a variant in.
     screen, ranked = run["screen"], run["screen_ranked"]
     assert ranked["status"] == 200, ranked["json"]
-
-    def found(page: dict) -> list[str]:
-        return sorted(
-            f"{variant['chr']}-{variant['start']}-{variant['ref']}-{variant['alt']}"
-            for variant in page["json"]["variants"]
-        )
-
-    assert found(ranked) == found(screen) == ["7-117500100-G-A", "7-117600200-C-T", "X-31000100-T-C", "X-40000100-A-G"]
-    assert ranked["json"]["variant_groups"] == []
-    assert ranked["json"]["total"] == screen["json"]["total"] == 4
-    assert sorted(variant["priority"]["rank"] for variant in ranked["json"]["variants"]) == [1, 2, 3, 4]
+    assert ranked["json"]["variants"] == []
+    assert _screen_genes(ranked, run["samples"]) == _screen_genes(screen, run["samples"]) == _SCREEN_GENES
+    assert ranked["json"]["total"] == screen["json"]["total"] == 3
+    ranks = [
+        variant["priority"]["rank"] for group in ranked["json"]["variant_groups"] for variant in group["variants"]
+    ]
+    assert sorted(ranks) == [1, 2, 3, 4]
     assert not ranked["json"].get("candidates_capped")
     assert not ranked["json"].get("ranking_truncated")
 

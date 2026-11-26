@@ -610,164 +610,242 @@
     "snv_count": 40,
     "total_variants": 42
    },
-   "total": 4,
+   "total": 3,
    "unfiltered_total": 42,
-   "variants": [
+   "variant_groups": [
     {
-     "alt": "G",
-     "chr": "1",
-     "effect": "missense_variant",
-     "end": 100,
+     "both_partners_carry": true,
      "gene": "GENE1",
-     "gene_symbols": [
-      "GENE1"
-     ],
-     "genotypes": [
+     "group_key": "carrier-gene:gene:GENE1",
+     "partners": [
       {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "PROBAND"
+       "samples": [
+        "MOM"
+       ],
+       "variant_ids": [
+        "v1"
+       ]
       },
       {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "MOM"
-      },
-      {
-       "dp": 30,
-       "gt": "0/0",
-       "sample": "DAD"
-      },
-      {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "SIB"
+       "samples": [
+        "DAD"
+       ],
+       "variant_ids": [
+        "v2"
+       ]
       }
      ],
-     "id": "v1",
-     "impact": "MODERATE",
-     "length": 0,
-     "ref": "A",
-     "source": "clair3",
-     "start": 100,
-     "type": "SNV"
-    },
-    {
-     "alt": "G",
-     "chr": "1",
-     "effect": "missense_variant",
-     "end": 200,
-     "gene": "GENE1",
-     "gene_symbols": [
-      "GENE1"
-     ],
-     "genotypes": [
+     "variants": [
       {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "PROBAND"
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 100,
+       "gene": "GENE1",
+       "gene_symbols": [
+        "GENE1"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v1",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 100,
+       "type": "SNV"
       },
       {
-       "dp": 30,
-       "gt": "0/0",
-       "sample": "MOM"
-      },
-      {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "DAD"
-      },
-      {
-       "dp": 30,
-       "gt": "0/0",
-       "sample": "SIB"
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 200,
+       "gene": "GENE1",
+       "gene_symbols": [
+        "GENE1"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v2",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 200,
+       "type": "SNV"
       }
      ],
-     "id": "v2",
-     "impact": "MODERATE",
-     "length": 0,
-     "ref": "A",
-     "source": "clair3",
-     "start": 200,
-     "type": "SNV"
+     "x_linked": false
     },
     {
-     "alt": "G",
-     "chr": "1",
-     "effect": "missense_variant",
-     "end": 300,
+     "both_partners_carry": true,
      "gene": "GENE2",
-     "gene_symbols": [
-      "GENE2"
-     ],
-     "genotypes": [
+     "group_key": "carrier-gene:gene:GENE2",
+     "partners": [
       {
-       "dp": 30,
-       "gt": "1/1",
-       "sample": "PROBAND"
+       "samples": [
+        "MOM"
+       ],
+       "variant_ids": [
+        "v3"
+       ]
       },
       {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "MOM"
-      },
-      {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "DAD"
-      },
-      {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "SIB"
+       "samples": [
+        "DAD"
+       ],
+       "variant_ids": [
+        "v3"
+       ]
       }
      ],
-     "id": "v3",
-     "impact": "MODERATE",
-     "length": 0,
-     "ref": "A",
-     "source": "clair3",
-     "start": 300,
-     "type": "SNV"
+     "variants": [
+      {
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 300,
+       "gene": "GENE2",
+       "gene_symbols": [
+        "GENE2"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "1/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v3",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 300,
+       "type": "SNV"
+      }
+     ],
+     "x_linked": false
     },
     {
-     "alt": "G",
-     "chr": "1",
-     "effect": "missense_variant",
-     "end": 500,
+     "both_partners_carry": true,
      "gene": "GENE4",
-     "gene_symbols": [
-      "GENE4"
-     ],
-     "genotypes": [
+     "group_key": "carrier-gene:gene:GENE4",
+     "partners": [
       {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "PROBAND"
+       "samples": [
+        "MOM"
+       ],
+       "variant_ids": [
+        "v5"
+       ]
       },
       {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "MOM"
-      },
-      {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "DAD"
-      },
-      {
-       "dp": 30,
-       "gt": "0/1",
-       "sample": "SIB"
+       "samples": [
+        "DAD"
+       ],
+       "variant_ids": [
+        "v5"
+       ]
       }
      ],
-     "id": "v5",
-     "impact": "MODERATE",
-     "length": 0,
-     "ref": "A",
-     "source": "clair3",
-     "start": 500,
-     "type": "SNV"
+     "variants": [
+      {
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 500,
+       "gene": "GENE4",
+       "gene_symbols": [
+        "GENE4"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v5",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 500,
+       "type": "SNV"
+      }
+     ],
+     "x_linked": false
     }
    ]
   }

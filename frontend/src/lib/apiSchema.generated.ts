@@ -382,6 +382,12 @@ export interface Body_upload_structural_variants_api_structural_variants_upload_
   file: string;
 }
 
+/** One partner of the couple an expanded carrier screen reads, in one gene. */
+export interface CarrierPartnerOut {
+  samples: string[];
+  variant_ids: string[];
+}
+
 /**
  * Where the browser signs a user in through the organisation's CAS server, and signs out
  * of it: none of it is secret.
@@ -4503,6 +4509,21 @@ export interface SignupAck {
   detail: string;
 }
 
+/**
+ * A gene of an expanded carrier screen (REQ-CARR-002), with every variant the screen
+ * keeps in it: as many as the couple carries there, one or more.
+ */
+export interface SmallVariantCarrierGeneOut {
+  group_type: "carrier_gene";
+  group_key: string;
+  gene: string | null;
+  gene_id: string | null;
+  variants: VariantOut[];
+  partners: CarrierPartnerOut[];
+  both_partners_carry: boolean;
+  x_linked: boolean;
+}
+
 /** A sample's small variants on one chromosome, by genotype. */
 export interface SmallVariantChromosomeCountsOut {
   chrom: string;
@@ -4589,6 +4610,7 @@ export interface SmallVariantFilterTranscriptOut {
   polyphen: string | null;
 }
 
+/** A compound-het pair: two variants of one gene, served as one result. */
 export interface SmallVariantGroupOut {
   group_type: "compound_het";
   group_key: string;
@@ -5140,7 +5162,7 @@ export interface VariantPage {
   ranking_computed_at: string | null;
   ranked_by: "combined_score" | "variant_score" | null;
   variants: VariantOut[];
-  variant_groups: SmallVariantGroupOut[];
+  variant_groups: (SmallVariantGroupOut | SmallVariantCarrierGeneOut)[];
   summary: Record<string, Record<string, number>> | null;
   small_variant_summary: SmallVariantSummaryOut | null;
   members_without_calls: MemberWithoutCallsOut[] | null;

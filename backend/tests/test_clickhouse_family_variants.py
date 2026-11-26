@@ -2821,7 +2821,22 @@ async def test_expanded_carrier_screening_keeps_each_partners_x_linked_variant(
         expanded_carrier_screening=True,
     )
 
-    assert [str(variant.id) for variant in page.variants] == ["x-mom", "x-dad"]
+    # Each X-linked finding is its gene, carried by one partner alone.
+    assert page.variants == []
+    assert [
+        (
+            group.gene,
+            [str(variant.id) for variant in group.variants],
+            [partner.variant_ids for partner in group.partners],
+            group.both_partners_carry,
+            group.x_linked,
+        )
+        for group in page.variant_groups
+        if group.group_type == "carrier_gene"
+    ] == [
+        ("DMD", ["x-mom"], [["x-mom"], []], False, True),
+        ("OTC", ["x-dad"], [[], ["x-dad"]], False, True),
+    ]
     assert page.total == 2
 
 

@@ -135,8 +135,15 @@ transcript the row describes.
 The built-in presets are *Phenotype priority*, *Dominant strict*, *Dominant relaxed*, *Expanded carrier
 screening*, *Compound het*, *Recessive hom*, *Recessive broad*, *Any affected* and *ClinVar review*. A
 preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous
-candidates are shown as pairs. Up to 100 matches show as cards, more as a table; *Table* and *Cards*
-above the list switch between the two.
+candidates are shown as pairs, and *Expanded carrier screening* lists its findings by gene. Up to 100
+results show as cards, more as a table; *Table* and *Cards* above the list switch between the two. A
+pair or a gene counts as one result.
+
+A pair or a gene is a frame headed by the gene, with its diseases and inheritance once, and holds each
+of its variants as the list of single variants shows it: as its full card, headed by its place (*Variant
+1 of 2*) and its change, or as a row of the table. A pair's frame gives the pair review and the phase:
+what the reads or the parents say, apart from the phase you record. Fold the frame to its heading and
+the changes of its variants, or fold one card inside it.
 
 A card takes its colour from ClinVar, here and on the monogenic NIPT page: light red when ClinVar calls
 the variant pathogenic or likely pathogenic, light green when it calls it benign or likely benign. A
@@ -180,6 +187,10 @@ carries what either of their samples in the analysis you read carries. It keeps:
 - the variants either partner carries on chrX outside the pseudo-autosomal regions, each on its own:
   a woman's carrier status alone puts a son at risk of an X-linked condition, and a man passes his X
   to every daughter.
+
+Each gene is one result, with every variant either partner carries there: two, three or more. Its
+frame says why the gene is a finding (*Both partners*, *X-linked*) and which variants each partner
+carries; each variant's card names the partner who carries it, in that partner's colour.
 
 A ClinVar pathogenic or likely pathogenic call overrides the frequency and impact cut-offs, so a common
 founder variant and a pathogenic synonymous or splice-region variant stay in. A ClinVar benign or

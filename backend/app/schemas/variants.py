@@ -1,7 +1,7 @@
 """Small, structural and copy-number variant rows, pages and carriers."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, RootModel
 
@@ -285,6 +285,8 @@ class VariantOut(ApiDocumentModel):
 
 
 class SmallVariantGroupOut(BaseModel):
+    """A compound-het pair: two variants of one gene, served as one result."""
+
     group_type: Literal["compound_het"] = "compound_het"
     group_key: str
     gene: Optional[str] = None
@@ -298,6 +300,42 @@ class SmallVariantGroupOut(BaseModel):
     # resolved them. Cis pairs are excluded from the results, so they never appear here.
     phase: Literal["trans", "unknown"] = "unknown"
     phase_evidence: Optional[Literal["read", "segregation"]] = None
+
+
+class CarrierPartnerOut(BaseModel):
+    """One partner of the couple an expanded carrier screen reads, in one gene."""
+
+    # The partner's samples the reading reads: one, or each sample of a partner sampled twice.
+    samples: List[str] = Field(default_factory=list)
+    # The gene's listed variants this partner carries (a call with the allele in any of
+    # ``samples``), in the order the gene lists them.
+    variant_ids: List[str] = Field(default_factory=list)
+
+
+class SmallVariantCarrierGeneOut(BaseModel):
+    """A gene of an expanded carrier screen (REQ-CARR-002), with every variant the screen
+    keeps in it: as many as the couple carries there, one or more."""
+
+    group_type: Literal["carrier_gene"] = "carrier_gene"
+    group_key: str
+    gene: Optional[str] = None
+    gene_id: Optional[str] = None
+    variants: List[VariantOut] = Field(default_factory=list)
+    # The couple, in the order the screen found it (the couple link, else the mother and the
+    # father, else the family's two people), each with the variants it carries in the gene.
+    partners: List[CarrierPartnerOut] = Field(default_factory=list)
+    # Both partners carry a variant in the gene: a child can inherit one from each.
+    both_partners_carry: bool
+    # A variant of the gene lies on chrX outside the pseudo-autosomal regions, where either
+    # partner's variant alone is a finding.
+    x_linked: bool
+
+
+# A grouped result of a small-variant search, told apart by its ``group_type``.
+SmallVariantResultGroupOut = Annotated[
+    Union[SmallVariantGroupOut, SmallVariantCarrierGeneOut],
+    Field(discriminator="group_type"),
+]
 
 
 class SmallVariantSampleSummaryOut(BaseModel):
@@ -461,7 +499,8 @@ class VariantPage(BaseModel):
     # not ranked.
     ranked_by: Optional[Literal["combined_score", "variant_score"]] = None
     variants: List[VariantOut] = Field(default_factory=list)
-    variant_groups: List[SmallVariantGroupOut] = Field(default_factory=list)
+    # The grouped results: compound-het pairs, or an expanded carrier screen's genes.
+    variant_groups: List[SmallVariantResultGroupOut] = Field(default_factory=list)
     summary: Optional[Dict[str, Dict[str, int]]] = None
     small_variant_summary: Optional[SmallVariantSummaryOut] = None
     # The family small-variant list's members without calls in the callsets it reads, of the

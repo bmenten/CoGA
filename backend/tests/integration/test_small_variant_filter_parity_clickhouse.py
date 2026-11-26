@@ -1598,7 +1598,7 @@ def _view_differences(case: _Case, view: str, answer: dict[str, Any]) -> dict[st
 _PATHS = {
     "_small_variants_native_page": True,
     "_small_variants_candidate_page": True,
-    "_small_variants_inheritance_page": True,
+    "_small_variants_items_page": True,
     "_small_variants_track_page": True,
     "_serve_ranking_from_cache": True,
     "_priorities_from_ranking": False,
