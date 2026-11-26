@@ -18,7 +18,7 @@ ClickHouse (unit, a fake of ClickHouse at the storage's ``_execute``).
   prioritised-ranking cache never serves a ranking over changed variants; every SV insert and
   delete, a per-sample SV replace and a snapshot restore stamp a new SV data version (the SV to
   gene index of the "second hit" badge is keyed on it). A version is read as the token count
-  and sum.
+  and sum; every family's at once, none on an assembly whose tables were never made.
 """
 
 from __future__ import annotations
@@ -929,6 +929,26 @@ async def test_a_family_data_version_is_the_token_count_and_sum(
     assert f"GRCh38/{version_table}" in query
     assert params == {"family_guid": "fam-1"}
     _only_grch38(clickhouse)
+
+
+@pytest.mark.asyncio
+async def test_every_familys_version_is_read_at_once_and_none_before_the_tables_are_made(
+    clickhouse: _ClickHouse,
+) -> None:
+    def answer(made: bool) -> Callable[[str], Any]:
+        return lambda query: ([(1,)] if made else []) if "system.tables" in query else [("fam-1", 3, 12345), ("fam-2", 1, None)]
+
+    clickhouse.answer = answer(made=False)
+    assert await cvs.family_small_variant_data_versions("GRCh38") == {}
+    [(_query, params, _data)] = clickhouse.sent
+    assert params == {"database": cvs.settings.clickhouse_database, "name": "GRCh38/SNV_INDEL/family_data_version"}
+
+    clickhouse.sent.clear()
+    clickhouse.answer = answer(made=True)
+    assert await cvs.family_small_variant_data_versions("GRCh38") == {"fam-1": "3:12345", "fam-2": "1:0"}
+    _tables, versions = clickhouse.statements()
+    assert f"GRCh38/{_SMALL_VERSION}" in versions and versions.endswith("GROUP BY family_guid")
+    assert clickhouse.ensured == []  # read, never made
 
 
 @pytest.mark.asyncio

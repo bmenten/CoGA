@@ -120,7 +120,8 @@ runs import workers itself.
 Every `SWEEP_INTERVAL_SECONDS` (30 s) it sweeps (`queue_changed_families`):
 
 - it reads every family's small-variant data version from ClickHouse's `family_data_version` in
-  one query;
+  one query; before the first GRCh38 family is stored that table does not exist, and the sweep
+  reads no versions and makes no table;
 - it queues an automatic run for each family and project whose version no run has been queued
   for or read, or with a choice newer than its latest run, once the family is on GRCh38, its last
   import completed and none is running;
