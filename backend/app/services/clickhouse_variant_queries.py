@@ -3029,25 +3029,29 @@ def _small_salient_condition(
     params: dict[str, Any],
 ) -> str | None:
     """With ``salient_only``, the transcript rows (alias ``a``) of a variant the small-variant
-    track marks as salient: ClinVar (likely) pathogenic, or of HIGH or MODERATE impact and
-    not ClinVar (likely) benign. A ClinVar term is read as the browser reads the record
-    (``clinvarClass``, ``frontend/src/lib/clinvar.ts``): a term naming pathogenic or benign
-    is that class, a conflicting classification neither. The impact is any transcript's, so
+    track marks as salient: a ClinVar diamond, or of HIGH or MODERATE impact and not ClinVar
+    (likely) benign. ClinVar is read as the browser reads it (``clinvarClass``,
+    ``frontend/src/lib/clinvar.ts``): a diamond lists a (likely) pathogenic classification, red
+    when it lists no other, orange beside one that disagrees; (likely) benign lists no other
+    classification; ClinVar's aggregate conflict is neither. The impact is any transcript's, so
     the set holds every variant the track would mark by its shown transcript, and no
     pathogenic variant is left out for its impact.
     """
     if not filters.salient_only:
         return None
     params["salient_impacts"] = _SALIENT_IMPACTS
-    pathogenic = (
+    diamond = (
         "arrayExists(term -> position(term, 'pathogenic') > 0"
         " AND position(term, 'conflict') = 0, a.clinvar_terms)"
     )
+    # Without a pathogenic term (the diamond's), benign beside an uncertain classification or a
+    # conflict is a conflict.
     benign = (
-        "arrayExists(term -> position(term, 'benign') > 0"
-        " AND position(term, 'conflict') = 0, a.clinvar_terms)"
+        "(arrayExists(term -> position(term, 'benign') > 0, a.clinvar_terms)"
+        " AND NOT arrayExists(term -> term = 'uncertain significance'"
+        " OR position(term, 'conflict') > 0, a.clinvar_terms))"
     )
-    return f"({pathogenic} OR (a.impact IN %(salient_impacts)s AND NOT {benign}))"
+    return f"({diamond} OR (a.impact IN %(salient_impacts)s AND NOT {benign}))"
 
 
 def _small_annotation_exclude_filter_condition(

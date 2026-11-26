@@ -664,7 +664,8 @@ describe('review tag chips', () => {
 });
 
 // The chip tone and the card's and table row's highlight read ClinVar's significance as the
-// rest of the app does (clinvarClass).
+// rest of the app does (clinvarClass): red for (likely) pathogenic alone, orange (warning) for
+// a conflict that lists a (likely) pathogenic classification.
 describe('ClinVar tones', () => {
   it.each([
     ['Pathogenic', 'critical', 'pathogenic'],
@@ -674,6 +675,9 @@ describe('ClinVar tones', () => {
     ['Pathogenic,_low_penetrance', 'critical', 'pathogenic'],
     ['Pathogenic|risk_factor', 'critical', 'pathogenic'],
     ['pathogenic&likely_pathogenic', 'critical', 'pathogenic'],
+    ['uncertain_significance&likely_pathogenic', 'warning', 'warning'],
+    ['benign&pathogenic', 'warning', 'warning'],
+    ['benign&uncertain_significance', 'neutral', 'neutral'],
     ['benign&likely_benign', 'success', 'benign'],
     ['Conflicting_classifications_of_pathogenicity|risk_factor', 'warning', 'neutral'],
     ['risk_factor', 'warning', 'neutral'],

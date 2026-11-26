@@ -1,5 +1,6 @@
-// How the small-variant track marks a variant: ClinVar P/LP by a larger diamond, every other
-// class by the colour of a small dot.
+// How the small-variant track marks a variant: ClinVar P/LP by a larger red diamond, a ClinVar
+// conflict that lists P/LP by the same diamond in orange, every other class by the colour of a
+// small dot.
 
 import { describe, expect, it } from 'vitest';
 
@@ -27,6 +28,13 @@ describe('smallVariantMarkKind', () => {
     ).toBe('high');
   });
 
+  it('marks a conflict that lists P/LP by its own diamond, whatever the impact', () => {
+    expect(smallVariantMarkKind({ clinvar: 'uncertain_significance&likely_pathogenic', impact: 'LOW' })).toBe(
+      'conflicting_pathogenic',
+    );
+    expect(smallVariantMarkKind({ clinvar: 'benign&uncertain_significance', impact: 'HIGH' })).toBe('high');
+  });
+
   it('marks by impact otherwise', () => {
     expect(smallVariantMarkKind({ impact: 'HIGH' })).toBe('high');
     expect(smallVariantMarkKind({ impact: 'moderate' })).toBe('moderate');
@@ -41,6 +49,7 @@ describe('the marks', () => {
   it('draw ClinVar P/LP as a diamond and every other class as a dot of its own colour', () => {
     const dot = smallVariantMarkPath('other', 1.8);
     expect(smallVariantMarkPath('pathogenic', 1.8)).not.toBe(dot);
+    expect(smallVariantMarkPath('conflicting_pathogenic', 1.8)).toBe(smallVariantMarkPath('pathogenic', 1.8));
     (['benign', 'high', 'moderate'] as const).forEach((kind) => {
       expect(smallVariantMarkPath(kind, 1.8)).toBe(dot);
     });
@@ -48,6 +57,7 @@ describe('the marks', () => {
     expect(new Set(colours).size).toBe(colours.length);
     expect(SMALL_VARIANT_MARKS).toMatchObject({
       pathogenic: { color: '#dc2626' }, // red
+      conflicting_pathogenic: { color: '#d97706' }, // orange
       benign: { color: '#16a34a' }, // green
       high: { color: '#ea580c' }, // orange
       moderate: { color: '#eab308' }, // yellow
@@ -77,7 +87,8 @@ describe('the marks', () => {
     const extent = (kind: Parameters<typeof smallVariantMarkExtent>[0]) => smallVariantMarkExtent(kind, 1.8);
     expect(extent('pathogenic')).toBeGreaterThan(extent('high'));
     expect(extent('high')).toBe(extent('other'));
-    expect(markDrawRank('pathogenic')).toBeGreaterThan(markDrawRank('high'));
+    expect(markDrawRank('pathogenic')).toBeGreaterThan(markDrawRank('conflicting_pathogenic'));
+    expect(markDrawRank('conflicting_pathogenic')).toBeGreaterThan(markDrawRank('high'));
     expect(markDrawRank('high')).toBeGreaterThan(markDrawRank('moderate'));
     expect(markDrawRank('moderate')).toBeGreaterThan(markDrawRank('benign'));
     expect(markDrawRank('benign')).toBeGreaterThan(markDrawRank('other'));

@@ -23,12 +23,13 @@ In the chromosome view each small variant is drawn by its class, with a legend o
 | Mark | Meaning |
 | --- | --- |
 | Red diamond | ClinVar pathogenic or likely pathogenic, whatever the impact |
+| Orange diamond | ClinVar conflicting, with a pathogenic or likely pathogenic classification among them, whatever the impact |
 | Green dot | ClinVar benign or likely benign |
 | Orange dot | HIGH impact |
 | Yellow dot | MODERATE impact |
 | Grey dot | LOW or MODIFIER impact, or none |
 
-A variant with a conflicting or uncertain ClinVar record is drawn by its impact. The dots differ by
+Any other variant with a conflicting or uncertain ClinVar record is drawn by its impact. The dots differ by
 colour only: hover a mark for its impact, ClinVar status and parental origin. A review tag draws a ring
 in the tag's colour around the mark; the mark itself does not change.
 

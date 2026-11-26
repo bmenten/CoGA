@@ -170,7 +170,9 @@ PP1 and BS4 count people, not samples: two samples linked as the same individual
 member, a carrier when one of them carries the variant.
 
 A ClinVar record with *Conflicting classifications of pathogenicity* is neither pathogenic nor benign,
-so it pre-applies neither PP5 nor BP6. The variant marks and the ranking read ClinVar the same way.
+so it pre-applies neither PP5 nor BP6. Neither does a list of classifications that disagree, as the VEP
+cache gives one (*uncertain significance & likely pathogenic*). The variant marks read ClinVar the same
+way; the ranking gives a list that names pathogenic its full ClinVar score.
 
 ### Frequency (PM2, BS1, BA1)
 

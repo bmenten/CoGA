@@ -142,10 +142,15 @@
 }
 
 /* A small variant's card (small variants, monogenic NIPT) also takes ClinVar's colour as its
-   background: light red for (likely) pathogenic, light green for (likely) benign. Every other
-   classification, and every other kind of finding, keeps the white card. */
+   background: light red for (likely) pathogenic, light orange for a conflict that lists a (likely)
+   pathogenic classification (its rail: .variant-card--clinvar-warning), light green for (likely)
+   benign. Every other classification, and every other kind of finding, keeps the white card. */
 .small-variant-card.variant-card--clinvar-pathogenic {
   background: var(--color-clinvar-pathogenic-surface);
+}
+
+.small-variant-card.variant-card--clinvar-warning {
+  background: var(--color-warning-surface);
 }
 
 .small-variant-card.variant-card--clinvar-benign {
