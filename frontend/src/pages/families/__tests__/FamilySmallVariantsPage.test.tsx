@@ -890,6 +890,25 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.queryByText('Gene panel: panel-1')).not.toBeInTheDocument();
   });
 
+  it('groups the compound-het pairs among all variants by gene when asked', async () => {
+    serveEmptySearch(TRIO);
+
+    renderPage();
+
+    await screen.findByRole('combobox', { name: /preset or saved search/i });
+    const quickInheritance = screen.getByLabelText(/Quick inheritance/i);
+    fireEvent.change(quickInheritance, { target: { value: 'all_compound_het_grouped' } });
+    expect(quickInheritance).toHaveValue('all_compound_het_grouped');
+    fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
+
+    expect(
+      await screen.findByRole('button', { name: 'Inheritance: All, compound het grouped' }),
+    ).toBeInTheDocument();
+    expect(apiMock.get).toHaveBeenCalledWith(
+      expect.stringContaining('inheritance=all_compound_het_grouped'),
+    );
+  });
+
   it('applies the Phenotype priority (Exomiser-style) preset', async () => {
     serveEmptySearch(TRIO);
 

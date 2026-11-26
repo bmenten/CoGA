@@ -51,6 +51,9 @@ filters its category holds and carries its quick choice at the right; click the 
 category's fields. A category with a filter set is marked red at the left of its bar. **Expand all**
 and **Collapse all** open or close every row.
 
+- **Inheritance** has the inheritance model as its quick choice. *All, compound het grouped* keeps
+  every variant the other filters keep, as *All* does, and lists the compound-het pairs among them by
+  gene, as *Compound heterozygous* does. Every other variant stays a single result.
 - **Annotations** groups the VEP consequences as seqr does: nonsense, essential splice site,
   frameshift, missense, in frame, synonymous, extended splice site, other, motif feature and regulatory
   feature. A group's own box ticks or clears all its terms. Beside them are the VEP impacts (HIGH,
@@ -135,7 +138,8 @@ transcript the row describes.
 The built-in presets are *Phenotype priority*, *Dominant strict*, *Dominant relaxed*, *Expanded carrier
 screening*, *Compound het*, *Recessive hom*, *Recessive broad*, *Any affected* and *ClinVar review*. A
 preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous
-candidates and the findings of *Expanded carrier screening* are listed by gene. Up to 100 results show
+candidates, also under *All, compound het grouped*, and the findings of *Expanded carrier screening*
+are listed by gene. Up to 100 results show
 as cards, more as a table; *Table* and *Cards* above the list switch between the two. A gene counts as
 one result.
 
@@ -211,8 +215,8 @@ categories, the minimum confidence. This page does not send them and shows no ch
 them once under the active filters. *De novo in the fetus* is not
 *De novo / dominant*, which reads the family members' own genotypes.
 
-> **A search can stop part-way.** Compound-het and recessive pairing and *Expanded carrier screening*
-> read at most 5,000 candidates before they filter, ranked or not. When a search reaches that limit, a
+> **A search can stop part-way.** Compound-het and recessive pairing, *All, compound het grouped* and
+> *Expanded carrier screening* read at most 5,000 candidates before they filter, ranked or not. When a search reaches that limit, a
 > warning above the results says *"Results may be incomplete"* and after how many candidates the search
 > stopped. The count is then a lower bound (for example *12+*), and a match beyond the limit is not
 > shown. Narrow the filters with a region, a gene panel or a gene until the warning is gone.

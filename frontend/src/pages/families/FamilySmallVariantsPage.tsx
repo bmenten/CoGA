@@ -25,6 +25,7 @@ import {
   buildPresetPayload,
   describeUnappliedFilters,
   hasLocationProblems,
+  inheritanceLeavesVariantsOut,
   SMALL_VARIANT_UNSUPPORTED_FILTERS,
   smallVariantAppliesFilterChip,
   smallVariantLocationProblems,
@@ -244,11 +245,11 @@ const FamilySmallVariantsPage: React.FC = () => {
     false;
   // The members without calls in the callsets the list reads, whose missing calls an inheritance
   // filter reads as reference (the owner's decision of 2026-11-20): a warning over the results
-  // while an inheritance mode that reads them is applied, a quieter mention otherwise, and in the
-  // Inheritance section what the filter does with them.
+  // while an inheritance mode that leaves variants out is applied, a quieter mention otherwise,
+  // and in the Inheritance section what the filter does with them.
   const withoutCallsNote = membersWithoutCallsNote(data?.members_without_calls, {
     analysis,
-    inheritanceApplied: Boolean(filters.inheritance),
+    inheritanceApplied: inheritanceLeavesVariantsOut(filters.inheritance),
   });
   const inheritanceSectionNote =
     membersWithoutCallsNote(data?.members_without_calls, { analysis, inheritanceApplied: true })?.text ?? null;

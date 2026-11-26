@@ -304,6 +304,22 @@ def test_without_an_affected_member_no_variant_fits_a_mode() -> None:
     assert params == {}
 
 
+def test_the_grouped_view_keeps_what_no_mode_keeps_with_or_without_an_affected_member() -> None:
+    # "All, compound het grouped" lists every variant the other filters keep: it adds no
+    # clause, and a family without an affected member keeps its variants, unlike every mode.
+    from dataclasses import replace
+
+    from backend.app.services.clickhouse_variant_queries import _small_native_inheritance_clauses
+
+    grouped = SmallVariantQueryFilters(page=1, page_size=100, inheritance="all_compound_het_grouped")
+    for context in (_trio_context(), replace(_trio_context(), affected_sample_names=[])):
+        assert _small_native_inheritance_clauses(context, grouped) == ([], {})
+    assert _small_native_inheritance_clauses(
+        replace(_trio_context(), affected_sample_names=[]),
+        SmallVariantQueryFilters(page=1, page_size=100, inheritance="compound_het"),
+    ) == (["0"], {})
+
+
 def test_the_flags_bind_no_parameter_the_search_binds() -> None:
     # A search with every part of the WHERE that binds parameters, an inheritance mode and
     # carrier screening among them: the flags' parameters are named apart from each.

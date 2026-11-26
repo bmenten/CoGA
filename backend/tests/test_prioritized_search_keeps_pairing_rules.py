@@ -196,7 +196,7 @@ def _sql_prefilter(record: SmallVariantRecord, filters, context: FamilyMetadataC
         if not record.gene_symbols or _is_mitochondrial_chromosome(record.chr):
             return False
     mode = filters.inheritance
-    if mode is None:
+    if mode in (None, "all_compound_het_grouped"):
         return True
     if mode == "compound_het":
         return all(_call_is_het(calls.get(sample)) for sample in affected)
@@ -417,6 +417,14 @@ SEARCHES = {
     "recessive_homozygous": ({"inheritance": "recessive_homozygous"}, {"variants": [C1.variant_id], "pairs": []}),
     "x_linked": ({"inheritance": "x_linked"}, {"variants": [X1.variant_id], "pairs": []}),
     "no_inheritance": ({}, {"variants": sorted(r.variant_id for r in TRIO), "pairs": []}),
+    # Every variant, the compound-het pairs among them by gene and the rest on their own.
+    "all_compound_het_grouped": (
+        {"inheritance": "all_compound_het_grouped"},
+        {
+            "variants": sorted(r.variant_id for r in TRIO if r not in (A1, A2, B1, B2, B3)),
+            "pairs": [_pair(A1, A2), _pair(B1, B2), _pair(B1, B3)],
+        },
+    ),
 }
 
 

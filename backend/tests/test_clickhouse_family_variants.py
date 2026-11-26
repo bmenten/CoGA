@@ -1782,6 +1782,84 @@ async def test_get_family_small_variants_page_returns_pair_groups_and_singletons
 
 
 @pytest.mark.asyncio
+async def test_the_grouped_view_lists_every_variant_with_the_compound_het_pairs_by_gene(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # "All, compound het grouped": v1 (maternal) and v2 (paternal) pair in GENE1 and are one
+    # result. Every other variant the filters keep is listed on its own: v3, homozygous; v4,
+    # the only variant of GENE3; v5, in GENE1 but carried by the father as well, so it pairs
+    # with neither; v6, which the proband does not carry.
+    records = [
+        _small_variant(
+            "v1", "GENE1", start=100,
+            calls=[_small_call("PROBAND", "0/1"), _small_call("MOM", "0/1"), _small_call("DAD", "0/0")],
+        ),
+        _small_variant(
+            "v2", "GENE1", start=200,
+            calls=[_small_call("PROBAND", "0/1"), _small_call("MOM", "0/0"), _small_call("DAD", "0/1")],
+        ),
+        _small_variant(
+            "v3", "GENE2", start=300,
+            calls=[_small_call("PROBAND", "1/1"), _small_call("MOM", "0/1"), _small_call("DAD", "0/1")],
+        ),
+        _small_variant(
+            "v4", "GENE3", start=400,
+            calls=[_small_call("PROBAND", "0/1"), _small_call("MOM", "0/1"), _small_call("DAD", "0/0")],
+        ),
+        _small_variant(
+            "v5", "GENE1", start=150,
+            calls=[_small_call("PROBAND", "0/1"), _small_call("MOM", "0/1"), _small_call("DAD", "0/1")],
+        ),
+        _small_variant(
+            "v6", "GENE4", start=500,
+            calls=[_small_call("PROBAND", "0/0"), _small_call("MOM", "0/1"), _small_call("DAD", "0/0")],
+        ),
+    ]
+    fetch_kwargs: list[dict[str, object]] = []
+
+    async def fake_fetch_small_variant_rows(*_args, **kwargs):
+        fetch_kwargs.append(kwargs)
+        return list(records)
+
+    async def fake_empty(*_args, **_kwargs):
+        return {}
+
+    async def fake_no_ids(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_small_variant_rows",
+        fake_fetch_small_variant_rows,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.list_matching_small_variant_review_ids",
+        fake_no_ids,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.get_small_variant_review_map", fake_empty
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map", fake_empty
+    )
+
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=50,
+        inheritance="all_compound_het_grouped",
+    )
+
+    assert page.total == 5
+    assert [group.group_type for group in page.variant_groups] == ["compound_het"]
+    assert [str(variant.id) for variant in page.variant_groups[0].variants] == ["v1", "v2"]
+    assert [str(variant.id) for variant in page.variants] == ["v5", "v3", "v4", "v6"]
+    # Read as the compound-het search reads: a capped candidate window, no segregation flags.
+    assert fetch_kwargs[0]["limit"] == 1251
+    assert not fetch_kwargs[0].get("segregation_flags")
+
+
+@pytest.mark.asyncio
 async def test_get_family_small_variants_page_supports_coga_like_inheritance_modes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -411,6 +411,7 @@ export const SMALL_VARIANT_INHERITANCE_MODES = [
   'compound_het',
   'x_linked',
   'recessive',
+  'all_compound_het_grouped',
 ] as const;
 export type SmallVariantInheritanceMode = (typeof SMALL_VARIANT_INHERITANCE_MODES)[number];
 
@@ -437,12 +438,21 @@ export const smallVariantInheritanceMode = (value: string): SmallVariantInherita
     : null;
 };
 
+/**
+ * Whether the list's inheritance value leaves variants out: every mode does but the grouped view
+ * (`all_compound_het_grouped`), which keeps what the search without a mode keeps and only lists
+ * the compound-het pairs among those variants together.
+ */
+export const inheritanceLeavesVariantsOut = (value: string): boolean =>
+  Boolean(value) && value !== 'all_compound_het_grouped';
+
 export const SMALL_INHERITANCE_LABELS: Record<SmallVariantInheritanceMode, string> = {
   de_novo_dominant: 'De novo / dominant',
   recessive_homozygous: 'Recessive (homozygous)',
   compound_het: 'Compound heterozygous',
   x_linked: 'X-linked recessive',
   recessive: 'Recessive (hom + compound het + X-linked)',
+  all_compound_het_grouped: 'All, compound het grouped',
 };
 
 export const BUILT_IN_SMALL_PRESETS: Array<{
