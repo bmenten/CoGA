@@ -5164,6 +5164,8 @@ export interface VariantOut {
 export interface VariantPage {
   total: number;
   total_is_estimated: boolean;
+  variant_total: number | null;
+  gene_total: number | null;
   unfiltered_total: number | null;
   unfiltered_total_is_estimated: boolean;
   count_limit: number | null;

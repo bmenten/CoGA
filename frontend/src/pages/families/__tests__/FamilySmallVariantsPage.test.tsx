@@ -740,6 +740,29 @@ describe('FamilySmallVariantsPage', () => {
       expect(await screen.findByText(factText('Showing 3'))).toBeInTheDocument();
       expect(screen.queryByTestId('candidate-cap-notice')).not.toBeInTheDocument();
     });
+
+    // A compound-het or carrier gene is one result: the variants and the genes are counted
+    // besides.
+    it('counts the variants the filters keep and their genes beside the results', async () => {
+      renderWithPage({ total: 2, total_is_estimated: false, variant_total: 3, gene_total: 2 });
+      expect(await screen.findByText(factText('Showing 2'))).toBeInTheDocument();
+      expect(screen.getByText(factText('Variants 3'))).toBeInTheDocument();
+      expect(screen.getByText(factText('Genes 2'))).toBeInTheDocument();
+    });
+
+    it('marks the variant and gene counts of a capped read as lower bounds', async () => {
+      renderWithPage({
+        total: 40,
+        total_is_estimated: true,
+        count_limit: 10000,
+        candidates_capped: true,
+        candidate_limit: 5000,
+        variant_total: 120,
+        gene_total: 35,
+      });
+      expect(await screen.findByText(factText('Variants 120+'))).toBeInTheDocument();
+      expect(screen.getByText(factText('Genes 35+'))).toBeInTheDocument();
+    });
   });
 
   it('separates an exact total and makes the family title the only way back', async () => {

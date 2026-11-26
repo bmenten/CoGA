@@ -140,6 +140,8 @@ export type SmallVariantPage = Pick<VariantPage, 'total' | 'total_is_estimated' 
       VariantPage,
       | 'unfiltered_total'
       | 'unfiltered_total_is_estimated'
+      | 'variant_total'
+      | 'gene_total'
       | 'ranking_truncated'
       | 'candidates_capped'
       | 'candidate_limit'
