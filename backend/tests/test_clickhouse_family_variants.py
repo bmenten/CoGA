@@ -435,7 +435,13 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
     assert page.total_is_estimated is False
     assert page.unfiltered_total == 3
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 4
+    # The variants the count counts, and the genes of the rows it counts: GENE2 and GENE3.
+    assert page.variant_total == 3
+    assert page.gene_total == 2
+    # The page, the count and the counted rows' genes, each row read with its annotation.
+    assert len(queries) == 6
+    gene_read = next(params for query, params in queries if params.get("limit") == 10001)
+    assert gene_read.get("offset", 0) == 0
     assert "hasAny(e.calls.sampleId, %(visible_sample_ids)s)" in queries[0][0]
     # The list dedups by key so it agrees with the deduped count.
     assert "GROUP BY e.key" in queries[0][0]
@@ -502,7 +508,8 @@ async def test_get_family_small_variants_page_filters_simple_sample_gt_in_clickh
     assert page.total == 1
     assert page.total_is_estimated is False
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 4
+    # The page and the count, and the counted rows read for their genes, each with its details.
+    assert len(queries) == 6
     assert "arrayExists((sample_id, gt, gq, dp, ab, af, ad) -> sample_id IN %(sample_filter_0_samples)s" in queries[0][0]
     assert "arrayMax(af) >= toFloat32(%(sample_filter_0_min_af)s)" in queries[0][0]
     assert "ad[2] >= %(sample_filter_0_min_ad_alt)s" in queries[0][0]
@@ -576,7 +583,8 @@ async def test_get_family_small_variants_page_uses_bounded_total_without_countin
     assert page.unfiltered_total == 1001
     assert page.unfiltered_total_is_estimated is False
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 4
+    # The page and the count, and the counted rows read for their genes, each with its details.
+    assert len(queries) == 6
     assert "LIMIT %(count_limit)s" in "\n".join(queries)
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0]
 
@@ -733,9 +741,10 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
 
     assert page.total == 1
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    # The page, its count, its details, and which of its transcripts the annotation filters
-    # held on (the transcript it names, decided by the same SQL condition).
-    assert len(queries) == 5
+    # The page, its count, its details, which of its transcripts the annotation filters held
+    # on (the transcript it names, decided by the same SQL condition), and the counted rows
+    # read for their genes, with their details.
+    assert len(queries) == 7
     assert [q for q, _p in queries if "groupUniqArray(a.annotationHash)" in q and "variants/annotations" in q]
     query, params = queries[0]
     assert "INNER JOIN" not in query
@@ -2308,9 +2317,12 @@ async def test_prioritized_ranking_cache_misses_after_the_family_variant_data_ch
     first = await _open()
     assert first.ranking_cached is False
     assert [str(variant.id) for variant in first.variants] == ["1-100-A-G"]
+    assert (first.variant_total, first.gene_total) == (1, 1)
 
     again = await _open()
     assert again.ranking_cached is True
+    # Served from the cache, its genes counted from what the ranking recorded.
+    assert (again.variant_total, again.gene_total) == (1, 1)
 
     # New variant data under the SAME data version: the cached order still wins, which shows
     # the version is what invalidates.
@@ -2426,7 +2438,9 @@ async def test_a_cached_ranking_fetches_its_variants_in_the_searchs_own_callset(
 
     monkeypatch.setattr(_cfv, "_fetch_small_variant_rows", _fetch)
     monkeypatch.setattr(_cfv, "_hydrate_small_variant_outs", _no_review_state)
-    ranking = [{"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, rank=1)}]
+    ranking = [
+        {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, rank=1), "gene_keys": [["gene", "GENE1"]]}
+    ]
     await _cfv._serve_ranking_from_cache(
         None,  # type: ignore[arg-type]
         context=_family_context(),
@@ -2449,9 +2463,14 @@ async def test_a_cached_ranking_serves_its_order_over_the_records_still_stored(m
         _small_variant("1-100-A-G", "GENE1", calls=calls, start=100),
     ]
     ranking = [
-        {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, rank=1)},
-        {"variant_id": "1-150-C-T", "priority": _cached_priority(0.8, rank=2)},  # no longer stored
-        {"variant_id": "1-200-A-G", "priority": _cached_priority(0.7, rank=3)},
+        {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, rank=1), "gene_keys": [["gene", "GENE1"]]},
+        # No longer stored.
+        {"variant_id": "1-150-C-T", "priority": _cached_priority(0.8, rank=2), "gene_keys": [["gene", "GENE1"]]},
+        {
+            "variant_id": "1-200-A-G",
+            "priority": _cached_priority(0.7, rank=3),
+            "gene_keys": [["gene_id", "ENSG00000000002"], ["gene", "GENE2"]],
+        },
     ]
 
     # As the cache stores it, a JSON text.
@@ -2465,6 +2484,8 @@ async def test_a_cached_ranking_serves_its_order_over_the_records_still_stored(m
         ("1-200-A-G", 0.7),
     ]
     assert (page.total, page.ranking_cached, page.ranking_truncated) == (3, True, False)
+    # The variants the ranking holds and their genes, as it recorded what each is matched by.
+    assert (page.variant_total, page.gene_total) == (3, 2)
 
 
 @pytest.mark.asyncio
@@ -2500,10 +2521,13 @@ async def test_a_cached_ranking_is_served_in_the_variant_score_order(monkeypatch
     # Cached in the combined order. By the variant score 1-300 leads; 1-100 and 1-400 tie on
     # it, and the better combined score goes first.
     ranking = [
-        {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, variant_score=0.4, rank=1)},
-        {"variant_id": "1-200-A-G", "priority": _cached_priority(0.8, variant_score=0.2, rank=2)},
-        {"variant_id": "1-300-A-G", "priority": _cached_priority(0.5, variant_score=0.9, rank=3)},
-        {"variant_id": "1-400-A-G", "priority": _cached_priority(0.3, variant_score=0.4, rank=4)},
+        {"variant_id": variant_id, "priority": _cached_priority(combined, variant_score=variant, rank=rank), "gene_keys": [["gene", "GENE1"]]}
+        for variant_id, combined, variant, rank in [
+            ("1-100-A-G", 0.9, 0.4, 1),
+            ("1-200-A-G", 0.8, 0.2, 2),
+            ("1-300-A-G", 0.5, 0.9, 3),
+            ("1-400-A-G", 0.3, 0.4, 4),
+        ]
     ]
 
     page, fetched = await _serve_from_cache(
@@ -2915,6 +2939,63 @@ async def test_expanded_carrier_screening_keeps_each_partners_x_linked_variant(
         ("OTC", ["x-dad"], [[], ["x-dad"]], False, True),
     ]
     assert page.total == 2
+
+
+def test_the_gene_count_counts_each_variant_toward_its_cards_gene() -> None:
+    # A variant counts toward the gene its card is headed by; variants matched to one gene by
+    # its id or its symbol are one gene, a renamed gene among them, as the carrier screen
+    # joins them; a variant without a gene counts toward none.
+    calls = [_small_call("PROBAND", "0/1")]
+    records = [
+        _small_variant("a", "GENE1", calls=calls, gene_id="ENSG00000000001"),
+        _small_variant("b", "GENE1", calls=calls),
+        _small_variant("c", "OLDNAME1", calls=calls, gene_id="ENSG00000000001"),
+        _small_variant("d", "GENE2", calls=calls),
+        _small_variant("e", "", calls=calls),
+    ]
+    assert _cfv._gene_count(map(_cfv._gene_match_keys, records)) == 2
+    assert _cfv._gene_count([]) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_carrier_screen_counts_its_variants_and_genes_apart_from_its_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A carrier gene is one result however many variants it holds: the page counts the
+    # variants and the genes besides.
+    def _calls(**gts: str) -> list[SmallVariantCall]:
+        return [_small_call(sample, gts.get(sample, "0/0")) for sample in ("PROBAND", "MOM", "DAD", "SIB")]
+
+    records = [
+        _small_variant("auto-mom", "CFTR", calls=_calls(MOM="0/1"), chr="7", start=117_500_000),
+        _small_variant("auto-dad", "CFTR", calls=_calls(DAD="0/1"), chr="7", start=117_600_000),
+        _small_variant("x-mom", "DMD", calls=_calls(MOM="0/1"), chr="X", start=31_000_000),
+    ]
+
+    async def fake_fetch(_context, _filters, **_kwargs):
+        return list(records)
+
+    async def _empty_list(*_a, **_k):
+        return []
+
+    async def _empty(*_a, **_k):
+        return {}
+
+    m = "backend.app.services.clickhouse_family_variants."
+    monkeypatch.setattr(m + "_fetch_small_variant_rows", fake_fetch)
+    monkeypatch.setattr(m + "list_matching_small_variant_review_ids", _empty_list)
+    monkeypatch.setattr(m + "get_small_variant_review_map", _empty)
+    monkeypatch.setattr(m + "_fetch_gene_constraint_metric_map", _empty)
+
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=50,
+        expanded_carrier_screening=True,
+    )
+
+    assert (page.total, page.variant_total, page.gene_total) == (2, 3, 2)
 
 
 @pytest.mark.asyncio

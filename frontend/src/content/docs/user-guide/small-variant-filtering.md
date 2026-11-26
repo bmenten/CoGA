@@ -143,6 +143,10 @@ are listed by gene. Up to 100 results show
 as cards, more as a table; *Table* and *Cards* above the list switch between the two. A gene counts as
 one result.
 
+At the top of the page, *Showing* counts the results, and *Variants* and *Genes* count what the
+filters keep: the variants, and the genes they are in. Each variant counts toward the gene its card
+names; a variant without a gene counts toward none. A count with a + is a lower bound.
+
 A gene is a frame headed by the gene, as a single card is, with its diseases and inheritance once, and
 holds each of its variants as the list of single variants shows it: as its full card, headed by its
 place (*Variant 1 of 3*) and its change, or as a row of the table. Fold the frame to its heading and the

@@ -491,8 +491,15 @@ class MemberWithoutCallsOut(BaseModel):
 
 
 class VariantPage(BaseModel):
+    # The results, as the list pages them: a compound-het or carrier-screen gene is one.
     total: int
     total_is_estimated: bool = False
+    # What a family small-variant search keeps, however its results group them: the variants,
+    # and the genes they are in, each variant counted toward its card's gene (``_gene_count``).
+    # Lower bounds, as ``total`` is, when ``total_is_estimated``. None where the response does
+    # not count them: a track's page, a presence check, another list.
+    variant_total: Optional[int] = None
+    gene_total: Optional[int] = None
     unfiltered_total: Optional[int] = None
     unfiltered_total_is_estimated: bool = False
     count_limit: Optional[int] = None

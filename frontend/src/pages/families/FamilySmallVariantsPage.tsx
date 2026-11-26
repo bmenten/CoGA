@@ -22,6 +22,7 @@ import AnalysisSelect from './AnalysisSelect';
 import {
   addableTagDefinitions,
   BUILT_IN_SMALL_PRESETS,
+  CARRIER_SCREENING_PANEL_NAME,
   buildPresetPayload,
   describeUnappliedFilters,
   hasLocationProblems,
@@ -119,6 +120,11 @@ const FamilySmallVariantsPage: React.FC = () => {
     () => panels.find((panel) => panel.source === 'mendeliome')?._id,
     [panels],
   );
+  // The panel the Expanded carrier screening preset scopes its screen to.
+  const carrierScreeningPanelId = useMemo(
+    () => panels.find((panel) => panel.name === CARRIER_SCREENING_PANEL_NAME)?._id,
+    [panels],
+  );
 
   const {
     activeFilterChips,
@@ -151,6 +157,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     navigate,
     resolvedProjectId: projectId,
     mendeliomePanelId,
+    carrierScreeningPanelId,
     panelsLoaded: !panelsLoading,
   });
   // Chipped (and counted, activeFilterCount): the filters the small-variant list applies. A
@@ -446,7 +453,22 @@ const FamilySmallVariantsPage: React.FC = () => {
               <FamilyFact
                 label="Showing"
                 value={formatVariantTotal(data.total, data.total_is_estimated, data.count_limit)}
+                title="The results: a compound-het or carrier-screen gene counts as one"
               />
+              {typeof data.variant_total === 'number' ? (
+                <FamilyFact
+                  label="Variants"
+                  value={formatVariantTotal(data.variant_total, data.total_is_estimated, data.count_limit)}
+                  title="The variants the filters keep"
+                />
+              ) : null}
+              {typeof data.gene_total === 'number' ? (
+                <FamilyFact
+                  label="Genes"
+                  value={formatVariantTotal(data.gene_total, data.total_is_estimated, data.count_limit)}
+                  title="The genes those variants are in, each variant counted toward the gene its card names; a variant without a gene counts toward none"
+                />
+              ) : null}
               <FamilyFact
                 label="All variants"
                 value={formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated, data.count_limit)}

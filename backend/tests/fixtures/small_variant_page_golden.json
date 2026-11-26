@@ -47,6 +47,7 @@
    "candidate_limit": 1000,
    "candidates_capped": true,
    "count_limit": 10000,
+   "gene_total": 0,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -54,7 +55,8 @@
    },
    "total": 0,
    "total_is_estimated": true,
-   "unfiltered_total": 42
+   "unfiltered_total": 42,
+   "variant_total": 0
   }
  },
  "compound_het": {
@@ -106,6 +108,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 1,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -208,7 +211,8 @@
       }
      ]
     }
-   ]
+   ],
+   "variant_total": 2
   }
  },
  "compound_het_alias_second_page": {
@@ -257,13 +261,15 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 1,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
     "total_variants": 42
    },
    "total": 1,
-   "unfiltered_total": 42
+   "unfiltered_total": 42,
+   "variant_total": 2
   }
  },
  "count_only": {
@@ -428,6 +434,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 2,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -531,6 +538,7 @@
      ]
     }
    ],
+   "variant_total": 3,
    "variants": [
     {
      "alt": "G",
@@ -625,6 +633,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 3,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -867,7 +876,8 @@
      ],
      "x_linked": false
     }
-   ]
+   ],
+   "variant_total": 4
   }
  },
  "intervals_and_exclusions": {
@@ -974,6 +984,48 @@
     }
    ],
    [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "exclude_gene": "GENE4",
+      "exclude_intervals": "1:390-410",
+      "intervals": "1:50-450",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [
+      "GENE4"
+     ],
+     "exclude_regions": [
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 410,
+       "start": 390
+      }
+     ],
+     "exclude_variant_ids": [],
+     "include_regions": [
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 450,
+       "start": 50
+      }
+     ],
+     "include_variant_ids": null,
+     "limit": 10001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
     "_hydrate_small_variant_outs",
     [
      "<session>"
@@ -991,6 +1043,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 4,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -998,6 +1051,7 @@
    },
    "total": 4,
    "unfiltered_total": 42,
+   "variant_total": 4,
    "variants": [
     {
      "alt": "G",
@@ -1255,6 +1309,30 @@
     }
    ],
    [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "intervals": " \n \n",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 10001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
     "_hydrate_small_variant_outs",
     [
      "<session>"
@@ -1272,6 +1350,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 4,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -1279,6 +1358,7 @@
    },
    "total": 5,
    "unfiltered_total": 42,
+   "variant_total": 5,
    "variants": [
     {
      "alt": "G",
@@ -1547,17 +1627,42 @@
       "__type": "PanelFilterConstraints"
      }
     }
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 3,
+      "page_size": 2
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 10001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
    ]
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 0,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
     "total_variants": 42
    },
    "total": 0,
-   "unfiltered_total": 42
+   "unfiltered_total": 42,
+   "variant_total": 0
   }
  },
  "native_huge_page_is_clamped": {
@@ -1614,17 +1719,42 @@
       "__type": "PanelFilterConstraints"
      }
     }
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 5002,
+      "page_size": 2
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 10001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
    ]
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 0,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
     "total_variants": 42
    },
    "total": 5,
-   "unfiltered_total": 42
+   "unfiltered_total": 42,
+   "variant_total": 5
   }
  },
  "native_page": {
@@ -1683,6 +1813,29 @@
     }
    ],
    [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 2
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 10001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
     "_hydrate_small_variant_outs",
     [
      "<session>"
@@ -1697,6 +1850,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 4,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -1704,6 +1858,7 @@
    },
    "total": 5,
    "unfiltered_total": 42,
+   "variant_total": 5,
    "variants": [
     {
      "alt": "G",
@@ -1876,6 +2031,41 @@
     }
    ],
    [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 10,
+      "panel_id": "panel-1"
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 10001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints",
+      "genes": [
+       "GENE1"
+      ],
+      "regions": [
+       {
+        "__type": "Region",
+        "chr": "1",
+        "end": 250,
+        "start": 50
+       }
+      ]
+     }
+    }
+   ],
+   [
     "_hydrate_small_variant_outs",
     [
      "<session>"
@@ -1893,6 +2083,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 4,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -1900,6 +2091,7 @@
    },
    "total": 2,
    "unfiltered_total": 42,
+   "variant_total": 2,
    "variants": [
     {
      "alt": "G",
@@ -2120,12 +2312,14 @@
    ]
   ],
   "page": {
+   "gene_total": 0,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
     "total_variants": 42
    },
-   "total": 0
+   "total": 0,
+   "variant_total": 0
   }
  },
  "prioritized": {
@@ -2390,6 +2584,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 2,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -2493,6 +2688,7 @@
      ]
     }
    ],
+   "variant_total": 3,
    "variants": [
     {
      "alt": "G",
@@ -2587,6 +2783,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 2,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -2690,6 +2887,7 @@
      ]
     }
    ],
+   "variant_total": 3,
    "variants": [
     {
      "alt": "G",
@@ -2761,12 +2959,14 @@
    ]
   ],
   "page": {
+   "gene_total": 0,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
     "total_variants": 42
    },
-   "total": 0
+   "total": 0,
+   "variant_total": 0
   }
  },
  "review_filters": {
@@ -2867,6 +3067,34 @@
     }
    ],
    [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [
+      "v5"
+     ],
+     "include_regions": [],
+     "include_variant_ids": [
+      "v1",
+      "v3"
+     ],
+     "limit": 10001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
     "_hydrate_small_variant_outs",
     [
      "<session>"
@@ -2884,6 +3112,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 4,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -2891,6 +3120,7 @@
    },
    "total": 2,
    "unfiltered_total": 42,
+   "variant_total": 2,
    "variants": [
     {
      "alt": "G",
@@ -3171,6 +3401,33 @@
     }
    ],
    [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 2,
+      "require_sv_second_hit": true,
+      "sv_hit_genes": [
+       "GENE1"
+      ]
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 10001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
     "_hydrate_small_variant_outs",
     [
      "<session>"
@@ -3185,6 +3442,7 @@
   ],
   "page": {
    "count_limit": 10000,
+   "gene_total": 4,
    "small_variant_summary": {
     "indel_count": 2,
     "snv_count": 40,
@@ -3192,6 +3450,7 @@
    },
    "total": 5,
    "unfiltered_total": 42,
+   "variant_total": 5,
    "variants": [
     {
      "alt": "G",

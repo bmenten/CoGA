@@ -116,6 +116,8 @@ from .clickhouse_variant_queries import (
     _family_pedigree,
     _filter_expanded_carrier_screening,
     _float_list,
+    _gene_count,
+    _gene_match_keys,
     _group_review_for_pair,
     _indexed,
     _inheritance_result_items,
@@ -2537,6 +2539,12 @@ async def _serve_ranking_from_cache(
     return VariantPage(
         total=reported_total,
         total_is_estimated=total_is_estimated,
+        # Its results are its variants; their genes as the ranking recorded what each is
+        # matched by.
+        variant_total=reported_total,
+        gene_total=_gene_count(
+            tuple((str(kind), str(value)) for kind, value in entry["gene_keys"]) for entry in ranking
+        ),
         unfiltered_total=unfiltered_total,
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
@@ -2948,9 +2956,15 @@ async def _prioritized_items_page(
         session, context=context, filters=filters, items=page_items, priorities=priorities
     )
     unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+    records = _item_records(items)
     return VariantPage(
         total=min(total, _SMALL_COUNT_LIMIT),
         total_is_estimated=total_is_estimated,
+        # A search that keeps each variant for its own record lists variants: its results are
+        # its variants (a window that overflowed counts them in SQL). One that pairs counts
+        # the variants of what it lists.
+        variant_total=len(records) if pairing else min(total, _SMALL_COUNT_LIMIT),
+        gene_total=_gene_count(map(_gene_match_keys, records)),
         unfiltered_total=unfiltered_total,
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
@@ -3172,6 +3186,8 @@ async def _prioritized_small_variants_page(
         return VariantPage(
             total=0,
             total_is_estimated=capped,
+            variant_total=0,
+            gene_total=0,
             count_limit=_SMALL_COUNT_LIMIT - 1,
             ranking_truncated=capped,
             candidates_capped=capped and pairing,
@@ -3204,9 +3220,11 @@ async def _prioritized_small_variants_page(
         total = len(items)
         total_is_estimated = capped or total >= _SMALL_COUNT_LIMIT
 
-    # Cache the full ranked order (variant id + score breakdown) so the next open of an
+    # Cache the full ranked order (variant id + score breakdown, and what its gene is matched
+    # by, which the gene count of a page served from the cache reads) so the next open of an
     # unchanged view is served without re-scoring. The page records + review state are
     # re-fetched fresh on a cache hit.
+    gene_keys = {record.variant_id: _gene_match_keys(record) for record in ranked_records}
     await store_ranking(
         session,
         family_uuid=context.family_uuid,
@@ -3217,7 +3235,11 @@ async def _prioritized_small_variants_page(
         total_is_estimated=total_is_estimated,
         ranking_truncated=capped,
         ranking=[
-            {"variant_id": variant_id, "priority": priority.model_dump(mode="json")}
+            {
+                "variant_id": variant_id,
+                "priority": priority.model_dump(mode="json"),
+                "gene_keys": [list(key) for key in gene_keys[variant_id]],
+            }
             for variant_id, priority in priorities.items()
         ],
         provenance=provenance,
@@ -3793,6 +3815,13 @@ async def _small_variants_native_page(
         filters,
         **scope.row_filters(),
     )
+    # The genes of the variants the count counts, read from the same rows, as far as it counts.
+    counted_records = await _fetch_small_variant_rows(
+        context,
+        filters,
+        limit=_SMALL_COUNT_LIMIT,
+        **scope.row_filters(),
+    )
     unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
     page_records = fetched_records[:page_size]
     variants = await _small_variant_outs(context, filters, page_records)
@@ -3805,6 +3834,8 @@ async def _small_variants_native_page(
     return VariantPage(
         total=total,
         total_is_estimated=total_is_estimated,
+        variant_total=total,
+        gene_total=_gene_count(map(_gene_match_keys, counted_records)),
         unfiltered_total=unfiltered_total,
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
@@ -3886,6 +3917,8 @@ async def _small_variants_candidate_page(
     return VariantPage(
         total=0 if track_mode else reported_total,
         total_is_estimated=total_is_estimated,
+        variant_total=None if track_mode else reported_total,
+        gene_total=None if track_mode else _gene_count(map(_gene_match_keys, filtered)),
         unfiltered_total=unfiltered_total,
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
@@ -3921,9 +3954,12 @@ async def _small_variants_items_page(
     page_single_variants, page_variant_groups = await _small_item_outs(
         session, context=context, filters=filters, items=page_items
     )
+    records = _item_records(items)
     return VariantPage(
         total=0 if track_mode else reported_total,
         total_is_estimated=total_is_estimated,
+        variant_total=None if track_mode else len(records),
+        gene_total=None if track_mode else _gene_count(map(_gene_match_keys, records)),
         unfiltered_total=unfiltered_total,
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
@@ -4120,7 +4156,9 @@ async def _search_family_small_variants(
         has_notes=has_notes,
     )
     if scope is None:
-        return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
+        return VariantPage(
+            total=0, variant_total=0, gene_total=0, variants=[], small_variant_summary=small_variant_summary
+        )
 
     if prioritize and not track_mode:
         ranked = await _prioritized_small_variants_page(

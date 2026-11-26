@@ -140,6 +140,8 @@ export type SmallVariantPage = Pick<VariantPage, 'total' | 'total_is_estimated' 
       VariantPage,
       | 'unfiltered_total'
       | 'unfiltered_total_is_estimated'
+      | 'variant_total'
+      | 'gene_total'
       | 'ranking_truncated'
       | 'candidates_capped'
       | 'candidate_limit'
@@ -455,6 +457,10 @@ export const SMALL_INHERITANCE_LABELS: Record<SmallVariantInheritanceMode, strin
   all_compound_het_grouped: 'All, compound het grouped',
 };
 
+// The gene panel the Expanded carrier screening preset scopes its screen to, by its name in
+// CoGA (panel names are unique): the panel's current version is applied.
+export const CARRIER_SCREENING_PANEL_NAME = 'BeGECS v3';
+
 export const BUILT_IN_SMALL_PRESETS: Array<{
   value: SmallPreset;
   label: string;
@@ -480,7 +486,7 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'expanded_carrier_screening',
     label: 'Expanded carrier screening',
     description:
-      'Couple-only screen for genes where both partners carry a rare high- or moderate-impact variant (ClinVar P/LP overrides the frequency and impact cut-offs, ClinVar benign is left out), and for X-linked variants either partner carries.',
+      `Couple-only screen on the ${CARRIER_SCREENING_PANEL_NAME} gene panel for genes where both partners carry a high- or moderate-impact variant below 5% in gnomAD (ClinVar P/LP overrides the frequency and impact cut-offs, ClinVar benign is left out), and for X-linked variants either partner carries.`,
   },
   {
     value: 'compound_het',
@@ -974,6 +980,7 @@ export const resolveCarrierScreeningCoupleMembers = (
 const buildPresetState = (
   preset: SmallPreset,
   members: FamilyMember[],
+  carrierScreeningPanelId = '',
 ): {
   filters: SmallFilterState;
   sampleFilters: Record<string, SmallVariantSampleFilter>;
@@ -1064,18 +1071,20 @@ const buildPresetState = (
     if (!couple) {
       return { filters, sampleFilters };
     }
-    // The genes both partners carry a rare, high- or moderate-impact variant in, and each
-    // partner's X-linked variants, read with the NIPT recessive screen's filters.
-    // Without an impact filter a long-read genome holds hundreds of thousands of rare
-    // variants: the search would stop at its candidate cap long before chrX. A ClinVar
-    // pathogenic or likely pathogenic call overrides the impact and frequency cut-offs, so a
-    // common founder allele (CFTR p.Phe508del, above 1% in some populations) stays in, and so
+    // The genes of the BeGECS panel both partners carry a high- or moderate-impact variant
+    // below 5% in, and each partner's X-linked variants: 5% keeps the carrier frequencies of
+    // the common recessive disorders. Without an impact filter a long-read genome holds
+    // hundreds of thousands of such variants: the search would stop at its candidate cap long
+    // before chrX. A ClinVar pathogenic or likely pathogenic call overrides the impact and
+    // frequency cut-offs, so a founder allele above 5% in some population stays in, and so
     // does a pathogenic synonymous or splice-region variant. A ClinVar
     // benign or likely benign variant is no finding: it is left out, and cannot make a gene
-    // one both partners carry a variant in.
+    // one both partners carry a variant in. Without a panel of that name the screen reads
+    // every gene.
     filters.expanded_carrier_screening = 'true';
+    filters.panel_id = carrierScreeningPanelId;
     filters.impact = 'HIGH, MODERATE';
-    setFrequencyCeiling('0.01');
+    setFrequencyCeiling('0.05');
     filters.clinvar_pathogenic_override = 'true';
     filters.exclude_clinvar = 'Benign, Likely benign';
   } else if (preset === 'phenotype_priority') {
@@ -1606,6 +1615,9 @@ type UseSmallVariantSearchStateArgs = {
   resolvedProjectId?: string;
   // The Mendeliome panel id, used to scope the default (fresh-open) search.
   mendeliomePanelId?: string;
+  // The id of the panel the Expanded carrier screening preset scopes its screen to
+  // (CARRIER_SCREENING_PANEL_NAME); without one the preset sets no panel.
+  carrierScreeningPanelId?: string;
   // Whether the panels query has settled, so the default can include the panel.
   panelsLoaded?: boolean;
   // The preset a fresh open (no search in the URL) applies; null opens unfiltered. The
@@ -1620,6 +1632,7 @@ export const useSmallVariantSearchState = ({
   navigate,
   resolvedProjectId,
   mendeliomePanelId,
+  carrierScreeningPanelId,
   panelsLoaded = true,
   freshOpenPreset = 'phenotype_priority',
 }: UseSmallVariantSearchStateArgs) => {
@@ -1886,7 +1899,7 @@ export const useSmallVariantSearchState = ({
 
   const applyPreset = (preset: SmallPreset) => {
     if (!members.length) return;
-    const presetState = buildPresetState(preset, members);
+    const presetState = buildPresetState(preset, members, carrierScreeningPanelId);
     setDraftFilters(presetState.filters);
     setSampleDraftFilters(cloneSampleFilters(presetState.sampleFilters));
   };

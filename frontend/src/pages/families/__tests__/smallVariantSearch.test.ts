@@ -467,21 +467,56 @@ describe('preset frequency ceilings bound popmax', () => {
     expect(result.current.draftFilters.max_gnomad_popmax_af).toBe('0.02');
   });
 
-  it('screens a couple for rare damaging variants, keeping ClinVar pathogenic founder alleles', async () => {
-    const { result } = renderSearch();
+  it('screens a couple on the BeGECS panel for damaging variants below 5%, keeping ClinVar pathogenic founder alleles', async () => {
+    const { result } = renderHook(() =>
+      useSmallVariantSearchState({
+        family,
+        locationSearch: '',
+        navigate: () => {},
+        panelsLoaded: true,
+        carrierScreeningPanelId: 'BEGECS',
+      }),
+    );
     await waitFor(() => expect(result.current.filters).toBeTruthy());
 
     act(() => result.current.applyPreset('expanded_carrier_screening'));
     const draft = result.current.draftFilters;
     expect(draft.expanded_carrier_screening).toBe('true');
-    // Without an impact filter a long-read genome's rare variants fill the candidate
-    // window long before chrX, and the partners' X-linked variants are never read.
+    expect(draft.panel_id).toBe('BEGECS');
+    // Without an impact filter a long-read genome's variants fill the candidate window long
+    // before chrX, and the partners' X-linked variants are never read.
     expect(draft.impact).toBe('HIGH, MODERATE');
-    expect(draft.max_gnomad_popmax_af).toBe('0.01');
-    // A pathogenic founder allele above 1% in some population (CFTR p.Phe508del) stays.
+    expect(draft.max_gnomad_af).toBe('0.05');
+    expect(draft.max_gnomad_popmax_af).toBe('0.05');
+    // A pathogenic founder allele above 5% in some population stays.
     expect(draft.clinvar_pathogenic_override).toBe('true');
     // A ClinVar benign or likely benign variant is no carrier finding.
     expect(draft.exclude_clinvar).toBe('Benign, Likely benign');
+  });
+
+  it('screens every gene when there is no BeGECS panel', async () => {
+    const { result } = renderSearch();
+    await waitFor(() => expect(result.current.filters).toBeTruthy());
+
+    act(() => result.current.applyPreset('expanded_carrier_screening'));
+    expect(result.current.draftFilters.expanded_carrier_screening).toBe('true');
+    expect(result.current.draftFilters.panel_id).toBe('');
+  });
+
+  it('sets the BeGECS panel for the carrier screen alone', async () => {
+    const { result } = renderHook(() =>
+      useSmallVariantSearchState({
+        family,
+        locationSearch: '',
+        navigate: () => {},
+        panelsLoaded: true,
+        carrierScreeningPanelId: 'BEGECS',
+      }),
+    );
+    await waitFor(() => expect(result.current.filters).toBeTruthy());
+
+    act(() => result.current.applyPreset('recessive_permissive'));
+    expect(result.current.draftFilters.panel_id).toBe('');
   });
 
   it('bounds popmax on the exomes/genomes preset that sets no global AF', async () => {
