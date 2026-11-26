@@ -219,9 +219,9 @@ def test_a_variants_index_rows_gather_its_annotations_rows() -> None:
     assert sorted(index_row[14]) == ["intron_variant", "missense_variant", "splice_region_variant"]
     assert sorted(index_row[15]) == ["likely pathogenic", "pathogenic"]
     assert index_row[16:20] == (True, True, False, True)  # canonical, MANE Select, MANE Plus, LoF
-    assert index_row[20] == max(row[21] for row in annotation_rows if row[21] is not None) == 0.5
-    assert index_row[21] == annotation_rows[0][22] == pytest.approx(0.04)
-    assert index_row[24] == annotation_rows[0][25] == pytest.approx(0.2)
+    assert index_row[20] == max(row[22] for row in annotation_rows if row[22] is not None) == 0.5
+    assert index_row[21] == annotation_rows[0][23] == pytest.approx(0.04)
+    assert index_row[24] == annotation_rows[0][26] == pytest.approx(0.2)
     assert index_row[25:28] == (7, 3, None)
     assert index_row[28:31] == (25.0, 0.9, 0.3)
     assert [row[4] for row in gene_rows] == ["gene0", "gene1", "gene2", "ensg1", "ensg2"]
