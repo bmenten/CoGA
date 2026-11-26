@@ -9,10 +9,11 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from functools import partial
 from itertools import zip_longest
-from typing import Any, Collection, Literal, Mapping, Sequence
+from typing import Any, Collection, Iterable, Literal, Mapping, Sequence
 
 from fastapi import HTTPException
 from clickhouse_connect.driver.exceptions import ClickHouseError
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2473,18 +2474,24 @@ async def _serve_ranking_from_cache(
     page: int,
     page_size: int,
     rank_by: RankBy,
+    pairing: bool,
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage | None:
-    """Rebuild a prioritised page from a cached ranking, for a search that keeps each
-    variant for its own record (a search that pairs works its pairs out first, see
-    ``_prioritized_small_variants_page``).
+    """Rebuild a prioritised page from a cached ranking, without reading the search's
+    candidates again.
 
-    The cache holds the ranked (variant id + score breakdown) order, best combined score
-    first, which is put in the order ``rank_by`` asks for (``_cached_ranking_in_order``);
-    the page's variant records and review state are fetched fresh so annotations and review
-    status are never served stale. The records are fetched by id; each names the transcript
-    the search's ``filters`` held on as a computed page does. Returns None on any
-    reconstruction problem so the caller falls back to a live compute.
+    The cache holds the ranked variants (id, score breakdown and what its gene is matched
+    by), best combined score first, which are put in the order ``rank_by`` asks for
+    (``_cached_ranking_in_order``), and for each the results it is listed in
+    (``_item_key``): itself, or the compound-het or carrier genes it is in. The results are
+    placed and paged as a computed page places them (``_item_placement``). The page's
+    variant records and review state are fetched fresh, by id, so annotations and review
+    status are never served stale, and its results are listed again from them
+    (``_ranked_search_items``): a pair or a couple's gene is found from its own variants,
+    whatever else the search kept. Each record names the transcript the search's
+    ``filters`` held on as a computed page does. Returns None when a result does not come
+    out with the variants the cache recorded, or on any other reconstruction problem, so
+    the caller falls back to a live compute.
     """
     ranking = cached.get("ranking") or []
     if isinstance(ranking, str):
@@ -2495,17 +2502,29 @@ async def _serve_ranking_from_cache(
     ranking = _cached_ranking_in_order(ranking, rank_by)
     if ranking is None:
         return None
+    priorities: dict[str, VariantPriorityOut] = {}
+    members: dict[str, list[str]] = {}
+    try:
+        for entry in ranking:
+            variant_id = str(entry["variant_id"])
+            priorities[variant_id] = VariantPriorityOut.model_validate(entry["priority"])
+            for key in entry["items"]:
+                members.setdefault(str(key), []).append(variant_id)
+    except (KeyError, TypeError, ValidationError):
+        return None
     total = int(cached.get("total") or 0)
     total_is_estimated = bool(cached.get("total_is_estimated"))
     ranking_truncated = bool(cached.get("ranking_truncated"))
     reported_total = min(total, _SMALL_COUNT_LIMIT)
     unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
 
+    position = {variant_id: index for index, variant_id in enumerate(priorities)}
+    placed = sorted(members, key=lambda key: _item_placement(key, members[key], position))
     skip = max(page - 1, 0) * page_size if page_size else 0
-    page_entries = ranking[skip : skip + page_size] if page_size else ranking[skip:]
-    page_ids = [str(entry["variant_id"]) for entry in page_entries if entry.get("variant_id")]
+    page_keys = placed[skip : skip + page_size] if page_size else placed[skip:]
+    page_ids = list(dict.fromkeys(variant_id for key in page_keys for variant_id in members[key]))
 
-    page_variants: list[VariantOut] = []
+    records: list[SmallVariantRecord] = []
     if page_ids:
         # By id, in the search's own callset: an imputed callset's call of a variant shares
         # its key with another callset's call of it, and a fetch with no callset reads the
@@ -2519,29 +2538,28 @@ async def _serve_ranking_from_cache(
             fetch_filters,
             include_variant_ids=page_ids,
             limit=len(page_ids) + 5,
+            # The modes a search that pairs keeps a single variant by: the recessive search's
+            # homozygous and X-linked variants.
+            segregation_flags=pairing,
         )
-        by_id: dict[str, VariantOut] = {}
-        for out in await _small_variant_outs(context, filters, records):
-            by_id[str(out.id)] = out
-        for entry in page_entries:
-            variant_out = by_id.get(str(entry.get("variant_id")))
-            if variant_out is None:
-                continue
-            priority = entry.get("priority")
-            if priority:
-                try:
-                    variant_out.priority = VariantPriorityOut.model_validate(priority)
-                except Exception:  # noqa: BLE001 — a bad cached blob should fall back to live
-                    return None
-            page_variants.append(variant_out)
-        await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
+    listed = {_item_key(item): item for item in _ranked_search_items(context, filters, records)}
+    page_items: list[_SmallResultItem] = []
+    for key in page_keys:
+        item = listed.get(key)
+        if item is None or {record.variant_id for record in _item_members(item)} != set(members[key]):
+            return None
+        page_items.append(item)
+    variants, groups = await _small_item_outs(
+        session, context=context, filters=filters, items=page_items, priorities=priorities
+    )
 
     return VariantPage(
         total=reported_total,
         total_is_estimated=total_is_estimated,
-        # Its results are its variants; their genes as the ranking recorded what each is
-        # matched by.
-        variant_total=reported_total,
+        # A search that pairs counts the variants of what it lists, the ranking's; one that
+        # keeps each variant for its own record lists variants: its results are its variants.
+        variant_total=len(priorities) if pairing else reported_total,
+        # Their genes, as the ranking recorded what each is matched by.
         gene_total=_gene_count(
             tuple((str(kind), str(value)) for kind, value in entry["gene_keys"]) for entry in ranking
         ),
@@ -2549,10 +2567,12 @@ async def _serve_ranking_from_cache(
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
         ranking_truncated=ranking_truncated,
+        candidates_capped=ranking_truncated and pairing,
         candidate_limit=_PRIORITIZE_CANDIDATE_LIMIT if ranking_truncated else None,
         ranking_cached=True,
         ranking_computed_at=cached.get("computed_at"),
-        variants=page_variants,
+        variants=variants,
+        variant_groups=groups,
         small_variant_summary=small_variant_summary,
     )
 
@@ -2936,19 +2956,18 @@ async def _prioritized_items_page(
     combined score first, put in the order ``rank_by`` asks for by
     ``_priorities_in_order``), each variant with its priority and its rank in that order.
 
-    An item is placed where its best-ranked variant ranks: a compound-het pair at the better
-    of its two variants, a carrier screen's gene at the best of its variants, and among
-    items that share their best variant (a variant in two pairs, or an X-linked variant
-    that also pairs), by their next one, a single variant first. Paged by item, as the
-    unranked search pages: a pair is one item, and so is a carrier gene. ``capped`` says
-    the candidate window overflowed: the ranking covers only the window, and a search that
-    pairs (``pairing``) also missed any pair or carrier gene beyond it.
+    An item is placed where its best-ranked variant ranks (``_item_placement``). Paged by
+    item, as the unranked search pages: a pair is one item, and so is a carrier gene.
+    ``capped`` says the candidate window overflowed: the ranking covers only the window, and
+    a search that pairs (``pairing``) also missed any pair or carrier gene beyond it.
     """
     priorities = _priorities_in_order(priorities, rank_by)
     position = {variant_id: index for index, variant_id in enumerate(priorities)}
     ranked_items = sorted(
         items,
-        key=lambda item: tuple(sorted(position[record.variant_id] for record in _item_members(item))),
+        key=lambda item: _item_placement(
+            _item_key(item), (record.variant_id for record in _item_members(item)), position
+        ),
     )
     skip = max(page - 1, 0) * page_size if page_size else 0
     page_items = ranked_items[skip : skip + page_size] if page_size else ranked_items[skip:]
@@ -3074,10 +3093,9 @@ async def _prioritized_small_variants_page(
     cached = await get_cached_ranking(
         session, family_uuid=context.family_uuid, inputs_hash=inputs_hash
     )
-    # A search that keeps each variant for its own record is served from the cached order
-    # alone, the page's variants fetched by id. A search that pairs works its pairs out from
-    # its candidates first (below): the cached order holds variants, not pairs.
-    if cached is not None and not pairing:
+    # The cached ranking of this search (the same inputs) serves its page from the cached order
+    # and results alone, the page's variants fetched by id: its candidates are not read again.
+    if cached is not None:
         served = await _serve_ranking_from_cache(
             session,
             context=context,
@@ -3086,6 +3104,7 @@ async def _prioritized_small_variants_page(
             page=page,
             page_size=page_size,
             rank_by=rank_by,
+            pairing=pairing,
             small_variant_summary=small_variant_summary,
         )
         if served is not None:
@@ -3106,49 +3125,18 @@ async def _prioritized_small_variants_page(
     if capped:
         records = records[:_PRIORITIZE_CANDIDATE_LIMIT]
 
-    # What the unranked search keeps of these candidates, listed as it lists them: an
-    # inheritance mode's pairs and single variants, or the couple's genes.
-    kept = _kept_small_candidates(records, filters, context)
-    items: list[_SmallResultItem] = (
-        _small_result_items(context, filters, kept)
-        if pairing
-        else [("variant", record) for record in kept]
-    )
+    items = _ranked_search_items(context, filters, records)
     ranked_records = _item_records(items)
     # Compound-het pairs count within the variants the search keeps only: a pair whose
     # partner the filters leave out is no pair here.
     modes_by_variant = _segregation_modes_by_variant(ranked_records, context=context)
 
-    if cached is not None and pairing:
-        # The cached ranking of this search (the same inputs): its order, numbered among the
-        # variants kept, which it holds with the same segregation modes. A search that pairs
-        # counts its items as the unranked search does: what it found within the window, a
-        # lower bound when the window overflowed.
-        priorities = _priorities_from_ranking(cached.get("ranking"), ranked_records, modes_by_variant)
-        if priorities is not None:
-            return await _prioritized_items_page(
-                session,
-                context=context,
-                filters=filters,
-                items=items,
-                priorities=priorities,
-                page=page,
-                page_size=page_size,
-                rank_by=rank_by,
-                total=len(items),
-                total_is_estimated=capped or len(items) >= _SMALL_COUNT_LIMIT,
-                capped=capped,
-                pairing=pairing,
-                ranking_cached=True,
-                ranking_computed_at=cached.get("computed_at"),
-                small_variant_summary=small_variant_summary,
-            )
-
-    # No exact hit: a narrower panel can be served from a broader cached ranking with the
-    # same panel-agnostic inputs, when that ranking holds every variant kept here and
-    # ranks them as this computation would (_serve_subpanel_from_superset). Fetching them
-    # first is what shows it, and the phenotype scoring after this is the costly part. A
-    # window that overflowed ranks a truncated set, which no complete ranking reproduces.
+    # No exact hit, or one whose page could not be rebuilt: a narrower panel can be served
+    # from a broader cached ranking with the same panel-agnostic inputs, when that ranking
+    # holds every variant kept here and ranks them as this computation would
+    # (_serve_subpanel_from_superset). Fetching them first is what shows it, and the phenotype
+    # scoring after this is the costly part. A window that overflowed ranks a truncated set,
+    # which no complete ranking reproduces.
     if not capped:
         served = await _serve_subpanel_from_superset(
             session,
@@ -3220,11 +3208,16 @@ async def _prioritized_small_variants_page(
         total = len(items)
         total_is_estimated = capped or total >= _SMALL_COUNT_LIMIT
 
-    # Cache the full ranked order (variant id + score breakdown, and what its gene is matched
-    # by, which the gene count of a page served from the cache reads) so the next open of an
-    # unchanged view is served without re-scoring. The page records + review state are
-    # re-fetched fresh on a cache hit.
+    # Cache the full ranked order (variant id + score breakdown, what its gene is matched by,
+    # which the gene count of a page served from the cache reads, and the results it is
+    # listed in, by which that page is placed and paged) so the next open of an unchanged
+    # view is served without re-scoring or reading the candidates again. The page records +
+    # review state are re-fetched fresh on a cache hit (_serve_ranking_from_cache).
     gene_keys = {record.variant_id: _gene_match_keys(record) for record in ranked_records}
+    item_keys: dict[str, list[str]] = {}
+    for item in items:
+        for record in _item_members(item):
+            item_keys.setdefault(record.variant_id, []).append(_item_key(item))
     await store_ranking(
         session,
         family_uuid=context.family_uuid,
@@ -3239,6 +3232,7 @@ async def _prioritized_small_variants_page(
                 "variant_id": variant_id,
                 "priority": priority.model_dump(mode="json"),
                 "gene_keys": [list(key) for key in gene_keys[variant_id]],
+                "items": item_keys[variant_id],
             }
             for variant_id, priority in priorities.items()
         ],
@@ -3419,6 +3413,26 @@ def _item_records(items: Sequence[_SmallResultItem]) -> list[SmallVariantRecord]
     return list(records.values())
 
 
+def _item_key(item: _SmallResultItem) -> str:
+    """The key a ranked search's cache records a result item by: a compound-het or carrier
+    gene's group key, or the single variant's id."""
+    _item_type, value = item
+    if isinstance(value, (SmallVariantCompoundHetGene, SmallVariantCarrierGene)):
+        return value.group_key
+    return f"variant:{value.variant_id}"
+
+
+def _item_placement(
+    key: str, variant_ids: Iterable[str], position: Mapping[str, int]
+) -> tuple[tuple[int, ...], str]:
+    """Where a result item is placed in a ranked list, by the ``position`` of each of its
+    variants in the ranking: where its best-ranked variant ranks (a compound-het pair at the
+    better of its two variants, a carrier screen's gene at the best of its variants); among
+    items that share their best variant (a variant in two pairs, or an X-linked variant that
+    also pairs), by their next one, a single variant first; and then by the item's key."""
+    return tuple(sorted(position[variant_id] for variant_id in variant_ids)), key
+
+
 def _kept_small_candidates(
     records: Sequence[SmallVariantRecord],
     filters: SmallVariantQueryFilters,
@@ -3501,6 +3515,22 @@ def _small_result_items(
     if filters.expanded_carrier_screening:
         return _carrier_gene_items(context, records)
     return [("variant", record) for record in records]
+
+
+def _ranked_search_items(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    records: Sequence[SmallVariantRecord],
+) -> list[_SmallResultItem]:
+    """What a ranked search lists of the variants it fetched, as the unranked search lists
+    them: a search that pairs (``_small_search_keeps_by_pairing``), an inheritance mode's
+    pairs and single variants or the couple's genes among the candidates it keeps; any other
+    search, whose SQL kept each variant for its own record, each variant. The candidates of a
+    computed ranking, and the page's variants of a ranking served from the cache, are listed
+    by it alike."""
+    if not _small_search_keeps_by_pairing(filters):
+        return [("variant", record) for record in records]
+    return _small_result_items(context, filters, _kept_small_candidates(records, filters, context))
 
 
 def _pair_phase(

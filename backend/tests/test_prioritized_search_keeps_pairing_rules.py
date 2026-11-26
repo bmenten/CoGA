@@ -538,28 +538,63 @@ def _without_a1(ranking: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [entry for entry in ranking if entry["variant_id"] != A1.variant_id]
 
 
-def _a1_unpaired(ranking: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _a1_listed_alone(ranking: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
-        {**entry, "priority": {**entry["priority"], "segregation_modes": []}}
-        if entry["variant_id"] == A1.variant_id
-        else entry
+        {**entry, "items": [f"variant:{A1.variant_id}"]} if entry["variant_id"] == A1.variant_id else entry
         for entry in ranking
     ]
 
 
-@pytest.mark.parametrize("tamper", [_without_a1, _a1_unpaired])
-def test_a_cached_pairing_ranking_is_used_only_while_it_holds_the_kept_variants_as_they_pair(
-    world, tamper
-) -> None:
-    # The cache holds the order of the variants, not the pairs: a search that pairs works
-    # its pairs out again, and uses the cached order only when it holds every variant kept,
-    # with the segregation modes they have now. Otherwise the search is ranked again.
+@pytest.mark.parametrize("tamper", [_without_a1, _a1_listed_alone])
+def test_a_cached_pairing_ranking_is_served_only_while_its_page_pairs_as_it_recorded(world, tamper) -> None:
+    # The cache records the results each variant is listed in, not the pairs: a page served
+    # from it works its pairs out again from the page's variants, and is served only when
+    # each result comes out with the variants recorded. Otherwise the search is ranked again.
     first = _open(prioritize=True, inheritance="compound_het")
     [row] = world.cache.values()
     row["ranking"] = tamper(row["ranking"])
     again = _open(prioritize=True, inheritance="compound_het")
     assert again.ranking_cached is False
     assert _kept(again) == _kept(first)
+
+
+def _page_counts(page) -> tuple[Any, ...]:
+    return (
+        page.total,
+        page.total_is_estimated,
+        page.variant_total,
+        page.gene_total,
+        page.ranking_truncated,
+        page.candidates_capped,
+    )
+
+
+@pytest.mark.parametrize(
+    "name", ["compound_het", "recessive", "expanded_carrier_screening", "all_compound_het_grouped"]
+)
+def test_a_cached_pairing_ranking_serves_each_page_as_computed_without_reading_the_candidates(
+    world, name: str
+) -> None:
+    # Each page computed afresh, one result a page.
+    filters, _listed = SEARCHES[name]
+    first = _open(prioritize=True, page_size=1, **filters)
+    computed = [first]
+    for page in range(2, first.total + 1):
+        world.cache.clear()
+        computed.append(_open(prioritize=True, page=page, page_size=1, **filters))
+
+    # The same pages served from the ranking the first page cached.
+    world.cache.clear()
+    _open(prioritize=True, page_size=1, **filters)
+    world.fetch_limits.clear()
+    served = [_open(prioritize=True, page=page, page_size=1, **filters) for page in range(1, first.total + 1)]
+
+    assert all(page.ranking_cached for page in served)
+    assert [_item(page) for page in served] == [_item(page) for page in computed]
+    assert [_kept(page) for page in served] == [_kept(page) for page in computed]
+    assert [_page_counts(page) for page in served] == [_page_counts(page) for page in computed]
+    # Each page read its own variants, by id, never the window of candidates.
+    assert world.fetch_limits and _PRIORITIZE_CANDIDATE_LIMIT + 1 not in world.fetch_limits
 
 
 def test_the_ranked_csv_export_holds_what_the_unranked_export_holds(world) -> None:

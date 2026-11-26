@@ -2350,6 +2350,16 @@ def _cached_priority(score: float, **fields) -> dict:
     }
 
 
+def _ranked_entry(variant_id: str, score: float, rank: int, gene_keys: list[list[str]]) -> dict:
+    """A cached ranking's entry of a search that keeps each variant for its own record."""
+    return {
+        "variant_id": variant_id,
+        "priority": _cached_priority(score, rank=rank),
+        "gene_keys": gene_keys,
+        "items": [f"variant:{variant_id}"],
+    }
+
+
 def test_a_cached_ranking_narrowed_to_some_variants_numbers_them_from_one() -> None:
     ranking = [
         {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, rank=1)},
@@ -2414,6 +2424,7 @@ async def _serve_from_cache(
         page=1,
         page_size=50,
         rank_by=rank_by,  # type: ignore[arg-type]
+        pairing=False,
         small_variant_summary=None,
     )
     return page, fetched
@@ -2438,9 +2449,7 @@ async def test_a_cached_ranking_fetches_its_variants_in_the_searchs_own_callset(
 
     monkeypatch.setattr(_cfv, "_fetch_small_variant_rows", _fetch)
     monkeypatch.setattr(_cfv, "_hydrate_small_variant_outs", _no_review_state)
-    ranking = [
-        {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, rank=1), "gene_keys": [["gene", "GENE1"]]}
-    ]
+    ranking = [_ranked_entry("1-100-A-G", 0.9, 1, [["gene", "GENE1"]])]
     await _cfv._serve_ranking_from_cache(
         None,  # type: ignore[arg-type]
         context=_family_context(),
@@ -2449,43 +2458,59 @@ async def test_a_cached_ranking_fetches_its_variants_in_the_searchs_own_callset(
         page=1,
         page_size=50,
         rank_by="combined_score",
+        pairing=False,
         small_variant_summary=None,
     )
 
     assert fetched_sources == [source]
 
 
+_RANKING_OF_THREE = [
+    _ranked_entry("1-100-A-G", 0.9, 1, [["gene", "GENE1"]]),
+    _ranked_entry("1-150-C-T", 0.8, 2, [["gene", "GENE1"]]),
+    _ranked_entry("1-200-A-G", 0.7, 3, [["gene_id", "ENSG00000000002"], ["gene", "GENE2"]]),
+]
+
+
 @pytest.mark.asyncio
-async def test_a_cached_ranking_serves_its_order_over_the_records_still_stored(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_cached_ranking_serves_its_order_over_records_fetched_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = [_small_call("PROBAND", "0/1")]
     stored = [
         _small_variant("1-200-A-G", "GENE2", calls=calls, start=200),
+        _small_variant("1-150-C-T", "GENE1", calls=calls, start=150),
         _small_variant("1-100-A-G", "GENE1", calls=calls, start=100),
-    ]
-    ranking = [
-        {"variant_id": "1-100-A-G", "priority": _cached_priority(0.9, rank=1), "gene_keys": [["gene", "GENE1"]]},
-        # No longer stored.
-        {"variant_id": "1-150-C-T", "priority": _cached_priority(0.8, rank=2), "gene_keys": [["gene", "GENE1"]]},
-        {
-            "variant_id": "1-200-A-G",
-            "priority": _cached_priority(0.7, rank=3),
-            "gene_keys": [["gene_id", "ENSG00000000002"], ["gene", "GENE2"]],
-        },
     ]
 
     # As the cache stores it, a JSON text.
-    page, fetched = await _serve_from_cache(monkeypatch, {"ranking": json.dumps(ranking), "total": 3}, stored)
+    page, fetched = await _serve_from_cache(
+        monkeypatch, {"ranking": json.dumps(_RANKING_OF_THREE), "total": 3}, stored
+    )
 
-    # The page's records are fetched fresh, by id, in the cached order; a ranked variant no
-    # longer stored is left out rather than shown from the cache.
+    # The page's records are fetched fresh, by id, in the cached order.
     assert fetched == [["1-100-A-G", "1-150-C-T", "1-200-A-G"]]
     assert [(str(variant.id), variant.priority.combined_score) for variant in page.variants] == [
         ("1-100-A-G", 0.9),
+        ("1-150-C-T", 0.8),
         ("1-200-A-G", 0.7),
     ]
     assert (page.total, page.ranking_cached, page.ranking_truncated) == (3, True, False)
     # The variants the ranking holds and their genes, as it recorded what each is matched by.
     assert (page.variant_total, page.gene_total) == (3, 2)
+
+
+@pytest.mark.asyncio
+async def test_a_cached_ranking_whose_page_lost_a_variant_is_computed_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A ranked variant no longer stored is not shown from the cache, and its page is not
+    # served without it: the caller computes the ranking live.
+    calls = [_small_call("PROBAND", "0/1")]
+    stored = [
+        _small_variant("1-200-A-G", "GENE2", calls=calls, start=200),
+        _small_variant("1-100-A-G", "GENE1", calls=calls, start=100),
+    ]
+
+    page, _fetched = await _serve_from_cache(monkeypatch, {"ranking": _RANKING_OF_THREE, "total": 3}, stored)
+
+    assert page is None
 
 
 @pytest.mark.asyncio
@@ -2521,7 +2546,12 @@ async def test_a_cached_ranking_is_served_in_the_variant_score_order(monkeypatch
     # Cached in the combined order. By the variant score 1-300 leads; 1-100 and 1-400 tie on
     # it, and the better combined score goes first.
     ranking = [
-        {"variant_id": variant_id, "priority": _cached_priority(combined, variant_score=variant, rank=rank), "gene_keys": [["gene", "GENE1"]]}
+        {
+            "variant_id": variant_id,
+            "priority": _cached_priority(combined, variant_score=variant, rank=rank),
+            "gene_keys": [["gene", "GENE1"]],
+            "items": [f"variant:{variant_id}"],
+        }
         for variant_id, combined, variant, rank in [
             ("1-100-A-G", 0.9, 0.4, 1),
             ("1-200-A-G", 0.8, 0.2, 2),

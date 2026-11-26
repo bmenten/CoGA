@@ -117,7 +117,7 @@ Elk panel wordt op gen en op positie vergeleken, ook het Mendeliome (beslissing 
 
 Een panel dat uit een bredere rangschikking komt, krijgt zijn eigen rangnummers vanaf 1. Zo toont het altijd wat een rechtstreekse berekening van dat panel geeft.
 
-Een zoekopdracht met paren of dragerscreening haalt ook bij een exacte treffer eerst haar kandidaten op en bepaalt haar paren binnen haar eigen bereik. De cache bewaart de volgorde van de varianten, niet de paren. Die volgorde wordt alleen gebruikt als ze elke gevonden variant bevat, met dezelfde segregatie.
+Een exacte treffer leest geen kandidaten, ook niet voor een zoekopdracht met paren of dragerscreening. De cache bewaart per variant de resultaten waarin ze staat: de paren van een gen, een gen van het koppel of de variant alleen. De pagina plaatst die resultaten in de bewaarde volgorde, elk bij zijn best gerangschikte variant, en haalt alleen haar eigen varianten op. Daaruit bepaalt ze haar paren en genen opnieuw, met dezelfde regels als een berekening: een paar hangt alleen af van zijn eigen varianten en de stamboom. Komt een resultaat niet uit met de varianten die de cache bewaarde, dan wordt de rangschikking opnieuw berekend (`_serve_ranking_from_cache`).
 
 Na een wijziging van fenotypes of stamboom rekent de backend de laatste rangschikking alvast opnieuw uit, zodat de volgende opening snel is. De intervallen en de uitgesloten genen en intervallen van die zoekopdracht past hij daarbij niet toe: een zoekopdracht met zulke filters wordt bij de volgende opening opnieuw berekend. De UI meldt of de rangschikking uit de cache komt of berekend werd.
 

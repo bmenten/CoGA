@@ -117,7 +117,7 @@ Each panel is compared by gene and by position, the Mendeliome included (the own
 
 A panel that comes from a broader ranking gets its own rank numbers, starting from 1. That way it always shows what a direct computation of that panel gives.
 
-A search with pairs or carrier screening first fetches its candidates and determines its pairs within its own scope, even on an exact hit. The cache keeps the order of the variants, not the pairs. That order is only used if it contains every variant found, with the same segregation.
+An exact hit reads no candidates, not even for a search with pairs or carrier screening. The cache keeps, for each variant, the results it is listed in: a gene's pairs, a couple's gene or the variant alone. The page places those results in the cached order, each at its best-ranked variant, and fetches only its own variants. From them it determines its pairs and genes again, with the same rules as a computation: a pair depends only on its own variants and the pedigree. If a result does not come out with the variants the cache kept, the ranking is computed again (`_serve_ranking_from_cache`).
 
 After a change to phenotypes or pedigree, the backend recomputes the last ranking in advance, so that the next opening is fast. In doing so it does not apply that search's intervals and its excluded genes and intervals: a search with such filters is recomputed at the next opening. The UI reports whether the ranking comes from the cache or was computed.
 
