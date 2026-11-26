@@ -89,7 +89,7 @@ The tracing follows these rules:
 - A male is not traced on chrX or chrY outside the pseudo-autosomal regions, where he has a single copy.
 
 Two small variants in the same gene (SNV + SNV) are phased the same way, half calls included: by read
-phasing first, and otherwise by this rule. Their pair card says *In trans · read-backed* or
+phasing first, and otherwise by this rule. The pair's line in its gene says *In trans · read-backed* or
 *In trans · by segregation*. A pair in cis is not shown: it cannot be the recessive cause.
 
 ---

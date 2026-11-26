@@ -1079,8 +1079,9 @@ describe('FamilySmallVariantsPage', () => {
             variant_groups: [
               {
                 group_type: 'compound_het',
-                group_key: 'v1::v2',
+                group_key: 'compound-het-gene:gene:gene1',
                 gene: 'GENE1',
+                inherited_from: {},
                 variants: [
                   {
                     _id: 'v1',
@@ -1111,16 +1112,24 @@ describe('FamilySmallVariantsPage', () => {
                     genotypes: [{ sample: 'PROBAND', gt: '0/1' }],
                   },
                 ],
-                review: {
-                  group_id: 'grp-1',
-                  partner_variant_ids: ['v2'],
-                  gene: 'GENE1',
-                  classification: 'Likely pathogenic - class 4',
-                  tags: [],
-                  tag_metadata: {},
-                  note: 'Strong pair-level fit.',
-                  phase_status: 'unknown',
-                },
+                pairs: [
+                  {
+                    pair_key: 'v1::v2',
+                    variant_ids: ['v1', 'v2'],
+                    phase: 'unknown',
+                    phase_evidence: null,
+                    review: {
+                      group_id: 'grp-1',
+                      partner_variant_ids: ['v2'],
+                      gene: 'GENE1',
+                      classification: 'Likely pathogenic - class 4',
+                      tags: [],
+                      tag_metadata: {},
+                      note: 'Strong pair-level fit.',
+                      phase_status: 'unknown',
+                    },
+                  },
+                ],
               },
             ],
           },
@@ -1134,10 +1143,11 @@ describe('FamilySmallVariantsPage', () => {
 
     renderPage('/families/F1/small-variants?inheritance=compound_het');
 
-    await screen.findByText('Compound-het pairs');
+    await screen.findByText('Compound-het genes');
     expect(screen.getAllByText('GENE1').length).toBeGreaterThan(0);
+    // The gene's pair, with the pair review it holds.
+    expect(screen.getByText('Variants 1 + 2')).toBeInTheDocument();
     expect(screen.getByText('Strong pair-level fit.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Review pair/i })).toBeInTheDocument();
     expect(screen.queryByText(/No variants match the current search/i)).not.toBeInTheDocument();
   });
 

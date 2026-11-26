@@ -77,7 +77,7 @@ Prioritisation runs at `GET /api/families/{family_id}/small-variants?prioritize=
 
 **Prioritisation changes the order, not what a search finds.** That holds for an inheritance model that pairs variants (compound het, recessive) and for carrier screening. A ranked search then keeps exactly what the same search without prioritisation keeps: the same rules on the same candidates (the pairs, with their phase; the homozygous and X-linked variants, as a flag from the SQL; the couple's gene rule, chapter 8). Only those variants are ranked, with the segregation they have among themselves.
 
-- A pair stays a pair and stands at the place of its best-ranked variant. If it shares that variant with another item, the next variant decides.
+- A gene's pairs stay one result and stand at the place of the gene's best-ranked variant. If it shares that variant with another item, the next variant decides.
 - Each variant shows its own rank.
 - Such a search reads one window of 5,000 candidates, the largest that the search without prioritisation reads. If it overflows, the ranking and the candidates are both bounded (`ranking_truncated` and `candidates_capped`). The count is then what was found within the window: a lower bound.
 

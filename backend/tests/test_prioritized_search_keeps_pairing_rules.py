@@ -318,12 +318,14 @@ def _kept(page) -> dict[str, Any]:
     return {
         "variants": sorted(str(variant.id) for variant in page.variants),
         "pairs": sorted(
-            (
-                group.group_key,
-                tuple(str(variant.id) for variant in group.variants),
-                group.phase,
-                group.phase_evidence,
-            )
+            (pair.pair_key, tuple(pair.variant_ids), pair.phase, pair.phase_evidence)
+            for group in page.variant_groups
+            if group.group_type == "compound_het"
+            for pair in group.pairs
+        ),
+        # Each compound-het gene: its variants.
+        "compound_het_genes": sorted(
+            (group.group_key, tuple(str(variant.id) for variant in group.variants))
             for group in page.variant_groups
             if group.group_type == "compound_het"
         ),
@@ -454,7 +456,7 @@ def _item(page) -> tuple[str, tuple[str, ...], tuple[int, ...]]:
     """The one item of a page of one item: its kind, its variants and their ranks."""
     entries = [
         (
-            "pair" if group.group_type == "compound_het" else "gene",
+            "gene",
             tuple(str(v.id) for v in group.variants),
             tuple(v.priority.rank for v in group.variants),
         )
@@ -481,12 +483,11 @@ def test_a_ranked_recessive_search_lists_its_pairs_and_variants_in_the_ranking_s
     # that keeps it, is not one of them.
     items = _items_in_order(inheritance="recessive")
     assert items == [
-        # A pair is placed at its better-ranked variant: B3 is first.
-        ("pair", (B1.variant_id, B3.variant_id), (3, 1)),
-        ("pair", (B1.variant_id, B2.variant_id), (3, 2)),
+        # A gene's pairs are one result, placed at its best-ranked variant: B3 is first.
+        ("gene", (B1.variant_id, B2.variant_id, B3.variant_id), (3, 2, 1)),
         ("variant", (C1.variant_id,), (4,)),
         ("variant", (X1.variant_id,), (5,)),
-        ("pair", (A1.variant_id, A2.variant_id), (7, 6)),
+        ("gene", (A1.variant_id, A2.variant_id), (7, 6)),
     ]
     whole = _open(prioritize=True, inheritance="recessive")
     modes = {
@@ -507,9 +508,8 @@ def test_a_ranked_recessive_search_lists_its_pairs_and_variants_in_the_ranking_s
 def test_a_ranked_compound_het_search_ranks_its_pairs_variants_only(world) -> None:
     items = _items_in_order(inheritance="compound_het")
     assert items == [
-        ("pair", (B1.variant_id, B3.variant_id), (3, 1)),
-        ("pair", (B1.variant_id, B2.variant_id), (3, 2)),
-        ("pair", (A1.variant_id, A2.variant_id), (5, 4)),
+        ("gene", (B1.variant_id, B2.variant_id, B3.variant_id), (3, 2, 1)),
+        ("gene", (A1.variant_id, A2.variant_id), (5, 4)),
     ]
 
 
@@ -595,8 +595,8 @@ def test_a_sub_panel_of_a_ranked_pairing_search_is_served_as_its_own_computation
         ]
 
     assert ranked(served) == ranked(fresh)
-    # Numbered within the panel: B3, B2, B1 and C1 (B1 is in both pairs).
-    assert sorted(priority["rank"] for _id, priority in ranked(served)) == [1, 2, 3, 3, 4]
+    # Numbered within the panel: B3, B2, B1 and C1; B1, in both pairs, is listed once in its gene.
+    assert sorted(priority["rank"] for _id, priority in ranked(served)) == [1, 2, 3, 4]
 
 
 def test_a_sub_panel_pairs_within_its_own_reach(world) -> None:

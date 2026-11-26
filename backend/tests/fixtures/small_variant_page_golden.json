@@ -116,7 +116,17 @@
    "variant_groups": [
     {
      "gene": "GENE1",
-     "group_key": "v1::v2",
+     "group_key": "compound-het-gene:gene:gene1",
+     "pairs": [
+      {
+       "pair_key": "v1::v2",
+       "phase": "unknown",
+       "variant_ids": [
+        "v1",
+        "v2"
+       ]
+      }
+     ],
      "variants": [
       {
        "alt": "G",
@@ -428,7 +438,17 @@
    "variant_groups": [
     {
      "gene": "GENE1",
-     "group_key": "v1::v2",
+     "group_key": "compound-het-gene:gene:gene1",
+     "pairs": [
+      {
+       "pair_key": "v1::v2",
+       "phase": "unknown",
+       "variant_ids": [
+        "v1",
+        "v2"
+       ]
+      }
+     ],
      "variants": [
       {
        "alt": "G",
@@ -2380,7 +2400,17 @@
    "variant_groups": [
     {
      "gene": "GENE1",
-     "group_key": "v1::v2",
+     "group_key": "compound-het-gene:gene:gene1",
+     "pairs": [
+      {
+       "pair_key": "v1::v2",
+       "phase": "unknown",
+       "variant_ids": [
+        "v1",
+        "v2"
+       ]
+      }
+     ],
      "variants": [
       {
        "alt": "G",
@@ -2567,7 +2597,17 @@
    "variant_groups": [
     {
      "gene": "GENE1",
-     "group_key": "v1::v2",
+     "group_key": "compound-het-gene:gene:gene1",
+     "pairs": [
+      {
+       "pair_key": "v1::v2",
+       "phase": "unknown",
+       "variant_ids": [
+        "v1",
+        "v2"
+       ]
+      }
+     ],
      "variants": [
       {
        "alt": "G",

@@ -106,12 +106,12 @@ export default function SmallVariantResults({
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportWarning, setExportWarning] = useState<string | null>(null);
   const resultGroups = data?.variant_groups || [];
-  const pairGroups = resultGroups.filter((group) => group.group_type === 'compound_het');
+  const compoundHetGenes = resultGroups.filter((group) => group.group_type === 'compound_het');
   const carrierGenes = resultGroups.filter((group) => group.group_type === 'carrier_gene');
   const hasFlatVariants = Boolean(data?.variants.length);
-  const hasGroupedPairs = Boolean(pairGroups.length);
+  const hasCompoundHetGenes = Boolean(compoundHetGenes.length);
   const hasCarrierGenes = Boolean(carrierGenes.length);
-  const hasResults = hasFlatVariants || hasGroupedPairs || hasCarrierGenes;
+  const hasResults = hasFlatVariants || hasCompoundHetGenes || hasCarrierGenes;
   // A maximum gnomAD count filter cannot exclude a variant without that count.
   const countNote = gnomadCountNote(requestQueryString, data);
 
@@ -184,8 +184,8 @@ export default function SmallVariantResults({
             </h2>
             <p className="table-subtle">
               Up to {CARD_VIEW_THRESHOLD} results show as cards, more as a paginated table, until
-              you pick a view. Compound-het matches stay grouped by pair, and a carrier screen&rsquo;s by
-              gene; a group counts as one result.
+              you pick a view. Compound-het matches and a carrier screen&rsquo;s stay grouped by gene;
+              a gene counts as one result.
             </p>
           </div>
           <div className="variant-results-toolbar-actions">
@@ -257,15 +257,16 @@ export default function SmallVariantResults({
           </div>
         ) : (
           <div className="space-y-6">
-            {hasGroupedPairs ? (
+            {hasCompoundHetGenes ? (
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <h3 className="section-title">Compound-het pairs</h3>
+                  <h3 className="section-title">Compound-het genes</h3>
                   <p className="table-subtle">
-                    Pair-level search results aligned to the active inheritance filter.
+                    Each gene with two or more variants that can be the recessive cause together,
+                    by the parent each came from, with the pairs among them.
                   </p>
                 </div>
-                <SmallVariantGroupCards groups={pairGroups} memberView={resolvedViewMode} {...cardProps} />
+                <SmallVariantGroupCards groups={compoundHetGenes} memberView={resolvedViewMode} {...cardProps} />
               </div>
             ) : null}
 
@@ -284,7 +285,7 @@ export default function SmallVariantResults({
 
             {hasFlatVariants ? (
               <div className="space-y-3">
-                {hasGroupedPairs || hasCarrierGenes ? (
+                {hasCompoundHetGenes || hasCarrierGenes ? (
                   <div className="space-y-1">
                     <h3 className="section-title">Single variants</h3>
                     <p className="table-subtle">

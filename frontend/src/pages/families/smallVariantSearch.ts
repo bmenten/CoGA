@@ -8,9 +8,10 @@ import type {
   GenotypeOut,
   NiptClassificationOut,
   NiptVariantPage,
+  CompoundHetPairOut,
   SmallVariantCarrierGeneOut,
+  SmallVariantCompoundHetGeneOut,
   SmallVariantFilterPresetOut,
-  SmallVariantGroupOut,
   SmallVariantReviewOut,
   SmallVariantTagDefinitionOut,
   SmallVariantTranscriptOut,
@@ -162,10 +163,14 @@ export type FamilySmallVariantPage = Omit<VariantPage, 'variants' | 'variant_gro
 };
 export type NiptSmallVariantPage = Omit<NiptVariantPage, 'variants'> & { variants: SmallVariant[] };
 
-// A compound-het pair. `phase` is derived from the calls, unlike review.phase_status which is
-// the curator's own call: the reads (one phase set) or the parents' genotypes, as
+// A pair of a compound-het gene. `phase` is derived from the calls, unlike review.phase_status
+// which is the curator's own call: the reads (one phase set) or the parents' genotypes, as
 // phase_evidence says. Cis pairs are excluded server-side and never arrive here.
-export type SmallVariantGroup = Omit<SmallVariantGroupOut, 'variants'> & {
+export type CompoundHetPair = CompoundHetPairOut;
+
+// A gene's compound-het candidates: every variant of its pairs, the pairs among them, and the
+// parent each variant traces to (`inherited_from`, by variant id; an untraced one is absent).
+export type SmallVariantCompoundHetGene = Omit<SmallVariantCompoundHetGeneOut, 'variants'> & {
   variants: SmallVariant[];
 };
 
@@ -176,7 +181,7 @@ export type SmallVariantCarrierGene = Omit<SmallVariantCarrierGeneOut, 'variants
 };
 
 // A grouped result of the list, told apart by its group_type.
-export type SmallVariantResultGroup = SmallVariantGroup | SmallVariantCarrierGene;
+export type SmallVariantResultGroup = SmallVariantCompoundHetGene | SmallVariantCarrierGene;
 
 export type SmallVariantReviewSavePayload = {
   // null clears the stored classification; left out, the save clears it too, so a client

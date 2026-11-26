@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { reviewTagLabel } from '../../../lib/reviewTags';
 import { tagDefinition } from '../../../test/tagDefinitions';
-import { review, smallVariant, smallVariantGroup } from '../../../test/variants';
+import { compoundHetGene, review, smallVariant } from '../../../test/variants';
 import { fetchFamilyReviewTags, findLoadedVariantReview, quickTagTogglePayload } from '../smallVariantReview';
 import type { SmallVariantPage } from '../smallVariantSearch';
 import reviewClassCases from './fixtures/review-class-cases.json';
@@ -67,7 +67,7 @@ describe('findLoadedVariantReview', () => {
   it("finds a variant's review in a loaded list, its pairs included", () => {
     const listed = page({ variants: [variant('1-100-A-G', true)] });
     const paired = page({
-      variant_groups: [smallVariantGroup({ group_key: 'g1', variants: [variant('1-200-C-T', true)] })],
+      variant_groups: [compoundHetGene({ group_key: 'g1', variants: [variant('1-200-C-T', true)] })],
     });
     expect(findLoadedVariantReview([undefined, listed], '1-100-A-G')?.updated_at).toBe('2026-09-28T10:03:00Z');
     expect(findLoadedVariantReview([listed, paired], '1-200-C-T')?.variant_id).toBe('1-200-C-T');

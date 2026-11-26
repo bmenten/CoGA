@@ -60,13 +60,10 @@ def _page(resp) -> dict:
     # VariantOut serialises its id under the `_id` alias.
     out["variants"] = sorted(str(variant["_id"]) for variant in body.get("variants") or [])
     out["pairs"] = sorted(
-        (
-            [str(variant["_id"]) for variant in group.get("variants") or []],
-            group.get("phase"),
-            group.get("phase_evidence"),
-        )
+        (list(pair["variant_ids"]), pair["phase"], pair.get("phase_evidence"))
         for group in body.get("variant_groups") or []
         if group["group_type"] == "compound_het"
+        for pair in group["pairs"]
     )
     # A carrier screen's genes: each gene's variants, and whether both partners carry one.
     out["carrier_genes"] = sorted(

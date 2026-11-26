@@ -757,6 +757,15 @@ export interface CnvAcmgCriterion {
   auto_suggested?: boolean;
 }
 
+/** Two variants of a compound-het gene that can be the recessive cause together. */
+export interface CompoundHetPairOut {
+  pair_key: string;
+  variant_ids: string[];
+  phase: "trans" | "unknown";
+  phase_evidence: "read" | "segregation" | null;
+  review: SmallVariantCompoundHetReviewOut | null;
+}
+
 /**
  * What deleting one kind of a sample's or a family's data removed: the number of tracks
  * of a track type, of repeat calls, or of variants.
@@ -4531,6 +4540,21 @@ export interface SmallVariantChromosomeCountsOut {
   hom_alt_count: number;
 }
 
+/**
+ * A gene's compound-het candidates as one result: every variant of its pairs, and each
+ * pair the search keeps among them. Two variants from the father and three from the
+ * mother are one gene with five variants and six pairs.
+ */
+export interface SmallVariantCompoundHetGeneOut {
+  group_type: "compound_het";
+  group_key: string;
+  gene: string | null;
+  gene_id: string | null;
+  variants: VariantOut[];
+  pairs: CompoundHetPairOut[];
+  inherited_from: Record<string, string>;
+}
+
 export interface SmallVariantCompoundHetReviewOut {
   group_id: string;
   partner_variant_ids: string[];
@@ -4608,18 +4632,6 @@ export interface SmallVariantFilterTranscriptOut {
   spliceai_max: number | null;
   sift: string | null;
   polyphen: string | null;
-}
-
-/** A compound-het pair: two variants of one gene, served as one result. */
-export interface SmallVariantGroupOut {
-  group_type: "compound_het";
-  group_key: string;
-  gene: string | null;
-  gene_id: string | null;
-  variants: VariantOut[];
-  review: SmallVariantCompoundHetReviewOut | null;
-  phase: "trans" | "unknown";
-  phase_evidence: "read" | "segregation" | null;
 }
 
 export interface SmallVariantReviewOut {
@@ -5162,7 +5174,7 @@ export interface VariantPage {
   ranking_computed_at: string | null;
   ranked_by: "combined_score" | "variant_score" | null;
   variants: VariantOut[];
-  variant_groups: (SmallVariantGroupOut | SmallVariantCarrierGeneOut)[];
+  variant_groups: (SmallVariantCompoundHetGeneOut | SmallVariantCarrierGeneOut)[];
   summary: Record<string, Record<string, number>> | null;
   small_variant_summary: SmallVariantSummaryOut | null;
   members_without_calls: MemberWithoutCallsOut[] | null;

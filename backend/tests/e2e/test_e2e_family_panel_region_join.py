@@ -254,7 +254,14 @@ def _answer(response: Any, endpoint: str) -> Any:
     return {
         "variants": [variant(row) for row in body.get("variants") or []],
         "groups": [
-            ([variant(row) for row in group.get("variants") or []], group.get("phase"), group.get("phase_evidence"))
+            (
+                [variant(row) for row in group.get("variants") or []],
+                # A compound-het gene's pairs, with their phase; a carrier gene has none.
+                sorted(
+                    (tuple(pair["variant_ids"]), pair["phase"], pair.get("phase_evidence"))
+                    for pair in group.get("pairs") or []
+                ),
+            )
             for group in body.get("variant_groups") or []
         ],
         **{
@@ -455,7 +462,13 @@ def test_the_paths_find_pairs_carriers_and_the_track_s_variants(run: dict[str, A
     regions, genes = run["answers"]["PanelApp regions"], run["answers"]["genes and their loci"]
     pair = [_PAIR_PATERNAL, _PAIR_MATERNAL]
     assert [sorted(v for v, _p in group[0]) for group in regions["compound het"]["join"]["groups"]] == [sorted(pair)]
-    assert len(genes["compound het"]["join"]["groups"]) == 2
+    # With ENG15CH's whole locus, its third variant pairs with the maternal one too: one gene,
+    # its three variants and two pairs.
+    [gene] = genes["compound het"]["join"]["groups"]
+    assert sorted(v for v, _p in gene[0]) == sorted([*pair, _PATERNAL_OUTSIDE_RE])
+    assert [sorted(variant_ids) for variant_ids, _phase, _evidence in gene[1]] == sorted(
+        [sorted(pair), sorted([_PAIR_MATERNAL, _PATERNAL_OUTSIDE_RE])]
+    )
     assert {v for v, _p in regions["recessive"]["join"]["variants"]} == {_HOMOZYGOUS_IN_RB}
     # A carrier screen lists its findings by gene.
     carrier_screen = regions["carrier screening"]["join"]

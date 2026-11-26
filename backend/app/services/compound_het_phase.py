@@ -27,6 +27,10 @@ For a candidate in which every affected individual carries both hits:
   nothing about which copy each hit is on. Neither does a hit that both parents lack
   (de novo, or a missed call), which could have arisen on either copy.
 
+The parent a single hit traces to (``hit_origin``) is read by the same rule, so that the
+hits of one gene can be listed by the parental copy they sit on: a gene with two hits from
+the father and three from the mother is one result with six trans pairs.
+
 "Confidently lacks" is a genotyped reference call, with at least
 ``CONFIDENT_REFERENCE_MIN_DP`` reads when the call reports its depth; a missing call or a
 no-call is not absence. A male at a position where he carries a single copy (chrX or chrY
@@ -155,6 +159,47 @@ def _traced_through_parents(
     if UNKNOWN_CARRIAGE in (first_a, second_a, first_b, second_b):
         return PHASE_UNKNOWN
     return PHASE_CIS
+
+
+def traced_parent(parents: Collection[str], carriage: Callable[[str], Carriage]) -> str | None:
+    """The parent a child's copy of one hit came from, by the rule each hit of a pair is traced
+    with (``_traced_through_parents``): a parent who confidently lacks the hit cannot have
+    passed it on, so the other did; failing that, the only parent known to carry it. None
+    when it cannot be told, or when it is the parent the pedigree does not name."""
+    if not parents or len(parents) > 2:
+        return None
+    named = sorted(parents)
+    calls = [carriage(parent) for parent in named]
+    if len(calls) == 1:
+        calls.append(UNKNOWN_CARRIAGE)  # the parent the pedigree does not name
+    index = _passed_on_by(calls[0], calls[1])
+    if index is None or index >= len(named):
+        return None
+    return named[index]
+
+
+def hit_origin(
+    *,
+    affected: Iterable[str],
+    carriage: Callable[[str], Carriage],
+    pedigree: FamilyPedigree | None,
+    locus: Locus,
+) -> str | None:
+    """The parent one hit traces to in every affected individual with parents (``traced_parent``),
+    so that the hits of a gene can be told apart by the parental copy they sit on. None when
+    no affected individual can be traced, when one of them cannot, or when they disagree; and
+    for a male at a position where he carries a single copy, as the pair tracing skips him."""
+    if pedigree is None:
+        return None
+    single_copy = pedigree.single_copy_samples([locus])
+    children = [
+        child for child in affected if child not in single_copy and pedigree.parents_of.get(child)
+    ]
+    origins = {traced_parent(pedigree.parents_of[child], carriage) for child in children}
+    if len(origins) != 1:
+        return None
+    (origin,) = origins
+    return origin
 
 
 def segregation_phase(

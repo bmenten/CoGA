@@ -4,7 +4,7 @@ import json
 import re
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Any, Collection, Final, Iterable, NamedTuple, Protocol, Sequence, cast
+from typing import Any, Callable, Collection, Final, Iterable, NamedTuple, Protocol, Sequence, cast
 
 from fastapi import HTTPException
 
@@ -38,6 +38,7 @@ from .compound_het_phase import (
     UNKNOWN_CARRIAGE,
     Carriage,
     FamilyPedigree,
+    hit_origin,
     phased_alt_haplotype,
     segregation_phase,
     small_variant_carriage,
@@ -87,6 +88,7 @@ from .clickhouse_variant_records import (
     SmallVariantCall,
     SmallVariantRecord,
     SmallVariantCarrierGene,
+    SmallVariantCompoundHetGene,
     SmallVariantCompoundHetPair,
     StructuralVariantRecord,
     _casefold,
@@ -1358,6 +1360,76 @@ def _compound_het_pairs(
             *_small_record_sort_key(pair.right),
         ),
     )
+
+
+def _record_carriage(record: SmallVariantRecord) -> Callable[[str], Carriage]:
+    """Each sample's carriage of ``record``, for tracing it through the parents."""
+    calls = _small_call_map(record)
+    return lambda sample: _call_carriage(calls.get(sample))
+
+
+def _compound_het_genes(
+    pairs: Sequence[SmallVariantCompoundHetPair],
+    *,
+    affected_samples: Sequence[str],
+    pedigree: FamilyPedigree | None = None,
+) -> list[SmallVariantCompoundHetGene]:
+    """The compound-het pairs by gene, in the order of their first pair: each gene with every
+    variant of its pairs and the parent each traces to (``hit_origin``). A gene of two
+    variants from the father and three from the mother is one result with its five variants
+    and its six pairs, not six results. A pair is formed under a gene id or a symbol its two
+    variants share (``_compound_het_gene_keys``), so pairs that share either are one gene."""
+    joined: dict[tuple[str, str], tuple[str, str]] = {}
+
+    def gene_of(key: tuple[str, str]) -> tuple[str, str]:
+        while joined.setdefault(key, key) != key:
+            key = joined[key]
+        return key
+
+    pair_keys: list[list[tuple[str, str]]] = []
+    for pair in pairs:
+        keys = [*_compound_het_gene_keys(pair.left), *_compound_het_gene_keys(pair.right)]
+        first = gene_of(keys[0])
+        for key in keys[1:]:
+            other = gene_of(key)
+            if other != first:
+                joined[other] = first
+        pair_keys.append(keys)
+    by_gene: dict[tuple[str, str], list[SmallVariantCompoundHetPair]] = {}
+    first_key: dict[tuple[str, str], tuple[str, str]] = {}
+    for pair, keys in zip(pairs, pair_keys, strict=True):
+        root = gene_of(keys[0])
+        by_gene.setdefault(root, []).append(pair)
+        first_key.setdefault(root, keys[0])
+
+    genes: list[SmallVariantCompoundHetGene] = []
+    for root, gene_pairs in by_gene.items():
+        records = sorted(
+            {record.variant_id: record for pair in gene_pairs for record in (pair.left, pair.right)}.values(),
+            key=_small_record_sort_key,
+        )
+        inherited_from: dict[str, str] = {}
+        for record in records:
+            origin = hit_origin(
+                affected=affected_samples,
+                carriage=_record_carriage(record),
+                pedigree=pedigree,
+                locus=(record.chr, record.start),
+            )
+            if origin is not None:
+                inherited_from[record.variant_id] = origin
+        kind, value = first_key[root]
+        genes.append(
+            SmallVariantCompoundHetGene(
+                group_key=f"compound-het-gene:{kind}:{value}",
+                gene=next((pair.gene for pair in gene_pairs if pair.gene), None),
+                gene_id=next((pair.gene_id for pair in gene_pairs if pair.gene_id), None),
+                records=tuple(records),
+                pairs=tuple(gene_pairs),
+                inherited_from=inherited_from,
+            )
+        )
+    return genes
 
 
 def _normalize_small_variant_inheritance(value: str | None) -> str | None:
@@ -3929,11 +4001,11 @@ def _small_pair_inheritance_candidate_limit(filters: SmallVariantQueryFilters) -
 
 
 def _inheritance_item_sort_key(
-    item: tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord],
+    item: tuple[str, SmallVariantCompoundHetGene | SmallVariantRecord],
 ) -> tuple[int, int, int, str, int, int, str, str]:
     item_type, item_value = item
     if item_type == "group":
-        return (0, *_small_record_sort_key(cast(SmallVariantCompoundHetPair, item_value).left))
+        return (0, *_small_record_sort_key(cast(SmallVariantCompoundHetGene, item_value).records[0]))
     return (1, *_small_record_sort_key(cast(SmallVariantRecord, item_value)))
 
 
@@ -3955,17 +4027,21 @@ def _inheritance_result_items(
     affected_samples: Sequence[str],
     unaffected_samples: Sequence[str],
     pedigree: FamilyPedigree | None = None,
-) -> list[tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord]]:
+) -> list[tuple[str, SmallVariantCompoundHetGene | SmallVariantRecord]]:
     """What an inheritance mode keeps of ``records``: the compound-het pairs it finds among
-    them, and the variants a single-variant mode keeps, by the modes the SQL found each to
-    fit (``SmallVariantRecord.segregation``). Recessive keeps both kinds: the pairs, and the
-    homozygous recessive and X-linked variants."""
-    pair_items: list[tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord]] = [
-        ("group", pair)
-        for pair in _compound_het_pairs(
-            records,
+    them, by gene (``_compound_het_genes``), and the variants a single-variant mode keeps, by
+    the modes the SQL found each to fit (``SmallVariantRecord.segregation``). Recessive keeps
+    both kinds: the genes with pairs, and the homozygous recessive and X-linked variants."""
+    pair_items: list[tuple[str, SmallVariantCompoundHetGene | SmallVariantRecord]] = [
+        ("group", gene)
+        for gene in _compound_het_genes(
+            _compound_het_pairs(
+                records,
+                affected_samples=affected_samples,
+                unaffected_samples=unaffected_samples,
+                pedigree=pedigree,
+            ),
             affected_samples=affected_samples,
-            unaffected_samples=unaffected_samples,
             pedigree=pedigree,
         )
     ]
