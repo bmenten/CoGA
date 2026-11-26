@@ -162,9 +162,11 @@ pairs: each paternal variant with each maternal one. Two variants from one paren
 no pair.
 
 A card takes its colour from ClinVar, here and on the monogenic NIPT page: light red when ClinVar calls
-the variant pathogenic or likely pathogenic, light green when it calls it benign or likely benign. A
-conflicting, uncertain or other ClinVar status, or none, leaves the card white. In the table a row is
-tinted the same way, more faintly.
+the variant pathogenic or likely pathogenic, light green when it calls it benign or likely benign.
+Classifications that disagree, such as *uncertain significance & likely pathogenic*, are a conflict:
+light orange when one of them is pathogenic or likely pathogenic. Any other conflicting, uncertain or
+other ClinVar status, or none, leaves the card white. In the table a row is tinted the same way, more
+faintly, and the ClinVar chip takes the same colour.
 
 Under its heading, a card names up to three diseases its gene is linked to: Monarch's causal links,
 those more sources back first; else the gene's OMIM diseases; else Monarch's associations, marked *not

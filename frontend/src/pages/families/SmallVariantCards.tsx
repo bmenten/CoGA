@@ -931,8 +931,9 @@ export function SmallVariantCard({
   const ic = variant.internal_cohort;
 
   // ClinVar's classification sets the card's left rail and, on a small variant's card
-  // alone, its background: light red for (likely) pathogenic, light green for (likely)
-  // benign; every other classification keeps the white card.
+  // alone, its background: light red for (likely) pathogenic, light orange for a conflict
+  // that lists a (likely) pathogenic classification, light green for (likely) benign; every
+  // other classification keeps the white card.
   return (
     <article
       className={`variant-card finding-card small-variant-card variant-card--clinvar-${getClinvarHighlightTone(

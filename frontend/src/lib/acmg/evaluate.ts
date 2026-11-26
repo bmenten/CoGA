@@ -398,8 +398,9 @@ export function evaluateAcmg(
   }
 
   // ---- PP5 / BP6: ClinVar reputable-source assertion ----
-  // A conflicting record ("Conflicting classifications of pathogenicity") is neither
-  // pathogenic nor benign, so it suggests neither criterion (lib/clinvar). Offered for review,
+  // A conflicting record ("Conflicting classifications of pathogenicity", or a list of
+  // classifications that disagree) is neither pathogenic nor benign, so it suggests neither
+  // criterion (lib/clinvar). Offered for review,
   // never applied: ClinGen's SVI advises against counting another lab's assertion as evidence
   // (the owner's choice of 2026-11-06). The evidence names the review status (its stars) and
   // the conditions ClinVar gives.

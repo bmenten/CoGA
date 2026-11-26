@@ -290,11 +290,14 @@ describe('evaluateAcmg', () => {
   });
 
   // "Conflicting classifications of pathogenicity" contains "pathogenic": read as a
-  // substring, it applied PP5 and argued against BP6.
+  // substring, it applied PP5 and argued against BP6. A value that lists classifications
+  // that disagree is a conflict too.
   it.each([
     'Conflicting_classifications_of_pathogenicity',
     'Conflicting interpretations of pathogenicity',
     'Conflicting_classifications_of_pathogenicity|risk_factor',
+    'uncertain_significance&likely_pathogenic',
+    'benign&likely_benign&uncertain_significance',
   ])('suggests neither PP5 nor BP6 for a conflicting ClinVar record (%s)', (clinvar) => {
     const suggestions = evaluateAcmg({ effect: 'missense_variant', clinvar });
 
