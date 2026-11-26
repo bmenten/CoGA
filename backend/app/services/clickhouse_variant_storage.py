@@ -443,15 +443,16 @@ async def _bump_family_data_version(version_table: str, family_uuid: str) -> Non
     )
 
 
+def _data_version(count: int | None, total: int | None) -> str:
+    return f"{int(count or 0)}:{int(total or 0)}"
+
+
 async def _family_data_version(version_table: str, family_uuid: str) -> str:
     rows = await _execute(
         f"SELECT count(), sum(token) FROM {version_table} WHERE family_guid = %(family_guid)s",
         {"family_guid": family_uuid},
     )
-    if not rows:
-        return "0:0"
-    count, total = rows[0]
-    return f"{int(count or 0)}:{int(total or 0)}"
+    return _data_version(*rows[0]) if rows else "0:0"
 
 
 async def bump_family_small_variant_data_version(assembly_name: str, family_uuid: str) -> None:
@@ -481,6 +482,24 @@ async def get_family_small_variant_data_version(assembly_name: str, family_uuid:
     return await _family_data_version(
         _small_table_name(assembly_name, "family_data_version"), family_uuid
     )
+
+
+async def family_small_variant_data_versions(assembly_name: str) -> dict[str, str]:
+    """Each written family's :func:`get_family_small_variant_data_version` on ``assembly_name``,
+    by family UUID, in one read. An assembly whose tables were never made has none: they are
+    not made here."""
+    dataset = _require_clickhouse_identifier(assembly_name)
+    made = await _execute(
+        "SELECT 1 FROM system.tables WHERE database = %(database)s AND name = %(name)s",
+        {"database": settings.clickhouse_database, "name": f"{dataset}/SNV_INDEL/family_data_version"},
+    )
+    if not made:
+        return {}
+    rows = await _execute(
+        f"SELECT family_guid, count(), sum(token) FROM {_small_table_name(assembly_name, 'family_data_version')} "
+        "GROUP BY family_guid"
+    )
+    return {str(family): _data_version(count, total) for family, count, total in rows or []}
 
 
 async def bump_family_structural_variant_data_version(assembly_name: str, family_uuid: str) -> None:

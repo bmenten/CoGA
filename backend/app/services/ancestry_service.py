@@ -67,8 +67,7 @@ from .ancestry_projection import (
     load_reference,
 )
 from .clickhouse_variant_storage import (
-    _execute as storage_execute,
-    _small_table_name,
+    family_small_variant_data_versions,
     get_family_small_variant_data_version,
 )
 from .family_metadata_context import FamilyMetadataContext, _resolve_family_assembly, build_family_metadata_context
@@ -333,11 +332,7 @@ async def queue_changed_families(session: AsyncSession, family_uuids: list[str] 
         reference = (await asyncio.to_thread(configured_reference)).public
     except AncestryInputError:
         return 0
-    # Fixed assembly and allowlisted table helper; nothing here comes from a request.
-    table = _small_table_name("GRCh38", "family_data_version")
-    versions = {str(family): f"{int(count or 0)}:{int(total or 0)}" for family, count, total in
-                (await storage_execute(f"SELECT family_guid, count(), sum(token) FROM {table} GROUP BY family_guid")
-                 or [])}
+    versions = await family_small_variant_data_versions("GRCh38")
     if family_uuids is not None:
         versions = {family: version for family, version in versions.items() if family in set(family_uuids)}
     if not versions:
