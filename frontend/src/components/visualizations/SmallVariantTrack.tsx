@@ -133,6 +133,9 @@ const variantOrigin = (
 
 type PositionedVariant = Variant & { x: number; origin: ParentalOrigin };
 
+// The marks the accessible name counts: the diamonds and HIGH impact.
+const COUNTED_MARKS = ['pathogenic', 'conflicting_pathogenic', 'high'] as const;
+
 /**
  * The drawn variants in words, for the chart's accessible name: how many, and how
  * many carry the salient marks. Counted by mark, as the legend reads them: a ClinVar P/LP
@@ -141,6 +144,7 @@ type PositionedVariant = Variant & { x: number; origin: ParentalOrigin };
 const describeMarks = (variants: Variant[]): string => {
   const counts: Record<SmallVariantMarkKind, number> = {
     pathogenic: 0,
+    conflicting_pathogenic: 0,
     high: 0,
     moderate: 0,
     benign: 0,
@@ -149,12 +153,12 @@ const describeMarks = (variants: Variant[]): string => {
   variants.forEach((variant) => {
     counts[smallVariantMarkKind(variant)] += 1;
   });
-  const salient = (['pathogenic', 'high'] as const)
-    .filter((kind) => counts[kind] > 0)
-    .map((kind) => `${counts[kind].toLocaleString()} ${SMALL_VARIANT_MARKS[kind].label}`);
+  const salient = COUNTED_MARKS.filter((kind) => counts[kind] > 0).map(
+    (kind) => `${counts[kind].toLocaleString()} ${SMALL_VARIANT_MARKS[kind].label}`,
+  );
   const detail = salient.length
     ? `of which ${salient.join(' and ')}`
-    : `none ${SMALL_VARIANT_MARKS.pathogenic.label} or ${SMALL_VARIANT_MARKS.high.label}`;
+    : `none ${COUNTED_MARKS.map((kind) => SMALL_VARIANT_MARKS[kind].label).join(' or ')}`;
   return `${variants.length.toLocaleString()}, ${detail}`;
 };
 

@@ -69,10 +69,11 @@ Het ideogram is de gestreepte chromosoomtekening. De cytobanden komen uit Postgr
 - **Small variants.** Eén teken per variant van het sample (`GET /api/families/{familyId}/small-variants` in track-modus, met een bovengrens). De tekens (`frontend/src/lib/smallVariantMarks.ts`):
 
     - een variant die ClinVar (waarschijnlijk) pathogeen noemt: een grotere rode ruit, welke impact ze ook heeft;
+    - een variant waarvan de ClinVar-classificaties elkaar tegenspreken, met een (waarschijnlijk) pathogene erbij: dezelfde ruit in oranje;
     - elke andere variant: een stip van 6 px breed, waarvan de kleur de klasse geeft: groen voor ClinVar (waarschijnlijk) benigne, dan naar impact oranje voor HIGH, geel voor MODERATE en grijs voor LOW, MODIFIER of geen;
     - een reviewtag: een ring in de kleur van de tag rond het teken.
 
-    De stippen verschillen alleen door hun kleur; de tooltip noemt de impact en de ClinVar-klasse, en de toegankelijke naam van de track telt de ruiten en de HIGH-varianten. Het opvallendste teken ligt bovenop: grijs eerst, dan groen, geel, oranje en tot slot de ruiten.
+    De stippen verschillen alleen door hun kleur; de tooltip noemt de impact en de ClinVar-klasse, en de toegankelijke naam van de track telt de ruiten en de HIGH-varianten. Het opvallendste teken ligt bovenop: grijs eerst, dan groen, geel, oranje en tot slot de oranje en de rode ruiten.
 
     Is het sample geen vader of moeder en heeft de familie minstens één ouder, dan splitst de track in rijen naar ouderlijke oorsprong (vaderlijk, onbepaald, moederlijk): met beide ouders volgens hun genotypes, anders volgens de fase van het kind.
 

@@ -126,6 +126,10 @@
   background: rgba(180, 35, 24, 0.06);
 }
 
+.variant-table-row--clinvar-warning {
+  background: rgba(180, 125, 45, 0.08);
+}
+
 .variant-table-row--clinvar-benign {
   background: rgba(47, 133, 90, 0.06);
 }

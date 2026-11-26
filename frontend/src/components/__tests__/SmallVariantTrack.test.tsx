@@ -676,10 +676,11 @@ const brca2Track = (regionStart = 32_316_000) => (
 test('names the drawn variants and the salient marks among them', () => {
   serveVariants({
     data: {
-      total: 5,
+      total: 6,
       variants: [
         // Drawn as P/LP, so counted as P/LP only, whatever its impact.
         carried(32_316_100, { clinvar: 'Pathogenic', impact: 'HIGH' }),
+        carried(32_316_150, { clinvar: 'uncertain_significance&likely_pathogenic', impact: 'LOW' }),
         carried(32_316_200, { impact: 'HIGH' }),
         carried(32_316_300, { impact: 'MODERATE' }),
         carried(32_316_400, { clinvar: 'Likely benign' }),
@@ -692,12 +693,14 @@ test('names the drawn variants and the salient marks among them', () => {
 
   expect(
     screen.getByRole('img', {
-      name: 'Small variants of S1 on chr13:32,316,000–32,317,000: 4, of which 1 ClinVar P/LP and 1 HIGH impact',
+      name:
+        'Small variants of S1 on chr13:32,316,000–32,317,000: 5, of which 1 ClinVar P/LP and ' +
+        '1 ClinVar conflicting with P/LP and 1 HIGH impact',
     }),
   ).toBeInTheDocument();
 });
 
-test('says when none of the drawn variants is P/LP or HIGH impact', () => {
+test('says when none of the drawn variants is P/LP, conflicting with P/LP or HIGH impact', () => {
   serveVariants({
     data: { total: 2, variants: [carried(32_316_100, { impact: 'MODERATE' }), carried(32_316_200, { impact: 'LOW' })] },
   });
@@ -705,7 +708,9 @@ test('says when none of the drawn variants is P/LP or HIGH impact', () => {
 
   expect(
     screen.getByRole('img', {
-      name: 'Small variants of S1 on chr13:32,316,000–32,317,000: 2, none ClinVar P/LP or HIGH impact',
+      name:
+        'Small variants of S1 on chr13:32,316,000–32,317,000: 2, ' +
+        'none ClinVar P/LP or ClinVar conflicting with P/LP or HIGH impact',
     }),
   ).toBeInTheDocument();
 });

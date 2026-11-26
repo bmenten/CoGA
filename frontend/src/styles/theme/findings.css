@@ -3,7 +3,8 @@
    its tooltip, the info icon, the amber rail and the link row's button. */
 
 /* A finding to look at that is neither pathogenic nor benign: a grey-zone or premutation
-   repeat, a carrier, an mtDNA variant reported or uncertain. */
+   repeat, a carrier, an mtDNA variant reported or uncertain, a small variant whose ClinVar
+   classifications conflict with a (likely) pathogenic one among them. */
 .variant-card--clinvar-warning {
   border-left-color: #b47d2d;
 }

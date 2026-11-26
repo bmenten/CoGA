@@ -69,10 +69,11 @@ The ideogram is the striped chromosome drawing. The cytobands come from Postgres
 - **Small variants.** One mark per variant of the sample (`GET /api/families/{familyId}/small-variants` in track mode, with an upper limit). The marks (`frontend/src/lib/smallVariantMarks.ts`):
 
     - a variant that ClinVar calls (likely) pathogenic: a larger red diamond, whatever its impact;
+    - a variant whose ClinVar classifications disagree, with a (likely) pathogenic one among them: the same diamond in orange;
     - every other variant: a dot 6 px wide, whose colour gives the class: green for ClinVar (likely) benign, then by impact orange for HIGH, yellow for MODERATE and grey for LOW, MODIFIER or none;
     - a review tag: a ring in the tag's colour around the mark.
 
-    The dots differ only by their colour; the tooltip names the impact and the ClinVar class, and the track's accessible name counts the diamonds and the HIGH variants. The most salient mark lies on top: grey first, then green, yellow, orange and finally the diamonds.
+    The dots differ only by their colour; the tooltip names the impact and the ClinVar class, and the track's accessible name counts the diamonds and the HIGH variants. The most salient mark lies on top: grey first, then green, yellow, orange and finally the orange and the red diamonds.
 
     If the sample is not a father or mother and the family has at least one parent, the track splits into rows by parental origin (paternal, undetermined, maternal): with both parents by their genotypes, otherwise by the child's phase.
 

@@ -1,11 +1,12 @@
 import * as d3 from 'd3';
 
-import { clinvarClass } from './clinvar';
+import { type ClinvarClass, clinvarClass } from './clinvar';
 
 /**
  * How the small-variant track marks a variant:
  *
- * - ClinVar (likely) pathogenic is a larger red diamond, whatever the impact;
+ * - ClinVar (likely) pathogenic is a larger red diamond, whatever the impact; a ClinVar
+ *   conflict that lists a (likely) pathogenic classification the same diamond in orange;
  * - every other variant is a dot, whose colour gives its class: green for ClinVar
  *   (likely) benign, then by impact orange for HIGH, yellow for MODERATE and grey for LOW,
  *   MODIFIER or none;
@@ -14,7 +15,7 @@ import { clinvarClass } from './clinvar';
  *
  * The dots differ by colour only; the tooltip names the impact and the ClinVar class.
  */
-export type SmallVariantMarkKind = 'pathogenic' | 'benign' | 'high' | 'moderate' | 'other';
+export type SmallVariantMarkKind = ClinvarClass | 'high' | 'moderate' | 'other';
 
 interface MarkStyle {
   label: string;
@@ -25,11 +26,13 @@ interface MarkStyle {
 }
 
 const dot = (label: string, color: string): MarkStyle => ({ label, symbol: d3.symbolCircle, scale: 1, color });
+// Half as large again as a dot: larger, and still within a parental-origin row.
+const diamond = (label: string, color: string): MarkStyle => ({ label, symbol: d3.symbolDiamond2, scale: 1.5, color });
 
-// Literal hex, so the track renders without the theme stylesheet (and stays testable). The
-// diamond is half as large again as a dot: larger, and still within a parental-origin row.
+// Literal hex, so the track renders without the theme stylesheet (and stays testable).
 export const SMALL_VARIANT_MARKS: Record<SmallVariantMarkKind, MarkStyle> = {
-  pathogenic: { label: 'ClinVar P/LP', symbol: d3.symbolDiamond2, scale: 1.5, color: '#dc2626' },
+  pathogenic: diamond('ClinVar P/LP', '#dc2626'),
+  conflicting_pathogenic: diamond('ClinVar conflicting with P/LP', '#d97706'),
   benign: dot('ClinVar B/LB', '#16a34a'),
   high: dot('HIGH impact', '#ea580c'),
   moderate: dot('MODERATE', '#eab308'),
@@ -37,14 +40,22 @@ export const SMALL_VARIANT_MARKS: Record<SmallVariantMarkKind, MarkStyle> = {
 };
 
 /** Legend order. */
-export const SMALL_VARIANT_MARK_ORDER: SmallVariantMarkKind[] = ['pathogenic', 'benign', 'high', 'moderate', 'other'];
+export const SMALL_VARIANT_MARK_ORDER: SmallVariantMarkKind[] = [
+  'pathogenic',
+  'conflicting_pathogenic',
+  'benign',
+  'high',
+  'moderate',
+  'other',
+];
 /** Draw order: the salient marks end up on top. */
 const DRAW_RANK: Record<SmallVariantMarkKind, number> = {
   other: 0,
   benign: 1,
   moderate: 2,
   high: 3,
-  pathogenic: 4,
+  conflicting_pathogenic: 4,
+  pathogenic: 5,
 };
 
 export const smallVariantMarkKind = (variant: {

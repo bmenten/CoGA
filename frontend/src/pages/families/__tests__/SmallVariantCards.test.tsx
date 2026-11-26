@@ -1323,11 +1323,13 @@ describe('SmallVariantCards', () => {
   });
 
   // The card's class sets its rail and, on a small variant's card alone, its background
-  // (clinvarCardTintRules.test.ts): red for (likely) pathogenic, green for (likely) benign.
+  // (clinvarCardTintRules.test.ts): red for (likely) pathogenic, orange (warning) for a conflict
+  // that lists a (likely) pathogenic classification, green for (likely) benign.
   it.each([
     ['Pathogenic', 'pathogenic'],
     ['Likely_pathogenic', 'pathogenic'],
     ['Pathogenic,_low_penetrance', 'pathogenic'],
+    ['uncertain_significance&likely_pathogenic', 'warning'],
     ['Benign', 'benign'],
     ['Likely_benign', 'benign'],
     ['Uncertain_significance', 'neutral'],
