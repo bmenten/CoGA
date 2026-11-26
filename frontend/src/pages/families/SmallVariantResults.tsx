@@ -114,6 +114,13 @@ export default function SmallVariantResults({
   const hasResults = hasFlatVariants || hasCompoundHetGenes || hasCarrierGenes;
   // A maximum gnomAD count filter cannot exclude a variant without that count.
   const countNote = gnomadCountNote(requestQueryString, data);
+  // A compound-het or carrier gene is one result, so the heading also counts the variants
+  // where their number is not the results'.
+  const resultCount = data ? formatVariantTotal(data.total, data.total_is_estimated, data.count_limit) : null;
+  const variantCount =
+    typeof data?.variant_total === 'number'
+      ? formatVariantTotal(data.variant_total, data.total_is_estimated, data.count_limit)
+      : null;
 
   const handleDownloadCsv = async () => {
     const target =
@@ -176,9 +183,10 @@ export default function SmallVariantResults({
           <div className="space-y-1">
             <h2 className="section-title">
               Results
-              {typeof data?.total === 'number' ? (
+              {resultCount ? (
                 <span className="variant-results-count">
-                  {formatVariantTotal(data.total, data.total_is_estimated, data.count_limit)}
+                  {resultCount}
+                  {variantCount && variantCount !== resultCount ? ` · ${variantCount} variants` : null}
                 </span>
               ) : null}
             </h2>

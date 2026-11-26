@@ -146,7 +146,9 @@ one result.
 
 At the top of the page, *Showing* counts the results, and *Variants* and *Genes* count what the
 filters keep: the variants, and the genes they are in. Each variant counts toward the gene its card
-names; a variant without a gene counts toward none. A count with a + is a lower bound.
+names; a variant without a gene counts toward none. A count with a + is a lower bound. Above the
+list, *Results* gives the number of results, followed by the number of variants when that differs (for
+example *12 · 30 variants*).
 
 A gene is a frame headed by the gene, as a single card is, with its diseases and inheritance once, and
 holds each of its variants as the list of single variants shows it: as its full card, headed by its

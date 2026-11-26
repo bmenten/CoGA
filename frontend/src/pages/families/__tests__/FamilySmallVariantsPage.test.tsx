@@ -685,6 +685,10 @@ describe('FamilySmallVariantsPage', () => {
   });
 
   describe('a search that read only part of the callset', () => {
+    // The count beside the list's Results heading.
+    const resultsCount = () =>
+      screen.getByRole('heading', { level: 2, name: /^Results/ }).querySelector('.variant-results-count');
+
     const renderWithPage = (page: Record<string, unknown>) => {
       apiMock.get.mockImplementation((url: string) => {
         if (url === '/families/F1') {
@@ -748,6 +752,14 @@ describe('FamilySmallVariantsPage', () => {
       expect(await screen.findByText(factText('Showing 2'))).toBeInTheDocument();
       expect(screen.getByText(factText('Variants 3'))).toBeInTheDocument();
       expect(screen.getByText(factText('Genes 2'))).toBeInTheDocument();
+      // The heading above the list counts the variants beside the results.
+      expect(resultsCount()).toHaveTextContent(/^2 · 3 variants$/);
+    });
+
+    it('counts only the results above a list whose results are its variants', async () => {
+      renderWithPage({ total: 3, total_is_estimated: false, variant_total: 3, gene_total: 2 });
+      expect(await screen.findByText(factText('Showing 3'))).toBeInTheDocument();
+      expect(resultsCount()).toHaveTextContent(/^3$/);
     });
 
     it('marks the variant and gene counts of a capped read as lower bounds', async () => {
@@ -762,6 +774,7 @@ describe('FamilySmallVariantsPage', () => {
       });
       expect(await screen.findByText(factText('Variants 120+'))).toBeInTheDocument();
       expect(screen.getByText(factText('Genes 35+'))).toBeInTheDocument();
+      expect(resultsCount()).toHaveTextContent(/^40\+ · 120\+ variants$/);
     });
   });
 
