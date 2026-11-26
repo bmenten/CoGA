@@ -175,7 +175,7 @@ export default function SmallVariantResults({
         <div className="variant-results-toolbar">
           <div className="space-y-1">
             <h2 className="section-title">
-              Variants
+              Results
               {typeof data?.total === 'number' ? (
                 <span className="variant-results-count">
                   {formatVariantTotal(data.total, data.total_is_estimated, data.count_limit)}

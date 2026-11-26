@@ -9,7 +9,9 @@ CoGA caches the ranked order per family and reuses it until an input changes.
 
 `family_variant_ranking_cache` (in `03_assay.sql`) keeps, per family and query:
 
-- the ranked order, a list of `{variant_id, priority}` (the score breakdown);
+- the ranked order, a list of `{variant_id, priority, gene_keys}`: the score breakdown, and the
+  gene id and symbol each variant's gene is matched by, from which a page served from the cache
+  counts its genes;
 - the total, and whether the ranking was truncated;
 - `provenance`: the query's filters and a digest of the genes and regions its panel filter
   applied (`panel_members`).

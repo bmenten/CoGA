@@ -446,7 +446,22 @@ const FamilySmallVariantsPage: React.FC = () => {
               <FamilyFact
                 label="Showing"
                 value={formatVariantTotal(data.total, data.total_is_estimated, data.count_limit)}
+                title="The results: a compound-het or carrier-screen gene counts as one"
               />
+              {typeof data.variant_total === 'number' ? (
+                <FamilyFact
+                  label="Variants"
+                  value={formatVariantTotal(data.variant_total, data.total_is_estimated, data.count_limit)}
+                  title="The variants the filters keep"
+                />
+              ) : null}
+              {typeof data.gene_total === 'number' ? (
+                <FamilyFact
+                  label="Genes"
+                  value={formatVariantTotal(data.gene_total, data.total_is_estimated, data.count_limit)}
+                  title="The genes those variants are in, each variant counted toward the gene its card names; a variant without a gene counts toward none"
+                />
+              ) : null}
               <FamilyFact
                 label="All variants"
                 value={formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated, data.count_limit)}

@@ -242,12 +242,13 @@ async def test_the_presence_applies_the_panel_with_the_clause_of_the_members_tra
     await _members_track(view, "FATHER")
     (track,) = built[1:]
     await _list(view, page=1, page_size=100)
-    page, count = built[2:]
+    # The list's page, its count, and the counted rows read for their genes.
+    page, count, counted = built[2:]
 
     assert offered == {"PROBAND": False, "MOTHER": False, "FATHER": True}
     clauses, values = _panel_part(*presence)
     assert len(clauses) == 1, presence[0]
-    for query in (track, page, count):
+    for query in (track, page, count, counted):
         assert _panel_part(*query) == (clauses, values)
     # The panel's genes, in the entry's own symbols and the gene index, and its regions
     # joined to the family's rows; nothing else of the panel, and no region tested per row.

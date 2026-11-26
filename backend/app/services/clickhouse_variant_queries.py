@@ -996,6 +996,44 @@ def _primary_gene_keys(record: SmallVariantRecord) -> tuple[str | None, str | No
     return gene, gene_id
 
 
+# What a variant's gene is matched by: its gene id and its symbol, each on its own.
+GeneMatchKeys = tuple[tuple[str, str], ...]
+
+
+def _gene_match_keys(record: SmallVariantRecord) -> GeneMatchKeys:
+    """The gene id and the symbol of a variant's card's gene (``_primary_gene_keys``), each a
+    key its gene is matched by; none for a variant without a gene."""
+    gene, gene_id = _primary_gene_keys(record)
+    return tuple((kind, value) for kind, value in (("gene_id", gene_id), ("gene", gene)) if value)
+
+
+def _joined_genes(key_sets: Sequence[GeneMatchKeys]) -> list[tuple[str, str]]:
+    """The gene of each of ``key_sets`` (none empty), named by one of its keys: the sets that
+    share a gene id or a symbol, directly or through another set, are one gene. A renamed
+    gene whose annotations carry the old and the new symbol under one id is one gene."""
+    joined: dict[tuple[str, str], tuple[str, str]] = {}
+
+    def gene_of(key: tuple[str, str]) -> tuple[str, str]:
+        while joined.setdefault(key, key) != key:
+            key = joined[key]
+        return key
+
+    for keys in key_sets:
+        first = gene_of(keys[0])
+        for key in keys[1:]:
+            other = gene_of(key)
+            if other != first:
+                joined[other] = first
+    return [gene_of(keys[0]) for keys in key_sets]
+
+
+def _gene_count(key_sets: Iterable[GeneMatchKeys]) -> int:
+    """How many genes variants are in, given each one's ``_gene_match_keys``: each variant
+    counts toward its card's gene, variants matched to one gene as ``_joined_genes`` joins
+    them (as the carrier screen lists its genes), and a variant without a gene toward none."""
+    return len(set(_joined_genes([keys for keys in key_sets if keys])))
+
+
 def _chromosome_sort_key(chromosome: str) -> tuple[int, int, str]:
     cleaned = normalize_chromosome(chromosome).upper()
     numeric = field_int(cleaned)
@@ -1569,14 +1607,10 @@ def _carrier_screening_genes(
     for record in records:
         if _is_mitochondrial_chromosome(record.chr):
             continue
-        gene, gene_id = _primary_gene_keys(record)
-        keys: list[tuple[str, str]] = []
-        if gene_id:
-            keys.append(("gene_id", gene_id))
-        if gene:
-            keys.append(("gene", gene))
+        keys = _gene_match_keys(record)
         if not keys:
             continue
+        gene, gene_id = _primary_gene_keys(record)
         call_map = {call.sample: call.gt for call in record.calls}
         carriers = frozenset(
             index
@@ -1590,7 +1624,7 @@ def _carrier_screening_genes(
                 record=record,
                 gene=gene,
                 gene_id=gene_id,
-                keys=tuple(keys),
+                keys=keys,
                 carriers=carriers,
                 x_linked=hemizygous_chromosome(assembly_name, record.chr, record.start) == "X",
             )
@@ -1605,22 +1639,9 @@ def _carrier_screening_genes(
     ]
 
     # The kept variants that share a gene id or a symbol, joined into one gene.
-    joined: dict[tuple[str, str], tuple[str, str]] = {}
-
-    def gene_of(key: tuple[str, str]) -> tuple[str, str]:
-        while joined.setdefault(key, key) != key:
-            key = joined[key]
-        return key
-
-    for candidate in kept:
-        first = gene_of(candidate.keys[0])
-        for key in candidate.keys[1:]:
-            other = gene_of(key)
-            if other != first:
-                joined[other] = first
     genes: dict[tuple[str, str], list[_CarrierCandidate]] = {}
-    for candidate in kept:
-        genes.setdefault(gene_of(candidate.keys[0]), []).append(candidate)
+    for candidate, joined_gene in zip(kept, _joined_genes([candidate.keys for candidate in kept]), strict=True):
+        genes.setdefault(joined_gene, []).append(candidate)
     return [_carrier_gene(members, partners) for members in genes.values()]
 
 

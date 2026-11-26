@@ -46,10 +46,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.sql import canonical_uuid
 from .hpo_service import get_loaded_hpo_release
 
-# Bump when the scoring or ranking logic changes, or which variants a filter keeps, so the
-# rankings cached under the old logic are ignored. A change to what the hash covers needs no
-# bump: the hashed payload itself changes, so no row cached under the old payload can match.
-_ALGORITHM_VERSION = "11"
+# Bump when the scoring or ranking logic changes, which variants a filter keeps, or what a
+# cached ranking's entry holds, so the rankings cached under the old logic are ignored. A change
+# to what the hash covers needs no bump: the hashed payload itself changes, so no row cached
+# under the old payload can match.
+_ALGORITHM_VERSION = "12"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 
