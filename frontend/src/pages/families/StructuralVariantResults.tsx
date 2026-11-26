@@ -22,7 +22,7 @@ import { type RankedBy } from './smallVariantSearch';
 import { apiPath, raw } from '../../lib/apiPath';
 import { FamilyReadOnlyContext } from '../../lib/familyAccess';
 
-type ResultViewMode = 'auto' | 'table' | 'cards';
+type ResultViewMode = 'table' | 'cards';
 
 type StructuralVariantResultsProps = {
   familyId?: string;
@@ -81,7 +81,8 @@ export default function StructuralVariantResults({
   readOnly = false,
   rankedBy = null,
 }: StructuralVariantResultsProps) {
-  const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
+  // Null until the user picks a view: a short list shows as cards, a longer one as a table.
+  const [viewMode, setViewMode] = useState<ResultViewMode | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<StructuralVariant | null>(null);
   const [cnvAcmgVariant, setCnvAcmgVariant] = useState<StructuralVariant | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -126,12 +127,8 @@ export default function StructuralVariantResults({
     () => sortStructuralVariants(variants, sortKey, sortAsc),
     [sortAsc, sortKey, variants],
   );
-  const resolvedViewMode =
-    viewMode === 'auto' && variants.length <= CARD_VIEW_THRESHOLD
-      ? 'cards'
-      : viewMode === 'auto'
-        ? 'table'
-        : viewMode;
+  const resolvedViewMode: ResultViewMode =
+    viewMode ?? (variants.length <= CARD_VIEW_THRESHOLD ? 'cards' : 'table');
 
   const handleSort = (key: StructuralSortableKeys) => {
     if (sortKey === key) {
@@ -178,7 +175,7 @@ export default function StructuralVariantResults({
               {overallTotal === null
                 ? `Filtered ${filteredLabel} SVs; the number imported could not be loaded.`
                 : `Filtered ${filteredLabel} of ${overallTotal.toLocaleString()} imported SVs.`}{' '}
-              Auto view switches to cards at {CARD_VIEW_THRESHOLD} results.
+              Up to {CARD_VIEW_THRESHOLD} SVs show as cards, more as a table, until you pick a view.
             </p>
           </div>
           <div className="variant-results-toolbar-actions">
@@ -193,7 +190,6 @@ export default function StructuralVariantResults({
             </button>
             <div className="variant-results-toggle" role="tablist" aria-label="SV display mode">
               {[
-                { value: 'auto', label: 'Auto' },
                 { value: 'table', label: 'Table' },
                 { value: 'cards', label: 'Cards' },
               ].map((option) => (
@@ -201,8 +197,8 @@ export default function StructuralVariantResults({
                   key={option.value}
                   type="button"
                   role="tab"
-                  aria-selected={viewMode === option.value}
-                  className={`pill-toggle ${viewMode === option.value ? 'pill-toggle--active' : ''}`}
+                  aria-selected={resolvedViewMode === option.value}
+                  className={`pill-toggle ${resolvedViewMode === option.value ? 'pill-toggle--active' : ''}`}
                   onClick={() => setViewMode(option.value as ResultViewMode)}
                 >
                   {option.label}

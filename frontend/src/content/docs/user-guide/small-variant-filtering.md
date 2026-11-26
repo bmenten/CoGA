@@ -135,7 +135,8 @@ transcript the row describes.
 The built-in presets are *Phenotype priority*, *Dominant strict*, *Dominant relaxed*, *Expanded carrier
 screening*, *Compound het*, *Recessive hom*, *Recessive broad*, *Any affected* and *ClinVar review*. A
 preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous
-candidates are shown as pairs. Up to 100 matches show as cards, more as a table.
+candidates are shown as pairs. Up to 100 matches show as cards, more as a table; *Table* and *Cards*
+above the list switch between the two.
 
 A card takes its colour from ClinVar, here and on the monogenic NIPT page: light red when ClinVar calls
 the variant pathogenic or likely pathogenic, light green when it calls it benign or likely benign. A

@@ -256,7 +256,6 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getByRole('option', { name: 'Excluded tag' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /apply filters/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /clear all filters/i }).length).toBeGreaterThan(0);
-    expect(screen.getByRole('tab', { name: 'Auto' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Table' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Cards' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Tags & notes' }).length).toBeGreaterThan(0);
@@ -974,6 +973,45 @@ describe('FamilySmallVariantsPage', () => {
 
     fireEvent.click(screen.getByRole('columnheader', { name: /Impact/i }));
     expect(within(getBodyRows()[0]).getByText('TP53')).toBeInTheDocument();
+  });
+
+  it('opens a short list as cards and toggles only between table and cards', async () => {
+    renderPage();
+
+    const toggle = await screen.findByRole('tablist', { name: 'Variant display mode' });
+    expect(within(toggle).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Table', 'Cards']);
+    // 31 variants: within the card threshold, so the cards are shown and marked.
+    await screen.findAllByText('BRCA2');
+    expect(within(toggle).getByRole('tab', { name: 'Cards' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('columnheader', { name: /Chr/i })).not.toBeInTheDocument();
+
+    fireEvent.click(within(toggle).getByRole('tab', { name: 'Table' }));
+    expect(within(toggle).getByRole('tab', { name: 'Table' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(toggle).getByRole('tab', { name: 'Cards' })).toHaveAttribute('aria-selected', 'false');
+    expect(await screen.findByRole('columnheader', { name: /Chr/i })).toBeInTheDocument();
+
+    fireEvent.click(within(toggle).getByRole('tab', { name: 'Cards' }));
+    expect(within(toggle).getByRole('tab', { name: 'Cards' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('columnheader', { name: /Chr/i })).not.toBeInTheDocument();
+  });
+
+  it('opens a list beyond the card threshold as a table until cards are picked', async () => {
+    const defaultGet = apiMock.get.getMockImplementation()!;
+    apiMock.get.mockImplementation((url: string) =>
+      url.startsWith('/families/F1/small-variants?page=1&page_size=100')
+        ? Promise.resolve({ data: { variants: [], total: 150 } })
+        : defaultGet(url),
+    );
+    renderPage();
+
+    const toggle = await screen.findByRole('tablist', { name: 'Variant display mode' });
+    await waitFor(() =>
+      expect(within(toggle).getByRole('tab', { name: 'Table' })).toHaveAttribute('aria-selected', 'true'),
+    );
+    expect(within(toggle).getByRole('tab', { name: 'Cards' })).toHaveAttribute('aria-selected', 'false');
+
+    fireEvent.click(within(toggle).getByRole('tab', { name: 'Cards' }));
+    expect(within(toggle).getByRole('tab', { name: 'Cards' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('does not duplicate quick review tags as extra pills in the result table', async () => {

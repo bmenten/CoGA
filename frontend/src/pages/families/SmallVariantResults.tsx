@@ -23,7 +23,7 @@ import { apiPath, raw } from '../../lib/apiPath';
 import type { ApiFamilyRelationship } from '../../lib/apiTypes';
 import { FamilyReadOnlyContext } from '../../lib/familyAccess';
 
-type ResultViewMode = 'auto' | 'table' | 'cards';
+type ResultViewMode = 'table' | 'cards';
 
 export interface CsvExportTarget {
   /** The export's API path, with the list's query string. */
@@ -98,7 +98,8 @@ export default function SmallVariantResults({
   csvExport,
   readOnly = false,
 }: SmallVariantResultsProps) {
-  const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
+  // Null until the user picks a view: a short list shows as cards, a longer one as a table.
+  const [viewMode, setViewMode] = useState<ResultViewMode | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<SmallVariant | null>(null);
   const [acmgVariant, setAcmgVariant] = useState<SmallVariant | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -138,12 +139,8 @@ export default function SmallVariantResults({
     }
   };
 
-  const resolvedViewMode =
-    viewMode === 'auto' && (data?.total ?? 0) <= CARD_VIEW_THRESHOLD
-      ? 'cards'
-      : viewMode === 'auto'
-        ? 'table'
-        : viewMode;
+  const resolvedViewMode: ResultViewMode =
+    viewMode ?? ((data?.total ?? 0) <= CARD_VIEW_THRESHOLD ? 'cards' : 'table');
 
   return (
     <FamilyReadOnlyContext.Provider value={readOnly}>
@@ -159,8 +156,8 @@ export default function SmallVariantResults({
               ) : null}
             </h2>
             <p className="table-subtle">
-              Auto view shows up to {CARD_VIEW_THRESHOLD} variants as cards and switches to a
-              paginated list beyond that. Compound-het matches stay grouped by pair.
+              Up to {CARD_VIEW_THRESHOLD} variants show as cards, more as a paginated table, until
+              you pick a view. Compound-het matches stay grouped by pair.
             </p>
           </div>
           <div className="variant-results-toolbar-actions">
@@ -175,7 +172,6 @@ export default function SmallVariantResults({
             </button>
             <div className="variant-results-toggle" role="tablist" aria-label="Variant display mode">
               {[
-                { value: 'auto', label: 'Auto' },
                 { value: 'table', label: 'Table' },
                 { value: 'cards', label: 'Cards' },
               ].map((option) => (
@@ -183,8 +179,8 @@ export default function SmallVariantResults({
                   key={option.value}
                   type="button"
                   role="tab"
-                  aria-selected={viewMode === option.value}
-                  className={`pill-toggle ${viewMode === option.value ? 'pill-toggle--active' : ''}`}
+                  aria-selected={resolvedViewMode === option.value}
+                  className={`pill-toggle ${resolvedViewMode === option.value ? 'pill-toggle--active' : ''}`}
                   onClick={() => setViewMode(option.value as ResultViewMode)}
                 >
                   {option.label}

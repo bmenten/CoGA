@@ -147,7 +147,7 @@ Voor elke pagina worden de rijen aangevuld met:
 
 ### De weergave
 
-`SmallVariantResults.tsx` toont de teller, de keuze tussen tabel en kaarten ("Auto" kiest kaarten voor een klein aantal, anders een tabel), de CSV-export met dezelfde querystring, een waarschuwing als de zoekopdracht maar een deel van de callset las, en een melding als de rangschikking uit de cache komt. Die waarschuwing (`CandidateCapNotice.tsx`) komt uit twee vlaggen van het antwoord:
+`SmallVariantResults.tsx` toont de teller, de keuze tussen tabel en kaarten (tot de gebruiker kiest, toont een klein aantal als kaarten, anders als tabel), de CSV-export met dezelfde querystring, een waarschuwing als de zoekopdracht maar een deel van de callset las, en een melding als de rangschikking uit de cache komt. Die waarschuwing (`CandidateCapNotice.tsx`) komt uit twee vlaggen van het antwoord:
 
 - `candidates_capped`: compound-het, recessief of dragerscreening las een begrensd kandidatenvenster, tussen 1.000 en 5.000 rijen naargelang de gevraagde pagina, met prioritering altijd 5.000;
 - `ranking_truncated`: de prioritering rangschikte alleen haar venster. Bij een gerangschikte zoekopdracht met paren of dragerscreening staan dan beide vlaggen aan.
