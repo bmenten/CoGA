@@ -41,6 +41,7 @@ const ABSENT_VARIANT_FIELDS: Omit<
   impact: null,
   effect: null,
   clinvar: null,
+  clinvar_from_vep_cache: false,
   clinvar_review_status: null,
   clinvar_stars: null,
   clinvar_conditions: [],

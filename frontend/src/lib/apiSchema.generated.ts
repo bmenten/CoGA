@@ -3172,6 +3172,7 @@ export interface NiptVariantOut {
   impact: string | null;
   effect: string | null;
   clinvar: string | null;
+  clinvar_from_vep_cache: boolean;
   clinvar_review_status: string | null;
   clinvar_stars: number | null;
   clinvar_conditions: string[];
@@ -5108,6 +5109,7 @@ export interface VariantOut {
   impact: string | null;
   effect: string | null;
   clinvar: string | null;
+  clinvar_from_vep_cache: boolean;
   clinvar_review_status: string | null;
   clinvar_stars: number | null;
   clinvar_conditions: string[];

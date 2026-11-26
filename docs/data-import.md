@@ -2653,8 +2653,7 @@ reports that it was left out. Field names as VEP writes them: a `--custom` file'
 
 | What CoGA shows and reads | Field names read | Used by |
 | --- | --- | --- |
-| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR` | card, filters, ranking, PP5/BP6 |
-| ClinVar in VEP's cache, kept apart | `CLIN_SIG`, `CLIN_SIG_VEP_CACHE` | the card's *More annotations* only |
+| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR`; without those, VEP cache `CLIN_SIG` (`CLIN_SIG_VEP_CACHE`), named *ClinVar (VEP cache)* | card, filters, ranking, PP5/BP6 |
 | ClinVar review status (stars) | `ClinVar_CLNREVSTAT`, `CLNREVSTAT` | card, PP5/BP6 evidence, frozen evidence |
 | ClinVar conditions | `ClinVar_CLNDN`, `CLNDN` | card, PP5/BP6 evidence |
 | ClinVar VariationID | `ClinVar` (the matched record's ID, VEP `--custom`), digits only | the card's ClinVar link |
@@ -2674,7 +2673,7 @@ reports that it was left out. Field names as VEP writes them: a `--custom` file'
 | SIFT, PolyPhen | `SIFT`, `PolyPhen` | filters, card |
 | Gene constraint | `pLI`, `MISSENSE_Z` | card, PP2 (where the gene profile has none) |
 | Transcript | `SYMBOL`, `Gene`, `Feature`, `BIOTYPE`, `Consequence`, `IMPACT`, `HGVSc`, `HGVSp`, `EXON`, `INTRON`, `CANONICAL`, `MANE_SELECT`, `MANE_PLUS_CLINICAL` | everywhere |
-| MANE RefSeq transcript | `MANE_SELECT`, else `MANE_PLUS_CLINICAL`: the RefSeq transcript MANE pairs with the entry's (`NM_007294.4`), a versioned `NM_`/`NR_` accession only | the card's ClinVar search (`NM_…:c.…`), the transcript list |
+| MANE RefSeq transcript | `MANE_SELECT`, else `MANE_PLUS_CLINICAL`: the RefSeq transcript MANE pairs with the entry's (`NM_007294.4`), a versioned `NM_`/`NR_` accession only | the card's ClinVar search (`NM_…:c.…`) where the variant has no rsID, the transcript list |
 | Genomic HGVS | `HGVSg` (`--hgvsg`; `--hgvsg_use_accession` writes it on the RefSeq accession) | the card's HGVS.g, the CSV's *HGVSg* and the signed record's variant description |
 | Allele of an entry | `ALLELE_NUM` (`--allele_number`), else `Allele` | a multi-allelic record's ALT |
 | UTRAnnotator | `5UTR_annotation`, `5UTR_consequence`, `Existing_InFrame_oORFs`, `Existing_OutOfFrame_oORFs`, `Existing_uORFs` | card |
@@ -2693,7 +2692,7 @@ What the workflow should hold to:
   the annotation manifest reads the release from it.
 - **ClinVar as a `--custom` file.** Use the short name `ClinVar`, so the fields are
   `ClinVar_CLNSIG`, `ClinVar_CLNREVSTAT` and so on, and the VariationID is `ClinVar`. Without a
-  ClinVar file a callset has no ClinVar classification: VEP's cache `CLIN_SIG` is not read as one.
+  ClinVar file, VEP's cache `CLIN_SIG` is read, named as the cache's: it may be another allele's.
 - **gnomAD genomes.** Annotate gnomAD's genomes (`--af_gnomadg`, or its genomes or joint file
   with `--custom`), not its exomes alone: a variant without a gnomAD frequency is then read as
   absent from gnomAD, and PM2 applies. A `--custom` file keeps its dataset in its name
@@ -2758,18 +2757,23 @@ the same way:
   Filters still read the record's annotations together (an allele's value keeps the record): split
   multi-allelic records upstream (`bcftools norm -m -any`) to filter, rank and classify each allele
   on its own.
-- **ClinVar.** The classification is only the ClinVar file's that the pipeline annotated
+- **ClinVar.** The classification is the ClinVar file's that the pipeline annotated
   (`ClinVar_CLNSIG` from VEP `--custom`, or `CLNSIG`), which VEP matches to the record's own
-  allele. VEP's cache `CLIN_SIG` is always kept apart as `clinvar_vep_cache` (shown in the card's
-  *More annotations*, never read as ClinVar's): it is the classification of the known variant
-  (the dbSNP rsID) that `--check_existing` finds at the position. With VEP's default
-  `--clin_sig_allele 1` it is the record's allele's where the cache holds one per allele, else
-  every allele's the rsID groups, in the same field, and the record does not say which. Read as
-  ClinVar's, it would give a one-unit deletion in a tandem repeat, listed under the repeat's
-  rsID, the classification of another of the repeat's lengths. A callset annotated without a
-  ClinVar file has no ClinVar classification: no ClinVar on the card, no ClinVar filter match or
-  override, no ranking from ClinVar, no PP5/BP6, no ClinVar protection of an NIPT artifact list.
-  The annotation manifest records the file's release
+  allele, and VEP's cache `CLIN_SIG` only when the header declares no such field. The cache's is
+  the classification of the known variant (the dbSNP rsID) that `--check_existing` finds at the
+  position. With VEP's default `--clin_sig_allele 1` it is the record's allele's where the cache
+  holds one per allele, else every allele's the rsID groups, in the same field, and the record
+  does not say which: a one-unit deletion in a tandem repeat, listed under the repeat's rsID, can
+  carry the classification of another of the repeat's lengths. Such a classification is read
+  (card, filters, ranking, PP5/BP6, the NIPT artifact list's protection) and named as the cache's
+  wherever it is shown: *ClinVar (VEP cache)* on the card (with why on hover), in the track's
+  tooltip, the ACMG dialog, the PP5/BP6 evidence, the report draft, the signed record and the
+  family's CSV export (`clinvar_from_vep_cache`). The card's ClinVar link searches ClinVar by the
+  rsID, which shows the records the classification came from. With a ClinVar file declared, the
+  cache's classification is kept apart as `clinvar_vep_cache` (shown in the card's *More
+  annotations*, never read as ClinVar's), also for a variant the file has no record of; a
+  `CLNSIG` in INFO is not replaced by an entry's `CLIN_SIG`. The annotation manifest records the
+  file's release as `clinvar` and the cache's as `clinvar_vep_cache`
   ([annotation-provenance.md](annotation-provenance.md#the-clinvar-release)).
 
 ## 5. Pedigrees and phenotypes

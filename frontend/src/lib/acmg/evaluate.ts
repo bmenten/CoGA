@@ -9,7 +9,7 @@
 
 import type { VariantOut } from '../apiSchema.generated';
 import { NUCLEAR_CHROMOSOMES, normalizeChrom } from '../chromosomes';
-import { clinvarClass } from '../clinvar';
+import { clinvarClass, clinvarLabel } from '../clinvar';
 import { classifyGenotype } from '../genotypes';
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS } from './criteria';
 import { parentsOf } from './pedigree';
@@ -43,6 +43,7 @@ export type AcmgVariantInput = Partial<
     | 'gene'
     | 'impact'
     | 'clinvar'
+    | 'clinvar_from_vep_cache'
     | 'clinvar_review_status'
     | 'clinvar_stars'
     | 'clinvar_conditions'
@@ -407,10 +408,10 @@ export function evaluateAcmg(
   const clinvarReport = describeClinvar(variant);
   if (clinvar === 'pathogenic') {
     add('PP5', 'supporting', `${clinvarReport} — review before applying.`, 'consider');
-    against('BP6', `ClinVar reports ${variant.clinvar}, not benign.`);
+    against('BP6', `${clinvarLabel(variant.clinvar_from_vep_cache)} reports ${variant.clinvar}, not benign.`);
   } else if (clinvar === 'benign') {
     add('BP6', 'supporting', `${clinvarReport} — review before applying.`, 'consider');
-    against('PP5', `ClinVar reports ${variant.clinvar}, not pathogenic.`);
+    against('PP5', `${clinvarLabel(variant.clinvar_from_vep_cache)} reports ${variant.clinvar}, not pathogenic.`);
   }
 
   // ---- PP4: proband phenotype specific for the gene ----
@@ -938,17 +939,20 @@ export function pvs1Caution(variant: Pick<AcmgVariantInput, 'lof_flags' | 'nmd'>
   return reasons.length ? reasons.join(' and ') : null;
 }
 
-// ClinVar's assertion as the PP5 / BP6 evidence says it: the classification, the review
-// status with its stars, and the conditions.
+// ClinVar's assertion as the PP5 / BP6 evidence says it: the classification, named as VEP's
+// cache's where it is read from the cache, the review status with its stars, and the conditions.
 export function describeClinvar(
-  variant: Pick<AcmgVariantInput, 'clinvar' | 'clinvar_review_status' | 'clinvar_stars' | 'clinvar_conditions'>,
+  variant: Pick<
+    AcmgVariantInput,
+    'clinvar' | 'clinvar_from_vep_cache' | 'clinvar_review_status' | 'clinvar_stars' | 'clinvar_conditions'
+  >,
 ): string {
   const stars = variant.clinvar_stars;
   const status = variant.clinvar_review_status
     ? `${typeof stars === 'number' ? `${stars} star${stars === 1 ? '' : 's'}, ` : ''}${variant.clinvar_review_status}`
     : null;
   const conditions = (variant.clinvar_conditions ?? []).filter(Boolean);
-  return `ClinVar reports ${variant.clinvar}${status ? ` (${status})` : ''}${
+  return `${clinvarLabel(variant.clinvar_from_vep_cache)} reports ${variant.clinvar}${status ? ` (${status})` : ''}${
     conditions.length ? ` for ${conditions.slice(0, 3).join('; ')}${conditions.length > 3 ? ' …' : ''}` : ''
   }`;
 }

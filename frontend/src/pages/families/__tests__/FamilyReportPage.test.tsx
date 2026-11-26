@@ -1754,6 +1754,22 @@ describe('FamilyReportPage', () => {
       expect(container.querySelector('.report-print-notice')).toBeNull();
     });
 
+    it("names a ClinVar classification frozen from VEP's cache as the cache's", async () => {
+      const [reported] = SIGNED_SNAPSHOT.reported_variants;
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          reported_variants: [
+            { ...reported, evidence_snapshot: { ...reported.evidence_snapshot, clinvar_from_vep_cache: true } },
+          ],
+        },
+      });
+      renderPage();
+
+      const variant = (await screen.findByRole('heading', { name: '17-43000000-A-G' })).closest('article')!;
+      expect(variant).toHaveTextContent('ClinVar (VEP cache) reported Likely pathogenic, with annotation version v1');
+    });
+
     // ClinGen CNV points as the classifier writes them: signed and to two decimals, since
     // the class thresholds (0.99 / 0.90 / -0.90 / -0.99) differ in the second one.
     it('writes a CNV classification’s points to two decimals, as the classifier does', async () => {

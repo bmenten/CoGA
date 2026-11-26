@@ -199,6 +199,10 @@ class VariantOut(ApiDocumentModel):
     impact: Optional[str] = None
     effect: Optional[str] = None
     clinvar: Optional[str] = None
+    # True where the ClinVar classification is VEP's cache's (CLIN_SIG), read because the
+    # callset was annotated without a ClinVar file: the known variant's (the dbSNP rsID's),
+    # perhaps of another allele than this one. Every view that shows it names the cache.
+    clinvar_from_vep_cache: bool = False
     # The ClinVar file's review status, as words, and the stars ClinVar gives it (0–4); the
     # conditions the record names; its VariationID (from VEP --custom). None (empty) where the
     # annotation has no ClinVar file, or the file no record.

@@ -336,6 +336,9 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("hgvsc", "HGVSc"),
     ("hgvsp", "HGVSp"),
     ("clinvar", "ClinVar"),
+    # True where that classification is VEP's cache's, read without a ClinVar file annotated:
+    # the known variant's (the dbSNP rsID's), perhaps another allele's.
+    ("clinvar_from_vep_cache", "ClinVar from VEP cache"),
     ("gnomad_af", "gnomAD AF"),
     ("gnomad_hom_count", "gnomAD hom"),
     ("cadd_phred", "CADD"),

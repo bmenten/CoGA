@@ -10,6 +10,7 @@ from ..schemas import AcmgClassificationPayload
 from . import acmg_points
 from .clickhouse_variant_queries import _normalize_alpha_missense_class, _select_primary_annotation
 from .clickhouse_variant_records import (
+    _annotation_bool,
     _annotation_effect,
     _annotation_float,
     _annotation_gene,
@@ -25,6 +26,7 @@ from .clickhouse_variant_records import (
 from .gene_constraint_metrics import fetch_gene_constraint_metrics
 from .hash_chain import jsonb_float
 from .review_pg_utils import _json_payload, _read_stored_classification
+from .variant_annotation_parser import CLINVAR_FROM_VEP_CACHE_KEY
 
 # The consequence a small-variant classification rests on, read from its primary transcript:
 # the consequence term(s) the criteria for a null, missense, synonymous or length-changing
@@ -374,17 +376,22 @@ def build_evidence_snapshot(
     """
     clinvar = None
     clinvar_review_status = None
+    clinvar_from_vep_cache = False
     for annotation in getattr(record, "annotations", None) or []:
         value = annotation.get("clinvar")
         text_value = str(value).strip() if value not in (None, "", ".", "-") else ""
         if text_value:
             clinvar = text_value
             clinvar_review_status = _annotation_text(annotation, "clinvar_review_status")
+            clinvar_from_vep_cache = _annotation_bool(annotation, CLINVAR_FROM_VEP_CACHE_KEY)
             break
     return {
         "annotation_version": getattr(record, "annotation_version", None),
         "annotation_set_hash": getattr(record, "annotation_set_hash", None),
         "clinvar": clinvar,
+        # Whether that classification is VEP's cache's (the known variant's, perhaps of another
+        # allele), read because no ClinVar file was annotated; the signed record names it.
+        "clinvar_from_vep_cache": clinvar_from_vep_cache,
         # The review status of that ClinVar record (its stars), which PP5 and BP6 name.
         "clinvar_review_status": clinvar_review_status,
         **small_variant_evidence(record, gene_missense_z=gene_missense_z),

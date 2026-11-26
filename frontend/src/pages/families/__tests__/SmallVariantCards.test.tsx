@@ -1322,6 +1322,40 @@ describe('SmallVariantCards', () => {
     expect(within(annotations).queryByText(/genomes filter/i)).not.toBeInTheDocument();
   });
 
+  it("names a ClinVar classification from VEP's cache as the cache's, and links ClinVar by the rsID", () => {
+    renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: 'cache-var',
+            chr: '1',
+            start: 100,
+            end: 145,
+            type: 'INDEL',
+            gene: 'GENE1',
+            effect: 'intron_variant',
+            clinvar: 'not_provided&pathogenic',
+            clinvar_from_vep_cache: true,
+            rsid: 'rs123',
+            genotypes: [],
+          }),
+        ]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+    const clinvar = screen.getByRole('link', { name: /ClinVar \(VEP cache\)\s*not provided&pathogenic/i });
+    expect(clinvar).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/clinvar/?term=rs123');
+    expect(clinvar.getAttribute('title')).toMatch(/^From VEP's cache \(CLIN_SIG\), as no ClinVar file was annotated/);
+  });
+
   // The card's class sets its rail and, on a small variant's card alone, its background
   // (clinvarCardTintRules.test.ts): red for (likely) pathogenic, orange (warning) for a conflict
   // that lists a (likely) pathogenic classification, green for (likely) benign.

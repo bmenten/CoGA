@@ -692,11 +692,13 @@ const CLINVAR_POSITION_FIELDS: Partial<Record<string, string>> = {
  * (that link opens the record by its VariationID).
  *
  * ClinVar knows no Ensembl accession: `ENST00000357654.9:c.68_69del` finds nothing. In order:
+ * - the rsIDs (`rs80357914`): each record of any allele at the site. A classification from VEP's
+ *   cache is the rsID's, so this search shows the records it came from; and ClinVar may name an
+ *   indel in a repeat otherwise than VEP's HGVSc, which then finds nothing;
  * - the primary transcript's HGVSc where it is on a RefSeq transcript (`NM_007294.4:c.68_69del`),
  *   else its c. change on the RefSeq transcript VEP's MANE fields pair with it. MANE pairs
  *   identical transcripts, so the change reads the same on either. ClinVar opens the variant's
  *   record where it has one;
- * - the rsIDs (`rs80357914`), each record of any allele at the site;
  * - the position on GRCh38 or GRCh37 (`17[chr] AND 43124027:43124029[chrpos38]`), REF's span:
  *   each record there, of any allele;
  * - the gene; else the locus.
@@ -715,14 +717,14 @@ export const clinvarSearchTerm = ({
   assemblyName?: string;
   assemblyVersion?: string;
 }): string => {
+  const rsids = rsidsOf(variant.rsid);
+  if (rsids.length) return rsids.join(' OR ');
   const hgvsc = (variant.hgvsc || '').trim();
   const change = hgvsWithoutAccession(hgvsc);
   if (change && /^[cn]\./.test(change)) {
     if (/^N[MR]_\d+\.\d+:/.test(hgvsc)) return hgvsc;
     if (variant.mane_refseq_id) return `${variant.mane_refseq_id}:${change}`;
   }
-  const rsids = rsidsOf(variant.rsid);
-  if (rsids.length) return rsids.join(' OR ');
   const human = humanAssemblyOf(assemblyName, assemblyVersion);
   const positionField = human ? CLINVAR_POSITION_FIELDS[human] : undefined;
   if (positionField && Number.isFinite(variant.start)) {

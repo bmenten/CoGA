@@ -9,6 +9,7 @@ import type { ReportSignoutDetail } from '../../lib/apiSchema.generated';
 import { formatSoftwareVersion, useReportBuild } from '../../lib/appVersion';
 import { formatCnvPoints } from '../../lib/cnvAcmg/format';
 import { sexUnknownWarning } from '../../lib/embryoSegregation';
+import { clinvarLabel } from '../../lib/clinvar';
 import { isNotFoundError } from '../../lib/errorMessage';
 import PageState from '../../components/PageState';
 import { memberAddedOrRemoved } from '../../components/IntakeCorrectionsNotice';
@@ -386,7 +387,7 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> 
             <p className="report-paragraph">
               When the variant was classified
               {variant.evidence.capturedAt ? ` (${formatReportTime(variant.evidence.capturedAt)})` : ''},
-              ClinVar reported{' '}
+              {clinvarLabel(variant.evidence.clinvarFromVepCache)} reported{' '}
               {variant.evidence.clinvar
                 ? variant.evidence.clinvar.replace(/_/g, ' ')
                 : 'no significance for it'}

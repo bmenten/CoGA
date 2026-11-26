@@ -25,7 +25,7 @@ from .clickhouse_variant_ids import (
     _xpos,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
-from .variant_annotation_parser import MANE_REFSEQ_KEY, _spliceai_delta
+from .variant_annotation_parser import CLINVAR_FROM_VEP_CACHE_KEY, MANE_REFSEQ_KEY, _spliceai_delta
 from .family_metadata_context import FamilyMetadataContext
 from .family_package_common import resolve_vcf_sample_id
 from .compound_het_phase import (
@@ -1850,6 +1850,7 @@ def _small_variant_out(
         impact=_annotation_text(annotation, "impact"),
         effect=_annotation_effect(annotation),
         clinvar=_annotation_clinvar(annotation),
+        clinvar_from_vep_cache=_annotation_bool(annotation, CLINVAR_FROM_VEP_CACHE_KEY),
         clinvar_review_status=_annotation_text(annotation, "clinvar_review_status"),
         clinvar_stars=clinvar_stars(_annotation_text(annotation, "clinvar_review_status")),
         clinvar_conditions=clinvar_conditions(_annotation_text(annotation, "clinvar_conditions")),
