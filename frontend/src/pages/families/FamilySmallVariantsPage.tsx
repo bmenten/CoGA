@@ -22,6 +22,7 @@ import AnalysisSelect from './AnalysisSelect';
 import {
   addableTagDefinitions,
   BUILT_IN_SMALL_PRESETS,
+  CARRIER_SCREENING_PANEL_NAME,
   buildPresetPayload,
   describeUnappliedFilters,
   hasLocationProblems,
@@ -119,6 +120,11 @@ const FamilySmallVariantsPage: React.FC = () => {
     () => panels.find((panel) => panel.source === 'mendeliome')?._id,
     [panels],
   );
+  // The panel the Expanded carrier screening preset scopes its screen to.
+  const carrierScreeningPanelId = useMemo(
+    () => panels.find((panel) => panel.name === CARRIER_SCREENING_PANEL_NAME)?._id,
+    [panels],
+  );
 
   const {
     activeFilterChips,
@@ -151,6 +157,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     navigate,
     resolvedProjectId: projectId,
     mendeliomePanelId,
+    carrierScreeningPanelId,
     panelsLoaded: !panelsLoading,
   });
   // Chipped (and counted, activeFilterCount): the filters the small-variant list applies. A

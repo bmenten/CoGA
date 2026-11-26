@@ -1225,7 +1225,10 @@ describe('FamilySmallVariantsPage', () => {
       carriers: /both PARTNER1 and PARTNER2 carry a variant/i,
     },
   ])('exposes the expanded carrier screening preset to $couple and applies its query flag', async ({ members, carriers }) => {
-    serveEmptySearch(members);
+    serveEmptySearch(members, [
+      { _id: 'MENDEL', name: 'Mendeliome', source: 'mendeliome' },
+      { _id: 'BEGECS', name: 'BeGECS v3', source: 'local' },
+    ]);
 
     renderPage();
 
@@ -1251,11 +1254,13 @@ describe('FamilySmallVariantsPage', () => {
       );
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('impact=HIGH'));
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('impact=MODERATE'));
-      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_popmax_af=0.01'));
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_popmax_af=0.05'));
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('panel_id=BEGECS'));
       expect(apiMock.get).toHaveBeenCalledWith(
         expect.stringContaining('clinvar_pathogenic_override=true'),
       );
     });
+    expect(screen.getByText('Gene panel: BeGECS v3')).toBeInTheDocument();
   });
 
   it('keeps phased heterozygous proband genotypes intact when applying a dominant preset', async () => {
