@@ -35,10 +35,10 @@ import {
   quickTagTogglePayload,
 } from './smallVariantReview';
 import {
+  cardReviewTagKeys,
   pendingNoteAuthorship,
   reviewClassChips,
   sortReviewTagKeys,
-  visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import ReviewAnnotations from './ReviewAnnotations';
 import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
@@ -987,7 +987,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
             const reviewClass = reviewClassChips(
               variant.review?.classification,
               variant.review?.tags,
-              visibleReviewTagKeys(sortedReviewTags),
+              cardReviewTagKeys(sortedReviewTags),
             );
             const visibleReviewTags = reviewClass.tagKeys;
             const quickTags = [
@@ -1007,6 +1007,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                   isExcluded ? (
                     <ExcludedCardBar
                       subject={variant.label}
+                      tagMetadata={variant.review?.tag_metadata}
                       expanded={excludedCards.isUnfolded(variant.variant_id)}
                       onToggleExpanded={() => excludedCards.toggle(variant.variant_id)}
                       onUndoExclude={() => {

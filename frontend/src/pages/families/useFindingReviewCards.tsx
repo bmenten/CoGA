@@ -6,7 +6,7 @@ import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
 import FindingReviewDialog from './FindingReviewDialog';
 import ReviewAnnotations from './ReviewAnnotations';
 import { fetchFamilyReviewTags } from './smallVariantReview';
-import { sortReviewTagKeys, visibleReviewTagKeys } from './smallVariantResultUtils';
+import { cardReviewTagKeys, sortReviewTagKeys } from './smallVariantResultUtils';
 import { COLLABORATION_QUICK_TAGS, getTagDefinitionMap, type SmallVariantTagDefinition } from './smallVariantSearch';
 import {
   FINDING_DRIFT_LABEL,
@@ -72,7 +72,7 @@ export function useFindingReviewCards<T>({
     { subject, statuses }: { subject: string; statuses: (string | null | undefined)[] },
   ): FindingReviewCardParts => {
     const tagKeys = sortReviewTagKeys(review?.tags ?? [], tagMap);
-    const visibleTags = visibleReviewTagKeys(tagKeys);
+    const visibleTags = cardReviewTagKeys(tagKeys);
     const excluded = tagKeys.includes(COLLABORATION_QUICK_TAGS.excluded);
     const classification = findingClassificationLabel(kind, review?.classification);
     const drift = review?.drift && review.drift.status !== 'unchanged' ? review.drift : null;
@@ -119,6 +119,7 @@ export function useFindingReviewCards<T>({
       excludedBar: excluded ? (
         <ExcludedCardBar
           subject={subject}
+          tagMetadata={review?.tag_metadata}
           expanded={excludedCards.isUnfolded(key)}
           onToggleExpanded={() => excludedCards.toggle(key)}
           onUndoExclude={() => toggle(COLLABORATION_QUICK_TAGS.excluded)}

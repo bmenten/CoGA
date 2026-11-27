@@ -35,7 +35,7 @@ const tagSaves = (tagKeys: string[], metadata: AnnotatedReview['tag_metadata']):
 };
 
 /** Who wrote it and when, after what they wrote; nothing while its save is on its way. */
-const Authorship = ({ by, at }: { by: string | null; at: string | null }) =>
+export const ReviewAuthorship = ({ by, at }: { by: string | null | undefined; at: string | null | undefined }) =>
   by ? (
     <span className="variant-card-review-author">
       {by} · {formatDateTime(at)}
@@ -55,7 +55,8 @@ const ReviewAnnotations = ({
   leading,
 }: {
   review: AnnotatedReview | null | undefined;
-  /** The review's tags to show, in their order (the class tags the heading shows left out). */
+  /** The review's tags to show, in their order (`cardReviewTagKeys`, the class tags the heading
+   *  shows left out). */
   tagKeys: string[];
   tagMap?: Record<string, SmallVariantTagDefinition>;
   leading?: ReactNode;
@@ -78,14 +79,14 @@ const ReviewAnnotations = ({
                   tagMetadata={review?.tag_metadata}
                 />
               ))}
-              <Authorship by={save.by} at={save.at} />
+              <ReviewAuthorship by={save.by} at={save.at} />
             </span>
           ))}
         </div>
       ) : null}
       {review?.note ? (
         <p className="variant-card-review-note">
-          {review.note} <Authorship by={review.note_updated_by} at={review.note_updated_at} />
+          {review.note} <ReviewAuthorship by={review.note_updated_by} at={review.note_updated_at} />
         </p>
       ) : null}
     </div>

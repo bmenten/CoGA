@@ -2,11 +2,11 @@ import { Link, useLocation } from 'react-router';
 import { formatGt, genotypeZygosity } from '../../lib/genotypes';
 import {
   buildGnomadSvRegionHref,
+  cardReviewTagKeys,
   formatFrequency,
   formatScore,
   reviewClassChips,
   sortReviewTagKeys,
-  visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -153,7 +153,7 @@ export default function StructuralVariantCards({
         const reviewClass = reviewClassChips(
           variant.review?.classification,
           variant.review?.tags,
-          visibleReviewTagKeys(sortedReviewTags),
+          cardReviewTagKeys(sortedReviewTags),
         );
         const visibleReviewTags = reviewClass.tagKeys;
 
@@ -214,6 +214,7 @@ export default function StructuralVariantCards({
             {isExcluded ? (
               <ExcludedCardBar
                 subject={genes[0] || locus}
+                tagMetadata={variant.review?.tag_metadata}
                 expanded={excludedCards.isUnfolded(rowKey)}
                 onToggleExpanded={() => excludedCards.toggle(rowKey)}
                 onUndoExclude={() => {

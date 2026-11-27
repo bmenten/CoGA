@@ -411,8 +411,8 @@ export const sortReviewTagKeys = (
   });
 
 /**
- * The review tags a small-variant or SV card or table row shows as chips, in the order given:
- * all but the review, excluded and report quick tags, which have their own toggle buttons.
+ * The review tags a small-variant or SV table row shows as chips, in the order given: all but
+ * the review, excluded and report quick tags, which have their own toggle buttons.
  */
 export const visibleReviewTagKeys = (tagKeys: string[]): string[] =>
   tagKeys.filter(
@@ -421,6 +421,14 @@ export const visibleReviewTagKeys = (tagKeys: string[]): string[] =>
       tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
       tagKey !== COLLABORATION_QUICK_TAGS.report,
   );
+
+/**
+ * The review tags a variant card shows under its heading, each with who set it and when
+ * (ReviewAnnotations), in the order given: all but Excluded, which the card's excluded bar names
+ * with who set it. Review and Report show there beside their pressed buttons.
+ */
+export const cardReviewTagKeys = (tagKeys: string[]): string[] =>
+  tagKeys.filter((tagKey) => tagKey !== COLLABORATION_QUICK_TAGS.excluded);
 
 /**
  * How a small-variant review, a compound-het pair review or an SV review shows its class beside

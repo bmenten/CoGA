@@ -1749,9 +1749,41 @@ describe('SmallVariantCards review class', () => {
     );
   });
 
-  it('shows no review block on a card whose review holds no tag or note to show', () => {
-    const { container } = renderReview({ tags: ['report'] });
+  it('shows no review block on a card whose review holds no tag or note', () => {
+    // The class is the heading's.
+    const { container } = renderReview({ classification: 'VUS' });
     expect(container.querySelector('.variant-card-review')).toBeNull();
+  });
+
+  it('names who pressed Review and Report, and when, beside their pressed buttons', () => {
+    const { container } = renderReview({
+      tags: ['review', 'report'],
+      tag_metadata: {
+        review: { updated_by: 'analyst', updated_at: '2026-11-20T09:00:00Z' },
+        report: { updated_by: 'supervisor', updated_at: '2026-11-21T10:00:00Z' },
+      },
+    });
+    const card = container.querySelector('article') as HTMLElement;
+    const saves = Array.from(card.querySelectorAll('.variant-card-review-tags')).map((save) => save.textContent);
+    // In the catalogue's order: the test's lists Report and not Review, shown by its key after it.
+    expect(saves).toEqual([
+      `Reportsupervisor · ${formatDateTime('2026-11-21T10:00:00Z')}`,
+      `reviewanalyst · ${formatDateTime('2026-11-20T09:00:00Z')}`,
+    ]);
+    expect(within(card).getByRole('button', { name: 'Report' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('names who excluded the variant, and when, on the bar of its folded card', () => {
+    const { container } = renderReview({
+      tags: ['excluded'],
+      tag_metadata: { excluded: { updated_by: 'analyst', updated_at: '2026-11-20T09:00:00Z' } },
+    });
+    const card = container.querySelector('article') as HTMLElement;
+    expect(card.querySelector('.variant-card-excluded-bar')).toHaveTextContent(
+      `Excludedanalyst · ${formatDateTime('2026-11-20T09:00:00Z')}`,
+    );
+    // Not again among the tags under the heading.
+    expect(card.querySelector('.variant-card-review')).toBeNull();
   });
 
   it('keeps a VUS tier and Secondary finding as tags beside the class word', () => {

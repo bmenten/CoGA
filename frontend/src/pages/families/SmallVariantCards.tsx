@@ -21,6 +21,7 @@ import {
   buildSmallVariantGeneInfoHref,
   buildSmallVariantNavigation,
   buildSvSecondHitHref,
+  cardReviewTagKeys,
   formatFrequency,
   formatCompoundHetPhaseStatus,
   GENOMIC_CHANGE_NOTE,
@@ -40,7 +41,6 @@ import {
   parseVariantIds,
   reviewClassChips,
   sortReviewTagKeys,
-  visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import FilterTranscriptNote from './FilterTranscriptNote';
 import FamilyGenotypeGrid, { type GenotypeColumn, type GenotypeRow, type GenotypeTone } from './FamilyGenotypeGrid';
@@ -830,7 +830,7 @@ export function SmallVariantCard({
   const reviewClass = reviewClassChips(
     variant.review?.classification,
     variant.review?.tags,
-    visibleReviewTagKeys(sortedReviewTags),
+    cardReviewTagKeys(sortedReviewTags),
   );
   const visibleReviewTags = reviewClass.tagKeys;
 
@@ -1012,6 +1012,7 @@ export function SmallVariantCard({
       {isExcluded ? (
         <ExcludedCardBar
           subject={cardSubject}
+          tagMetadata={variant.review?.tag_metadata}
           expanded={!folded}
           onToggleExpanded={toggleFold}
           onUndoExclude={() => {

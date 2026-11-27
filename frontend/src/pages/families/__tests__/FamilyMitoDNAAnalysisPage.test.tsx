@@ -831,6 +831,8 @@ describe('mtDNA variant review', () => {
     },
     ...BUILT_IN_REVIEW_TAGS,
   ];
+  // A review as the API serves it: with its tag metadata (who set each tag, when) and no note
+  // unless the test gives them.
   const mitoVariant = (variantId: string, review: Record<string, unknown> | null) => ({
     variant_id: variantId,
     position: 3243,
@@ -839,7 +841,7 @@ describe('mtDNA variant review', () => {
     label: variantId,
     type: 'SNV',
     maternal_transmission: 'maternal_shared',
-    review,
+    review: review && { tag_metadata: {}, note: null, note_updated_by: null, note_updated_at: null, ...review },
     annotation: {
       region: 'MT-TL1',
       gene: 'MT-TL1',

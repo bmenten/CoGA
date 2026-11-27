@@ -840,7 +840,16 @@ describe('FamilyNiptPage', () => {
       alt: 'G',
       gene: 'GENEDN',
       genotypes: [],
-      review: { variant_id: '1-1001-A-G', classification: null, tags: ['report'], note: null, updated_at: '2026-10-20T09:00:00Z' },
+      review: {
+        variant_id: '1-1001-A-G',
+        classification: null,
+        tags: ['report'],
+        tag_metadata: { report: { updated_by: 'analyst', updated_at: '2026-10-20T09:00:00Z' } },
+        note: null,
+        note_updated_by: null,
+        note_updated_at: null,
+        updated_at: '2026-10-20T09:00:00Z',
+      },
       nipt: {
         category: 1,
         category_label: 'de novo in fetus',
