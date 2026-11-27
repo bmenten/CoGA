@@ -72,8 +72,8 @@ its data, reviews and sign-out are its own.
   page. They are the small-variant page's *Pathogenicity*, *Annotations*, *In silico*, *Frequency*,
   *Locations* and *Exclude* filters and its review tags (*Review and curation*: the tags, not the
   classification or saved notes), plus **Maternal/fetal categories** (tick any of the eight; each
-  shows its count), a minimum classification confidence, **Hide recurrent low-VAF calls** (below) and
-  an **Inheritance** view:
+  shows its count), a minimum classification confidence, **Hide recurrent low-VAF calls** and the
+  report's cohort rule (below), and an **Inheritance** view:
   - *De novo in the fetus*: calls in the fetal window without a supported call in the father, triaged
     and ranked by score. **List de novo candidates of priority** picks high, high and medium, or every
     candidate.
@@ -99,6 +99,11 @@ its data, reviews and sign-out are its own.
   is common in the population, stays listed, marked *kept by the recurrence filter*. The filter narrows
   the list only; the fetal fraction and the classifications do not change. The count grows with every
   pregnancy imported, so it is also how you find candidates for the assay's artifact list.
+- **Leave out alleles without a population frequency that 3 or more cfDNA samples of this assay call**
+  applies the report's rule: such an allele (often an MNV, an indel in a homopolymer or repeat, or a
+  paralogue) is common in the assay, not rare. An allele ClinVar calls pathogenic stays listed. It can
+  hide a pathogenic allele that gnomAD does not list and ClinVar does not call pathogenic once 3
+  pregnancies of the assay carry it: turn it off to check a gene that matters.
 - **Download CSV**, above the variants, saves the list as a CSV file: every variant the list
   classifies, in its order, with its category, reads, probabilities, de novo triage and recurrence,
   and on every row the fetal fraction and, for a multiple pregnancy, the multiple-pregnancy note. A
@@ -114,7 +119,7 @@ gnomAD frequency of 1% or less (a ClinVar pathogenic or likely pathogenic record
 novo** also leaves out ClinVar benign and likely benign. **Recessive (both parents carrier)** reads the
 parents as the expanded carrier screen reads a couple: the *BeGECS v3* panel, high or moderate impact, a
 gnomAD frequency below 5% (a ClinVar pathogenic or likely pathogenic record overrides both), ClinVar
-benign and likely benign left out. The page opens
+benign and likely benign left out, and the report's cohort rule. The page opens
 on **De novo** on the **Mendeliome** panel, named under the presets as *Active filter: De novo,
 Mendeliome panel* (*default*), as on the small-variant page. Pick a narrower panel if you need one. A
 link with its own filters, such as **Back to NIPT**, opens on those.

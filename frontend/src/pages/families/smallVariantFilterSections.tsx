@@ -663,6 +663,7 @@ export const SECTION_FILTER_COUNTS: Record<
       draftFilters.include_not_inherited,
       draftFilters.min_confidence,
       draftFilters.max_unexplained_recurrence,
+      draftFilters.exclude_cohort_common,
     ),
   pathogenicity: ({ draftFilters }) =>
     parseCommaSeparatedValues(draftFilters.clinvar).length + parseCommaSeparatedValues(draftFilters.clinvar_coga).length,
@@ -1189,6 +1190,18 @@ export const NiptCategoriesFilterSection = ({ form }: { form: FilterSectionForm 
           A call below 25% that no parent of its family explains, in another cfDNA sample of this assay (every
           project), is the mark of a recurrent artefact. An allele ClinVar may call pathogenic, or a common one, stays
           listed.
+        </p>
+        <label className="analysis-checkbox">
+          <input
+            type="checkbox"
+            checked={draftFilters.exclude_cohort_common === 'true'}
+            onChange={(event) => setDraftFilterValue('exclude_cohort_common', event.target.checked ? 'true' : '')}
+          />
+          <span>Leave out alleles without a population frequency that 3 or more cfDNA samples of this assay call</span>
+        </label>
+        <p className="table-subtle">
+          The report&apos;s rule: such an allele is an unannotated common one (a paralogue, a repeat-length allele, an
+          MNV gnomAD lists as its SNVs), not a rare one. An allele ClinVar calls pathogenic stays listed.
         </p>
       </div>
     </FilterSection>

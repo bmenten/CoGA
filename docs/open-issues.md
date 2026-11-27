@@ -43,6 +43,7 @@ Status 2026-11-18, `origin/main` at `701d5e2c`. Ideas that are not defects are i
 | SEC-23 | P3 | Close the HSTS gaps | QA, owner, developer | |
 | UI-8 | P3 | Mark a held tag of a project the family left apart from a deleted one; show a detached tag's label in the Explorer | owner, developer | |
 | CLIN-79 | P2 | Warn when an embryo's sex chromosomes look abnormal (X0, XXY, another anomaly): choose the source of X dosage and its cut-offs | owner, lab director | validation |
+| CLIN-80 | P2 | Settle the NIPT cohort rule before diagnostic use: show that it hides no pathogenic allele, a threshold that grows with the assay, and the recurrent alleles that do have a gnomAD frequency | lab director, QA, owner | validation |
 | CLIN-14 | P3 | Settle the repeat catalogue's open points | QA, owner, developer | |
 | CLIN-17 | P3 | Confirm against Riggs et al. 2020 whether CNV scoring caps section totals | QA | |
 | CLIN-39 | P3 | Decide whether one SV in two siblings' per-sample records gets one second-hit verdict | owner | |
@@ -62,11 +63,11 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - **Owner:** REG-1 (wording, REQ-TRACE-007), OPS-2, OPS-3 (separate validation environment?),
   OPS-12 (builder, Terraform lock), OPS-22, SEC-6 (with the DPO), REG-14, CLIN-10,
-  CLIN-39, CLIN-50, CLIN-68, CLIN-79, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), REG-17, OPS-15
+  CLIN-39, CLIN-50, CLIN-68, CLIN-79, CLIN-80, CLIN-72, CLIN-73, CLIN-74, CLIN-78, UI-8, TRACE-10, TRACE-21, SEC-23 (`/api` fallback), REG-17, OPS-15
   (role mailbox), OPS-24 (pre-migration backup retention).
 - **QA:** REG-1, REG-5, REG-8, REG-12, REG-13, REG-14, REG-15, REG-16, REG-17, CLIN-9, CLIN-14, CLIN-17, CLIN-57, CLIN-61,
-  CLIN-70, OPS-7, SEC-19; with RA, REG-11.
-- **Lab director:** REG-5, CLIN-10, CLIN-79, CLIN-18, CLIN-57, CLIN-61, CLIN-68, CLIN-70.
+  CLIN-70, CLIN-80, OPS-7, SEC-19; with RA, REG-11.
+- **Lab director:** REG-5, CLIN-10, CLIN-79, CLIN-80, CLIN-18, CLIN-57, CLIN-61, CLIN-68, CLIN-70.
 
 ## P1
 
@@ -146,6 +147,15 @@ Also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - An embryo without a recorded sex (PED sex `0`) passes the sex check with the sex its data indicate (the owner's decision of 2026-11-18). The owner also wants a warning when its sex chromosomes look abnormal: monosomy X, XXY, or another anomaly.
 - The Sample QC reads an embryo's sex from the ngs-bits chrY/chrX read ratio (no chrX genotypes in an imputed callset). That ratio cannot tell X0 from XX or XXY from XY: it needs the X dosage against the autosomes.
 - Possible sources of X dosage: the per-contig coverage in the embryo's Qualimap `genome_results.txt` (not read yet), its ngs-bits chrX reads against Qualimap's mapped reads, or the copy-number segments on chrX and chrY (QDNAseq, WisecondorX). The owner and the lab director choose one and its cut-offs. REQ-PGT-008 (no automatic aneuploidy detector) and TF-01 §3.3 then name this check.
+
+### CLIN-80 · The NIPT cohort rule before diagnostic use
+
+- The report's locked criteria (REQ-NIPT-020) and, since the *Recessive (both parents carrier)* preset turns it on, the NIPT list (REQ-NIPT-017) leave out an allele without a population frequency that 3 or more cfDNA samples of the assay call, unless ClinVar calls it pathogenic (`nipt_diagnostic_filters.is_cohort_common`, `clinvar_override`). A gnomAD frequency filter reads a missing frequency as 0, so without the rule every such allele passes. On the test instance's 22 cfDNA samples of one assay (2026-11-27) most of them were MNVs (gnomAD lists their SNVs), indels in homopolymers or repeats of variable length, and SNVs in regions gnomAD covers poorly; the rule halved the recessive genes per family (median 26 to 12.5).
+- It can hide a pathogenic allele when 3 or more pregnancies of the assay carry it and neither gnomAD lists it nor ClinVar calls it pathogenic, or ClinVar's record does not match it (an MNV, or an indel written otherwise): a founder allele of a population gnomAD covers poorly, or an allele of related pregnancies (the count leaves out only the family itself).
+- The threshold is a count, not a share of the samples: as the assay's samples grow, an allele of 1% carrier frequency reaches 3 carriers at about 300 samples. Decide a threshold that grows with the assay (a share of its cfDNA samples, or a count beyond what a 5% carrier frequency explains), and whether related pregnancies count once.
+- Alleles that do have a gnomAD frequency recur too, beyond what that frequency explains: on the test instance 328 alleles of a median frequency of 0.48% in 5 or more of the 22 families (paralogues, repeat-length alleles, clusters present in every sample). Neither rule catches them. Decide whether an assay-wide recurrence rule (ClinVar pathogenic kept) or the reviewed artifact list should.
+- Recurrence is a property of the technology and the assay: the NIPT count reads only the cfDNA samples of the same capture panel. An expanded carrier screen on ONT adaptive sampling has artefacts of its own (homopolymer lengths, paralogues) and needs its own count, never the NIPT's.
+- Done when: QA and the lab director record the threshold and the decision on recurrent alleles with a frequency, and the validation (TF-10 §3.4) shows that the rule hides no pathogenic allele of the comparator.
 
 ### REG-12 · Owner and QA confirmations of the fix rounds
 

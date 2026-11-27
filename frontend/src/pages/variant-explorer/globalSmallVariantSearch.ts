@@ -110,6 +110,7 @@ const GLOBAL_UNREAD_PARAMS = [
   'category',
   'min_confidence',
   'max_unexplained_recurrence',
+  'exclude_cohort_common',
   'ps',
   'prioritize',
   'rank_by',

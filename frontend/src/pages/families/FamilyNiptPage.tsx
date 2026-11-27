@@ -181,6 +181,7 @@ const buildSearchParams = (f: SmallFilterState): Record<string, unknown> => {
   if (f.include_not_inherited === 'true') params.include_not_inherited = true;
   str('de_novo_priority', f.de_novo_priority);
   numeric('max_unexplained_recurrence', f.max_unexplained_recurrence);
+  if (f.exclude_cohort_common === 'true') params.exclude_cohort_common = true;
   return params;
 };
 

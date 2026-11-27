@@ -328,16 +328,21 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
   3. classified without the quality filter (failures flagged `quality:<reason>`), skipping
      artifact-list sites;
   4. `min_confidence`;
-  5. the view (`inheritance`: `de_novo`, `paternal_dominant`, `maternal_dominant`,
+  5. on request (`exclude_cohort_common`, set by the *Recessive (both parents carrier)* preset), the
+     locked criteria's cohort rule (`_not_cohort_common`): an allele without a population frequency
+     that `cohort_common_min_samples` (3) cfDNA samples of the assay call, this one included, is an
+     unannotated common allele and is left out, unless ClinVar calls it pathogenic
+     (`clinvar_override`), as the report's recessive pairing reads it;
+  6. the view (`inheritance`: `de_novo`, `paternal_dominant`, `maternal_dominant`,
      `recessive_at_risk`, with `include_not_inherited` and `de_novo_priority`);
-  6. the category filter;
-  7. the recurrence filter (`max_unexplained_recurrence`, see *Recurrence in other cfDNA samples*);
-  8. paging, and each listed variant's recurrence. Without a page size (`page_size=None`) the
+  7. the category filter;
+  8. the recurrence filter (`max_unexplained_recurrence`, see *Recurrence in other cfDNA samples*);
+  9. paging, and each listed variant's recurrence. Without a page size (`page_size=None`) the
      list holds every classified variant: the CSV export.
 
-  The recessive view pairs every carrier variant step 4 keeps, as the report and the signed record
-  pair them, so that a gene's status does not depend on the filters; steps 6 and 7 then keep the genes
-  with a carrier variant they keep. Its results are genes (`NiptRecessiveGene`): a page holds genes, each with every carrier variant of its own
+  The recessive view pairs every carrier variant steps 4 and 5 keep, as the report and the signed
+  record pair them, so that a gene's status does not depend on the filters that follow; steps 7 and 8
+  then keep the genes with a carrier variant they keep. Its results are genes (`NiptRecessiveGene`): a page holds genes, each with every carrier variant of its own
   (`variant_groups`, `group_type` `nipt_recessive_gene`), `total` counts the genes and `gene_total` and
   `variant_total` the genes and their variants on every page; the export lists their variants gene by
   gene. The NIPT page shows each gene as a card (`SmallVariantGroupCards`, as the expanded carrier
@@ -347,7 +352,10 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
   fetus inherited it. The page's *Recessive (both parents
   carrier)* preset reads the parents as the expanded carrier screen reads a couple: the gene panel
   named *BeGECS v3* (every gene without one), HIGH/MODERATE impact, gnomAD AF and popmax at most 5%,
-  ClinVar P/LP overriding the impact and frequency cut-offs, ClinVar benign and likely benign left out.
+  ClinVar P/LP overriding the impact and frequency cut-offs, ClinVar benign and likely benign left out,
+  and the cohort rule (step 5): a frequency ceiling lets an allele without a population frequency
+  through, and in a capture assay such an allele is often one every pregnancy carries (an MNV gnomAD
+  lists as its SNVs, a homopolymer or repeat-length indel, a paralogue).
   The maternal and recessive views read the parents'
   alleles alone (`_CARRIER_ROW_VIEWS`), so their load (step 2) keeps only the rows such an allele
   can be read from (`CarrierCallRows`, `clickhouse_family_variants._carrier_call_condition`): the

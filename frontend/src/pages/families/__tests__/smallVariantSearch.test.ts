@@ -145,6 +145,7 @@ describe('smallVariantSearch preset helpers', () => {
         include_not_inherited: '',
         de_novo_priority: '',
         max_unexplained_recurrence: '',
+        exclude_cohort_common: '',
       },
       members,
       sampleFilters,
@@ -536,6 +537,8 @@ describe('preset frequency ceilings bound popmax', () => {
     expect([draft.max_gnomad_af, draft.max_gnomad_popmax_af]).toEqual(['0.05', '0.05']);
     expect(draft.clinvar_pathogenic_override).toBe('true');
     expect(draft.exclude_clinvar).toBe('Benign, Likely benign');
+    // The report's cohort rule: an allele without a population frequency common in the assay is left out.
+    expect(draft.exclude_cohort_common).toBe('true');
     // The view's own grouping, not the small-variant page's couple screen.
     expect(draft.expanded_carrier_screening).toBe('');
   });

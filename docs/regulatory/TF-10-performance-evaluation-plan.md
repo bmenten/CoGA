@@ -137,6 +137,7 @@ agreement estimates.
   - A low fetal fraction. The 22 development families had a high FF (10.6–36.8 %, median 14.5 %); below 8 % the R validation simulated, not observed. Include pregnancies below 8 %.
   - Low depth.
   - A son's X-linked gene; a daughter's X-linked allele from one parent; the X-linked alleles of a fetus whose sex is not known, and of twins; a homozygous parent.
+  - An allele without a population frequency that 3 or more cfDNA samples of the assay call (the cohort rule of the locked criteria and of the recessive preset): no pathogenic allele of the comparator is left out by it (CLIN-80).
   - A call outside the capture targets (left out of the estimates).
   - A de novo indel in a repeat (low confidence); an allele the ClinVar override admits.
   - Category-8 dropout; FF far from the comparator.
