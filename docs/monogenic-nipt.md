@@ -386,9 +386,10 @@ target depth. The category counts and the funnel still count off-target sites.
 ## chrX by the fetal sex
 
 `run_nipt_analysis` reads the fetal sex before it classifies (`combined_fetal_sex` of
-`infer_fetal_sex` and the plasma's chrY profile, `chry_profile`; `NiptAnalysisResult.fetal_sex_call`),
-and the variant list reads the same, beside the summary's FF (`model_fetal_sex` of
-`NiptAnalysisResult.fetal_sex_call`). `chromosome_model` picks the model: autosomal for an
+`infer_fetal_sex` and the plasma's chrY profile, `chry_profile`; `NiptAnalysisResult.fetal_sex_call`).
+Every other classification of the family's variants (the variant list, the report's candidates and
+the signed record's reported variants) reads the same, beside the summary's FF
+(`_FamilyAnalysis.fetal_sex`). `chromosome_model` picks the model: autosomal for an
 autosome and for chrX's pseudo-autosomal regions (`_is_nonpar_x`, the conservative bounds of the fetal-sex check); `x_female`
 and `x_male` for chrX outside them; none for chrX of a fetus whose sex is not known, chrY and the
 mitochondrion; `model_fetal_sex` leaves chrX outside the PARs unclassified in a multiple pregnancy

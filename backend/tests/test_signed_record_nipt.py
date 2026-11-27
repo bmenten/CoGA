@@ -129,14 +129,14 @@ def _targets(*, y_mean: float = 108.0, x_mean: float = 1300.0) -> list[TargetCov
     ]
 
 
-def _sample_rows(*, assay_panel: str | None = "panel-v2") -> list[dict[str, Any]]:
+def _sample_rows(*, assay_panel: str | None = "panel-v2", fetuses: tuple[str, ...] = ("FETUS1",)) -> list[dict[str, Any]]:
     plasma_metadata: dict[str, Any] = {"assays": ["nipt_cfdna"]}
     if assay_panel:
         plasma_metadata["assay_panels"] = {"monogenic_nipt": assay_panel}
     return [
         {"sample_id": FATHER, "role": "father", "sample_metadata": {}},
         {"sample_id": PLASMA, "role": "mother", "sample_metadata": plasma_metadata},
-        {"sample_id": "FETUS1", "role": "fetus", "sample_metadata": None},
+        *({"sample_id": fetus, "role": "fetus", "sample_metadata": None} for fetus in fetuses),
     ]
 
 
@@ -158,7 +158,7 @@ _ROI = FamilyRegionOfInterestOut(query="chr7:1-1000", label="GENEA locus", sourc
 _ROI_ROW = {"roi_query": "chr7:1-1000", "roi_label": "GENEA locus", "roi_chr": "chr7", "roi_start": 1, "roi_end": 1000}
 
 
-def _family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
+def _family(roi: FamilyRegionOfInterestOut | None = None, *, fetuses: tuple[str, ...] = ("FETUS1",)) -> FamilyOut:
     return FamilyOut(
         id=FAMILY_UUID,
         family_id="NIPTFAM1",
@@ -169,8 +169,8 @@ def _family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
                 sample_id=PLASMA, role="mother", affected=False,
                 sample_metadata={"assays": ["nipt_cfdna"], "assay_panels": {"monogenic_nipt": "panel-v2"}},
             ),
-            # The fetus, as the family's sample rows hold it (_sample_rows).
-            FamilyMemberOut(sample_id="FETUS1", role="fetus", affected=False),
+            # The fetuses, as the family's sample rows hold them (_sample_rows).
+            *(FamilyMemberOut(sample_id=fetus, role="fetus", affected=False) for fetus in fetuses),
         ],
         metadata={"analyses": ["monogenic_nipt"]},
         roi=roi,
@@ -255,8 +255,10 @@ def _wire(
     coverage: dict[str, str] | None = None,
     recurrence_counts: list[list[str]] | None = None,
     gate_bounds: dict[str, dict[str, float | None]] | None = None,
+    fetuses: tuple[str, ...] = ("FETUS1",),
 ) -> list[list[str]]:
-    """The family's data, as the NIPT page and the signed record both read it: with ``roi``
+    """The family's data, as the NIPT page and the signed record both read it (its pregnancy's
+    ``fetuses``): with ``roi``
     the family page's region of interest, and with ``coverage`` what each of the plasma's
     coverage tracks holds, by source; each variant's recurrence in the assay's 12 other cfDNA
     samples from ``recurrence`` (the ids of each count appended to ``recurrence_counts``); the
@@ -269,7 +271,7 @@ def _wire(
     track_reads: list[list[str]] = []
 
     async def fake_family_record(_session, _family_id, _user):
-        return _family(roi)
+        return _family(roi, fetuses=fetuses)
 
     async def fake_coverage_tracks(_session, *, assembly_name, family_uuid, sample_uuid_to_name, chromosomes):
         assert (family_uuid, sample_uuid_to_name) == (FAMILY_UUID, {"cfdna-uuid": PLASMA})
@@ -277,7 +279,7 @@ def _wire(
         return {PLASMA: SampleCoverageTracks(contents=dict(coverage))} if coverage else {}
 
     async def fake_context(_session, *, family_identifier, user, project_id=None, analysis=None):
-        return _context()
+        return _context(_sample_rows(fetuses=fetuses))
 
     async def fake_fetch(
         _context, filters, *, limit=None, include_variant_ids=None, exclude_variant_ids=(), annotated=True, **_kwargs
@@ -342,8 +344,10 @@ def _wire(
     return track_reads
 
 
-async def _section(reported: list[str], session: _Session | None = None) -> dict[str, Any]:
-    return await srn.nipt_results(session or _Session(), _context(), reported_ids=reported)
+async def _section(
+    reported: list[str], session: _Session | None = None, *, fetuses: tuple[str, ...] = ("FETUS1",)
+) -> dict[str, Any]:
+    return await srn.nipt_results(session or _Session(), _context(_sample_rows(fetuses=fetuses)), reported_ids=reported)
 
 
 async def _page_summary():
@@ -424,6 +428,31 @@ async def test_a_target_with_bases_without_coverage_is_weak_in_the_record(monkey
     coverage = (await _section([]))["target_coverage"]
     assert coverage["incomplete"] == 1
     assert "GENEB" in [gene["gene"] for gene in coverage["genes"]]
+
+
+@pytest.mark.parametrize(("fetuses", "classified"), [(("FETUS1",), True), (("FETUS1", "FETUS2"), False)])
+@pytest.mark.asyncio
+async def test_a_reported_chrx_variant_is_frozen_with_the_fetal_sex_the_variant_list_classifies_it_with(
+    monkeypatch: pytest.MonkeyPatch, fetuses: tuple[str, ...], classified: bool
+) -> None:
+    # A daughter: her father's X alleles in the plasma, no chrY signal. Outside the PARs the
+    # variant list classifies chrX with her sex in a singleton pregnancy and leaves it
+    # unclassified in a multiple one (model_fetal_sex): one fetus's signals say nothing of
+    # another's X. The record freezes the mother's chrX allele as the list classifies it.
+    maternal_x = _record("X-3000050-C-T", [_call(PLASMA, [1020, 980])], genes=["GENEX"])
+    _wire(monkeypatch, sites=[*_paternal_x_sites(), maternal_x], targets=_targets(y_mean=1.0), fetuses=fetuses)
+    section = await _section([maternal_x.variant_id], fetuses=fetuses)
+    listed = await nipt_service.get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPTFAM1",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "GENEX"},
+    )
+    page = {item.record.variant_id: item.classification for item in listed.variants}[maternal_x.variant_id]
+    (frozen,) = section["variants"]
+    assert section["checks"]["fetal_sex"]["call"] == "female"
+    assert (frozen["category"], frozen["flags"]) == (page.category, page.flags)
+    assert (frozen["category"] is not None) is classified
 
 
 @pytest.mark.asyncio
