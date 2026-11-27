@@ -81,6 +81,19 @@ async def recorded_clinvar_releases(
     ]
 
 
+# The lock a load makes its release current under (exclusive) and a signed record is built under
+# (shared): a release made current while a record reads the current release waits for the
+# record's transaction to end, so every read of one record sees one release.
+_CURRENT_RELEASE_LOCK = "clinvar-current-release"
+
+
+async def hold_current_clinvar_release(session: AsyncSession, *, exclusive: bool = False) -> None:
+    """Hold the current-release lock to the end of the session's transaction: shared while a
+    record reads the current release, exclusive while a load makes its release current."""
+    lock = "pg_advisory_xact_lock" if exclusive else "pg_advisory_xact_lock_shared"
+    await session.execute(text(f"SELECT {lock}(hashtext(:k))"), {"k": _CURRENT_RELEASE_LOCK})
+
+
 async def current_clinvar_release(session: AsyncSession, assembly_name: str) -> ClinvarRelease | None:
     """The assembly's current release: the newest recorded. None when it has none."""
     releases = await recorded_clinvar_releases(session, assembly_name, limit=1)

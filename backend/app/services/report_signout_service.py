@@ -59,6 +59,7 @@ from .annotation_manifest_service import (
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import counted_drift, evaluate_classification_drift
 from .clinical_audit_service import audit_actor, compound_het_pair_state, record_clinical_event
+from .clinvar_releases import hold_current_clinvar_release
 from .family_analysis_types import analysis_type_of, family_analyses
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .finding_review_pg import (
@@ -1365,6 +1366,10 @@ async def build_report_snapshot(
     """Assemble (but do not persist) the frozen report snapshot of one of the family's
     analyses (``analysis_type``, ``resolve_signout_analysis``; none for a family that holds
     none), as a sign-out of it freezes it: the record names its analysis."""
+    # One ClinVar release for the whole record: its manifest, drift check, NIPT analysis and
+    # reference data each read the current release, and a load makes a newer one current only
+    # once this transaction has ended (clinvar_releases).
+    await hold_current_clinvar_release(session)
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
