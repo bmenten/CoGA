@@ -250,6 +250,10 @@ describe('Layout main menu', () => {
       'href',
       '/report-codes',
     );
+    expect(within(nav).getByRole('link', { name: 'ClinVar reclassifications' })).toHaveAttribute(
+      'href',
+      '/clinvar-reanalysis',
+    );
     expect(within(nav).getByRole('link', { name: 'User guide' })).toHaveAttribute('href', '/docs');
     // Not an admin: no way into the admin pages from the menu.
     expect(within(nav).queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();

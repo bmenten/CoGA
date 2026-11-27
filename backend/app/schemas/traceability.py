@@ -1,6 +1,6 @@
 """Annotation manifest, classification drift, clinical audit, report sign-out, integrity anchors, request and UI event logs."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -87,6 +87,34 @@ class ClassificationDriftItem(BaseModel):
     # gone).
     evidence_from: Optional[Dict[str, Any]] = None
     evidence_to: Optional[Dict[str, Any]] = None
+
+
+class ClinvarReanalysisItemOut(BaseModel):
+    """A variant of a signed analysis that CoGA's current ClinVar release classifies otherwise
+    than it was frozen (the ClinVar design's phase 3, B10): the family analysis's latest signed
+    version, the variant, whether the record reports it, its class, and its ClinVar (CoGA) per
+    ALT as frozen and as the current release has it."""
+
+    family_id: str
+    analysis: Optional[str] = None
+    version: int
+    signed_out_at: datetime
+    report_code: str
+    variant_id: str
+    reported: bool
+    classification: Optional[str] = None
+    clinvar_coga_frozen: List[ClinvarCogaOut]
+    clinvar_coga_now: List[ClinvarCogaOut]
+
+
+class ClinvarReanalysisOut(BaseModel):
+    """A project's signed analyses with a variant CoGA's current ClinVar release classifies
+    otherwise; read only. ``releases``: the current release of each assembly read (None: none
+    loaded)."""
+
+    project_id: str
+    releases: Dict[str, Optional[date]]
+    items: List[ClinvarReanalysisItemOut]
 
 
 class StructuralClassificationDriftItem(BaseModel):

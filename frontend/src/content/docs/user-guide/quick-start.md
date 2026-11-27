@@ -15,8 +15,8 @@ each of them asks you to sign in again. On a shared computer, then also choose *
 Microsoft** (or of your organisation) on the sign-in page.
 
 The arrow at the right of the top bar opens the main menu: **Projects**, **Variant explorer**, **Gene
-explorer**, **CNV explorer**, **Panels**, **Report codes**, **User guide** and, for superusers and
-administrators, **Admin**. **Settings** in the same bar holds your display preferences.
+explorer**, **CNV explorer**, **Panels**, **Report codes**, **ClinVar reclassifications**, **User guide**
+and, for superusers and administrators, **Admin**. **Settings** in the same bar holds your display preferences.
 
 CoGA keeps the pedigree, the assay data and your interpretation together, so you review a case as a
 whole:

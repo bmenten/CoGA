@@ -380,6 +380,19 @@ De tekens zijn Crockfords base 32 (cijfers en hoofdletters zonder I, L, O en U).
 
 **Waar in de code:** `report_code.py`; `find_report_signout_by_code` en de uniciteit in `sign_out_report` (`report_signout_service.py`); `backend/app/routers/report_codes.py`; `frontend/src/pages/reports/ReportCodeLookupPage.tsx`.
 
+### ClinVar-herclassificaties na de sign-out
+
+Een ondertekende versie verandert nooit; CoGA's ClinVar-release wel (hoofdstuk 15). `GET /api/projects/{project_id}/clinvar-reanalysis` geeft per project de ondertekende analyses met een small variant die de huidige release anders classificeert dan de ondertekende versie zag (beslissing B10 van de eigenaar). Elke analyse van een familie van het project wordt gelezen in haar laatste ondertekende versie (de nieuwste versie van elke `analysis_type`), en daarin:
+
+- elke gerapporteerde variant, met de *ClinVar (CoGA)*-waarde die de ondertekende versie zag: die welke haar driftsectie noemt als de classificatie bij de sign-out gedrift of genoteerd was (`clinvar_coga_to`), anders die bevroren met haar classificatie. Een gerapporteerde variant zonder bevroren bewijs heeft niets om te vergelijken en valt weg;
+- elke variant die de review van de analyse classificeert en het record niet rapporteert, met de waarde bevroren met die classificatie. De review is die welke de analyse leest: haar eigen, anders de gedeelde (`effective_reviews`).
+
+Een variant staat op de lijst als de huidige release van de assembly een ALT een andere classificatie geeft, gelezen op haar termen zoals de driftcontrole ze leest (`clinvar_coga_move`). Een andere reviewstatus of andere sterren van dezelfde classificatie staat er niet op (B5). Een assembly zonder release geeft niets; het antwoord noemt de release van elke assembly. Elk item noemt de familie, de analyse, de ondertekende versie met haar tijdstip en rapportcode, de variant, of het record ze rapporteert, haar klasse, en per ALT de waarde bevroren en nu.
+
+De lijst leest alleen: CoGA verandert niets aan de analyse, en een heranalyse is een nieuwe sign-out. Wie de lijst opvolgt en hoe, bepaalt de labo-procedure; er gaat geen mail uit. Een project buiten die van de gebruiker krijgt dezelfde `404` als een onbekend project. In de app staat de lijst onder **ClinVar reclassifications** in het hoofdmenu (`/clinvar-reanalysis?project=<id>`), elk item met een link naar zijn ondertekende versie.
+
+**Waar in de code:** `backend/app/services/clinvar_reanalysis.py`; `clinvar_coga_move` (`classification_drift_service.py`); `backend/app/routers/projects.py`; `frontend/src/pages/reports/ClinvarReanalysisPage.tsx`.
+
 ### Toont de rapportpagina het ondertekende rapport?
 
 Alleen de ondertekende versie is het ondertekende rapport. De rapportpagina heeft twee weergaven:
@@ -514,6 +527,7 @@ Deze keten is de technische invulling van de eis tot traceerbaarheid onder de IV
 | `backend/app/services/family_structure_audit.py` | De structuurversies van de stamboom, hun keten en de `pedigree`-regels |
 | `backend/app/services/integrity_anchor_service.py` | Ondertekende ankers en hun controle |
 | `backend/app/services/classification_drift_service.py` | Drift |
+| `backend/app/services/clinvar_reanalysis.py` | De ClinVar-herclassificaties na de sign-out |
 | `backend/app/services/structural_variant_evidence.py` | Het bewijs van een CNV-classificatie en zijn drift |
 | `backend/app/services/annotation_manifest_service.py` | Het annotatie- en referentiemanifest |
 | `backend/app/services/clickhouse_integrity_monitor.py` | Bewaking van de variantopslag |

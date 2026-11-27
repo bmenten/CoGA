@@ -50,6 +50,7 @@ files = [
     "backend/app/services/clinvar_concordance.py",
     "backend/app/services/clinvar_download.py",
     "backend/app/services/clinvar_load_jobs.py",
+    "backend/app/services/clinvar_reanalysis.py",
     "backend/app/services/clinvar_release_store.py",
     "backend/app/services/clinvar_releases.py",
     "backend/app/services/clinvar_review_status.py",

@@ -1177,6 +1177,7 @@ names them.
 | `GET /families/{family_id}/report/sign-outs/{version}` | one signed version, with its `analysis_type`, `report_code`, `verified` (its content hash recomputed on read) and `not_captured` (what its record could not capture) |
 | `GET /families/{family_id}/report/sign-out-check?analysis_type=…` | whether the report of that analysis (named as for a sign-out) as it would be signed now matches the analysis's latest version: `analysis_type`, `matches`, `changed_sections`, `not_captured` |
 | `GET /report-codes/{code}` | the family and version of the signed record a report code names (*The report code*) |
+| `GET /projects/{project_id}/clinvar-reanalysis` | the project's signed analyses with a small variant CoGA's current ClinVar release classifies otherwise than the signed version saw (*ClinVar reclassifications since sign-out*) |
 
 ### The report code
 
@@ -1221,6 +1222,38 @@ version and the content-hash prefix its hash symbols spell, as bound parameters.
 the lookup is *Report codes* in the main menu (`/report-codes`, and `/report-codes/<code>` as a
 link from the EPD); it shows the record's family, version, signer and content hash, and opens
 the signed version.
+
+### ClinVar reclassifications since sign-out
+
+A signed version never changes; CoGA's ClinVar release does (*ClinVar (CoGA)*, loaded weekly).
+`GET /projects/{project_id}/clinvar-reanalysis` (`services/clinvar_reanalysis.py`) lists the
+project's signed analyses with a small variant that the current release classifies otherwise
+than the signed version saw (the owner's decision B10). It reads each family analysis of the
+project in its latest signed version (the newest version of each `analysis_type`), and in it:
+
+- each variant its record reports, at the *ClinVar (CoGA)* value the signed version saw: the
+  value its drift section names where the classification had drifted or been noted at sign-out
+  (`clinvar_coga_to`), else the value frozen with its classification
+  (`evidence_snapshot.clinvar_coga`). A reported variant without frozen evidence has nothing to
+  compare, and is left out;
+- each variant the analysis's review classifies with frozen evidence and its record does not
+  report, at the value frozen with that classification. The review is the one the analysis
+  reads: its own, else the shared one (`effective_reviews`).
+
+A variant is listed when the assembly's current release gives an ALT another classification,
+read by its terms as the drift check reads it (`clinvar_coga_move`): a classification where
+there was none, and none where there was one, count. Another review status or other stars of
+the same classification is not listed (B5). Each variant is looked up by the locus its ID
+spells (`locus_of_variant_id`), all of an assembly's in one query. An assembly without a release
+lists nothing; the answer names each assembly's release (`releases`, `null` for none). Each item
+names the family, the analysis, the signed version with its time and report code, the variant,
+whether its record reports it, its class, and each ALT's value frozen and now.
+
+The list is read only: CoGA changes nothing of the analysis, and a re-analysis is a new
+sign-out. Who follows the list up, and how, is the laboratory's procedure; no mail goes out. A
+project outside the caller's answers 404, as an unknown one does. In the interface it is
+*ClinVar reclassifications* in the main menu (`/clinvar-reanalysis?project=<id>`), each item
+linked to its signed version.
 
 ## The report page and the signed record
 

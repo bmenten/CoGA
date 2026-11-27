@@ -3,11 +3,11 @@ import { NavLink } from 'react-router';
 import { hasSuperuserRights } from '../lib/auth';
 
 /**
- * The main sections — the projects, the explorers, the gene panels, the report-code lookup,
- * the guide and, for a superuser or an administrator, Admin — behind a small arrow at the right of the
- * header. A disclosure, not an ARIA menu: the arrow says whether the list is open, the
- * entries are ordinary links, and Escape or a click elsewhere closes it. The dashboard keeps
- * its own buttons to the same places.
+ * The main sections — the projects, the explorers, the gene panels, the report-code lookup, the
+ * ClinVar reclassifications since sign-out, the guide and, for a superuser or an administrator,
+ * Admin — behind a small arrow at the right of the header. A disclosure, not an ARIA menu: the
+ * arrow says whether the list is open, the entries are ordinary links, and Escape or a click
+ * elsewhere closes it. The dashboard keeps its own buttons to the same places.
  */
 const HeaderMenu: React.FC = () => {
   const [open, setOpen] = useState(false);
@@ -68,6 +68,9 @@ const HeaderMenu: React.FC = () => {
         </NavLink>
         <NavLink to="/report-codes" onClick={close}>
           Report codes
+        </NavLink>
+        <NavLink to="/clinvar-reanalysis" onClick={close}>
+          ClinVar reclassifications
         </NavLink>
         {hasSuperuserRights() && (
           <NavLink to="/admin" onClick={close}>

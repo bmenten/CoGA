@@ -103,8 +103,8 @@ def _current_evidence(
     )
 
 
-def _clinvar_coga_move(frozen: Any, now: Any) -> str | None:
-    """What moved in an allele's ClinVar in CoGA's own release between the snapshot and now
+def clinvar_coga_move(frozen: Any, now: Any) -> str | None:
+    """What moved in an allele's ClinVar in CoGA's own release between a frozen value and now
     (each a list of one value per ALT, ``build_evidence_snapshot``): ``classification`` when an
     ALT's classification differs (its terms as ``_status_terms`` reads them; none on one side
     and one on the other included), ``review`` when only a review status or the stars do (the
@@ -207,7 +207,7 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     cur_version = current.get("annotation_version")
     evidence_to = _evidence_values(current)[0] or {}
     coga_to = current.get("clinvar_coga") or []
-    coga_move = _clinvar_coga_move(coga_from, coga_to) if coga_from is not None else None
+    coga_move = clinvar_coga_move(coga_from, coga_to) if coga_from is not None else None
 
     changed: list[str] = []
     if "clinvar" in snapshot and not _same(snap_clinvar, cur_clinvar):

@@ -198,6 +198,9 @@ COMBINED_FLOORS: dict[str, float] = {
     # (93.1 and 100.0 measured locally: a ClinVar release's load, whose job rows, release and
     # partitions the smoke job's real Postgres and ClickHouse run)
     "backend/app/services/clinvar_load_jobs.py": 90.0,
+    # (100.0 measured locally: the signed analyses CoGA's current ClinVar release classifies
+    # otherwise, per project)
+    "backend/app/services/clinvar_reanalysis.py": 97.0,
     "backend/app/services/clinvar_release_store.py": 97.0,
     "backend/app/services/family_package_datasets.py": 83.0,  # (86.7, 2026-11-03)
     "backend/app/services/family_package_import.py": 93.0,  # (96.0)
