@@ -29,8 +29,10 @@ In the chromosome view each small variant is drawn by its class, with a legend o
 | Yellow dot | MODERATE impact |
 | Grey dot | LOW or MODIFIER impact, or none |
 
-Any other variant with a conflicting or uncertain ClinVar record is drawn by its impact. The dots differ by
-colour only: hover a mark for its impact, ClinVar status and parental origin. A review tag draws a ring
+Any other variant with a conflicting or uncertain ClinVar record is drawn by its impact. ClinVar is that of
+CoGA's own ClinVar release where it holds the allele, else the annotation's: a variant reclassified after
+the pipeline annotated it is drawn by its newer classification. The dots differ by colour only: hover a
+mark for its impact, ClinVar status (named *ClinVar (CoGA, release)* or *ClinVar*) and parental origin. A review tag draws a ring
 in the tag's colour around the mark; the mark itself does not change.
 
 In a window of 250 kb or less the track draws every variant of the sample. In a wider window it draws

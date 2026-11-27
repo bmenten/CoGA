@@ -284,11 +284,15 @@ async def get_family_small_variants(
         clinvar_coga_release=clinvar_coga.release,
         **filters,
     )
-    if not track_mode and not count_only:
+    if count_only:
+        return result
+    if not track_mode:
         # The list names the members without calls in the callsets it reads, whose missing calls
         # an inheritance filter reads as no ALT allele (the owner's decision of 2026-11-20).
         result.members_without_calls = await family_members_without_calls(context, source=filters.get("source"))
-        await serve_clinvar_coga(session, context, clinvar_coga, result)
+    # The list and the track both read each variant's ClinVar (CoGA): the track marks a variant
+    # by its ClinVar read by the design's one rule (B8).
+    await serve_clinvar_coga(session, context, clinvar_coga, result)
     return result
 
 

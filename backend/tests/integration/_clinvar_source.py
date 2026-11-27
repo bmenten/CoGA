@@ -39,7 +39,7 @@ def clinvar_file(
         if line.startswith("#")
     ]
     body = [edit(line) for line in lines if not line.startswith("#")]
-    return gzip.compress("\n".join([*header, *body[:records]]).encode() + b"\n")
+    return gzip.compress("\n".join([*header, *body[:records]]).encode() + b"\n", mtime=0)
 
 
 class StandInNcbi:

@@ -169,14 +169,34 @@ def clinvar_allele_condition(
     alias: str = "e",
 ) -> str:
     """"An allele of the row (alias ``alias``, its ``allele_keys``) is one the release
-    classifies with one of ``terms``" (as ``_status_terms`` stores them), in SQL. The release's
-    set is built once for the query, from its partition."""
-    params[f"{prefix}_release"] = release
+    classifies with one of ``terms``" (as ``_status_terms`` stores them), in SQL."""
     params[f"{prefix}_terms"] = list(terms)
+    return clinvar_allele_where_condition(
+        assembly_name,
+        release,
+        f"hasAny(classification_terms, %({prefix}_terms)s)",
+        params=params,
+        prefix=prefix,
+        alias=alias,
+    )
+
+
+def clinvar_allele_where_condition(
+    assembly_name: str,
+    release: date,
+    where: str,
+    *,
+    params: dict[str, Any],
+    prefix: str,
+    alias: str = "e",
+) -> str:
+    """"An allele of the row (alias ``alias``, its ``allele_keys``) is one of the release's rows
+    that meet ``where``" (a condition on the table's columns, such as ``classification_terms``),
+    in SQL. The release's set is built once for the query, from its partition."""
+    params[f"{prefix}_release"] = release
     return (
         f"arrayExists(k -> k IN (SELECT allele_key FROM {clinvar_table(assembly_name)} "
-        f"WHERE release = %({prefix}_release)s AND hasAny(classification_terms, %({prefix}_terms)s)), "
-        f"{alias}.allele_keys)"
+        f"WHERE release = %({prefix}_release)s AND {where}), {alias}.allele_keys)"
     )
 
 

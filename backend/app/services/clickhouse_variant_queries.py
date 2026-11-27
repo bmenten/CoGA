@@ -79,7 +79,11 @@ from .variant_prioritization import (
     MODE_HOM_RECESSIVE,
     MODE_X_LINKED,
 )
-from .clinvar_release_store import clinvar_allele_condition, clinvar_alleles_held_condition
+from .clinvar_release_store import (
+    clinvar_allele_condition,
+    clinvar_allele_where_condition,
+    clinvar_alleles_held_condition,
+)
 from .clinvar_review_status import clinvar_conditions, clinvar_stars
 from .clickhouse_variant_records import (
     CLINVAR_OVERRIDE_TERMS,
@@ -3069,18 +3073,54 @@ def _small_salient_condition(
     if not filters.salient_only:
         return None
     params["salient_impacts"] = _SALIENT_IMPACTS
-    diamond = (
-        "arrayExists(term -> position(term, 'pathogenic') > 0"
-        " AND position(term, 'conflict') = 0, a.clinvar_terms)"
+    return f"({_clinvar_diamond('a.clinvar_terms')} OR ({_SALIENT_IMPACT} AND NOT {_clinvar_benign('a.clinvar_terms')}))"
+
+
+_SALIENT_IMPACT: Final = "a.impact IN %(salient_impacts)s"
+
+
+def _clinvar_diamond(terms: str) -> str:
+    """"``terms`` (ClinVar terms as ``_status_terms`` stores them) list a (likely) pathogenic
+    classification": a ClinVar diamond on the small-variant track. ClinVar's aggregate conflict
+    is none."""
+    return f"arrayExists(term -> position(term, 'pathogenic') > 0 AND position(term, 'conflict') = 0, {terms})"
+
+
+def _clinvar_benign(terms: str) -> str:
+    """"``terms`` list a (likely) benign classification and no other": without a pathogenic term
+    (the diamond's), benign beside an uncertain classification or a conflict is a conflict."""
+    return (
+        f"(arrayExists(term -> position(term, 'benign') > 0, {terms})"
+        f" AND NOT arrayExists(term -> term = 'uncertain significance' OR position(term, 'conflict') > 0, {terms}))"
     )
-    # Without a pathogenic term (the diamond's), benign beside an uncertain classification or a
-    # conflict is a conflict.
-    benign = (
-        "(arrayExists(term -> position(term, 'benign') > 0, a.clinvar_terms)"
-        " AND NOT arrayExists(term -> term = 'uncertain significance'"
-        " OR position(term, 'conflict') > 0, a.clinvar_terms))"
+
+
+def _salient_by_the_rule(
+    context: _SearchAssembly,
+    filters: SmallVariantQueryFilters,
+    annotated: str,
+    *,
+    params: dict[str, Any],
+) -> str:
+    """The salient rows (``annotated``: the annotation's, ``_small_salient_condition``) with
+    ClinVar read by the design's one rule (B8), as the track marks a variant: the classification
+    in CoGA's release of the request where it holds the row's alleles, else the annotation's. A
+    row is salient for an allele the release holds (likely) pathogenic, for a held row of HIGH or
+    MODERATE impact the release does not hold (likely) benign, and for any other row as without a
+    release. A multi-allelic row the release holds in part is read both ways: the set holds every
+    variant the track could mark."""
+    if filters.clinvar_coga_release is None or not context.assembly_name:
+        return annotated
+    release = filters.clinvar_coga_release
+    diamond = clinvar_allele_where_condition(
+        context.assembly_name, release, _clinvar_diamond("classification_terms"), params=params, prefix="coga_diamond"
     )
-    return f"({diamond} OR (a.impact IN %(salient_impacts)s AND NOT {benign}))"
+    benign = clinvar_allele_where_condition(
+        context.assembly_name, release, _clinvar_benign("classification_terms"), params=params, prefix="coga_benign"
+    )
+    impact = _small_annotation_row_membership_condition(context, filters, params=params, condition=_SALIENT_IMPACT)
+    held = _clinvar_coga_held(context, filters, params=params)
+    return f"({diamond} OR ({held} AND {impact} AND NOT {benign}) OR (NOT {held} AND {annotated}))"
 
 
 def _small_annotation_exclude_filter_condition(
@@ -4046,14 +4086,13 @@ def _small_annotation_filter_clauses(
 
     salient_condition = _small_salient_condition(filters, params=params)
     if salient_condition:
-        clauses.append(
-            _small_annotation_row_membership_condition(
-                context,
-                filters,
-                params=params,
-                condition=salient_condition,
-            )
+        annotated = _small_annotation_row_membership_condition(
+            context,
+            filters,
+            params=params,
+            condition=salient_condition,
         )
+        clauses.append(_salient_by_the_rule(context, filters, annotated, params=params))
     return clauses
 
 
