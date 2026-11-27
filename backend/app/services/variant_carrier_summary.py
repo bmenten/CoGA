@@ -117,6 +117,7 @@ CARRIER_COLUMNS: tuple[str, ...] = (
     "pos",
     "ref",
     "alt",
+    "allele_keys",
     "families",
     "samples",
     "het",
@@ -150,6 +151,7 @@ def carriers_table_ddl(database: str, dataset: str) -> str:
             `pos` UInt32,
             `ref` String,
             `alt` String,
+            `allele_keys` Array(UInt64),
             `families` Int32,
             `samples` Int32,
             `het` Int32,
@@ -540,7 +542,7 @@ def _contribution_insert(
     query = f"""
         INSERT INTO {stage} ({columns})
         SELECT xpos, key, out.1, out.2, %(projects)s, out.3, out.4, out.5, out.6, toUInt64(0),
-               variantId, chrom, pos, ref, alt,
+               variantId, chrom, pos, ref, alt, allele_keys,
                toInt32(out.7), toInt32(out.8), toInt32(out.9), toInt32(out.10), toInt32(0)
         FROM (
             SELECT
@@ -551,6 +553,7 @@ def _contribution_insert(
                 min(pos) AS pos,
                 min(ref) AS ref,
                 min(alt) AS alt,
+                any(allele_keys) AS allele_keys,
                 groupArray(tuple(annotationSetHash, rsid, gene_symbols, imputed)) AS row_classes,
                 groupArray(carriers) AS row_carriers,
                 groupArray(hets) AS row_hets,
@@ -571,6 +574,7 @@ def _contribution_insert(
                     e.pos AS pos,
                     e.ref AS ref,
                     e.alt AS alt,
+                    e.allele_keys AS allele_keys,
                     arrayMap(s -> {as_person}, arrayFilter((s, g) -> {carrier} AND {shown}, {calls})) AS carriers,
                     arrayMap(s -> {as_person}, arrayFilter((s, g) -> {carrier} AND NOT {hom} AND {shown}, {calls})) AS hets,
                     arrayMap(s -> {as_person}, arrayFilter((s, g) -> {hom} AND {shown}, {calls})) AS homs
@@ -586,6 +590,7 @@ def _contribution_insert(
         UNION ALL
         SELECT toUInt64(0), toUInt64(0), %(family)s, '', CAST([] AS Array(String)), toUInt64(0), '',
                CAST([] AS Array(String)), false, toUInt64(%(generation)s), '', '', toUInt32(0), '', '',
+               CAST([] AS Array(UInt64)),
                toInt32(0), toInt32(0), toInt32(0), toInt32(0), toInt32(%(sign)s)
         SETTINGS {_CONTRIBUTION_SETTINGS}
     """
@@ -595,6 +600,7 @@ def _contribution_insert(
             INSERT INTO {stage} ({columns})
             SELECT toUInt64(0), toUInt64(0), %(family)s, '', CAST([] AS Array(String)), toUInt64(0), '',
                    CAST([] AS Array(String)), false, toUInt64(%(generation)s), '', '', toUInt32(0), '', '',
+                   CAST([] AS Array(UInt64)),
                    toInt32(0), toInt32(0), toInt32(0), toInt32(0), toInt32(%(sign)s)
         """
     return query, params

@@ -18,7 +18,6 @@ Only the ClinVar file's values count: the classification of VEP's cache
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -36,7 +35,7 @@ from ..schemas import (
 from .clickhouse_variant_ids import minimal_allele_id, small_allele_key
 from .clickhouse_variant_records import SmallVariantRecord, _status_terms
 from .clinvar_release_store import ClinvarStoredAllele, clinvar_alleles_of_callset
-from .clinvar_releases import ClinvarRelease, recorded_clinvar_releases
+from .clinvar_releases import ClinvarRelease, annotated_clinvar_release, recorded_clinvar_releases
 from .variant_annotation_parser import ALT_ALLELE_KEY, CLINVAR_FROM_VEP_CACHE_KEY
 
 logger = logging.getLogger(__name__)
@@ -45,9 +44,6 @@ logger = logging.getLogger(__name__)
 CONCORDANCE_KEY = "clinvar_concordance"
 # The differences kept, the first by variant: the counts cover them all.
 MAX_DIFFERENCES = 100
-# A ClinVar file's release as the manifest's ``clinvar`` module states it: ``20261101``, the
-# date in the file's name, or a version line's ``2026-11-01``.
-_RELEASE = re.compile(r"(\d{4})-?(\d{2})-?(\d{2})")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,20 +57,6 @@ class _Annotated:
     terms: frozenset[str]
     review_status: str
     variation_id: int | None
-
-
-def annotated_clinvar_release(modules: Mapping[str, Mapping[str, Any]]) -> date | None:
-    """The release of the ClinVar file a callset was annotated with: its manifest's ``clinvar``
-    module's version as a date. None for a callset annotated without one, or whose release is
-    not a date."""
-    version = str((modules.get("clinvar") or {}).get("version") or "").strip()
-    match = _RELEASE.fullmatch(version)
-    if match is None:
-        return None
-    try:
-        return date(int(match[1]), int(match[2]), int(match[3]))
-    except ValueError:
-        return None
 
 
 class ClinvarConcordance:

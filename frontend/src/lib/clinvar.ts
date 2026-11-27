@@ -49,6 +49,65 @@ export const clinvarClass = (clinvar?: string | null): ClinvarClass | undefined 
 export const clinvarLabel = (fromVepCache?: boolean | null): string =>
   fromVepCache ? 'ClinVar (VEP cache)' : 'ClinVar';
 
+/**
+ * The names of the two ClinVar values a small variant shows (the owner's decision B7): the
+ * annotation's, of the release of the ClinVar file the pipeline annotated, and CoGA's own release.
+ * A value read from VEP's cache keeps its own name.
+ */
+export const clinvarAnnotationLabel = (fromVepCache?: boolean | null, release?: string | null): string =>
+  fromVepCache ? clinvarLabel(true) : release ? `ClinVar (annotation, ${release})` : 'ClinVar (annotation)';
+
+export const clinvarCogaLabel = (release?: string | null): string =>
+  release ? `ClinVar (CoGA, ${release})` : 'ClinVar (CoGA)';
+
+// A classification's terms as the import stores them (clinvar_terms): lower case, spaces for
+// underscores, split on ClinVar's separators.
+const termsOf = (classification?: string | null): Set<string> =>
+  new Set(
+    (classification || '')
+      .split(TERM_SEPARATORS)
+      .map((term) => term.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim())
+      .filter(Boolean),
+  );
+
+/** One ALT's value in CoGA's own ClinVar release, as the API serves it. */
+export interface ClinvarCogaValue {
+  alt: string;
+  status: 'in_release' | 'not_in_release' | 'no_release' | 'not_available';
+  classification?: string | null;
+  stars?: number | null;
+}
+
+/**
+ * Whether CoGA's own release classifies the allele otherwise than its annotation: another
+ * classification (one side classifying it and the other not included), or, both classifying it
+ * alike, other stars (where the annotation's stars are known). False when CoGA reads no release
+ * for it.
+ */
+export const clinvarCogaChanged = (
+  annotated: { clinvar?: string | null; clinvar_stars?: number | null },
+  coga?: ClinvarCogaValue | null,
+): boolean => {
+  if (!coga || coga.status === 'no_release' || coga.status === 'not_available') return false;
+  const ours = termsOf(annotated.clinvar);
+  const theirs = termsOf(coga.classification);
+  if (ours.size !== theirs.size || [...ours].some((term) => !theirs.has(term))) return true;
+  // Stars are compared where the annotation's are known (a family's variant; not an Explorer row).
+  return ours.size > 0 && annotated.clinvar_stars !== undefined && (annotated.clinvar_stars ?? null) !== (coga.stars ?? null);
+};
+
+/** The value of a small variant's shown ALT in CoGA's release: of the allele its transcript
+ * fields are of (a multi-allelic record's ``alt_allele``), else of its one ALT. */
+export const clinvarCogaOf = <T extends ClinvarCogaValue>(variant: {
+  alt?: string | null;
+  alt_allele?: string | null;
+  clinvar_coga?: T[] | null;
+}): T | undefined => {
+  const values = variant.clinvar_coga ?? [];
+  const shown = variant.alt_allele ?? variant.alt;
+  return values.find((value) => value.alt === shown) ?? (values.length === 1 ? values[0] : undefined);
+};
+
 export const VEP_CACHE_CLINVAR_NOTE =
   "From VEP's cache (CLIN_SIG), as no ClinVar file was annotated: the classification of the " +
   'known variant (dbSNP rsID), which may be that of another allele at this position. Check it in ClinVar.';

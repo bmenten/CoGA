@@ -391,6 +391,7 @@ def test_the_variant_explorer_filters_by_a_panel_named_in_braces(monkeypatch: py
                 effect=[],
                 clinvar=[],
                 exclude_clinvar=[],
+                clinvar_coga=[],
                 classification=[],
                 review_tag=[],
                 sample_gt=[],

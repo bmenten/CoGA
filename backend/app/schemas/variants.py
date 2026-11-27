@@ -1,6 +1,6 @@
 """Small, structural and copy-number variant rows, pages and carriers."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, RootModel
@@ -15,6 +15,27 @@ from .reviews import (
     SmallVariantCompoundHetReviewOut,
     SmallVariantReviewOut,
 )
+
+
+class ClinvarCogaOut(BaseModel):
+    """One ALT's ClinVar in CoGA's own ClinVar release (*ClinVar (CoGA)*), or why it has none:
+    ``in_release`` (the release holds the allele: its classification, or only that it is
+    classified as part of a combination, ``included_only``), ``not_in_release``, ``no_release``
+    (none is loaded for the assembly) or ``not_available`` (ClinVar publishes no VCF for the
+    assembly)."""
+
+    alt: str
+    status: Literal["in_release", "not_in_release", "no_release", "not_available"]
+    # The release read: the one current when the request began, the same for every variant of
+    # a page.
+    release: Optional[date] = None
+    # CLNSIG as published; None without one.
+    classification: Optional[str] = None
+    review_status: Optional[str] = None
+    stars: Optional[int] = None
+    conditions: List[str] = Field(default_factory=list)
+    variation_id: Optional[int] = None
+    included_only: bool = False
 
 
 class GenotypeOut(BaseModel):
@@ -210,6 +231,9 @@ class VariantOut(ApiDocumentModel):
     clinvar_stars: Optional[int] = None
     clinvar_conditions: List[str] = Field(default_factory=list)
     clinvar_variation_id: Optional[str] = None
+    # Small variants: each ALT's ClinVar in CoGA's own release, shown beside the annotation's
+    # (``clinvar_coga.attach_clinvar_coga``); empty for a structural variant.
+    clinvar_coga: List[ClinvarCogaOut] = Field(default_factory=list)
     rsid: Optional[str] = None
     hgvsc: Optional[str] = None
     hgvsp: Optional[str] = None
@@ -534,6 +558,10 @@ class VariantPage(BaseModel):
     # analysis it reads (``family_members_without_calls``); empty when every member holds calls.
     # None where the response did not read them: a track's page, a presence check, another list.
     members_without_calls: Optional[List[MemberWithoutCallsOut]] = None
+    # The two ClinVar releases a small-variant page names (design B7): the release of the ClinVar
+    # file the analysis's annotation names (its manifest), and CoGA's own release the page read.
+    clinvar_annotation_release: Optional[date] = None
+    clinvar_coga_release: Optional[date] = None
 
 
 class SmallVariantUploadResult(BaseModel):
@@ -612,6 +640,8 @@ class GlobalVariantRowOut(BaseModel):
     hgvsc: Optional[str] = None
     hgvsp: Optional[str] = None
     clinvar: Optional[str] = None
+    # Each ALT's ClinVar in CoGA's own release (``GlobalVariantPageOut.clinvar_coga_release``).
+    clinvar_coga: List[ClinvarCogaOut] = Field(default_factory=list)
     # The most severe class the variant's reviews show, each by the family page's rule
     # (review_class_label), and the classification text of the review that shows it, as
     # stored: its own text, or its compound-het pair's.
@@ -636,6 +666,8 @@ class GlobalVariantPageOut(BaseModel):
     # Families of the scope whose variants the explorer's carrier summary does not hold as
     # they are now (being written, or changed moments ago): left out, or counted as before.
     pending_families: int = 0
+    # CoGA's ClinVar release the page read: the same for every row, and for its filters.
+    clinvar_coga_release: Optional[date] = None
     variants: List[GlobalVariantRowOut] = Field(default_factory=list)
 
 

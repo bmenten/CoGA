@@ -30,7 +30,7 @@ from backend.app.services.clickhouse_variant_records import SmallVariantCall, Sm
 from backend.app.services.clickhouse_variant_rows import _small_variant_entry_rows
 from backend.app.services.clickhouse_variant_storage import SMALL_VARIANT_ENTRY_COLUMNS
 from backend.app.services.clinvar_release_store import ClinvarStoredAllele
-from backend.app.services.clinvar_releases import ClinvarRelease
+from backend.app.services.clinvar_releases import ClinvarRelease, annotated_clinvar_release
 
 RELEASE = date(2026, 11, 1)
 MODULES = {"clinvar": {"version": "20261101", "detail": "ClinVar file clinvar_20261101.vcf.gz"}}
@@ -69,6 +69,7 @@ def _stored(allele: str, classification: str, status: str = "criteria provided, 
         review_status=status,
         variation_id=vid,
         included_only=False,
+        conditions=(),
     )
 
 
@@ -138,7 +139,7 @@ def test_the_clinvar_files_values_of_each_allele_are_noted_once() -> None:
     ],
 )
 def test_the_annotations_release_is_its_clinvar_modules_date(modules: dict, release: date | None) -> None:
-    assert cc.annotated_clinvar_release(modules) == release
+    assert annotated_clinvar_release(modules) == release
 
 
 # --- the comparison ----------------------------------------------------------------------------

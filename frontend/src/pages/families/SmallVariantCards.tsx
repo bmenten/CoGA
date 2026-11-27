@@ -5,7 +5,8 @@ import InfoTip from '../../components/InfoTip';
 import ModalDialog from '../../components/ModalDialog';
 import api from '../../lib/api';
 import type { GeneProfileOut, GeneTranscriptOut } from '../../lib/apiSchema.generated';
-import { clinvarLabel, VEP_CACHE_CLINVAR_NOTE } from '../../lib/clinvar';
+import { clinvarAnnotationLabel, clinvarCogaOf, clinvarLabel, VEP_CACHE_CLINVAR_NOTE } from '../../lib/clinvar';
+import ClinvarCogaChip, { clinvarCogaText } from './ClinvarCogaChip';
 import { genotypeZygosity } from '../../lib/genotypes';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -655,6 +656,15 @@ const buildVariantDetailData = (variant: SmallVariant) => {
     variant.nmd ? { label: 'NMD', value: formatTokenLabel(variant.nmd) } : null,
     variant.clinvar_review_status ? { label: 'ClinVar review status', value: variant.clinvar_review_status } : null,
     variant.clinvar_conditions?.length ? { label: 'ClinVar conditions', value: variant.clinvar_conditions.join('; ') } : null,
+    // CoGA's own ClinVar release, each ALT's value, beside the annotation's lines above.
+    ...(variant.clinvar_coga ?? []).flatMap((value) => {
+      const of = (variant.clinvar_coga ?? []).length > 1 ? ` of ${value.alt}` : '';
+      return [
+        { label: `ClinVar (CoGA)${of}`, value: clinvarCogaText(value) },
+        value.review_status ? { label: `ClinVar (CoGA) review status${of}`, value: value.review_status } : null,
+        value.conditions.length ? { label: `ClinVar (CoGA) conditions${of}`, value: value.conditions.join('; ') } : null,
+      ];
+    }),
     // The frequencies the Frequencies column leaves out, such as gnomAD's per-dataset popmax.
     ...populationFrequencies
       .filter(([key]) => !FREQUENCY_COLUMN_KEYS.has(key))
@@ -685,6 +695,10 @@ export interface SmallVariantCardListProps {
   // The NIPT list's samples: a NIPT variant's genotypes show the plasma's and the father's
   // reads as the analysis read them, without the fetus (niptGenotypeEntries).
   niptTrio?: NiptTrio | null;
+  // The two ClinVar releases the page names (the owner's decision B7): the release of the
+  // ClinVar file the annotation names, and CoGA's own release the page read.
+  clinvarAnnotationRelease?: string | null;
+  clinvarCogaRelease?: string | null;
 }
 
 /**
@@ -785,6 +799,8 @@ export function SmallVariantCard({
   onToggleReviewTag,
   rankedBy = null,
   niptTrio = null,
+  clinvarAnnotationRelease = null,
+  clinvarCogaRelease = null,
 }: SmallVariantCardProps) {
   const key = cardKey ?? variant._id;
   const { locus, igvHref, viewHref } = buildSmallVariantNavigation({
@@ -812,7 +828,11 @@ export function SmallVariantCard({
   // read from VEP's cache is named as the cache's, and says on hover why.
   const clinvarStars = formatClinvarStars(variant.clinvar_stars);
   const clinvarSummary = `${formatTokenLabel(variant.clinvar)}${clinvarStars ? ` ${clinvarStars}` : ''}`;
-  const clinvarKey = clinvarLabel(variant.clinvar_from_vep_cache);
+  // Beside CoGA's own release, the annotation's value is named by its release (B7).
+  const clinvarCoga = clinvarCogaOf(variant);
+  const clinvarKey = clinvarCoga
+    ? clinvarAnnotationLabel(variant.clinvar_from_vep_cache, clinvarAnnotationRelease)
+    : clinvarLabel(variant.clinvar_from_vep_cache);
   const clinvarTitle =
     [
       variant.clinvar_from_vep_cache ? VEP_CACHE_CLINVAR_NOTE : null,
@@ -999,6 +1019,9 @@ export function SmallVariantCard({
                 {clinvarSummary}
               </span>
             )
+          ) : null}
+          {clinvarCoga && (variant.clinvar || clinvarCoga.status === 'in_release') ? (
+            <ClinvarCogaChip value={clinvarCoga} release={clinvarCogaRelease} annotated={variant} />
           ) : null}
           {/* The class the review shows: a class word as its label, not as typed. */}
           {reviewClass.label ? (

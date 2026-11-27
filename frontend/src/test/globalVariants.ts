@@ -24,6 +24,7 @@ export const globalVariantRow = (overrides: Partial<GlobalVariantRow> = {}): Glo
   hgvsc: 'c.7007G>A',
   hgvsp: 'p.Arg2336His',
   clinvar: 'Pathogenic',
+  clinvar_coga: [],
   classification: null,
   classification_text: null,
   tags: [],

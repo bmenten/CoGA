@@ -46,6 +46,7 @@ files = [
     "backend/app/services/clickhouse_variant_storage.py",
     "backend/app/services/clinical_audit_service.py",
     "backend/app/services/clinical_cnv_kb_jobs.py",
+    "backend/app/services/clinvar_coga.py",
     "backend/app/services/clinvar_concordance.py",
     "backend/app/services/clinvar_download.py",
     "backend/app/services/clinvar_load_jobs.py",

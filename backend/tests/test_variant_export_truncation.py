@@ -158,7 +158,8 @@ def test_small_variant_export_route_reports_a_partial_search(monkeypatch) -> Non
     from backend.app.routers import families_small_variants as route
 
     async def _context(*_a, **_k):
-        return None
+        # A family on an assembly ClinVar publishes no VCF for: no release is read.
+        return types.SimpleNamespace(assembly_name=None)
 
     async def _export(*_a, **_k):
         return cfv.VariantExport(rows=[], truncated_reason="candidate-limit", limit=50_000)

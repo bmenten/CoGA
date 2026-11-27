@@ -97,6 +97,7 @@ from .clickhouse_variant_records import (
     Region,
     _normalized_status_term,
 )
+from .clinvar_coga import NO_CLINVAR_COGA, ClinvarCogaRead, clinvar_coga_read, clinvar_coga_values
 from .family_variant_filters import (
     SmallVariantQueryFilters,
     SmallVariantSampleFilter,
@@ -335,6 +336,9 @@ class GlobalVariantFilters:
     effects: list[str] = field(default_factory=list)
     clinvar: list[str] = field(default_factory=list)
     exclude_clinvar: list[str] = field(default_factory=list)
+    # ClinVar (CoGA): the classifications of CoGA's own ClinVar release, read in the scope's
+    # release (``ExplorerScope.clinvar_coga``).
+    clinvar_coga: list[str] = field(default_factory=list)
     rsid: str | None = None
     hgvsc: str | None = None
     hgvsp: str | None = None
@@ -381,6 +385,9 @@ class ExplorerScope:
     assembly_id: str
     assembly_name: str
     project_ids: list[str]
+    # CoGA's ClinVar release the request reads, once (design §6.1): its filters and its rows'
+    # ClinVar (CoGA) values read it.
+    clinvar_coga: ClinvarCogaRead = NO_CLINVAR_COGA
     # The keys of the variants a query reads, when it reads only some (one page's columns,
     # :func:`_variant_columns`): every filter's subquery then gathers those variants alone
     # (``_small_family_key_condition``).
@@ -492,6 +499,7 @@ async def resolve_scope(
         assembly_id=assembly_id,
         assembly_name=scoped[0]["assembly_name"],
         project_ids=sorted({row["project_id"] for row in scoped}),
+        clinvar_coga=await clinvar_coga_read(session, scoped[0]["assembly_name"]),
     )
 
 
@@ -795,7 +803,7 @@ def _in_review_order(rows: Sequence[Any]) -> list[Any]:
 _GENOTYPE_MODE_FILTERS = {"het": "het", "hom": "hom", "het_hom": "het|hom"}
 
 
-def _family_search_filters(filters: GlobalVariantFilters) -> SmallVariantQueryFilters:
+def _family_search_filters(filters: GlobalVariantFilters, scope: ExplorerScope) -> SmallVariantQueryFilters:
     """The explorer's filters as the family search's filter set, so both pages build each
     filter they share with one function (``clickhouse_variant_queries``): the location, the
     variant type, the rsID, the gene, the excluded ClinVar classes and the per-transcript
@@ -815,6 +823,8 @@ def _family_search_filters(filters: GlobalVariantFilters) -> SmallVariantQueryFi
         effect=list(filters.effects),
         clinvar=list(filters.clinvar),
         clinvar_pathogenic_override=filters.clinvar_pathogenic_override,
+        clinvar_coga=list(filters.clinvar_coga),
+        clinvar_coga_release=scope.clinvar_coga.release,
         hgvsc=filters.hgvsc,
         hgvsp=filters.hgvsp,
         canonical_only=filters.canonical_only,
@@ -1046,7 +1056,7 @@ def _carriers_where(
         params["tag_variant_ids"] = tuple(tag_variant_ids) or ("",)
         clauses.append("e.variantId IN %(tag_variant_ids)s")
 
-    query_filters = _family_search_filters(filters)
+    query_filters = _family_search_filters(filters, scope)
     # First: the annotation and panel subqueries repeat the locus these clauses bind. The
     # imputed callsets are the summary's own column, above.
     clauses.extend(_small_row_filter_clauses(scope, query_filters, params=params, exclude_imputed=False))
@@ -1493,6 +1503,9 @@ async def search_global_small_variants(
     if len(variants) > page_size:
         next_cursor = _encode_cursor(sort, order, fingerprint, *row_cursors[page_size - 1])
         variants = variants[:page_size]
+    values = await clinvar_coga_values(scope.clinvar_coga, [(row.chr, row.pos, row.ref, row.alt) for row in variants])
+    for row, value in zip(variants, values):
+        row.clinvar_coga = value
 
     return GlobalVariantPageOut(
         total=total,
@@ -1502,6 +1515,7 @@ async def search_global_small_variants(
         assembly_id=scope.assembly_id,
         assembly_name=scope.assembly_name,
         pending_families=len(pending),
+        clinvar_coga_release=scope.clinvar_coga.release,
         variants=variants,
     )
 

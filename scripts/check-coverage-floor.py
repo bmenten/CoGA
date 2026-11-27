@@ -54,6 +54,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/clickhouse_variant_storage.py": 95.0,  # (98.0, 2026-11-03; also floored combined)
     "backend/app/services/clinical_audit_service.py": 96.0,  # (99.7, 2026-11-03)
     "backend/app/services/clinical_cnv_kb_jobs.py": 96.0,  # (99.4, 2026-11-03)
+    # (96.4 measured locally: each small variant's ClinVar in CoGA's own release, one release
+    # per request)
+    "backend/app/services/clinvar_coga.py": 93.0,
     # (98.2 measured locally: an import's ClinVar concordance with CoGA's release)
     "backend/app/services/clinvar_concordance.py": 95.0,
     # (97.2 measured locally: NCBI's newest weekly ClinVar VCF found, and downloaded with

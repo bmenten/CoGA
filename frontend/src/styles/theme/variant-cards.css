@@ -1332,3 +1332,10 @@ a.variant-card-gene:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* "changed" on the ClinVar (CoGA) chip: CoGA's own release classifies the variant otherwise than
+   its annotation (ClinvarCogaChip.tsx). */
+.variant-card-chip-flag {
+  margin-left: 0.25rem;
+  color: var(--color-signature-red);
+}

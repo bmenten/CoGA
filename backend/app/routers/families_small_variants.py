@@ -28,6 +28,7 @@ from ..services.clickhouse_family_variants import (
     family_members_without_calls,
     get_family_small_variants_page as get_family_small_variants_clickhouse,
 )
+from ..services.clinvar_coga import clinvar_coga_read, clinvar_coga_values, serve_clinvar_coga
 from ..services.family_metadata_context import build_family_metadata_context, family_sample_contexts
 from ..services.family_variant_statistics import get_family_small_variant_statistics
 from ..services.family_analysis_types import analysis_type_of
@@ -147,6 +148,7 @@ def _family_small_variant_filters(
     clinvar: List[str] = Query(default_factory=list),
     exclude_clinvar: List[str] = Query(default_factory=list, alias="exclude_clinvar"),
     clinvar_pathogenic_override: bool = False,
+    clinvar_coga: List[str] = Query(default_factory=list),
     exclude_gene: str | None = None,
     exclude_intervals: str | None = None,
     rsid: str | None = None,
@@ -201,6 +203,7 @@ def _family_small_variant_filters(
         clinvar=clinvar,
         exclude_clinvar=exclude_clinvar,
         clinvar_pathogenic_override=clinvar_pathogenic_override,
+        clinvar_coga=clinvar_coga,
         exclude_gene=exclude_gene,
         exclude_intervals=exclude_intervals,
         rsid=rsid,
@@ -264,6 +267,8 @@ async def get_family_small_variants(
     await record_family_panel_use(
         session, context=context, panel_id=filters.get("panel_id"), user=user, search="small_variants"
     )
+    # One ClinVar release for the whole request: the filters read it, and the page shows it.
+    clinvar_coga = await clinvar_coga_read(session, context.assembly_name)
     result = await get_family_small_variants_clickhouse(
         session,
         context=context,
@@ -276,12 +281,14 @@ async def get_family_small_variants(
         track_mode=track_mode,
         track_result_limit=track_result_limit,
         count_only=count_only,
+        clinvar_coga_release=clinvar_coga.release,
         **filters,
     )
     if not track_mode and not count_only:
         # The list names the members without calls in the callsets it reads, whose missing calls
         # an inheritance filter reads as no ALT allele (the owner's decision of 2026-11-20).
         result.members_without_calls = await family_members_without_calls(context, source=filters.get("source"))
+        await serve_clinvar_coga(session, context, clinvar_coga, result)
     return result
 
 
@@ -339,6 +346,7 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
     # True where that classification is VEP's cache's, read without a ClinVar file annotated:
     # the known variant's (the dbSNP rsID's), perhaps another allele's.
     ("clinvar_from_vep_cache", "ClinVar from VEP cache"),
+    ("clinvar_coga", "ClinVar (CoGA)"),
     ("gnomad_af", "gnomAD AF"),
     ("gnomad_hom_count", "gnomAD hom"),
     ("cadd_phred", "CADD"),
@@ -396,6 +404,12 @@ def _family_export_cell(variant: VariantOut, field: str, members_without_calls: 
             else None
         )
         return "" if value is None else str(value)
+    if field == "clinvar_coga":
+        # Each ALT's value in CoGA's own release, with the release; why it has none, else.
+        return "; ".join(
+            f"{value.alt}: {value.classification or value.status} ({value.release or 'no release'})"
+            for value in variant.clinvar_coga
+        )
     if field == "priority_score":
         return f"{variant.priority.combined_score:.4f}" if variant.priority else ""
     if field == "priority_variant_score":
@@ -456,13 +470,19 @@ async def export_family_small_variants_csv(
         user=user,
         search="small_variants_export",
     )
+    # One ClinVar release for the file, as for the page: its filters read it, its rows show it.
+    clinvar_coga = await clinvar_coga_read(session, context.assembly_name)
     export = await export_family_small_variants(
         session,
         context=context,
         prioritize=prioritize,
         rank_by=rank_by,
+        clinvar_coga_release=clinvar_coga.release,
         **filters,
     )
+    values = await clinvar_coga_values(clinvar_coga, [(row.chr, row.start, row.ref, row.alt) for row in export.rows])
+    for row, value in zip(export.rows, values):
+        row.clinvar_coga = value
     # The members without calls in the callsets the file is read from, named on every row.
     without_calls = "; ".join(
         member.sample_id

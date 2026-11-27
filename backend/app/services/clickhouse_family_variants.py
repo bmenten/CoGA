@@ -6,7 +6,7 @@ import logging
 import math
 from collections import OrderedDict
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from functools import partial
 from itertools import batched, zip_longest
 from typing import Any, Collection, Iterable, Iterator, Literal, Mapping, Sequence
@@ -98,6 +98,7 @@ from .clickhouse_variant_records import (
     _coerce_float,
 )
 
+from .clinvar_coga import clinvar_coga_read
 from .clickhouse_variant_queries import (
     IMPUTED_SMALL_VARIANT_SOURCES,
     PER_SAMPLE_SMALL_VARIANT_SOURCES,
@@ -3389,6 +3390,9 @@ async def precompute_family_ranking_safe(
             if filters.require_sv_second_hit:
                 await _ensure_family_sv_gene_index(session, context)
                 filters.sv_hit_genes = await get_sv_hit_genes(session, family_uuid=context.family_uuid)
+            # So is CoGA's ClinVar release, which the override and the ClinVar (CoGA) filter
+            # read: the current one, as a live request reads it.
+            filters.clinvar_coga_release = (await clinvar_coga_read(session, context.assembly_name)).release
             # The no-review default view: the high-value cached case.
             scope = await _resolve_small_variant_scope(
                 session,
@@ -4087,6 +4091,8 @@ async def get_family_small_variants_page(
     clinvar: list[str] | None = None,
     exclude_clinvar: list[str] | None = None,
     clinvar_pathogenic_override: bool = False,
+    clinvar_coga: list[str] | None = None,
+    clinvar_coga_release: date | None = None,
     exclude_gene: str | None = None,
     exclude_intervals: str | None = None,
     rsid: str | None = None,
@@ -4152,6 +4158,8 @@ async def get_family_small_variants_page(
         clinvar=clinvar or [],
         exclude_clinvar=exclude_clinvar or [],
         clinvar_pathogenic_override=clinvar_pathogenic_override,
+        clinvar_coga=clinvar_coga or [],
+        clinvar_coga_release=clinvar_coga_release,
         exclude_gene=exclude_gene,
         exclude_intervals=exclude_intervals,
         rsid=rsid,

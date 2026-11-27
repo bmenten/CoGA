@@ -255,6 +255,7 @@ from .mito import (
     FamilyMitoDNAAnalysisOut,
 )
 from .variants import (
+    ClinvarCogaOut,
     GenotypeOut,
     SmallVariantFilterTranscriptOut,
     SmallVariantTranscriptOut,
@@ -722,6 +723,7 @@ __all__ = [
     "MitoDNAStructuralVariantCallOut",
     "MitoDNAStructuralVariantOut",
     "FamilyMitoDNAAnalysisOut",
+    "ClinvarCogaOut",
     "GenotypeOut",
     "SmallVariantFilterTranscriptOut",
     "SmallVariantTranscriptOut",

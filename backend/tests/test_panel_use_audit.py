@@ -14,6 +14,8 @@ from typing import Any
 
 import pytest
 
+from backend.app.schemas import VariantPage
+
 from backend.app.services import panel_use_audit as pua
 from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
@@ -74,7 +76,10 @@ class _Session:
 
 def _context() -> types.SimpleNamespace:
     return types.SimpleNamespace(
-        family_uuid="11111111-1111-1111-1111-111111111111", family_id="FAM1", scope=WHOLE_FAMILY_SCOPE
+        family_uuid="11111111-1111-1111-1111-111111111111",
+        family_id="FAM1",
+        scope=WHOLE_FAMILY_SCOPE,
+        assembly_name=None,
     )
 
 
@@ -301,7 +306,7 @@ def test_the_small_variant_search_records_its_panel_before_it_runs(monkeypatch, 
 
     async def _search(session, **kwargs):
         order.append(f"searched {kwargs['panel_id']}")
-        return types.SimpleNamespace(total=0)
+        return VariantPage(total=0)
 
     monkeypatch.setattr(small, "get_family_small_variants_clickhouse", _search)
     filters = small._family_small_variant_filters(panel_id=_PANEL_ID)

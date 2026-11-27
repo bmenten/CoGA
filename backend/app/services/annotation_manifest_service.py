@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Collection, Mapping, Sequence
+from datetime import date
 from typing import Any
 
 from fastapi import HTTPException
@@ -36,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .analysis_scope import analysis_holding
 from .clinical_audit_service import audit_actor, record_clinical_event
-from .clinvar_releases import current_clinvar_release
+from .clinvar_releases import annotated_clinvar_release, current_clinvar_release
 from .family_analysis_types import family_analyses
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_package_records import UNSPECIFIED_ANALYSIS, analysis_label
@@ -473,6 +474,14 @@ async def analysis_annotation_manifest(
         "assembly": context.assembly_name,
         **analysis_manifest(rows, analysis=analysis, platform_modules=platform_modules),
     }
+
+
+async def analysis_clinvar_release(session: AsyncSession, context: FamilyMetadataContext) -> date | None:
+    """The release of the ClinVar file the annotation of the analysis the family is read for
+    names (its manifest's ``clinvar`` module), which a page shows as *ClinVar (annotation, …)*
+    beside CoGA's own release. None when that annotation names none."""
+    rows = await _family_manifest_rows(session, context.family_uuid)
+    return annotated_clinvar_release(_stated_modules(_stated_rows(rows, analysis=context.scope.analysis)))
 
 
 async def call_annotation_manifest(

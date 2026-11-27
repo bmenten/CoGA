@@ -269,7 +269,7 @@ async def _reference(session: Any, scope: Any, filters: Any) -> dict[str, tuple[
         "project_guids": tuple(scope.project_ids),
         "shown_calls": explorer._shown_calls(members) or (("", ""),),
     }
-    query_filters = explorer._family_search_filters(filters)
+    query_filters = explorer._family_search_filters(filters, scope)
     clauses = ["e.sign = 1", "e.project_guid IN %(project_guids)s"]
     clauses += _small_row_filter_clauses(scope, query_filters, params=params, exclude_imputed=not filters.include_imputed)
     clauses += _small_annotation_filter_clauses(scope, query_filters, params=params)

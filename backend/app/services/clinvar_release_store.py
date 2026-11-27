@@ -11,9 +11,10 @@ The table is created by the first load of its assembly.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 
 from ..core.clickhouse import execute_clickhouse, insert_clickhouse
 from ..core.config import settings
@@ -91,6 +92,42 @@ class ClinvarStoredAllele:
     review_status: str
     variation_id: int
     included_only: bool
+    conditions: tuple[str, ...]
+
+
+_ALLELE_COLUMNS = (
+    "allele_key, variantId, classification, classification_terms, review_status, variation_id, "
+    "included_only, conditions"
+)
+
+
+def _alleles(rows: Iterable[Sequence[Any]] | None) -> dict[int, ClinvarStoredAllele]:
+    return {
+        int(key): ClinvarStoredAllele(
+            variant_id=str(variant_id),
+            classification=str(classification),
+            classification_terms=tuple(terms),
+            review_status=str(review_status),
+            variation_id=int(variation_id),
+            included_only=bool(included_only),
+            conditions=tuple(conditions),
+        )
+        for key, variant_id, classification, terms, review_status, variation_id, included_only, conditions in rows
+        or []
+    }
+
+
+async def clinvar_alleles(assembly_name: str, release: date, keys: Collection[int]) -> dict[int, ClinvarStoredAllele]:
+    """The release's alleles of ``keys`` (``small_allele_key``), by key; an allele the release
+    does not hold is left out."""
+    if not keys:
+        return {}
+    rows = await execute_clickhouse(
+        f"SELECT {_ALLELE_COLUMNS} FROM {clinvar_table(assembly_name)} "
+        "WHERE release = %(release)s AND allele_key IN %(keys)s",
+        {"release": release, "keys": tuple(sorted(keys))},
+    )
+    return _alleles(rows)
 
 
 async def clinvar_alleles_of_callset(
@@ -101,8 +138,7 @@ async def clinvar_alleles_of_callset(
     keys, the callset only for the family's rows."""
     rows = await execute_clickhouse(
         f"""
-        SELECT allele_key, variantId, classification, classification_terms, review_status,
-               variation_id, included_only
+        SELECT {_ALLELE_COLUMNS}
         FROM {clinvar_table(assembly_name)}
         WHERE release = %(release)s
           AND allele_key IN (
@@ -112,17 +148,28 @@ async def clinvar_alleles_of_callset(
         """,
         {"release": release, "family_guid": family_uuid, "source": source},
     )
-    return {
-        int(key): ClinvarStoredAllele(
-            variant_id=str(variant_id),
-            classification=str(classification),
-            classification_terms=tuple(terms),
-            review_status=str(review_status),
-            variation_id=int(variation_id),
-            included_only=bool(included_only),
-        )
-        for key, variant_id, classification, terms, review_status, variation_id, included_only in rows or []
-    }
+    return _alleles(rows)
+
+
+def clinvar_allele_condition(
+    assembly_name: str,
+    release: date,
+    terms: Sequence[str],
+    *,
+    params: dict[str, Any],
+    prefix: str,
+    alias: str = "e",
+) -> str:
+    """"An allele of the row (alias ``alias``, its ``allele_keys``) is one the release
+    classifies with one of ``terms``" (as ``_status_terms`` stores them), in SQL. The release's
+    set is built once for the query, from its partition."""
+    params[f"{prefix}_release"] = release
+    params[f"{prefix}_terms"] = list(terms)
+    return (
+        f"arrayExists(k -> k IN (SELECT allele_key FROM {clinvar_table(assembly_name)} "
+        f"WHERE release = %({prefix}_release)s AND hasAny(classification_terms, %({prefix}_terms)s)), "
+        f"{alias}.allele_keys)"
+    )
 
 
 async def drop_clinvar_release(assembly_name: str, release: date) -> None:

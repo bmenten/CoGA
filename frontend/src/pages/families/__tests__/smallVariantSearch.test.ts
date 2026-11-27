@@ -111,6 +111,7 @@ describe('smallVariantSearch preset helpers', () => {
         effect: '',
         clinvar: '',
         exclude_clinvar: '',
+        clinvar_coga: '',
         clinvar_pathogenic_override: '',
         exclude_review_tags: '',
         exclude_gene: '',

@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field, replace
+from datetime import date
 from typing import Any
 from uuid import uuid4
 
@@ -316,6 +317,16 @@ _VARIANTS: dict[str, _Variant] = {
 
 # What the search reads without a source: every callset but the imputed one.
 ALL = frozenset(_VARIANTS) - {IMPUTED}
+
+# CoGA's own ClinVar release of the trio's alleles (``clinvar_release_store``), in a partition the
+# module writes and drops: a benign and common MNV it holds pathogenic, the paternal deletion
+# likely pathogenic and the de novo missense benign, as a newer release than the annotation's.
+_COGA_RELEASE = date(2026, 11, 22)
+_COGA_ALLELES = {
+    MATERNAL_MNV: "Pathogenic",
+    PATERNAL_DELETION: "Likely_pathogenic",
+    DE_NOVO_MISSENSE: "Benign",
+}
 CHR11 = frozenset(variant for variant in ALL if variant.startswith("11-"))
 X = frozenset({X_MATERNAL, X_DE_NOVO})
 
@@ -514,6 +525,22 @@ CASES: dict[str, _Case] = {
     "ClinVar uncertain": _case({DE_NOVO_MISSENSE}, clinvar=["Uncertain_significance"]),
     "ClinVar benign left out": _case(
         ALL - {MATERNAL_MNV, PATERNAL_SYNONYMOUS}, exclude_clinvar=["Benign", "Likely_benign"]
+    ),
+    # --- ClinVar (CoGA): CoGA's own release, on the rows' allele keys ---
+    "ClinVar (CoGA) pathogenic or likely pathogenic": _case(
+        {MATERNAL_MNV, PATERNAL_DELETION},
+        clinvar_coga=["Pathogenic", "Likely_pathogenic"], clinvar_coga_release=_COGA_RELEASE,
+    ),
+    "ClinVar (CoGA) benign": _case({DE_NOVO_MISSENSE}, clinvar_coga=["Benign"], clinvar_coga_release=_COGA_RELEASE),
+    "ClinVar (CoGA) without a release": _case(set(), clinvar_coga=["Pathogenic"]),
+    # The override reads CoGA's release too: its (likely) pathogenic alleles pass the impact and
+    # frequency filters, on any of their transcripts.
+    "impact with the ClinVar override and CoGA's release": _case(
+        {HIGH_OFF_MANE, MATERNAL_INSERTION, LONG_DELETION, HOMOZYGOUS, COMMON_PATHOGENIC, MATERNAL_MNV, PATERNAL_DELETION},
+        impact=["HIGH"], clinvar_pathogenic_override=True, clinvar_coga_release=_COGA_RELEASE,
+    ),
+    "gnomAD AF with the ClinVar override and CoGA's release": _case(
+        ALL, max_gnomad_af=0.01, clinvar_pathogenic_override=True, clinvar_coga_release=_COGA_RELEASE
     ),
     # --- the small-variant track's wide window: ClinVar (likely) pathogenic, or HIGH or
     # MODERATE on a transcript and not ClinVar (likely) benign. HIGH_OFF_MANE is HIGH off its
@@ -898,12 +925,46 @@ async def _close_stores() -> None:
     await close_postgres_engine()
 
 
+def _coga_rows() -> list[Any]:
+    from backend.app.services.clickhouse_variant_ids import minimal_allele_id, small_allele_key
+    from backend.app.services.clickhouse_variant_records import _status_terms
+    from backend.app.services.clinvar_vcf import ClinvarRow
+
+    rows = []
+    for index, (variant_id, classification) in enumerate(sorted(_COGA_ALLELES.items())):
+        chrom, pos, ref, alt = variant_id.split("-")
+        allele = minimal_allele_id(chrom, int(pos), ref, alt)
+        assert allele is not None
+        rows.append(
+            ClinvarRow(
+                allele_key=small_allele_key(_ASSEMBLY, allele),
+                variant_id=allele,
+                variation_id=990_000 + index,
+                allele_id=0,
+                classification=classification,
+                classification_terms=tuple(sorted(_status_terms(classification))),
+                conflicting="",
+                review_status="criteria provided, single submitter",
+                conditions=(),
+                genes=(),
+                included_only=False,
+            )
+        )
+    return rows
+
+
 @pytest.fixture(scope="module")
-def stored_family() -> dict[str, str]:
-    """Write the variants once, for a fresh family in a fresh project."""
+def stored_family() -> Any:
+    """Write the variants once, for a fresh family in a fresh project, and CoGA's release of
+    their alleles; the release's partition is dropped after the module."""
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         insert_small_variant_records,
+    )
+    from backend.app.services.clinvar_release_store import (
+        drop_clinvar_release,
+        ensure_clinvar_table,
+        insert_clinvar_rows,
     )
 
     family_uuid, project, assembly_id = str(uuid4()), str(uuid4()), str(uuid4())
@@ -912,11 +973,20 @@ def stored_family() -> dict[str, str]:
         try:
             await ensure_clickhouse_variant_tables(_ASSEMBLY)
             await insert_small_variant_records(_ASSEMBLY, family_uuid, [project], _records())
+            await ensure_clinvar_table(_ASSEMBLY)
+            await insert_clinvar_rows(_ASSEMBLY, _COGA_RELEASE, _coga_rows())
+        finally:
+            await _close_stores()
+
+    async def _drop() -> None:
+        try:
+            await drop_clinvar_release(_ASSEMBLY, _COGA_RELEASE)
         finally:
             await _close_stores()
 
     asyncio.run(_write())
-    return {"family_uuid": family_uuid, "project": project, "assembly_id": assembly_id}
+    yield {"family_uuid": family_uuid, "project": project, "assembly_id": assembly_id}
+    asyncio.run(_drop())
 
 
 @pytest.fixture(scope="module")
