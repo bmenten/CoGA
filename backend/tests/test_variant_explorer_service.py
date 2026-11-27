@@ -58,7 +58,7 @@ def test_classify_type() -> None:
 def test_most_severe_classification_and_impact() -> None:
     assert _most_severe(["acmg_class_2", "acmg_class_5", "acmg_class_3"], _classification_rank) == "acmg_class_5"
     assert _most_severe(["MODIFIER", "HIGH", "LOW"], _IMPACT_RANK) == "HIGH"
-    assert _most_severe(["likely_benign", "pathogenic"], _CLINVAR_RANK) == "pathogenic"
+    assert _most_severe(["likely benign", "pathogenic"], _CLINVAR_RANK) == "pathogenic"
     assert _most_severe([], _IMPACT_RANK) is None
 
 
