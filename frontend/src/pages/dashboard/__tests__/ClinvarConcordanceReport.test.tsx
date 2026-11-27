@@ -6,7 +6,7 @@ import type { ClinvarConcordanceOut, FamilyImportDatasetSummary } from '../../..
 
 const dataset = (
   dataset_type: string,
-  clinvar_concordance: ClinvarConcordanceOut | null,
+  clinvar_concordances: ClinvarConcordanceOut[] = [],
 ): FamilyImportDatasetSummary => ({
   dataset_type,
   enabled: true,
@@ -16,10 +16,11 @@ const dataset = (
   message: null,
   summary: {},
   progress: null,
-  clinvar_concordance,
+  clinvar_concordances,
 });
 
 const compared: ClinvarConcordanceOut = {
+  samples: ['PROBAND', 'MOTHER', 'FATHER1'],
   annotated_release: '2026-11-22',
   compared: true,
   reason: null,
@@ -37,50 +38,58 @@ const compared: ClinvarConcordanceOut = {
   ],
 };
 
-describe('ClinvarConcordanceReport', () => {
-  it('shows each dataset’s agreement and every difference with its reason', () => {
-    render(<ClinvarConcordanceReport datasets={[dataset('snv', compared), dataset('pedigree', null)]} />);
+const notLoaded = (samples: string[]): ClinvarConcordanceOut => ({
+  samples,
+  annotated_release: '2026-05-01',
+  compared: false,
+  reason: "Not compared: ClinVar 2026-05-01, the annotation's release, is not loaded in CoGA.",
+  agree: 0,
+  differ: 0,
+  differences: [],
+});
 
-    const report = screen.getByRole('region', { name: 'ClinVar concordance of snv' });
+describe('ClinvarConcordanceReport', () => {
+  it('shows each load’s agreement and every difference with its reason', () => {
+    render(<ClinvarConcordanceReport datasets={[dataset('snv', [compared]), dataset('pedigree')]} />);
+
+    const report = screen.getByRole('region', { name: 'ClinVar concordance of snv (PROBAND, MOTHER, FATHER1)' });
     expect(report).toHaveTextContent(
-      "snv: Compared with CoGA's ClinVar 2026-11-22, the annotation's release: 1,234 allele(s) agree, 2 differ.",
+      "snv (PROBAND, MOTHER, FATHER1): Compared with CoGA's ClinVar 2026-11-22, the annotation's release: 1,234 allele(s) agree, 2 differ.",
     );
     const [, first, second] = within(report).getAllByRole('row');
     expect(first).toHaveTextContent('chr1-1000300-A-AT1-1000300-A-ATclassificationPathogenic;');
     expect(second).toHaveTextContent('—M-3243-A-Gnot in the annotation—Pathogenic');
-    expect(screen.queryByRole('region', { name: 'ClinVar concordance of pedigree' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('region')).toHaveLength(1);
   });
 
-  it('says why a dataset was not compared', () => {
+  it('shows one report per sample of a dataset loaded one sample at a time', () => {
     render(
       <ClinvarConcordanceReport
-        datasets={[
-          dataset('snv', {
-            annotated_release: '2026-05-01',
-            compared: false,
-            reason: "Not compared: ClinVar 2026-05-01, the annotation's release, is not loaded in CoGA.",
-            agree: 0,
-            differ: 0,
-            differences: [],
-          }),
-        ]}
+        datasets={[dataset('snv', [{ ...compared, samples: ['CFDNA1'] }, { ...compared, samples: ['FATHER1'], differ: 0, differences: [] }])]}
       />,
     );
 
-    expect(screen.getByRole('region', { name: 'ClinVar concordance of snv' })).toHaveTextContent(
-      "snv: Not compared: ClinVar 2026-05-01, the annotation's release, is not loaded in CoGA.",
+    expect(screen.getByRole('region', { name: 'ClinVar concordance of snv (CFDNA1)' })).toHaveTextContent('2 differ.');
+    expect(screen.getByRole('region', { name: 'ClinVar concordance of snv (FATHER1)' })).toHaveTextContent('0 differ.');
+  });
+
+  it('says why a load was not compared', () => {
+    render(<ClinvarConcordanceReport datasets={[dataset('snv', [notLoaded(['PROBAND'])])]} />);
+
+    expect(screen.getByRole('region', { name: 'ClinVar concordance of snv (PROBAND)' })).toHaveTextContent(
+      "snv (PROBAND): Not compared: ClinVar 2026-05-01, the annotation's release, is not loaded in CoGA.",
     );
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
   it('says when it lists only the first differences', () => {
-    render(<ClinvarConcordanceReport datasets={[dataset('snv', { ...compared, differ: 250 })]} />);
+    render(<ClinvarConcordanceReport datasets={[dataset('snv', [{ ...compared, differ: 250 }])]} />);
 
     expect(screen.getByText('The first 2 of 250 differences.')).toBeInTheDocument();
   });
 
   it('shows nothing for an import without a small-variant dataset', () => {
-    const { container } = render(<ClinvarConcordanceReport datasets={[dataset('pedigree', null)]} />);
+    const { container } = render(<ClinvarConcordanceReport datasets={[dataset('pedigree')]} />);
 
     expect(container).toBeEmptyDOMElement();
   });

@@ -28,13 +28,14 @@ const releaseCell = (release: ClinvarReleaseOut | null | undefined) =>
     '—'
   );
 
-// The newest load of each assembly, while it failed.
+// The newest load of each assembly, while it released nothing: its checks refused the file, or
+// it could not be completed.
 const failedLoads = (jobs: ClinvarLoadJobOut[]) => {
   const newest = new Map<string, ClinvarLoadJobOut>();
   for (const job of jobs) {
     if (!newest.has(job.assembly_name)) newest.set(job.assembly_name, job);
   }
-  return [...newest.values()].filter((job) => job.status === 'failed');
+  return [...newest.values()].filter((job) => job.status === 'refused' || job.status === 'failed');
 };
 
 // The ClinVar release CoGA loaded itself for each assembly ClinVar publishes a VCF for: the
@@ -80,7 +81,7 @@ const ClinvarReleasesPanel: React.FC = () => {
       </p>
       <p className="section-copy">
         {status.weekly_load
-          ? 'CoGA looks each day for a newer release and loads it; it becomes current only when its checks pass. A release it refused is not loaded again by the check, and every active administrator is told by mail.'
+          ? 'CoGA looks each day for a release newer than the current one and loads it; it becomes current only when its checks pass. A release its checks refused is not loaded again by the check, and every active administrator is told by mail; a load that could not be completed is tried again the next day.'
           : 'A newer release is loaded only when an administrator loads it here (the daily check, CLINVAR_WEEKLY_LOAD, is off).'}
       </p>
       {notice ? (
@@ -105,7 +106,7 @@ const ClinvarReleasesPanel: React.FC = () => {
           style={{ color: 'var(--color-signature-red-dark)' }}
           aria-label={`Failed ClinVar load for ${job.assembly_name}`}
         >
-          The ClinVar load for {job.assembly_name} failed
+          The ClinVar load for {job.assembly_name} {job.status === 'refused' ? 'was refused' : 'failed'}
           {job.completed_at ? ` (${formatDateTime(job.completed_at)})` : ''}: {job.error || 'no reason was recorded'}
         </p>
       ))}

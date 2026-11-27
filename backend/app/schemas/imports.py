@@ -72,6 +72,9 @@ class ClinvarConcordanceOut(BaseModel):
     ClinVar file values (classification, review status, VariationID) CoGA's release of the same
     ClinVar release gives alike, and those it gives otherwise, with the reason."""
 
+    # The samples whose file the load stored: the alleles compared are those of its records,
+    # on both sides (a load of one sample's file compares that sample's alleles only).
+    samples: List[str]
     # The release of the ClinVar file the callset was annotated with; None when it names none.
     annotated_release: Optional[date] = None
     compared: bool
@@ -103,8 +106,9 @@ class FamilyImportDatasetSummary(BaseModel):
     message: Optional[str] = None
     summary: Dict[str, Any] = Field(default_factory=dict)
     progress: Optional[FamilyImportDatasetProgress] = None
-    # A small-variant dataset's ClinVar concordance with CoGA's release (clinvar_concordance).
-    clinvar_concordance: Optional[ClinvarConcordanceOut] = None
+    # A small-variant dataset's ClinVar concordance with CoGA's release (clinvar_concordance):
+    # one per load it ran, so one per sample of a dataset loaded one sample at a time.
+    clinvar_concordances: List[ClinvarConcordanceOut] = Field(default_factory=list)
 
 
 class FamilyPackageValidationOut(BaseModel):

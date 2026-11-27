@@ -667,6 +667,7 @@ export interface ClinvarConcordanceDifferenceOut {
  * ClinVar release gives alike, and those it gives otherwise, with the reason.
  */
 export interface ClinvarConcordanceOut {
+  samples: string[];
   annotated_release: string | null;
   compared: boolean;
   reason: string | null;
@@ -687,7 +688,7 @@ export interface ClinvarLoadJobOut {
   source_url: string | null;
   source_md5: string | null;
   source_sha256: string | null;
-  status: "queued" | "running" | "completed" | "unchanged" | "failed";
+  status: "queued" | "running" | "completed" | "unchanged" | "refused" | "failed";
   requested_by: string | null;
   requested_at: string;
   started_at: string | null;
@@ -1149,7 +1150,7 @@ export interface FamilyImportDatasetSummary {
   message: string | null;
   summary: Record<string, unknown>;
   progress: FamilyImportDatasetProgress | null;
-  clinvar_concordance: ClinvarConcordanceOut | null;
+  clinvar_concordances: ClinvarConcordanceOut[];
 }
 
 export interface FamilyImportValidationIssue {

@@ -558,7 +558,11 @@ async def upload_family_per_sample_small_variant_files(
         )
         await session.commit()
         clinvar_concordance = await concordance.report(
-            session, modules=annotation_provenance, family_uuid=context.family_uuid, source=source
+            session,
+            modules=annotation_provenance,
+            family_uuid=context.family_uuid,
+            source=source,
+            samples=file_samples,
         )
         skipped_malformed = sum(reader.skipped_malformed for reader in readers)
         if skipped_malformed:

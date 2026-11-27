@@ -47,6 +47,7 @@ vi.mock('../../../lib/api', () => ({
                 files: [],
                 samples: [],
                 summary: {},
+                clinvar_concordances: [],
               },
             ],
           },
@@ -124,7 +125,15 @@ describe('PackageImportPage', () => {
       manifest_sha256: 'a'.repeat(64),
       package_fingerprint: 'b'.repeat(64),
       datasets: [
-        { dataset_type: 'snv', enabled: true, status: 'imported', files: [], samples: ['S1'], summary: {} },
+        {
+          dataset_type: 'snv',
+          enabled: true,
+          status: 'imported',
+          files: [],
+          samples: ['S1'],
+          summary: {},
+          clinvar_concordances: [],
+        },
       ],
     };
     get.mockImplementation((url, config) => {
@@ -241,6 +250,7 @@ describe('PackageImportPage', () => {
           files: [],
           samples: [],
           summary: {},
+          clinvar_concordances: [],
           progress: {
             started_at: new Date(now - 3_600_000).toISOString(),
             finished_at: new Date(now - 3_480_000).toISOString(),
@@ -254,6 +264,7 @@ describe('PackageImportPage', () => {
           samples: [],
           message: 'Importing SNV VCF and VEP annotations',
           summary: {},
+          clinvar_concordances: [],
           progress: {
             started_at: new Date(now - 3_480_000).toISOString(),
             measured_at: new Date(now - 5_000).toISOString(),
@@ -268,6 +279,7 @@ describe('PackageImportPage', () => {
           files: [],
           samples: [],
           summary: {},
+          clinvar_concordances: [],
         },
       ],
     };

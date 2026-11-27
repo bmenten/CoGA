@@ -117,15 +117,30 @@ describe('ClinvarReleasesPanel', () => {
     expect(screen.getByRole('button', { name: 'Load the newest ClinVar release for GRCh38' })).toBeDisabled();
   });
 
-  it('says that the newest load of an assembly failed, and why', async () => {
+  it('says that the newest load of an assembly was refused by its checks, and why', async () => {
     const reason = 'ClinVar 2026-11-29 has 2,000 records, more than 5% fewer than the current release.';
+    serve(
+      [job('job-2', 'refused', { error: reason }), job('job-1', 'completed')],
+      [{ assembly_name: 'GRCh38', current: RELEASE, previous: null }],
+    );
+    renderPanel();
+
+    const said = await screen.findByLabelText('Failed ClinVar load for GRCh38');
+    expect(said).toHaveTextContent('The ClinVar load for GRCh38 was refused');
+    expect(said).toHaveTextContent(reason);
+  });
+
+  it('says that the newest load of an assembly could not be completed, and why', async () => {
+    const reason = 'The ClinVar file could not be downloaded (HTTPStatusError).';
     serve(
       [job('job-2', 'failed', { error: reason }), job('job-1', 'completed')],
       [{ assembly_name: 'GRCh38', current: RELEASE, previous: null }],
     );
     renderPanel();
 
-    expect(await screen.findByLabelText('Failed ClinVar load for GRCh38')).toHaveTextContent(reason);
+    const said = await screen.findByLabelText('Failed ClinVar load for GRCh38');
+    expect(said).toHaveTextContent('The ClinVar load for GRCh38 failed');
+    expect(said).toHaveTextContent(reason);
   });
 
   it('says whether CoGA loads a newer release itself each day', async () => {
@@ -136,9 +151,10 @@ describe('ClinvarReleasesPanel', () => {
 
     serve([], [{ assembly_name: 'GRCh38', current: RELEASE, previous: null }], true);
     renderPanel();
-    expect(
-      await screen.findByText(/CoGA looks each day for a newer release and loads it; it becomes current only when its checks pass/),
-    ).toBeInTheDocument();
+    const said = await screen.findByText(
+      /CoGA looks each day for a release newer than the current one and loads it; it becomes current only when its checks pass/,
+    );
+    expect(said).toHaveTextContent('a load that could not be completed is tried again the next day');
   });
 
   it('shows nothing where no assembly has a ClinVar VCF', async () => {

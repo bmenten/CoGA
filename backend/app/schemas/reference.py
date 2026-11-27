@@ -175,8 +175,9 @@ class ClinvarLoadJobOut(ApiDocumentModel):
     source_md5: Optional[str] = None
     source_sha256: Optional[str] = None
     # completed: the release became the current one; unchanged: NCBI's newest release was
-    # already the current one, and nothing was downloaded.
-    status: Literal["queued", "running", "completed", "unchanged", "failed"]
+    # already the current one, and nothing was downloaded; refused: the load's checks refused
+    # the file; failed: the load could not be completed. Neither of the last two kept anything.
+    status: Literal["queued", "running", "completed", "unchanged", "refused", "failed"]
     requested_by: Optional[str] = None
     requested_at: datetime
     started_at: Optional[datetime] = None

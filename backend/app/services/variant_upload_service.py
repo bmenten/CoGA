@@ -1328,8 +1328,13 @@ async def upload_family_small_variant_file(
             modality="snv",
         )
         await session.commit()
+        # The file's own alleles on both sides: a per-sample upload's, its samples' alone.
         clinvar_concordance = await concordance.report(
-            session, modules=annotation_provenance, family_uuid=context.family_uuid, source=resolved_format
+            session,
+            modules=annotation_provenance,
+            family_uuid=context.family_uuid,
+            source=resolved_format,
+            samples=list(dict.fromkeys(read.sample_names)),
         )
         if read.skipped_malformed:
             logger.warning(

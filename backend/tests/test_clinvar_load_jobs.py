@@ -349,7 +349,7 @@ class _World:
     @property
     def status(self) -> str:
         last = self.updates[-1][0]
-        for status in ("completed", "unchanged", "failed"):
+        for status in ("completed", "unchanged", "refused", "failed"):
             if f"status = '{status}'" in last:
                 return status
         return "running"
@@ -428,7 +428,7 @@ def test_a_load_that_is_refused_keeps_nothing_and_the_current_release_stays(
     prepare(world)
     world.run()
 
-    assert world.status == "failed"
+    assert world.status == "refused"
     assert reason in world.error and "the current ClinVar release is unchanged" in world.error
     assert world.released == [] and world.partitions == {current.release: 8}
 
@@ -438,7 +438,7 @@ def test_a_file_whose_header_is_not_its_release_keeps_nothing(monkeypatch: pytes
     world = _World(monkeypatch, files={"clinvar_20261122.vcf.gz": _vcf(text)})
     world.run()
 
-    assert world.status == "failed" and "##fileDate=2026-11-21" in world.error
+    assert world.status == "refused" and "##fileDate=2026-11-21" in world.error
     assert world.partitions == {} and world.released == []
 
 
@@ -455,7 +455,7 @@ def test_a_release_with_more_than_five_percent_fewer_records_is_not_released(
     if released:
         assert world.status == "completed" and world.released == [(RELEASE, 8)]
     else:
-        assert world.status == "failed" and "more than 5% fewer than the current release" in world.error
+        assert world.status == "refused" and "more than 5% fewer than the current release" in world.error
         assert world.released == [] and RELEASE not in world.partitions
 
 
@@ -489,11 +489,11 @@ def test_a_release_whose_transaction_fails_leaves_its_partition_to_the_next_load
     assert world.partitions == {RELEASE: 8} and world.dropped == []
 
 
-def test_a_download_that_fails_names_it_and_keeps_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_folder_that_lists_no_file_refuses_the_load(monkeypatch: pytest.MonkeyPatch) -> None:
     world = _World(monkeypatch, files={})
     world.run()
 
-    assert world.status == "failed" and "lists no weekly VCF" in world.error
+    assert world.status == "refused" and "lists no weekly VCF" in world.error
 
 
 def test_a_file_without_a_record_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -501,7 +501,7 @@ def test_a_file_without_a_record_is_refused(monkeypatch: pytest.MonkeyPatch) -> 
     world = _World(monkeypatch, files={"clinvar_20261122.vcf.gz": _vcf(header)})
     world.run()
 
-    assert world.status == "failed" and "holds no ClinVar record" in world.error
+    assert world.status == "refused" and "holds no ClinVar record" in world.error
     assert world.partitions == {} and world.dropped == [RELEASE]
 
 
@@ -516,6 +516,42 @@ def test_a_download_that_cannot_reach_ncbi_says_so(monkeypatch: pytest.MonkeyPat
 
     assert world.status == "failed"
     assert world.error.startswith("The ClinVar file could not be downloaded (ConnectError)")
+
+
+@pytest.mark.parametrize("answer", [404, 503], ids=["md5-not-published-yet", "server-error"])
+def test_a_load_ncbi_answers_with_an_error_fails_and_is_not_refused(
+    monkeypatch: pytest.MonkeyPatch, answer: int
+) -> None:
+    """NCBI lists the file before its ``.md5`` is there, or answers 5xx while it publishes: the
+    load was not completed, which is not a refusal of the file (the daily check loads it again)."""
+    listed = _ncbi({"clinvar_20261122.vcf.gz": _vcf()})
+
+    def publishing(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(".md5"):
+            return httpx.Response(answer)
+        return listed.handle_request(request)
+
+    world = _World(monkeypatch)
+    monkeypatch.setattr(jobs, "clinvar_http_client", lambda: clinvar_http_client(httpx.MockTransport(publishing)))
+    world.run()
+
+    assert world.status == "failed"
+    assert world.error.startswith("The ClinVar file could not be downloaded (HTTPStatusError)")
+    assert world.partitions == {} and world.released == []
+
+
+def test_a_load_that_runs_past_its_time_limit_fails_and_is_not_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    world = _World(monkeypatch)
+
+    async def hangs(*_args: Any) -> None:
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(jobs, "_load", hangs)
+    monkeypatch.setattr(jobs.settings, "clinvar_load_timeout_seconds", 0.01)
+    world.run()
+
+    assert world.status == "failed"
+    assert world.error.startswith("The ClinVar load was stopped after 0.01 seconds (CLINVAR_LOAD_TIMEOUT_SECONDS).")
 
 
 def test_a_requester_no_longer_an_administrator_runs_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
