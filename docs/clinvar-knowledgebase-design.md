@@ -1,7 +1,7 @@
 # Ontwerp: ClinVar als eigen kennisbron van CoGA
 
 Status: **beslist door de eigenaar op 2026-11-27** (B1–B12, §9), nog niet gebouwd. QA heeft het
-ontwerp nog niet beoordeeld.
+ontwerp nog niet beoordeeld; de vragen voor QA staan in §10.
 
 ## 1. Aanleiding
 
@@ -365,3 +365,17 @@ overslaan. Dat is een volgende stap, niet dit ontwerp.
 | B10 | Fase 3: komt er een heranalysesignaal? | Een lijst per project, alleen lezen, opgevolgd volgens de labo-procedure; geen mail |
 | B11 | Fase 2: wat lezen de NIPT-triage en de diagnostische NIPT-kandidaten? | CoGA's release waar het allel erin staat, anders de annotatie, met een nieuwe validatie (§8.1) |
 | B12 | Fase 2: wat lezen de mtDNA-criteria (`evaluateMito.ts`), die MITOMAP en ClinVar uit de mutserve-annotatie lezen? | Voor ClinVar: CoGA's release waar het allel erin staat (chrM staat in ClinVar's VCF als `MT`, §7), anders de annotatie; MITOMAP ongewijzigd |
+
+## 10. Vragen voor QA
+
+QA heeft het ontwerp nog niet beoordeeld. Deze punten vragen het oordeel van QA. Het antwoord op
+V1 kan B3 nog doen verschuiven.
+
+| | Vraag | Waarom |
+| --- | --- | --- |
+| V1 | Mag een wekelijkse ClinVar-release de huidige worden binnen een procedure die één keer gevalideerd is (de controles van §5.3 en de concordantie van §6.6), zonder dat elke release een major-wijziging is? | [TF-18](regulatory/TF-18-change-configuration-management.md) §4 noemt een nieuwe referentiedata-release een typische major, met klinische opvolgvalidatie. Met B3 gebeurt dat elke week. Een ja vraagt een aanpassing van TF-18; een nee maakt B3 onbruikbaar in klinisch gebruik. |
+| V2 | Hoe scoren de twee nieuwe gevaren van §8.2, en volstaan hun maatregelen? Volstaan de gewijzigde maatregelen bij H1 en H8? | [TF-06](regulatory/TF-06-risk-management-plan.md) |
+| V3 | Is "100 % of elk verschil verklaard" het aanvaardingscriterium voor de concordantie (§6.6), en met welke validatiefamilies en welke release wordt het getoetst? | [TF-09](regulatory/TF-09-verification-validation.md) |
+| V4 | Wat zijn de scope en de criteria van de opvolgvalidatie: technisch en klinisch voor het geheel, en apart de hervalidatie van de NIPT-kandidaten tegen R NIPT-M v0.7.3 (B11) en van de mtDNA-criteria (B12)? | De bouw is een major-wijziging; [TF-10](regulatory/TF-10-performance-evaluation-plan.md) en [TF-11](regulatory/TF-11-performance-evaluation-report.md) |
+| V5 | Keurt QA de nieuwe eisen en de gewijzigde REQ-NIPT-011 en REQ-NIPT-020 goed, met klasse C? | [TF-09a](regulatory/TF-09a-software-requirements-specification.md) en [TF-09b](regulatory/TF-09b-requirements-traceability-matrix.md) |
+| V6 | Keurt QA het ontwerp goed? | Zoals het ontwerp van de review van repeat expansions en Paraphase ([repeat-paraphase-review-design.md](repeat-paraphase-review-design.md)) |
