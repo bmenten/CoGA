@@ -58,6 +58,7 @@ The rules for lab users are in the in-app reference docs; these files hold the i
 - [handleiding/README.md](handleiding/README.md) — the technical manual for the review board, in Dutch and English.
 - [ROADMAP.md](ROADMAP.md) — the open work.
 - [repeat-paraphase-review-design.md](repeat-paraphase-review-design.md) — the design (in Dutch) of the repeat-expansion and Paraphase reviews, with its decisions (B1–B23).
+- [clinvar-knowledgebase-design.md](clinvar-knowledgebase-design.md) — the design (in Dutch) of a ClinVar release that CoGA loads itself, shown next to the annotated one, with the owner's decisions (B1–B12) and the questions for QA (V1–V6).
 - [open-issues.md](open-issues.md) — what still has to be done, ranked by priority.
 - [SECURITY.md](../SECURITY.md) and [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md) — how to report a vulnerability, and the register of security-check exceptions.
 - [sbom/README.md](../sbom/README.md) — the software bills of materials of the backend and the frontend.
