@@ -94,6 +94,20 @@ async def clinvar_coga_values(read: ClinvarCogaRead, loci: Sequence[Locus]) -> l
     return [[_value(read, alt, stored.get(key) if key is not None else None) for alt, key in pairs] for pairs in alleles]
 
 
+def clinvar_coga_of(alt: str | None, alt_allele: str | None, values: Sequence[ClinvarCogaOut]) -> ClinvarCogaOut | None:
+    """The value of the ALT a variant is shown with (its annotation's ``alt_allele``, else its
+    ALT), or its only ALT's; as the frontend reads it (``clinvarCogaOf``, ``lib/clinvar.ts``)."""
+    shown = alt_allele or alt
+    return next((value for value in values if value.alt == shown), values[0] if len(values) == 1 else None)
+
+
+def clinvar_by_the_rule(annotated: str | None, coga: ClinvarCogaOut | None) -> str | None:
+    """The design's one rule for the readers of phase 2 (B8): the classification in CoGA's
+    ClinVar release where it holds the allele, else the annotation's. An allele the release
+    holds only as part of a combination has no classification there."""
+    return coga.classification if coga is not None and coga.status == "in_release" else annotated
+
+
 async def clinvar_coga_by_id(
     read: ClinvarCogaRead, records: Mapping[str, SmallVariantFamilyRecord]
 ) -> dict[str, list[ClinvarCogaOut]]:

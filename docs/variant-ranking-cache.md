@@ -33,7 +33,7 @@ Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the r
 
 | Input | Where it comes from |
 | --- | --- |
-| The query filters (not the page), including the inheritance mode and expanded carrier screening | the request |
+| The query filters (not the page), including the inheritance mode and expanded carrier screening, and CoGA's ClinVar release the request reads (`clinvar_coga_release`), whose classification the pathogenicity score reads for the alleles it holds, the annotation's for the rest (the ClinVar design's one rule, B8) | the request |
 | The gene panel and its version | `gene_panels.version` and `external_version` |
 | The genes and regions the panel filter applied | as the query read them for the family's assembly: `gene_panel_genes`, `gene_panel_regions` and each gene's loci in `genes` (a digest, `panel_members_digest`) |
 | The regions the query kept to or left out, and the genes it left out | as the query resolved them: the intervals, the excluded genes' loci (from `genes`) and names |
