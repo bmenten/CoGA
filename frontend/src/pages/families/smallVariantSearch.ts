@@ -150,8 +150,6 @@ export type SmallVariantPage = Pick<VariantPage, 'total' | 'total_is_estimated' 
       | 'ranked_by'
       | 'small_variant_summary'
       | 'members_without_calls'
-      | 'clinvar_annotation_release'
-      | 'clinvar_coga_release'
     >
   > &
   Partial<Pick<NiptVariantPage, 'not_classified' | 'trio'>> & {
@@ -259,8 +257,6 @@ export type SmallFilterState = {
   effect: string;
   clinvar: string;
   exclude_clinvar: string;
-  // ClinVar (CoGA): the classifications of CoGA's own ClinVar release.
-  clinvar_coga: string;
   clinvar_pathogenic_override: string;
   exclude_review_tags: string;
   exclude_gene: string;
@@ -578,10 +574,6 @@ export const NIPT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new
   'require_sv_second_hit',
   'locus',
   'pass_only',
-  // The *ClinVar (CoGA) status* filter, which the NIPT route does not take. Its ClinVar status
-  // filter, the excluded statuses and the P/LP override do read CoGA's release where it holds
-  // the allele (the ClinVar design's one rule, B11), and each variant shows its ClinVar (CoGA).
-  'clinvar_coga',
 ]);
 
 /**
@@ -732,7 +724,6 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   effect: 'Annotation',
   clinvar: 'Pathogenicity',
   exclude_clinvar: 'Exclude pathogenicity',
-  clinvar_coga: 'ClinVar (CoGA)',
   clinvar_pathogenic_override: 'ClinVar P/LP overrides frequency, consequence and in silico',
   exclude_review_tags: 'Exclude review tags',
   exclude_gene: 'Exclude gene list',
@@ -791,7 +782,6 @@ export const MULTI_VALUE_FILTER_KEYS = new Set<
   'effect',
   'clinvar',
   'exclude_clinvar',
-  'clinvar_coga',
   'exclude_review_tags',
   'classification',
   'review_tags',
@@ -889,7 +879,6 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   effect: '',
   clinvar: '',
   exclude_clinvar: '',
-  clinvar_coga: '',
   // Standard on: ClinVar P/LP variants pass the consequence, in-silico and frequency filters.
   clinvar_pathogenic_override: 'true',
   exclude_review_tags: '',
@@ -1359,9 +1348,6 @@ export const buildSmallVariantQueryParams = (
   parseCommaSeparatedValues(currentFilters.exclude_clinvar).forEach((value) => {
     params.append('exclude_clinvar', value);
   });
-  parseCommaSeparatedValues(currentFilters.clinvar_coga).forEach((value) => {
-    params.append('clinvar_coga', value);
-  });
   // Standard on; emit explicitly so an off state survives the URL round-trip
   // (absence is treated as the default — on).
   params.set(
@@ -1766,7 +1752,6 @@ export const useSmallVariantSearchState = ({
         key === 'effect' ||
         key === 'clinvar' ||
         key === 'exclude_clinvar' ||
-        key === 'clinvar_coga' ||
         key === 'category'
       ) {
         initialFilters[key] = joinFilterValues(params.getAll(key));
@@ -1893,7 +1878,6 @@ export const useSmallVariantSearchState = ({
       | 'effect'
       | 'clinvar'
       | 'exclude_clinvar'
-      | 'clinvar_coga'
       | 'exclude_review_tags'
       | 'classification'
       | 'review_tags'

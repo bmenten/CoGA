@@ -5,7 +5,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { clinvarByTheRule, clinvarClass } from '../clinvar';
+import type { ClinvarCogaOut } from '../apiSchema.generated';
+import { clinvarClass, clinvarReleaseLabel, clinvarValueText } from '../clinvar';
 
 describe('clinvarClass', () => {
   it.each([
@@ -54,19 +55,36 @@ describe('clinvarClass', () => {
   );
 });
 
-describe('clinvarByTheRule', () => {
-  it("reads CoGA's own release where it holds the shown allele, else the annotation, named by its source", () => {
-    const held = { alt: 'A', status: 'in_release' as const, release: '2026-11-22', classification: 'Likely_pathogenic' };
-    expect(clinvarByTheRule({ alt: 'A', clinvar: 'Benign', clinvar_coga: [held] })).toEqual({
-      classification: 'Likely_pathogenic',
-      source: 'ClinVar (CoGA, 2026-11-22)',
-    });
-    expect(
-      clinvarByTheRule({ alt: 'A', clinvar: 'Benign', clinvar_coga: [{ ...held, status: 'not_in_release', classification: null }] }),
-    ).toEqual({ classification: 'Benign', source: 'ClinVar' });
-    expect(clinvarByTheRule({ alt: 'A', clinvar: 'pathogenic', clinvar_from_vep_cache: true })).toEqual({
-      classification: 'pathogenic',
-      source: 'ClinVar (VEP cache)',
-    });
+describe('clinvarReleaseLabel', () => {
+  it('names ClinVar by its release, and plainly without one', () => {
+    expect(clinvarReleaseLabel('2026-11-22')).toBe('ClinVar 2026-11-22');
+    expect(clinvarReleaseLabel(null)).toBe('ClinVar');
+  });
+});
+
+describe('clinvarValueText', () => {
+  const value = (overrides: Partial<ClinvarCogaOut> = {}): ClinvarCogaOut => ({
+    alt: 'A',
+    status: 'in_release',
+    release: '2026-11-22',
+    classification: 'Likely_pathogenic',
+    review_status: 'reviewed by expert panel',
+    stars: 3,
+    conditions: ['Synthetic disorder 1'],
+    variation_id: 900002,
+    included_only: false,
+    ...overrides,
+  });
+
+  it('gives the classification with its stars', () => {
+    expect(clinvarValueText(value())).toBe('Likely pathogenic ★★★☆');
+    expect(clinvarValueText(value({ stars: null }))).toBe('Likely pathogenic');
+  });
+
+  it('says why an allele has no classification', () => {
+    expect(clinvarValueText(value({ status: 'not_in_release' }))).toBe('not in this release');
+    expect(clinvarValueText(value({ status: 'no_release' }))).toBe('no release loaded');
+    expect(clinvarValueText(value({ status: 'not_available' }))).toBe('not available for this assembly');
+    expect(clinvarValueText(value({ classification: null, included_only: true }))).toBe('only as part of a combination');
   });
 });

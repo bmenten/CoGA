@@ -60,7 +60,6 @@ from .clickhouse_variant_records import (
     PanelFilterConstraints,
     SmallVariantCall,
     SmallVariantRecord,
-    _annotation_clinvar,
     _annotation_population_frequencies,
     _coerce_float,
 )
@@ -164,12 +163,11 @@ from .nipt_triage import (
     triage_de_novo,
 )
 from .variant_prioritization import clinvar_may_assert_pathogenic
-from .annotation_manifest_service import analysis_clinvar_release
 from .clinvar_coga import (
     ClinvarCogaRead,
     attach_clinvar_coga,
+    clinvar_classification,
     clinvar_coga_by_variant,
-    clinvar_coga_held,
     clinvar_coga_read,
 )
 from .small_variant_callsets import is_nipt_callset
@@ -636,15 +634,12 @@ def build_nipt_observations(
         )
 
 
-def clinvar_read(record: SmallVariantRecord, clinvar_coga: ClinvarCogaOut | None) -> list[str]:
-    """The record's ClinVar as the NIPT readers read it, by the ClinVar design's one rule (B9,
-    B11): the classification in CoGA's release where it holds the allele, else each
-    annotation's; none where there is none."""
-    if clinvar_coga is not None and clinvar_coga_held(clinvar_coga):
-        values = [clinvar_coga.classification]
-    else:
-        values = [_annotation_clinvar(annotation) for annotation in record.annotations or []]
-    return [value for value in values if value]
+def clinvar_read(clinvar_coga: ClinvarCogaOut | None) -> list[str]:
+    """An allele's ClinVar as the NIPT readers read it: its classification in CoGA's release
+    (``clinvar_classification``); none where the release does not hold it. The annotation's
+    ClinVar is not read (the owner's decision of 2026-11-27)."""
+    classification = clinvar_classification(clinvar_coga)
+    return [classification] if classification else []
 
 
 def triage_annotation(record: SmallVariantRecord, clinvar_coga: ClinvarCogaOut | None) -> DeNovoAnnotation:
@@ -652,12 +647,12 @@ def triage_annotation(record: SmallVariantRecord, clinvar_coga: ClinvarCogaOut |
     its highest SpliceAI delta score and population frequency (the parser keeps all but
     ``gnomad_af`` under ``population_frequencies``; VEP MAX_AF is ``gnomad_popmax_af``),
     whether it is known (an rsID), and whether a ClinVar record may assert it pathogenic,
-    read by the one rule (``clinvar_read``; ``clinvar_coga`` the value of its ALT)."""
+    read in CoGA's release (``clinvar_read``; ``clinvar_coga`` the value of its ALT)."""
     impact: str | None = None
     spliceai: float | None = None
     population_af: float | None = None
     known = bool(record.rsid)
-    clinvar_pathogenic = clinvar_may_assert_pathogenic(clinvar_read(record, clinvar_coga))
+    clinvar_pathogenic = clinvar_may_assert_pathogenic(clinvar_read(clinvar_coga))
     for annotation in record.annotations or []:
         value = str(annotation.get("impact") or "").upper()
         if value in _IMPACT_RANK and (impact is None or _IMPACT_RANK[value] > _IMPACT_RANK[impact]):
@@ -848,12 +843,10 @@ class NiptVariantsResult:
     # that no list shows them, whatever the other filters, and why (variant id -> reason,
     # as the signed record names a reported one); empty without a review-tag filter.
     not_classified: dict[str, str] = field(default_factory=dict)
-    # The two ClinVar releases the list names (design B7): CoGA's release the analysis read, of
-    # each listed variant's ClinVar (CoGA), and the release of the ClinVar file the analysis's
-    # annotation names. None where the search ends before its variants are read (a review-tag
-    # filter or a gene panel that selects none).
+    # The ClinVar release CoGA loaded that the analysis read, which the listed variants' ClinVar
+    # is from. None where the search ends before its variants are read (a review-tag filter or a
+    # gene panel that selects none).
     clinvar_coga_release: date | None = None
-    clinvar_annotation_release: date | None = None
 
 
 @dataclass(slots=True)
@@ -1801,7 +1794,7 @@ async def get_family_nipt_variants(
     family = await _kept_family_analysis(session, context, trio, assay_key, qc)
     ff_estimate = family.summary.analysis.fetal_fraction
     # The ClinVar filters, their exclusion and the P/LP override read CoGA's release the analysis
-    # reads, where it holds the allele (the ClinVar design's one rule, B11), as on the family page.
+    # reads, as on the family page.
     filters.clinvar_coga_release = family.inputs.clinvar_coga.release
 
     # The selected variants no list can show, whatever the other filters: the analysis
@@ -1908,7 +1901,6 @@ async def get_family_nipt_variants(
         variant_total=variant_total,
         not_classified=not_classified,
         clinvar_coga_release=family.inputs.clinvar_coga.release,
-        clinvar_annotation_release=await analysis_clinvar_release(session, context),
     )
 
 
@@ -2002,7 +1994,7 @@ class NiptDiagnosticCandidates:
 
 def diagnostic_annotation(item: NiptClassifiedVariant) -> DiagnosticAnnotation:
     """What the locked criteria read of a classified variant: its annotation
-    (``triage_annotation``), whether ClinVar strictly calls it pathogenic (read by the one rule,
+    (``triage_annotation``), whether ClinVar strictly calls it pathogenic (in CoGA's release,
     ``clinvar_read``), and in how many other cfDNA samples of the assay it is called (its
     recurrence, counted first)."""
     base = triage_annotation(item.record, item.clinvar_coga)
@@ -2010,7 +2002,7 @@ def diagnostic_annotation(item: NiptClassifiedVariant) -> DiagnosticAnnotation:
         max_population_af=base.max_population_af,
         impact=base.impact,
         spliceai_max=base.spliceai_max,
-        clinvar_pathogenic=clinvar_strictly_pathogenic(clinvar_read(item.record, item.clinvar_coga)),
+        clinvar_pathogenic=clinvar_strictly_pathogenic(clinvar_read(item.clinvar_coga)),
         other_cfdna_carriers=item.recurrence.counts.carriers if item.recurrence is not None else 0,
     )
 

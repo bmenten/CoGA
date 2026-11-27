@@ -9,7 +9,7 @@
 
 import type { VariantOut } from '../apiSchema.generated';
 import { NUCLEAR_CHROMOSOMES, normalizeChrom } from '../chromosomes';
-import { clinvarClass, clinvarCogaLabel, clinvarCogaOf, clinvarLabel } from '../clinvar';
+import { clinvarClass } from '../clinvar';
 import { classifyGenotype } from '../genotypes';
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS } from './criteria';
 import { parentsOf } from './pedigree';
@@ -43,13 +43,9 @@ export type AcmgVariantInput = Partial<
     | 'gene'
     | 'impact'
     | 'clinvar'
-    | 'clinvar_from_vep_cache'
     | 'clinvar_review_status'
     | 'clinvar_stars'
     | 'clinvar_conditions'
-    | 'clinvar_coga'
-    | 'alt'
-    | 'alt_allele'
     | 'lof'
     | 'lof_flags'
     | 'nmd'
@@ -406,16 +402,14 @@ export function evaluateAcmg(
   // criterion (lib/clinvar). Offered for review,
   // never applied: ClinGen's SVI advises against counting another lab's assertion as evidence
   // (the owner's choice of 2026-11-06). The evidence names the review status (its stars) and
-  // the conditions ClinVar gives. ClinVar is read by the design's one rule (B9): CoGA's own
-  // release where it holds the allele, else the annotation's.
-  const asserted = clinvarAssertion(variant);
-  const clinvar = clinvarClass(asserted.classification);
+  // the conditions ClinVar gives. ClinVar is CoGA's release's (lib/clinvar).
+  const clinvar = clinvarClass(variant.clinvar);
   if (clinvar === 'pathogenic') {
-    add('PP5', 'supporting', `${asserted.report} — review before applying.`, 'consider');
-    against('BP6', `${asserted.source} reports ${asserted.classification}, not benign.`);
+    add('PP5', 'supporting', `${describeClinvar(variant)} — review before applying.`, 'consider');
+    against('BP6', `ClinVar reports ${variant.clinvar}, not benign.`);
   } else if (clinvar === 'benign') {
-    add('BP6', 'supporting', `${asserted.report} — review before applying.`, 'consider');
-    against('PP5', `${asserted.source} reports ${asserted.classification}, not pathogenic.`);
+    add('BP6', 'supporting', `${describeClinvar(variant)} — review before applying.`, 'consider');
+    against('PP5', `ClinVar reports ${variant.clinvar}, not pathogenic.`);
   }
 
   // ---- PP4: proband phenotype specific for the gene ----
@@ -943,59 +937,19 @@ export function pvs1Caution(variant: Pick<AcmgVariantInput, 'lof_flags' | 'nmd'>
   return reasons.length ? reasons.join(' and ') : null;
 }
 
-// The ClinVar assertion PP5 / BP6 read, by the design's one rule (B9): the shown ALT's value in
-// CoGA's own release where it holds the allele, named by its release, else the annotation's.
-export function clinvarAssertion(variant: AcmgVariantInput): {
-  classification: string | null | undefined;
-  source: string;
-  report: string;
-} {
-  const coga = clinvarCogaOf(variant);
-  if (coga?.status === 'in_release') {
-    return {
-      classification: coga.classification,
-      source: clinvarCogaLabel(coga.release),
-      report: describeClinvarAssertion(clinvarCogaLabel(coga.release), coga.classification, {
-        stars: coga.stars,
-        reviewStatus: coga.review_status,
-        conditions: coga.conditions,
-      }),
-    };
-  }
-  return {
-    classification: variant.clinvar,
-    source: clinvarLabel(variant.clinvar_from_vep_cache),
-    report: describeClinvar(variant),
-  };
-}
-
-const describeClinvarAssertion = (
-  source: string,
-  classification: string | null | undefined,
-  record: { stars?: number | null; reviewStatus?: string | null; conditions?: string[] | null },
-): string => {
-  const status = record.reviewStatus
-    ? `${typeof record.stars === 'number' ? `${record.stars} star${record.stars === 1 ? '' : 's'}, ` : ''}${record.reviewStatus}`
+// ClinVar's assertion as the PP5 / BP6 evidence says it: the classification in CoGA's release,
+// the review status with its stars, and the conditions.
+function describeClinvar(
+  variant: Pick<AcmgVariantInput, 'clinvar' | 'clinvar_review_status' | 'clinvar_stars' | 'clinvar_conditions'>,
+): string {
+  const { clinvar_stars: stars, clinvar_review_status: reviewStatus } = variant;
+  const status = reviewStatus
+    ? `${typeof stars === 'number' ? `${stars} star${stars === 1 ? '' : 's'}, ` : ''}${reviewStatus}`
     : null;
-  const conditions = (record.conditions ?? []).filter(Boolean);
-  return `${source} reports ${classification}${status ? ` (${status})` : ''}${
+  const conditions = (variant.clinvar_conditions ?? []).filter(Boolean);
+  return `ClinVar reports ${variant.clinvar}${status ? ` (${status})` : ''}${
     conditions.length ? ` for ${conditions.slice(0, 3).join('; ')}${conditions.length > 3 ? ' …' : ''}` : ''
   }`;
-};
-
-// ClinVar's assertion as the PP5 / BP6 evidence says it: the classification, named as VEP's
-// cache's where it is read from the cache, the review status with its stars, and the conditions.
-export function describeClinvar(
-  variant: Pick<
-    AcmgVariantInput,
-    'clinvar' | 'clinvar_from_vep_cache' | 'clinvar_review_status' | 'clinvar_stars' | 'clinvar_conditions'
-  >,
-): string {
-  return describeClinvarAssertion(clinvarLabel(variant.clinvar_from_vep_cache), variant.clinvar, {
-    stars: variant.clinvar_stars,
-    reviewStatus: variant.clinvar_review_status,
-    conditions: variant.clinvar_conditions,
-  });
 }
 
 // In-silico evidence: a positive PP3/BP4 suggestion plus an explicit

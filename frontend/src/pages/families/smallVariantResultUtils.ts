@@ -652,10 +652,6 @@ export const buildSvSecondHitHref = (
   return routePath`/families/${familyId}/structural-variants${raw(`?${params.toString()}`)}`;
 };
 
-/** ClinVar's review stars, as ClinVar draws them: "★★☆☆" for 2 of 4. */
-export const formatClinvarStars = (stars?: number | null): string | null =>
-  typeof stars === 'number' && stars >= 0 && stars <= 4 ? `${'★'.repeat(stars)}${'☆'.repeat(4 - stars)}` : null;
-
 /**
  * SpliceAI's highest delta score with the change it describes and where SpliceAI places it:
  * "0.82 · donor gain +14" (bases from the variant). The score alone where the annotation has

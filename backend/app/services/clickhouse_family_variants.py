@@ -100,9 +100,8 @@ from .clickhouse_variant_records import (
 
 from .clinvar_coga import (
     ClinvarCogaRead,
-    clinvar_by_the_rule,
+    clinvar_classification,
     clinvar_coga_by_variant_id,
-    clinvar_coga_held,
     clinvar_coga_of,
     clinvar_coga_read,
     clinvar_coga_values,
@@ -880,11 +879,9 @@ async def fetch_recurrent_artifact_candidates(
 
     - a variant flagged at import as more than 5% frequent in gnomAD or TopMed
       (``is_gnomad_gt_5_percent``);
-    - a variant whose ClinVar record, in any of its annotations on the assembly, carries or
+    - a variant whose ClinVar classification in CoGA's release (``clinvar_coga``) carries or
       may carry a pathogenic or likely pathogenic assertion (``clinvar_may_assert_pathogenic``:
-      P, LP and every conflicting record); read by the ClinVar design's one rule (B9): in
-      CoGA's release (``clinvar_coga``) where it holds the allele (``_clinvar_protected``). A
-      familial founder variant recurs in a disease-focused panel below 5%, and is the last
+      P, LP and every conflicting record; ``_clinvar_protected``). A familial founder variant recurs in a disease-focused panel below 5%, and is the last
       thing an artifact list may hold.
     """
     if not assembly_name or min_unexplained_samples < 1 or not carrier_samples:
@@ -911,11 +908,10 @@ async def fetch_recurrent_artifact_candidates(
         """,
         params,
     )
-    # Each candidate's ClinVar, read by the one Python ClinVar rule rather than a second copy
-    # of it in SQL.
+    # Each candidate's ClinVar, read in CoGA's release by the Python reading rather than a second
+    # copy of it in SQL.
     variant_ids = [str(variant_id) for variant_id, _count in rows]
-    pooled = await _pooled_variant_annotations(assembly_name, variant_ids)
-    protected = await _clinvar_protected(clinvar_coga, variant_ids, pooled)
+    protected = await _clinvar_protected(clinvar_coga, variant_ids)
     return [
         (str(variant_id), int(unexplained or 0))
         for variant_id, unexplained in rows
@@ -923,22 +919,15 @@ async def fetch_recurrent_artifact_candidates(
     ]
 
 
-async def _clinvar_protected(
-    read: ClinvarCogaRead, variant_ids: Sequence[str], pooled: Mapping[str, "_PooledAnnotations"]
-) -> set[str]:
+async def _clinvar_protected(read: ClinvarCogaRead, variant_ids: Sequence[str]) -> set[str]:
     """The variants of ``variant_ids`` whose ClinVar may assert pathogenic
-    (``clinvar_may_assert_pathogenic``), read by the ClinVar design's one rule (B9): the
-    classification in CoGA's release ``read`` where it holds the allele, else the terms of its
-    annotations on the assembly (``pooled``)."""
+    (``clinvar_may_assert_pathogenic``): their classification in CoGA's release ``read``; a
+    variant the release does not hold has none."""
     coga = await clinvar_coga_by_variant_id(read, variant_ids)
     return {
         variant_id
         for variant_id in variant_ids
-        if clinvar_may_assert_pathogenic(
-            [coga[variant_id].classification or ""]
-            if variant_id in coga and clinvar_coga_held(coga[variant_id])
-            else (pooled[variant_id].clinvar_terms if variant_id in pooled else [])
-        )
+        if clinvar_may_assert_pathogenic([clinvar_classification(coga.get(variant_id)) or ""])
     }
 
 
@@ -974,47 +963,36 @@ async def fetch_artifact_protection_flags(
     chunk_size: int = 5_000,
 ) -> dict[str, str]:
     """The variants of ``variant_ids`` an artifact list may never hold, with the reason:
-    ``clinvar`` (its ClinVar may assert pathogenic, read by the one rule:
-    ``_clinvar_protected``) or ``common`` (a gnomAD or TopMed frequency above ``common_af``
+    ``clinvar`` (its ClinVar in CoGA's release may assert pathogenic: ``_clinvar_protected``) or ``common`` (a gnomAD or TopMed frequency above ``common_af``
     in any of its annotations on the assembly, the auto-seed's ``is_gnomad_gt_5_percent``).
     A variant no family on the assembly carries has no annotation here: it is listed unless
     CoGA's release holds it may-be-pathogenic."""
     if not assembly_name or not variant_ids:
         return {}
-    pooled = await _pooled_variant_annotations(assembly_name, variant_ids, chunk_size=chunk_size)
-    protected = await _clinvar_protected(clinvar_coga, [str(value) for value in variant_ids], pooled)
+    population_afs = await _pooled_population_afs(assembly_name, variant_ids, chunk_size=chunk_size)
+    protected = await _clinvar_protected(clinvar_coga, [str(value) for value in variant_ids])
     flags: dict[str, str] = {variant_id: "clinvar" for variant_id in protected}
-    for variant_id, pooled_annotations in pooled.items():
-        if variant_id not in flags and pooled_annotations.population_af > common_af:
+    for variant_id, population_af in population_afs.items():
+        if variant_id not in flags and population_af > common_af:
             flags[variant_id] = "common"
     return flags
 
 
-@dataclass(frozen=True, slots=True)
-class _PooledAnnotations:
-    """What every annotation of a variant on the assembly says together: its highest
-    population frequency (gnomAD, its exomes, genomes and popmax, TopMed; 0 without one)
-    and its ClinVar terms."""
-
-    population_af: float
-    clinvar_terms: list[str]
-
-
-async def _pooled_variant_annotations(
+async def _pooled_population_afs(
     assembly_name: str,
     variant_ids: Sequence[str],
     *,
     chunk_size: int = 5_000,
-) -> dict[str, _PooledAnnotations]:
-    """Each of ``variant_ids``' annotations on the assembly, pooled (``_PooledAnnotations``),
-    from ``variants/annotation_index``: every annotation version and annotation set, of
-    whichever family's import. A variant no family on the assembly carries has none and is
-    left out.
+) -> dict[str, float]:
+    """Each of ``variant_ids``' highest population frequency over all its annotations on the
+    assembly (gnomAD, its exomes, genomes and popmax, TopMed; 0 without one), from
+    ``variants/annotation_index``: every annotation version and annotation set, of whichever
+    family's import. A variant no family on the assembly carries has none and is left out.
 
     The index is read by its sort key, at the chromosomes and positions where these ids can
     be stored (``small_variant_loci``), and the rows of these ids are kept there: the rows
     a read of the whole index by id keeps, without reading every variant of the cohort."""
-    pooled: dict[str, _PooledAnnotations] = {}
+    pooled: dict[str, float] = {}
     unique_ids = list(dict.fromkeys(str(value) for value in variant_ids if value))
     annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
     for offset in range(0, len(unique_ids), chunk_size):
@@ -1030,8 +1008,7 @@ async def _pooled_variant_annotations(
                     ifNull(max_gnomad_af, 0), ifNull(max_gnomad_exomes_af, 0),
                     ifNull(max_gnomad_genomes_af, 0), ifNull(max_gnomad_popmax_af, 0),
                     ifNull(max_topmed_af, 0)
-                )) AS population_af,
-                groupUniqArrayArray(clinvar_terms) AS terms
+                )) AS population_af
             FROM {annotation_index}
             WHERE (chrom, pos) IN %(loci)s
               AND variantId IN %(variant_ids)s
@@ -1039,11 +1016,8 @@ async def _pooled_variant_annotations(
             """,
             {"loci": tuple(loci), "variant_ids": tuple(chunk)},
         )
-        for variant_id, population_af, terms in rows:
-            pooled[str(variant_id)] = _PooledAnnotations(
-                population_af=float(population_af or 0),
-                clinvar_terms=[str(term) for term in terms or []],
-            )
+        for variant_id, population_af in rows:
+            pooled[str(variant_id)] = float(population_af or 0)
     return pooled
 
 
@@ -1852,16 +1826,14 @@ async def _filter_transcript_matches(
     annotation set. None when the search asks nothing of a transcript. The one definition
     of the filters names the transcript a variant shows.
 
-    The consequence and in-silico filters are read strictly here, without the ClinVar P/LP
-    override: a pathogenic variant of HIGH impact on a second transcript names that transcript
-    in a HIGH-impact search, and one the override alone keeps (a pathogenic synonymous
-    variant) names none and shows its primary transcript."""
+    The ClinVar P/LP override is the allele's, not a transcript's (``_clinvar_override``): a
+    pathogenic variant of HIGH impact on a second transcript names that transcript in a
+    HIGH-impact search, and one the override alone keeps (a pathogenic synonymous variant) names
+    none and shows its primary transcript."""
     if filters is None or not context.assembly_name:
         return None
     condition_params: dict[str, Any] = {}
-    condition = _small_annotation_filter_condition(
-        filters, params=condition_params, strict_transcript_filters=True
-    )
+    condition = _small_annotation_filter_condition(filters, params=condition_params)
     if condition is None:
         return None
     identities = dict.fromkeys(i for record in records if (i := _annotation_set_identity(record)) is not None)
@@ -2986,7 +2958,7 @@ async def _rank_small_variants(
         phenotype_value = gene_score.score if gene_score else None
         scored = score_variant(
             impact=variant.impact,
-            clinvar=clinvar_by_the_rule(variant.clinvar, clinvar_coga_of(variant.alt, variant.alt_allele, values)),
+            clinvar=clinvar_classification(clinvar_coga_of(variant.alt, variant.alt_allele, values)),
             cadd_phred=variant.cadd_phred,
             revel=variant.revel,
             spliceai_max=variant.spliceai_max,
@@ -4135,7 +4107,6 @@ async def get_family_small_variants_page(
     clinvar: list[str] | None = None,
     exclude_clinvar: list[str] | None = None,
     clinvar_pathogenic_override: bool = False,
-    clinvar_coga: list[str] | None = None,
     clinvar_coga_release: date | None = None,
     exclude_gene: str | None = None,
     exclude_intervals: str | None = None,
@@ -4202,7 +4173,6 @@ async def get_family_small_variants_page(
         clinvar=clinvar or [],
         exclude_clinvar=exclude_clinvar or [],
         clinvar_pathogenic_override=clinvar_pathogenic_override,
-        clinvar_coga=clinvar_coga or [],
         clinvar_coga_release=clinvar_coga_release,
         exclude_gene=exclude_gene,
         exclude_intervals=exclude_intervals,

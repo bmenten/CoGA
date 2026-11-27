@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from bisect import bisect_right
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Callable, Collection, Final, Iterable, NamedTuple, Protocol, Sequence, cast
 
 from fastapi import HTTPException
@@ -25,7 +25,7 @@ from .clickhouse_variant_ids import (
     _xpos,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
-from .variant_annotation_parser import CLINVAR_FROM_VEP_CACHE_KEY, MANE_REFSEQ_KEY, _spliceai_delta
+from .variant_annotation_parser import MANE_REFSEQ_KEY, _spliceai_delta
 from .family_metadata_context import FamilyMetadataContext
 from .family_package_common import resolve_vcf_sample_id
 from .compound_het_phase import (
@@ -82,9 +82,7 @@ from .variant_prioritization import (
 from .clinvar_release_store import (
     clinvar_allele_condition,
     clinvar_allele_where_condition,
-    clinvar_alleles_held_condition,
 )
-from .clinvar_review_status import clinvar_conditions, clinvar_stars
 from .clickhouse_variant_records import (
     CLINVAR_OVERRIDE_TERMS,
     Region,
@@ -112,7 +110,6 @@ from .clickhouse_variant_records import (
     _annotation_gene,
     _annotation_gene_id,
     _annotation_effect,
-    _annotation_clinvar,
     _annotation_sift,
     _annotation_polyphen,
     _annotation_spliceai_max,
@@ -1854,12 +1851,8 @@ def _small_variant_out(
         gene_symbols=list(record.gene_symbols),
         impact=_annotation_text(annotation, "impact"),
         effect=_annotation_effect(annotation),
-        clinvar=_annotation_clinvar(annotation),
-        clinvar_from_vep_cache=_annotation_bool(annotation, CLINVAR_FROM_VEP_CACHE_KEY),
-        clinvar_review_status=_annotation_text(annotation, "clinvar_review_status"),
-        clinvar_stars=clinvar_stars(_annotation_text(annotation, "clinvar_review_status")),
-        clinvar_conditions=clinvar_conditions(_annotation_text(annotation, "clinvar_conditions")),
-        clinvar_variation_id=_annotation_text(annotation, "clinvar_variation_id"),
+        # Its ClinVar is CoGA's release's, served with the page (clinvar_coga.attach_clinvar_coga):
+        # the annotation's ClinVar is neither shown nor used.
         rsid=record.rsid or _annotation_text(annotation, "rsid"),
         transcript_id=_annotation_text(annotation, "transcript_id"),
         alt_allele=_annotation_text(annotation, "alt_allele"),
@@ -2864,47 +2857,23 @@ def _small_panel_filter_condition(
     return f"({' OR '.join(conditions)})" if conditions else None
 
 
-def _clinvar_overridden(block: str, *, params: dict[str, Any]) -> str:
-    """``block``, or a ClinVar pathogenic or likely pathogenic record on the same transcript
-    row: the *ClinVar P/LP override*. ``clinvar_terms`` holds the normalised terms
-    (``_status_terms``) the filter terms read; ClinVar's aggregate form is stored split into
-    its terms."""
-    params["detail_clinvar_override_terms"] = list(_status_filter_terms(CLINVAR_OVERRIDE_TERMS))
-    return f"({block} OR hasAny(a.clinvar_terms, %(detail_clinvar_override_terms)s))"
-
-
 def _small_annotation_filter_condition(
     filters: SmallVariantQueryFilters,
     *,
     params: dict[str, Any],
-    strict_transcript_filters: bool = False,
     lifted: bool = False,
 ) -> str | None:
     """The search's per-transcript filters as one condition on a transcript row (alias ``a``),
     or None when the search asks nothing of a transcript: a variant is kept when they all hold
-    on one of its transcripts.
+    on one of its transcripts. ClinVar is no transcript's: it is the allele's, in CoGA's release
+    (``_small_annotation_filter_clauses``).
 
-    With ``clinvar_pathogenic_override``, a transcript row with a ClinVar pathogenic or likely
-    pathogenic record passes three filters whatever its values: the consequence filter (the
-    impacts, the consequences and the SpliceAI minimum, any of which keeps a transcript), the
-    in-silico filter (CADD, REVEL, SIFT, PolyPhen and SpliceAI, any of which keeps it) and the
-    frequency filter (the population frequencies and the gnomAD counts, all together). A
-    synonymous or splice-region variant that ClinVar holds pathogenic so stays in a search for
-    HIGH and MODERATE impact or for damaging scores, and a recurrent pathogenic allele above
-    the frequency cut-off in a search for rare variants. The other filters still hold on that
-    row: the transcript, HGVS, the ClinVar statuses, *Canonical only*, *MANE only* and *LoF
-    only*.
-
-    ``strict_transcript_filters=True`` leaves the consequence and in-silico filters strict:
-    the transcript a variant names as the one its filters held on
-    (``_filter_transcript_matches``) is one whose own consequence and scores meet them, and a
-    variant the override alone keeps names none. The frequency filter keeps its override
-    there: a variant's frequencies are the same on each of its transcripts.
-
-    ``lifted=True`` is what the override leaves of the filters for a variant CoGA's ClinVar
-    release holds (likely) pathogenic, an allele's classification that lifts the three filters
-    on every transcript at once (``_clinvar_coga_lifted``): the other filters alone, or None
-    when the search asks no other."""
+    ``lifted=True`` is what the ClinVar P/LP override leaves of the filters for a variant CoGA's
+    ClinVar release holds (likely) pathogenic (``_clinvar_override``): the consequence filter
+    (the impacts, the consequences and the SpliceAI minimum), the in-silico filter (CADD, REVEL,
+    SIFT, PolyPhen and SpliceAI) and the frequency filter (the population frequencies and the
+    gnomAD counts) are lifted, the others alone stay (the transcript, HGVS, *Canonical only*,
+    *MANE only* and *LoF only*), or None when the search asks no other."""
     conditions: list[str] = []
 
     if filters.transcript:
@@ -2960,18 +2929,8 @@ def _small_annotation_filter_condition(
     if filters.min_spliceai is not None:
         params["detail_min_spliceai"] = filters.min_spliceai
         impact_effect_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
-    # The ClinVar P/LP override of the consequence and in-silico blocks.
-    override_scores = filters.clinvar_pathogenic_override and not strict_transcript_filters
     if impact_effect_conditions and not lifted:
-        consequence_block = f"({' OR '.join(impact_effect_conditions)})"
-        if override_scores:
-            consequence_block = _clinvar_overridden(consequence_block, params=params)
-        conditions.append(consequence_block)
-
-    clinvar_terms = _status_filter_terms(filters.clinvar)
-    if clinvar_terms:
-        params["detail_clinvar_terms"] = list(clinvar_terms)
-        conditions.append("hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)")
+        conditions.append(f"({' OR '.join(impact_effect_conditions)})")
 
     if filters.canonical_only:
         conditions.append("a.canonical")
@@ -2980,7 +2939,7 @@ def _small_annotation_filter_condition(
     if filters.lof_only:
         conditions.append("a.lof NOT IN ('', '.', 'na', 'n/a')")
 
-    # The frequency block: one unit, which the ClinVar P/LP override lifts whole.
+    # The frequency block: one unit, which the ClinVar P/LP override lifts whole (``lifted``).
     frequency_conditions: list[str] = []
     max_float_filters = [
         ("detail_max_gnomad_af", filters.max_gnomad_af, "gnomad_af"),
@@ -3007,11 +2966,7 @@ def _small_annotation_filter_condition(
         frequency_conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
 
     if frequency_conditions and not lifted:
-        if filters.clinvar_pathogenic_override:
-            frequency_block = f"({' AND '.join(frequency_conditions)})"
-            conditions.append(_clinvar_overridden(frequency_block, params=params))
-        else:
-            conditions.extend(frequency_conditions)
+        conditions.extend(frequency_conditions)
 
     # The in-silico block: a transcript with one of the predictions asked for.
     in_silico_conditions: list[str] = []
@@ -3032,10 +2987,7 @@ def _small_annotation_filter_condition(
     if filters.min_spliceai is not None:
         in_silico_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
     if in_silico_conditions and not lifted:
-        in_silico_block = f"({' OR '.join(in_silico_conditions)})"
-        if override_scores:
-            in_silico_block = _clinvar_overridden(in_silico_block, params=params)
-        conditions.append(in_silico_block)
+        conditions.append(f"({' OR '.join(in_silico_conditions)})")
 
     return f"({' AND '.join(conditions)})" if conditions else None
 
@@ -3054,26 +3006,6 @@ def _small_detail_filter_clauses(filters: SmallVariantQueryFilters) -> tuple[lis
 # The impacts the small-variant track marks as salient (``smallVariantMarkKind`` in
 # ``frontend/src/lib/smallVariantMarks.ts``), as the import stores them (in lower case).
 _SALIENT_IMPACTS: Final = ("high", "moderate", "medium")
-
-
-def _small_salient_condition(
-    filters: SmallVariantQueryFilters,
-    *,
-    params: dict[str, Any],
-) -> str | None:
-    """With ``salient_only``, the transcript rows (alias ``a``) of a variant the small-variant
-    track marks as salient: a ClinVar diamond, or of HIGH or MODERATE impact and not ClinVar
-    (likely) benign. ClinVar is read as the browser reads it (``clinvarClass``,
-    ``frontend/src/lib/clinvar.ts``): a diamond lists a (likely) pathogenic classification, red
-    when it lists no other, orange beside one that disagrees; (likely) benign lists no other
-    classification; ClinVar's aggregate conflict is neither. The impact is any transcript's, so
-    the set holds every variant the track would mark by its shown transcript, and no
-    pathogenic variant is left out for its impact.
-    """
-    if not filters.salient_only:
-        return None
-    params["salient_impacts"] = _SALIENT_IMPACTS
-    return f"({_clinvar_diamond('a.clinvar_terms')} OR ({_SALIENT_IMPACT} AND NOT {_clinvar_benign('a.clinvar_terms')}))"
 
 
 _SALIENT_IMPACT: Final = "a.impact IN %(salient_impacts)s"
@@ -3095,44 +3027,40 @@ def _clinvar_benign(terms: str) -> str:
     )
 
 
-def _salient_by_the_rule(
+def _small_salient_condition(
     context: _SearchAssembly,
-    filters: SmallVariantQueryFilters,
-    annotated: str,
-    *,
-    params: dict[str, Any],
-) -> str:
-    """The salient rows (``annotated``: the annotation's, ``_small_salient_condition``) with
-    ClinVar read by the design's one rule (B8), as the track marks a variant: the classification
-    in CoGA's release of the request where it holds the row's alleles, else the annotation's. A
-    row is salient for an allele the release holds (likely) pathogenic, for a held row of HIGH or
-    MODERATE impact the release does not hold (likely) benign, and for any other row as without a
-    release. A multi-allelic row the release holds in part is read both ways: the set holds every
-    variant the track could mark."""
-    if filters.clinvar_coga_release is None or not context.assembly_name:
-        return annotated
-    release = filters.clinvar_coga_release
-    diamond = clinvar_allele_where_condition(
-        context.assembly_name, release, _clinvar_diamond("classification_terms"), params=params, prefix="coga_diamond"
-    )
-    benign = clinvar_allele_where_condition(
-        context.assembly_name, release, _clinvar_benign("classification_terms"), params=params, prefix="coga_benign"
-    )
-    impact = _small_annotation_row_membership_condition(context, filters, params=params, condition=_SALIENT_IMPACT)
-    held = _clinvar_coga_held(context, filters, params=params)
-    return f"({diamond} OR ({held} AND {impact} AND NOT {benign}) OR (NOT {held} AND {annotated}))"
-
-
-def _small_annotation_exclude_filter_condition(
     filters: SmallVariantQueryFilters,
     *,
     params: dict[str, Any],
 ) -> str | None:
-    exclude_clinvar_terms = _status_filter_terms(filters.exclude_clinvar)
-    if not exclude_clinvar_terms:
+    """With ``salient_only``, the variants the small-variant track marks as salient: an allele
+    CoGA's ClinVar release of the request holds (likely) pathogenic (a ClinVar diamond), or a
+    transcript of HIGH or MODERATE impact unless the release holds every allele (likely) benign.
+    ClinVar is read as the browser reads it (``clinvarClass``, ``frontend/src/lib/clinvar.ts``):
+    a diamond lists a (likely) pathogenic classification; (likely) benign lists no other
+    classification; ClinVar's aggregate conflict is neither. The impact is any transcript's and
+    a multi-allelic row's ALTs are read together, so the set holds every variant the track would
+    mark by its shown transcript and ALT. Without a release, no variant has ClinVar: the impact
+    alone."""
+    if not filters.salient_only:
         return None
-    params["detail_exclude_clinvar_terms"] = list(exclude_clinvar_terms)
-    return "hasAny(a.clinvar_terms, %(detail_exclude_clinvar_terms)s)"
+    params["salient_impacts"] = _SALIENT_IMPACTS
+    impact = _small_annotation_row_membership_condition(context, filters, params=params, condition=_SALIENT_IMPACT)
+    if filters.clinvar_coga_release is None or not context.assembly_name:
+        return impact
+    release = filters.clinvar_coga_release
+    diamond = clinvar_allele_where_condition(
+        context.assembly_name, release, _clinvar_diamond("classification_terms"), params=params, prefix="clinvar_diamond"
+    )
+    benign = clinvar_allele_where_condition(
+        context.assembly_name,
+        release,
+        _clinvar_benign("classification_terms"),
+        params=params,
+        prefix="clinvar_benign",
+        every=True,
+    )
+    return f"({diamond} OR ({impact} AND NOT {benign}))"
 
 
 def _small_annotation_scope_clauses(
@@ -3905,25 +3833,27 @@ def _small_gene_condition(
     return conditions[0] if len(conditions) == 1 else f"({' OR '.join(conditions)})"
 
 
-def _clinvar_coga_condition(
+def _clinvar_condition(
     context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
     terms: Sequence[str],
     *,
     params: dict[str, Any],
     prefix: str,
+    every: bool = False,
 ) -> str:
     """"An allele of the row (alias ``e``) is one CoGA's ClinVar release of the request
-    (``clinvar_coga_release``) classifies with one of ``terms``": the *ClinVar (CoGA)* filter,
-    and the P/LP override's reading of that release. Without a release, no row's is."""
+    (``clinvar_coga_release``) classifies with one of ``terms``" (``every``: every allele of the
+    row is): the variant's ClinVar, the only one the search reads. Without a release no allele
+    has a ClinVar classification: no row's is."""
     if filters.clinvar_coga_release is None or not context.assembly_name:
         return "0"
     return clinvar_allele_condition(
-        context.assembly_name, filters.clinvar_coga_release, terms, params=params, prefix=prefix
+        context.assembly_name, filters.clinvar_coga_release, terms, params=params, prefix=prefix, every=every
     )
 
 
-def _clinvar_coga_lifted(
+def _clinvar_override(
     context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
     condition: str,
@@ -3933,18 +3863,20 @@ def _clinvar_coga_lifted(
     reads_text: bool,
 ) -> str:
     """The transcript filters' ``membership`` (of their ``condition``), or, with the ClinVar P/LP
-    override, an allele of
-    the row (likely) pathogenic in CoGA's ClinVar release and the filters the override does not
-    lift held on one of its transcripts (design B1): the override lifts the consequence,
-    in-silico and frequency filters for CoGA's classification as for the annotation's. CoGA's
-    is the allele's, not a transcript's, so it lifts them on every transcript of the row."""
+    override, an allele of the row (likely) pathogenic in CoGA's ClinVar release and the filters
+    the override does not lift held on one of its transcripts: the override lifts the
+    consequence, in-silico and frequency filters (``lifted``). The classification is the
+    allele's, not a transcript's, so it lifts them on every transcript of the row. A synonymous
+    or splice-region variant ClinVar holds pathogenic so stays in a search for HIGH and MODERATE
+    impact or for damaging scores, and a recurrent pathogenic allele above the frequency cut-off
+    in a search for rare variants."""
     if not filters.clinvar_pathogenic_override or filters.clinvar_coga_release is None:
         return membership
     rest = _small_annotation_filter_condition(filters, params=params, lifted=True)
     if rest == condition:
         return membership  # the search asks none of the filters the override lifts
-    pathogenic = _clinvar_coga_condition(
-        context, filters, _status_filter_terms(CLINVAR_OVERRIDE_TERMS), params=params, prefix="coga_override"
+    pathogenic = _clinvar_condition(
+        context, filters, _status_filter_terms(CLINVAR_OVERRIDE_TERMS), params=params, prefix="clinvar_override"
     )
     if rest is None:
         return f"({membership} OR {pathogenic})"
@@ -3952,16 +3884,6 @@ def _clinvar_coga_lifted(
         context, filters, params=params, condition=rest, reads_text=reads_text
     )
     return f"({membership} OR ({pathogenic} AND {rest_membership}))"
-
-
-def _clinvar_coga_held(context: _SearchAssembly, filters: SmallVariantQueryFilters, *, params: dict[str, Any]) -> str:
-    """"CoGA's ClinVar release of the request holds every allele of the row (alias ``e``)": where
-    the one rule of the design's phase 2 (B8) reads that release alone. Without a release, none."""
-    if filters.clinvar_coga_release is None or not context.assembly_name:
-        return "0"
-    return clinvar_alleles_held_condition(
-        context.assembly_name, filters.clinvar_coga_release, params=params, prefix="coga_held"
-    )
 
 
 def _transcript_filters_clause(
@@ -3972,74 +3894,14 @@ def _transcript_filters_clause(
     reads_text: bool,
 ) -> str | None:
     """"One transcript of the row meets every per-transcript filter together", with the ClinVar
-    P/LP override's reading of CoGA's release (``_clinvar_coga_lifted``); None when the search
-    asks nothing of a transcript."""
+    P/LP override (``_clinvar_override``); None when the search asks nothing of a transcript."""
     condition = _small_annotation_filter_condition(filters, params=params)
     if condition is None:
         return None
     membership = _small_annotation_row_membership_condition(
         context, filters, params=params, condition=condition, reads_text=reads_text
     )
-    return _clinvar_coga_lifted(context, filters, condition, membership, params=params, reads_text=reads_text)
-
-
-def _clinvar_read_by_the_rule(
-    context: _SearchAssembly,
-    filters: SmallVariantQueryFilters,
-    *,
-    params: dict[str, Any],
-    reads_text: bool,
-) -> str | None:
-    """The per-transcript filters with the *ClinVar status* filter read by the design's one rule
-    (B8): CoGA's release of the request where it holds the row's alleles, else the annotation.
-    A row the release holds whole is kept when one of its alleles has a status asked for there,
-    and the other transcript filters hold on one of its transcripts; any other row when, as
-    without a release, one transcript meets them all, ClinVar's statuses in the annotation
-    included. A multi-allelic row the release holds in part is read both ways."""
-    annotated = _transcript_filters_clause(context, filters, params=params, reads_text=reads_text)
-    if not filters.clinvar or filters.clinvar_coga_release is None or not context.assembly_name:
-        return annotated
-    coga = _clinvar_coga_condition(
-        context, filters, _status_filter_terms(filters.clinvar), params=params, prefix="coga_clinvar"
-    )
-    rest = _transcript_filters_clause(
-        context, replace(filters, clinvar=[]), params=params, reads_text=reads_text
-    )
-    held = _clinvar_coga_held(context, filters, params=params)
-    return f"(({coga}{f' AND {rest}' if rest else ''}) OR (NOT {held} AND {annotated}))"
-
-
-def _clinvar_exclusion_by_the_rule(
-    context: _SearchAssembly,
-    filters: SmallVariantQueryFilters,
-    exclusion: str,
-    *,
-    params: dict[str, Any],
-) -> str:
-    """No allele of the row has an excluded ClinVar status, read by the design's one rule (B8):
-    CoGA's release of the request for the alleles it holds, the annotation for the others (no
-    transcript of the row's annotation meets ``exclusion``), one allele excluded leaving the
-    row out. A transcript of the annotation does not name the allele it is of (an ``entries``
-    row's ``transcripts`` name none, an ``annotations`` row the record's ALTs together), so a
-    multi-allelic row the release holds in part cannot be read per allele: an excluded status
-    there may be that of an allele the release holds, which the rule does not read. Such a row
-    is kept when the release holds one of its alleles (likely) pathogenic, unless the release
-    excludes another, so the annotation never hides an allele the release holds (likely)
-    pathogenic (TF-06 H1); else it is read by its annotation too. A row the release holds whole
-    is read there alone. Without a release, the annotation alone."""
-    not_annotated = _small_annotation_row_membership_condition(
-        context, filters, params=params, condition=exclusion, negate=True
-    )
-    if filters.clinvar_coga_release is None or not context.assembly_name:
-        return not_annotated
-    excluded = _clinvar_coga_condition(
-        context, filters, _status_filter_terms(filters.exclude_clinvar), params=params, prefix="coga_exclude"
-    )
-    pathogenic = _clinvar_coga_condition(
-        context, filters, _status_filter_terms(CLINVAR_OVERRIDE_TERMS), params=params, prefix="coga_exclude_kept"
-    )
-    held = _clinvar_coga_held(context, filters, params=params)
-    return f"(NOT {excluded} AND ({held} OR {pathogenic} OR {not_annotated}))"
+    return _clinvar_override(context, filters, condition, membership, params=params, reads_text=reads_text)
 
 
 def _small_annotation_filter_clauses(
@@ -4051,11 +3913,13 @@ def _small_annotation_filter_clauses(
     """The annotation filters on an entries row (alias ``e``), each read on the row's own
     annotation (its key and annotation set, ``_OWN_ANNOTATION``): the gene
     (``_small_gene_condition``); one transcript meeting every per-transcript filter together
-    (``_small_annotation_filter_condition``: impact, consequence, ClinVar, HGVS, frequency,
-    in-silico scores, the ClinVar P/LP override of consequence, scores and frequency,
-    Canonical, MANE and LoF only); no allele of an excluded ClinVar class
-    (``_clinvar_exclusion_by_the_rule``); and, for the small-variant track's wide window, the
-    salient variants alone (``_small_salient_condition``). The family
+    (``_small_annotation_filter_condition``: impact, consequence, HGVS, frequency, in-silico
+    scores, Canonical, MANE and LoF only, with the ClinVar P/LP override,
+    ``_transcript_filters_clause``); the ClinVar statuses, in CoGA's release of the request (an
+    allele of the row with one asked for, ``_clinvar_condition``); the excluded ClinVar statuses
+    (left out where every allele of the row has one, so an allele is never hidden for another
+    allele's status); and, for the small-variant track's wide window, the salient variants alone
+    (``_small_salient_condition``). The annotation's ClinVar is not read. The family
     search (``_small_query_filter_parts``) and the Variant Explorer
     (``variant_explorer_service._carriers_where``) read them here, after the row filters
     (``_small_row_filter_clauses``), whose locus the annotation subqueries repeat. The
@@ -4083,30 +3947,22 @@ def _small_annotation_filter_clauses(
     if gene_condition:
         clauses.append(gene_condition)
 
-    transcript_clause = _clinvar_read_by_the_rule(context, filters, params=params, reads_text=reads_text)
+    transcript_clause = _transcript_filters_clause(context, filters, params=params, reads_text=reads_text)
     if transcript_clause:
         clauses.append(transcript_clause)
 
-    if filters.clinvar_coga:
-        clauses.append(
-            _clinvar_coga_condition(
-                context, filters, _status_filter_terms(filters.clinvar_coga), params=params, prefix="coga_filter"
-            )
+    if clinvar_terms := _status_filter_terms(filters.clinvar):
+        clauses.append(_clinvar_condition(context, filters, clinvar_terms, params=params, prefix="clinvar_status"))
+
+    if excluded_terms := _status_filter_terms(filters.exclude_clinvar):
+        excluded = _clinvar_condition(
+            context, filters, excluded_terms, params=params, prefix="clinvar_excluded", every=True
         )
+        clauses.append(f"NOT {excluded}")
 
-    exclude_annotation_condition = _small_annotation_exclude_filter_condition(filters, params=params)
-    if exclude_annotation_condition:
-        clauses.append(_clinvar_exclusion_by_the_rule(context, filters, exclude_annotation_condition, params=params))
-
-    salient_condition = _small_salient_condition(filters, params=params)
+    salient_condition = _small_salient_condition(context, filters, params=params)
     if salient_condition:
-        annotated = _small_annotation_row_membership_condition(
-            context,
-            filters,
-            params=params,
-            condition=salient_condition,
-        )
-        clauses.append(_salient_by_the_rule(context, filters, annotated, params=params))
+        clauses.append(salient_condition)
     return clauses
 
 

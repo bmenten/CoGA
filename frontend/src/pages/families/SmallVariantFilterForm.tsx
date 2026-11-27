@@ -291,9 +291,6 @@ const SmallVariantFilterForm = ({
     if (chip.kind === 'top' && chip.key === 'exclude_clinvar' && chip.value) {
       return `Exclude pathogenicity: ${chip.value}`;
     }
-    if (chip.kind === 'top' && chip.key === 'clinvar_coga' && chip.value) {
-      return `ClinVar (CoGA): ${chip.value}`;
-    }
     if (chip.kind === 'top' && chip.key === 'exclude_review_tags' && chip.value) {
       const tag = tags.find((entry) => entry.key === chip.value);
       return `Exclude review tags: ${reviewTagLabel(tag, chip.value)}`;

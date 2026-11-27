@@ -7,7 +7,7 @@
 // mirrors the nuclear `evaluateAcmg` contract (returns AcmgSuggestion[]) so the
 // modal, scorer and `buildInitialSelections` are shared unchanged.
 
-import { clinvarClass, clinvarCogaLabel } from '../clinvar';
+import { clinvarClass } from '../clinvar';
 import { ACMG_CRITERIA_BY_CODE } from './criteria';
 import { effectIncludes, fmtAf, LOF_EFFECTS, pp4NotAssessed, type AcmgVariantInput } from './evaluate';
 import type {
@@ -163,8 +163,8 @@ export function evaluateMitoAcmg(
   const disorders = (mito.disorders ?? []).filter(Boolean);
   const disorderNote = disorders.length ? ` Associated: ${disorders.slice(0, 3).join(', ')}.` : '';
   const clinClass = clinvarClass(clinSig);
-  // Its ClinVar part is CoGA's own release where it holds the allele (B12), and named so.
-  const source = `MITOMAP/${mito.clinvarCogaRelease ? clinvarCogaLabel(mito.clinvarCogaRelease) : 'ClinVar'}`;
+  // Its ClinVar part is CoGA's release's (lib/clinvar).
+  const source = 'MITOMAP/ClinVar';
   // Offered for review, never applied, as for a nuclear variant (the owner's choice of
   // 2026-11-06: ClinGen's SVI advises against counting another source's assertion).
   if (clinClass === 'pathogenic') {

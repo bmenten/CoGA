@@ -35,21 +35,6 @@ describe('smallVariantMarkKind', () => {
     expect(smallVariantMarkKind({ clinvar: 'benign&uncertain_significance', impact: 'HIGH' })).toBe('high');
   });
 
-  it("reads CoGA's own ClinVar release where it holds the allele, else the annotation (B8)", () => {
-    const coga = (status: 'in_release' | 'not_in_release', classification: string | null) => [
-      { alt: 'A', status, release: '2026-11-22', classification },
-    ];
-    expect(smallVariantMarkKind({ alt: 'A', clinvar: 'Benign', clinvar_coga: coga('in_release', 'Pathogenic') })).toBe(
-      'pathogenic',
-    );
-    expect(
-      smallVariantMarkKind({ alt: 'A', clinvar: 'Pathogenic', impact: 'HIGH', clinvar_coga: coga('in_release', 'Benign') }),
-    ).toBe('benign');
-    expect(
-      smallVariantMarkKind({ alt: 'A', clinvar: 'Pathogenic', clinvar_coga: coga('not_in_release', null) }),
-    ).toBe('pathogenic');
-  });
-
   it('marks by impact otherwise', () => {
     expect(smallVariantMarkKind({ impact: 'HIGH' })).toBe('high');
     expect(smallVariantMarkKind({ impact: 'moderate' })).toBe('moderate');

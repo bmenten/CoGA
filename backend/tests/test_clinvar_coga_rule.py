@@ -1,16 +1,13 @@
-"""The design's one rule for the ClinVar readers of phase 2 (B8): CoGA's ClinVar release where it
-holds the allele, else the annotation. Here the *ClinVar status* filter, its exclusion and the
-ranking.
+"""Every reader of a small variant's ClinVar reads CoGA's release alone (the owner's decision of
+2026-11-27): an allele's classification is the release's where it holds the allele, none where
+it does not (or holds it only as part of a combination), whatever the annotation's ClinVar says.
+Here the ranking (scored for the ALT the variant is shown with), the mtDNA status (beside
+MITOMAP's), the monogenic NIPT's readers (de novo triage, artefact protection, the diagnostic
+candidates' strict call) and the artefact list's protection. Without a release no variant has
+ClinVar.
 
-A row CoGA's release of the request holds whole is kept, or left out, by the statuses there
-alone; any other row by its annotation, as without a release. A multi-allelic row the release
-holds in part is read both ways, but its annotation leaves it out only when the release holds
-none of its alleles (likely) pathogenic: the annotation does not say which allele an excluded
-status is of. The ranking scores each variant's ClinVar by the same rule, for
-the ALT the variant is shown with. Without a release nothing changes.
-
-ClickHouse and the release are stood in for; ``integration/test_clinvar_coga_filter_clickhouse.py``
-runs the filters on real ClickHouse. Synthetic alleles only.
+The filters' SQL is in ``test_clinvar_coga.py``. ClickHouse and the release are stood in for.
+Synthetic alleles only.
 """
 
 from __future__ import annotations
@@ -24,11 +21,9 @@ import pytest
 from backend.app.schemas import ClinvarCogaOut
 from backend.app.services import clickhouse_family_variants as cfv
 from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE
-from backend.app.services.clickhouse_variant_queries import _small_annotation_filter_clauses
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
-from backend.app.services.clinvar_coga import clinvar_by_the_rule, clinvar_coga_of
+from backend.app.services.clinvar_coga import clinvar_classification, clinvar_coga_of
 from backend.app.services.family_metadata_context import FamilyMetadataContext
-from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
 RELEASE = date(2026, 11, 22)
 
@@ -52,26 +47,25 @@ def _context() -> FamilyMetadataContext:
     )
 
 
-# --- the rule ----------------------------------------------------------------------------------
+# --- an allele's classification ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("annotated", "coga", "read"),
+    ("coga", "read"),
     [
-        ("Benign", _value("A"), "Pathogenic"),
-        ("Pathogenic", _value("A", classification="Benign"), "Benign"),
+        (_value("A"), "Pathogenic"),
+        (_value("A", classification="Benign"), "Benign"),
         # Held only as part of a combination: no classification there, none read.
-        ("Pathogenic", _value("A", classification=None), None),
-        ("Pathogenic", _value("A", status="not_in_release", classification=None), "Pathogenic"),
-        ("Pathogenic", _value("A", status="no_release", classification=None), "Pathogenic"),
-        ("Pathogenic", None, "Pathogenic"),
+        (_value("A", classification=None), None),
+        (_value("A", status="not_in_release", classification=None), None),
+        (_value("A", status="no_release", classification=None), None),
+        (_value("A", status="not_available", classification=None), None),
+        (None, None),
     ],
-    ids=["coga", "coga-benign", "combination-only", "not-in-release", "no-release", "no-value"],
+    ids=["pathogenic", "benign", "combination-only", "not-in-release", "no-release", "not-available", "no-value"],
 )
-def test_coga_where_it_holds_the_allele_else_the_annotation(
-    annotated: str, coga: ClinvarCogaOut | None, read: str | None
-) -> None:
-    assert clinvar_by_the_rule(annotated, coga) == read
+def test_an_alleles_classification_is_the_releases_or_none(coga: ClinvarCogaOut | None, read: str | None) -> None:
+    assert clinvar_classification(coga) == read
 
 
 def test_the_value_read_is_the_shown_alts() -> None:
@@ -80,58 +74,6 @@ def test_the_value_read_is_the_shown_alts() -> None:
     assert clinvar_coga_of("A,AT", "AT", values) is values[1]
     assert clinvar_coga_of("A", None, values[:1]) is values[0]
     assert clinvar_coga_of("A,AT", None, values) is None
-
-
-# --- the filters, in SQL -----------------------------------------------------------------------
-
-
-def _clauses(**values: Any) -> tuple[list[str], dict[str, Any]]:
-    params: dict[str, Any] = {}
-    filters = SmallVariantQueryFilters(page=1, page_size=10, **values)
-    return _small_annotation_filter_clauses(_context(), filters, params=params), params
-
-
-def test_the_clinvar_filter_reads_the_release_for_a_row_it_holds_else_the_annotation() -> None:
-    [clause], params = _clauses(clinvar=["Pathogenic"], impact=["HIGH"], clinvar_coga_release=RELEASE)
-
-    coga, annotated = clause.split(") OR (NOT ", 1)
-    # Held: the release's statuses, and the other transcript filters without ClinVar's.
-    assert coga.startswith("((arrayExists(k -> k IN (SELECT allele_key FROM ") and "`GRCh38/SNV_INDEL/clinvar`" in coga
-    assert "hasAny(a.clinvar_terms" not in coga and "a.impact IN" in coga
-    # Not held whole: the annotation, every transcript filter together.
-    assert annotated.startswith("(notEmpty(e.allele_keys) AND arrayAll(k -> k IN")
-    assert "hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)" in annotated
-    assert params["coga_clinvar_terms"] == ["pathogenic"] and params["coga_held_release"] == RELEASE
-
-
-def test_the_clinvar_filter_alone_asks_nothing_else_of_a_held_row() -> None:
-    [clause], _params = _clauses(clinvar=["Pathogenic"], clinvar_coga_release=RELEASE)
-
-    assert clause.startswith("((arrayExists(k -> k IN (SELECT allele_key FROM ")
-    assert clause.split(") OR (NOT ", 1)[0].endswith("e.allele_keys)")
-
-
-def test_the_excluded_statuses_read_the_release_for_a_row_it_holds_else_the_annotation() -> None:
-    [clause], params = _clauses(exclude_clinvar=["Benign"], clinvar_coga_release=RELEASE)
-
-    # No allele the release excludes; and the row held whole, or one of its alleles (likely)
-    # pathogenic there, or no transcript of its annotation excluded.
-    excluded, kept = clause.split(" AND ((notEmpty(e.allele_keys) AND arrayAll(", 1)
-    assert excluded.startswith("(NOT arrayExists(k -> k IN (SELECT allele_key FROM ")
-    assert "%(coga_exclude_terms)s" in excluded
-    held, pathogenic, annotated = kept.split(" OR ", 2)
-    assert "%(coga_held_release)s" in held
-    assert "%(coga_exclude_kept_terms)s" in pathogenic and pathogenic.startswith("arrayExists(k -> k IN")
-    assert annotated.startswith("NOT arrayExists(a -> (hasAny(a.clinvar_terms") and clause.endswith(")))")
-    assert params["coga_exclude_terms"] == ["benign"]
-    assert params["coga_exclude_kept_terms"] == ["pathogenic", "likely pathogenic"]
-
-
-@pytest.mark.parametrize("values", [{"clinvar": ["Pathogenic"]}, {"exclude_clinvar": ["Benign"]}])
-def test_without_a_release_the_filters_read_the_annotation(values: dict[str, Any]) -> None:
-    [clause], _params = _clauses(**values)
-
-    assert "SNV_INDEL/clinvar" not in clause
 
 
 # --- the ranking --------------------------------------------------------------------------------
@@ -156,11 +98,12 @@ def _record(variant_id: str, clinvar: str) -> SmallVariantRecord:
     )
 
 
-def test_the_ranking_scores_clinvar_by_the_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_ranking_scores_the_releases_clinvar_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Each record's annotation names a ClinVar classification the ranking does not read.
     records = [
         _record("1-100-G-A", "Benign"),  # CoGA: pathogenic
         _record("1-200-G-A", "Pathogenic"),  # CoGA: benign
-        _record("1-300-G-A", "Pathogenic"),  # not in CoGA's release
+        _record("1-300-G-A", "Pathogenic"),  # not in CoGA's release: no ClinVar
     ]
     coga = {
         100: [_value("A")],
@@ -193,13 +136,15 @@ def test_the_ranking_scores_clinvar_by_the_rule(monkeypatch: pytest.MonkeyPatch)
         )
         return {variant_id: priority.pathogenicity_score for variant_id, priority in ranked.items()}
 
-    assert scores(RELEASE) == {"1-100-G-A": 1.0, "1-200-G-A": 0.05, "1-300-G-A": 1.0}
-    # Without a release: the annotation, and no lookup.
-    assert scores(None) == {"1-100-G-A": 0.05, "1-200-G-A": 1.0, "1-300-G-A": 1.0}
+    unclassified = scores(None)["1-300-G-A"]
+    assert unclassified not in {1.0, 0.05}
+    assert scores(RELEASE) == {"1-100-G-A": 1.0, "1-200-G-A": 0.05, "1-300-G-A": unclassified}
+    # Without a release no variant has ClinVar, and nothing is looked up.
+    assert scores(None) == dict.fromkeys(["1-100-G-A", "1-200-G-A", "1-300-G-A"], unclassified)
     assert asked == [RELEASE]
 
 
-# --- the mtDNA status (B12) ----------------------------------------------------------------------
+# --- the mtDNA status --------------------------------------------------------------------------
 
 
 def _mt_record(clinvar: str, mitomap: str) -> SmallVariantRecord:
@@ -224,12 +169,14 @@ def _mt_record(clinvar: str, mitomap: str) -> SmallVariantRecord:
     ("coga", "status"),
     [
         (_value("G", classification="Benign"), "benign"),
-        (_value("G", status="not_in_release", classification=None), "pathogenic"),
-        (None, "pathogenic"),
+        (_value("G", classification="Likely_pathogenic"), "likely_pathogenic"),
+        # Without CoGA's ClinVar, MITOMAP's status alone; the annotation's "Pathogenic" unread.
+        (_value("G", status="not_in_release", classification=None), "reported"),
+        (None, "reported"),
     ],
-    ids=["coga", "not-in-release", "no-release"],
+    ids=["benign", "likely-pathogenic", "not-in-release", "no-release"],
 )
-def test_the_mtdna_status_reads_clinvar_by_the_rule_beside_mitomap(coga: ClinvarCogaOut | None, status: str) -> None:
+def test_the_mtdna_status_reads_the_releases_clinvar_beside_mitomap(coga: ClinvarCogaOut | None, status: str) -> None:
     from backend.app.services import mitochondrial_analysis as mito
 
     annotation = mito._annotation_for_record(_mt_record("Pathogenic", "Reported"), clinvar_coga=coga)
@@ -283,7 +230,7 @@ async def _no_svs() -> list[Any]:
     return []
 
 
-# --- the monogenic NIPT (B9, B11) ----------------------------------------------------------------
+# --- the monogenic NIPT ------------------------------------------------------------------------
 
 
 def _nipt_record(clinvar: str) -> SmallVariantRecord:
@@ -310,23 +257,26 @@ def _nipt_record(clinvar: str) -> SmallVariantRecord:
         ("Benign", _value("A"), True, "clinvar"),
         ("Pathogenic", _value("A", classification="Benign"), False, None),
         ("Benign", _value("A", classification="Conflicting_classifications_of_pathogenicity"), True, "clinvar"),
-        ("Pathogenic", _value("A", status="not_in_release", classification=None), True, "clinvar"),
-        ("Pathogenic", None, True, "clinvar"),
+        ("Pathogenic", _value("A", status="not_in_release", classification=None), False, None),
+        ("Pathogenic", None, False, None),
     ],
     ids=["coga-pathogenic", "coga-benign", "coga-conflict", "not-in-release", "no-release"],
 )
-def test_the_nipt_readers_read_clinvar_by_the_rule(
+def test_the_nipt_readers_read_the_releases_clinvar_alone(
     annotated: str, coga: ClinvarCogaOut | None, may_assert: bool, protection: str | None
 ) -> None:
     from backend.app.services import nipt_service
 
     record = _nipt_record(annotated)
 
+    assert nipt_service.clinvar_read(coga) == ([coga.classification] if may_assert or protection or (
+        coga is not None and coga.status == "in_release"
+    ) else [])
     assert nipt_service.triage_annotation(record, coga).clinvar_pathogenic is may_assert
     assert nipt_service.artifact_protection(record, coga) == protection
 
 
-def test_the_diagnostic_candidates_read_a_strict_pathogenic_classification_by_the_rule() -> None:
+def test_the_diagnostic_candidates_read_a_strict_pathogenic_classification_in_the_release() -> None:
     from backend.app.services import nipt_service
 
     def strict(annotated: str, coga: ClinvarCogaOut | None) -> bool:
@@ -339,37 +289,35 @@ def test_the_diagnostic_candidates_read_a_strict_pathogenic_classification_by_th
     assert strict("Pathogenic", _value("A", classification="Uncertain_significance")) is False
     # A conflicting record may assert pathogenic, but is not strictly pathogenic.
     assert strict("Benign", _value("A", classification="Conflicting_classifications_of_pathogenicity")) is False
-    assert strict("Pathogenic", None) is True
+    # The annotation's pathogenic call alone is none.
+    assert strict("Pathogenic", None) is False
+    assert strict("Pathogenic", _value("A", status="not_in_release", classification=None)) is False
 
 
-def test_the_artifact_lists_protection_reads_the_release_for_the_alleles_it_holds(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_artifact_lists_protection_reads_the_release_alone(monkeypatch: pytest.MonkeyPatch) -> None:
     from backend.app.services.clinvar_coga import ClinvarCogaRead
 
-    pooled = {
-        "1-100-G-A": cfv._PooledAnnotations(population_af=0.0, clinvar_terms=["benign"]),
-        "1-200-G-A": cfv._PooledAnnotations(population_af=0.0, clinvar_terms=["pathogenic"]),
-        "1-300-G-A": cfv._PooledAnnotations(population_af=0.0, clinvar_terms=["pathogenic"]),
-    }
+    asked: list[Any] = []
 
-    async def values(_read: Any, variant_ids: Any) -> dict[str, ClinvarCogaOut]:
-        # 1-100 newly pathogenic, 1-200 now benign; 1-300 not held, and 1-400 held by no family.
+    async def values(read: Any, variant_ids: Any) -> dict[str, ClinvarCogaOut]:
+        asked.append((read.release, list(variant_ids)))
+        # 1-100 pathogenic, 1-200 benign, 1-500 conflicting; 1-300 not held; 1-400 held only
+        # in a combination.
         return {
             "1-100-G-A": _value("A"),
             "1-200-G-A": _value("A", classification="Benign"),
-            "1-400-G-A": _value("A", classification="Likely_pathogenic"),
+            "1-300-G-A": _value("A", status="not_in_release", classification=None),
+            "1-400-G-A": _value("A", classification=None),
+            "1-500-G-A": _value("A", classification="Conflicting_classifications_of_pathogenicity"),
         }
 
     monkeypatch.setattr(cfv, "clinvar_coga_by_variant_id", values)
+    variant_ids = ["1-100-G-A", "1-200-G-A", "1-300-G-A", "1-400-G-A", "1-500-G-A", "1-600-G-A"]
 
-    protected = asyncio.run(
-        cfv._clinvar_protected(
-            ClinvarCogaRead("GRCh38", RELEASE, True), ["1-100-G-A", "1-200-G-A", "1-300-G-A", "1-400-G-A"], pooled
-        )
-    )
+    protected = asyncio.run(cfv._clinvar_protected(ClinvarCogaRead("GRCh38", RELEASE, True), variant_ids))
 
-    assert protected == {"1-100-G-A", "1-300-G-A", "1-400-G-A"}
+    assert protected == {"1-100-G-A", "1-500-G-A"}
+    assert asked == [(RELEASE, variant_ids)]
 
 
 def test_a_variant_id_names_its_locus_unless_a_dash_makes_it_ambiguous() -> None:

@@ -252,9 +252,12 @@ that already has DGV rows is not reloaded on its own.
 
 ### ClinVar
 
-Beside the ClinVar of each callset's annotation, CoGA loads ClinVar itself: one release per
-assembly from NCBI's weekly VCF, shown as *ClinVar (CoGA)*
-([annotation-provenance.md](annotation-provenance.md#the-clinvar-release)). NCBI publishes a new
+CoGA loads ClinVar itself: one release per assembly from NCBI's weekly VCF. For small variants
+that release is the one ClinVar CoGA shows and uses, on every page, filter, ranking, ACMG criterion,
+NIPT criterion, export and frozen evidence; the ClinVar of a callset's annotation (the ClinVar file
+the pipeline annotated, or VEP's cache) is neither shown nor used, only compared at import
+([below](#concordance-at-each-import);
+[annotation-provenance.md](annotation-provenance.md#the-clinvar-release)). NCBI publishes a new
 file every week, `clinvar_YYYYMMDD.vcf.gz` in the assembly's folder (`vcf_GRCh38/`, `vcf_GRCh37/`
 under `CLINVAR_SOURCE_URL`), about 190 MB, with an `.md5` file beside it. There is none for
 T2T-CHM13: that assembly has no ClinVar release.
@@ -331,7 +334,8 @@ on.
 #### Concordance at each import
 
 Each callset annotated with ClinVar's VCF checks CoGA's allele matching against the pipeline's
-(`services/clinvar_concordance.py`). The import writes, on each `entries` row, the allele key of
+(`services/clinvar_concordance.py`). This comparison is the only use of the annotation's ClinVar:
+CoGA neither shows nor uses it. The import writes, on each `entries` row, the allele key of
 each ALT in its minimal form (`allele_keys`), and notes, per allele it stores, the classification,
 review status and VariationID of the ClinVar file the pipeline annotated it with (VEP's cache's
 classification is ClinVar at rsID level, and is not compared). Once a load has stored its file, and
@@ -2762,11 +2766,11 @@ reports that it was left out. Field names as VEP writes them: a `--custom` file'
 
 | What CoGA shows and reads | Field names read | Used by |
 | --- | --- | --- |
-| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR`; without those, VEP cache `CLIN_SIG` (`CLIN_SIG_VEP_CACHE`), named *ClinVar (VEP cache)* | card, filters, ranking, PP5/BP6 |
-| ClinVar review status (stars) | `ClinVar_CLNREVSTAT`, `CLNREVSTAT` | card, PP5/BP6 evidence, frozen evidence |
-| ClinVar conditions | `ClinVar_CLNDN`, `CLNDN` | card, PP5/BP6 evidence |
-| ClinVar VariationID | `ClinVar` (the matched record's ID, VEP `--custom`), digits only | the card's ClinVar link |
-| ClinVar AlleleID | `ClinVar_ALLELEID`, `ALLELEID` | card |
+| ClinVar classification | `ClinVar_CLNSIG`, `CLNSIG`, `CLINVAR`; without those, VEP cache `CLIN_SIG` (`CLIN_SIG_VEP_CACHE`) | the import's ClinVar concordance (the file's only); not shown or used |
+| ClinVar review status (stars) | `ClinVar_CLNREVSTAT`, `CLNREVSTAT` | the import's ClinVar concordance; not shown or used |
+| ClinVar conditions | `ClinVar_CLNDN`, `CLNDN` | read, not shown or used |
+| ClinVar VariationID | `ClinVar` (the matched record's ID, VEP `--custom`), digits only | the import's ClinVar concordance; not shown or used |
+| ClinVar AlleleID | `ClinVar_ALLELEID`, `ALLELEID` | read, not shown or used |
 | gnomAD AF (overall, exomes, genomes) | `gnomAD_AF`, `gnomADe_AF`, `gnomADg_AF` | filters, PM2 (with the gnomAD datasets the header declares them of) |
 | gnomAD popmax | `gnomAD_AF_POPMAX`, `gnomAD_AF_grpmax`, `gnomADe_AF_grpmax`, `gnomADg_AF_grpmax` (and `…_popmax`) | popmax filter, card |
 | VEP MAX_AF | `MAX_AF` (`MAX_AF_VEP_ALL_POPULATIONS`), `POPMAX_AF` | popmax filter where gnomAD has none, card |
@@ -2800,8 +2804,9 @@ What the workflow should hold to:
 - **ClinVar release.** Keep the date in the ClinVar file's name (`clinvar_YYYYMMDD.vcf.gz`):
   the annotation manifest reads the release from it.
 - **ClinVar as a `--custom` file.** Use the short name `ClinVar`, so the fields are
-  `ClinVar_CLNSIG`, `ClinVar_CLNREVSTAT` and so on, and the VariationID is `ClinVar`. Without a
-  ClinVar file, VEP's cache `CLIN_SIG` is read, named as the cache's: it may be another allele's.
+  `ClinVar_CLNSIG`, `ClinVar_CLNREVSTAT` and so on, and the VariationID is `ClinVar`. CoGA shows and
+  uses its own ClinVar release, not the annotated one; the file's lets each import check CoGA's
+  allele matching (the ClinVar concordance).
 - **gnomAD genomes.** Annotate gnomAD's genomes (`--af_gnomadg`, or its genomes or joint file
   with `--custom`), not its exomes alone: a variant without a gnomAD frequency is then read as
   absent from gnomAD, and PM2 applies. A `--custom` file keeps its dataset in its name
@@ -2866,23 +2871,17 @@ the same way:
   Filters still read the record's annotations together (an allele's value keeps the record): split
   multi-allelic records upstream (`bcftools norm -m -any`) to filter, rank and classify each allele
   on its own.
-- **ClinVar.** The classification is the ClinVar file's that the pipeline annotated
-  (`ClinVar_CLNSIG` from VEP `--custom`, or `CLNSIG`), which VEP matches to the record's own
-  allele, and VEP's cache `CLIN_SIG` only when the header declares no such field. The cache's is
-  the classification of the known variant (the dbSNP rsID) that `--check_existing` finds at the
-  position. With VEP's default `--clin_sig_allele 1` it is the record's allele's where the cache
-  holds one per allele, else every allele's the rsID groups, in the same field, and the record
-  does not say which: a one-unit deletion in a tandem repeat, listed under the repeat's rsID, can
-  carry the classification of another of the repeat's lengths. Such a classification is read
-  (card, filters, ranking, PP5/BP6, the NIPT artifact list's protection) and named as the cache's
-  wherever it is shown: *ClinVar (VEP cache)* on the card (with why on hover), in the track's
-  tooltip, the ACMG dialog, the PP5/BP6 evidence, the report draft, the signed record and the
-  family's CSV export (`clinvar_from_vep_cache`). The card's ClinVar link searches ClinVar by the
-  rsID, which shows the records the classification came from. With a ClinVar file declared, the
-  cache's classification is kept apart as `clinvar_vep_cache` (shown in the card's *More
-  annotations*, never read as ClinVar's), also for a variant the file has no record of; a
-  `CLNSIG` in INFO is not replaced by an entry's `CLIN_SIG`. The annotation manifest records the
-  file's release as `clinvar` and the cache's as `clinvar_vep_cache`
+- **ClinVar.** A small variant's ClinVar is the classification in the ClinVar release CoGA loads
+  itself ([ClinVar](#clinvar)); the annotation's is neither shown nor used. The import reads
+  it: the ClinVar file's that the pipeline annotated (`ClinVar_CLNSIG` from VEP `--custom`, or
+  `CLNSIG`), which VEP matches to the record's own allele, and VEP's cache `CLIN_SIG` only when the
+  header declares no such field, marked as the cache's (`clinvar_from_vep_cache`); with a ClinVar
+  file declared, the cache's is kept apart as `clinvar_vep_cache`, and a `CLNSIG` in INFO is not
+  replaced by an entry's `CLIN_SIG`. The concordance compares the file's alone with CoGA's copy of
+  its release ([Concordance at each import](#concordance-at-each-import)): the cache's is the
+  classification of the known variant (the dbSNP rsID) that `--check_existing` finds at the
+  position, which can be another allele's. The annotation manifest records the file's release as
+  `clinvar` and the cache's as `clinvar_vep_cache`
   ([annotation-provenance.md](annotation-provenance.md#the-clinvar-release)).
 
 ## 5. Pedigrees and phenotypes
@@ -3334,11 +3333,12 @@ capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
   label `recurrent (<recurrent_filter_profile>)`. An allele already on the list keeps its source
   and label and takes the table's count.
 - The auto-seed's protections hold. Not listed: an allele whose annotation on the assembly has a
-  gnomAD or TopMed frequency above 5%, or a ClinVar record that may assert pathogenic
-  (pathogenic, likely pathogenic or conflicting). An allele no family on the assembly carries has
-  no annotation there to check, and is listed. Each family's analysis checks its listed alleles
-  again with its own annotation, and keeps a common or ClinVar-pathogenic one, flagged
-  `artifact_list_protected`. An allele without any annotation is not protected: review the list.
+  gnomAD or TopMed frequency above 5%, or whose ClinVar in the release CoGA loads may assert
+  pathogenic (pathogenic, likely pathogenic or conflicting). An allele no family on the assembly
+  carries has no frequency there to check; its ClinVar is checked all the same. Each family's
+  analysis checks its listed alleles again, and keeps one its own annotation marks common or whose
+  ClinVar may assert pathogenic, flagged `artifact_list_protected`. An allele without a frequency
+  and without a ClinVar record in CoGA's release is not protected: review the list.
 - The table's count matters: a family's analysis also keeps a listed allele its father carries, at
   most 30% of the plasma's reads (or no plasma call), when the list counts it in at most 3 cfDNA
   samples ([monogenic-nipt.md](monogenic-nipt.md#the-artifact-list)).

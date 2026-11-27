@@ -5,20 +5,19 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
 import type { ClinvarCogaOut, ClinvarReanalysisOut } from '../../lib/apiSchema.generated';
-import { clinvarCogaLabel } from '../../lib/clinvar';
+import { clinvarReleaseLabel, clinvarValueText } from '../../lib/clinvar';
 import { useProjectCatalog } from '../../lib/reference';
 import { routePath } from '../../lib/routePath';
 import QueryFailure from '../../components/QueryFailure';
-import { clinvarCogaText } from '../families/ClinvarCogaChip';
 import { formatReportTime } from '../families/signedReportRecord';
 
-/** Each ALT's ClinVar (CoGA) value, with the release it is of: "Likely pathogenic ★☆☆☆ (2026-11-22)". */
+/** Each ALT's ClinVar value, with the release it is of: "Likely pathogenic ★☆☆☆ (2026-11-22)". */
 const describeValues = (values: ClinvarCogaOut[]): string =>
   values.length
     ? values
         .map(
           (value) =>
-            `${values.length > 1 ? `${value.alt}: ` : ''}${clinvarCogaText(value)}${value.release ? ` (${value.release})` : ''}`,
+            `${values.length > 1 ? `${value.alt}: ` : ''}${clinvarValueText(value)}${value.release ? ` (${value.release})` : ''}`,
         )
         .join('; ')
     : 'none';
@@ -87,7 +86,7 @@ const ClinvarReanalysisPage: React.FC = () => {
           <p className="report-paragraph">
             {releases.length
               ? `Read against ${releases
-                  .map(([assembly, release]) => (release ? `${clinvarCogaLabel(release)} for ${assembly}` : `no ClinVar release for ${assembly}`))
+                  .map(([assembly, release]) => (release ? `${clinvarReleaseLabel(release)} for ${assembly}` : `no ClinVar release for ${assembly}`))
                   .join(', ')}.`
               : 'The project has no signed analysis with a classified small variant.'}
           </p>
@@ -101,8 +100,8 @@ const ClinvarReanalysisPage: React.FC = () => {
                     <th>Variant</th>
                     <th>In the record</th>
                     <th>Class</th>
-                    <th>ClinVar (CoGA) as signed</th>
-                    <th>ClinVar (CoGA) now</th>
+                    <th>ClinVar as signed</th>
+                    <th>ClinVar now</th>
                   </tr>
                 </thead>
                 <tbody>

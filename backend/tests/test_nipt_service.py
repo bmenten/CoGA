@@ -28,7 +28,8 @@ from backend.app.services.nipt_service import (
     get_family_nipt_variants,
     run_family_nipt_analysis,
 )
-from backend.tests._nipt_service_fakes import as_loaded, nipt_family, wire_nipt_reads
+from backend.tests._clinvar_release_fakes import READ
+from backend.tests._nipt_service_fakes import as_loaded, nipt_family, wire_clinvar_release, wire_nipt_reads
 
 
 def _call(sample: str, gt: str, *, dp=None, af=None, ad=None) -> SmallVariantCall:
@@ -262,11 +263,20 @@ async def test_run_family_nipt_analysis_counts_artifacts(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("held", "counts", "removed", "category_3"),
+    [
+        ({"1-777-A-G": "Likely_pathogenic"}, (3, 2, 1, {"clinvar": 1}), 1, 1),
+        # The annotation's ClinVar alone protects nothing: CoGA's release does not hold it.
+        ({}, (3, 2, 2, {}), 2, 0),
+    ],
+    ids=["release-pathogenic", "annotation-only"],
+)
 async def test_the_variant_summary_reads_what_the_artifact_list_did_to_the_analysis(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, held: dict[str, str], counts: tuple[object, ...], removed: int, category_3: int
 ) -> None:
-    # A listed allele ClinVar may call pathogenic stays in the analysis; a listed allele the
-    # family does not carry counts only toward the list's size.
+    # A listed allele CoGA's ClinVar release may call pathogenic stays in the analysis; a
+    # listed allele the family does not carry counts only toward the list's size.
     protected = dataclasses.replace(
         _record(
             "1-777-A-G",
@@ -284,6 +294,7 @@ async def test_the_variant_summary_reads_what_the_artifact_list_did_to_the_analy
         filtered=[],
         artifacts={"1-5-A-G", "1-777-A-G", "9-999-A-G"},
     )
+    wire_clinvar_release(monkeypatch, READ, held=held)
 
     summary, artifacts = await nipt_service.get_family_nipt_summary_with_artifacts(
         session=None,  # type: ignore[arg-type]
@@ -291,10 +302,10 @@ async def test_the_variant_summary_reads_what_the_artifact_list_did_to_the_analy
         user=None,  # type: ignore[arg-type]
     )
 
-    assert dataclasses.astuple(artifacts) == (3, 2, 1, {"clinvar": 1})
-    # The summary is the NIPT page's: the removed allele is the funnel's artifact.
-    assert summary.analysis.filter_counts["failed_artifact"] == 1
-    assert summary.analysis.category_counts[3] == 1
+    assert dataclasses.astuple(artifacts) == counts
+    # The summary is the NIPT page's: the removed alleles are the funnel's artifacts.
+    assert summary.analysis.filter_counts["failed_artifact"] == removed
+    assert summary.analysis.category_counts.get(3, 0) == category_3
 
 
 @pytest.mark.asyncio
@@ -672,22 +683,22 @@ async def test_the_categories_choose_the_recessive_genes_and_the_pairing_reads_e
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("other_carriers", "clinvar", "listed"),
+    ("other_carriers", "held", "listed"),
     [
         (1, None, {"GENEA", "GENEC"}),  # in 2 cfDNA samples, this one included: rare
         (2, None, {"GENEC"}),  # in 3: an unannotated common allele, paired with nothing
-        (2, "Pathogenic", {"GENEA", "GENEC"}),  # ClinVar calls it pathogenic: it stays
+        (2, "Pathogenic", {"GENEA", "GENEC"}),  # CoGA's ClinVar release calls it pathogenic: it stays
     ],
 )
 async def test_the_cohort_rule_leaves_out_an_unannotated_allele_common_in_the_assay(
-    monkeypatch: pytest.MonkeyPatch, other_carriers: int, clinvar: str | None, listed: set[str]
+    monkeypatch: pytest.MonkeyPatch, other_carriers: int, held: str | None, listed: set[str]
 ) -> None:
     # The report's rule (nipt_diagnostic_filters.is_cohort_common): an allele without a
     # population frequency that 3 or more cfDNA samples of the assay call is common, so the
-    # recessive view pairs GENEA's maternal allele with nothing.
+    # recessive view pairs GENEA's maternal allele with nothing. The annotation's ClinVar is not
+    # read: it calls the allele pathogenic in every case.
     records = _recessive_filtered_records()
-    if clinvar:
-        records[1] = dataclasses.replace(records[1], annotations=[{"impact": "MODERATE", "clinvar": clinvar}])
+    records[1] = dataclasses.replace(records[1], annotations=[{"impact": "MODERATE", "clinvar": "Pathogenic"}])
     wire_nipt_reads(
         monkeypatch,
         family=_nipt_family(),
@@ -697,6 +708,7 @@ async def test_the_cohort_rule_leaves_out_an_unannotated_allele_common_in_the_as
         recurrence={"1-2-A-G": CfdnaRecurrence(carriers=other_carriers, maternal=other_carriers)},
         other_samples=2,
     )
+    wire_clinvar_release(monkeypatch, READ, held={"1-2-A-G": held} if held else {})
 
     async def recessive(exclude_cohort_common: bool) -> set[str]:
         result = await get_family_nipt_variants(

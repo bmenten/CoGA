@@ -31,6 +31,11 @@ const REVIEW_QUICK_CLASSIFICATION_VALUES = PATHOGENIC_TO_VUS_CLASSIFICATIONS;
 const REVIEW_QUICK_CLASSIFICATION_FILTER = REVIEW_QUICK_CLASSIFICATION_VALUES.join(', ');
 const EXCLUDE_QUICK_CLINVAR_VALUES = ['Benign', 'Likely benign'] as const;
 const EXCLUDE_QUICK_CLINVAR_FILTER = EXCLUDE_QUICK_CLINVAR_VALUES.join(', ');
+// Where the ClinVar status and its exclusion read ClinVar: the release CoGA loads itself, never
+// the callset's annotation.
+const CLINVAR_STATUS_NOTE =
+  "ClinVar status is read from the ClinVar release CoGA loads, never from the callset's annotation. " +
+  'An allele that release does not hold has no ClinVar status.';
 const SIFT_OPTIONS = ['', 'deleterious', 'deleterious_low_confidence', 'tolerated'];
 const POLYPHEN_OPTIONS = ['', 'probably_damaging', 'possibly_damaging', 'benign'];
 const SIFT_VALUE_OPTIONS = SIFT_OPTIONS.filter((value) => value);
@@ -666,7 +671,7 @@ export const SECTION_FILTER_COUNTS: Record<
       draftFilters.exclude_cohort_common,
     ),
   pathogenicity: ({ draftFilters }) =>
-    parseCommaSeparatedValues(draftFilters.clinvar).length + parseCommaSeparatedValues(draftFilters.clinvar_coga).length,
+    parseCommaSeparatedValues(draftFilters.clinvar).length,
   // SpliceAI is set under Annotations, as in seqr; the search also reads it as an in-silico
   // predictor (the In silico note says so).
   annotations: ({ draftFilters }) =>
@@ -1213,7 +1218,6 @@ export const PathogenicityFilterSection = ({ form }: { form: FilterSectionForm }
     clinvarOptions,
     draftFilters,
     handleSectionToggle,
-    offers,
     openSections,
     setDraftFilterValue,
     summarizeSection,
@@ -1221,7 +1225,6 @@ export const PathogenicityFilterSection = ({ form }: { form: FilterSectionForm }
   } = form;
   const pathogenicityFilterCount = SECTION_FILTER_COUNTS.pathogenicity(form);
   const selectedClinvarValues = parseCommaSeparatedValues(draftFilters.clinvar);
-  const selectedClinvarCogaValues = parseCommaSeparatedValues(draftFilters.clinvar_coga);
   const applyPathogenicityQuickFilter = (value: string) => {
     if (value === 'all') {
       setDraftFilterValue('clinvar', '');
@@ -1295,25 +1298,7 @@ export const PathogenicityFilterSection = ({ form }: { form: FilterSectionForm }
             </label>
           ))}
         </div>
-        {/* CoGA's own ClinVar release, beside the annotation's (ClinVar status above). */}
-        {offers('clinvar_coga') ? (
-          <>
-            <p className="variant-annotation-impact-title">ClinVar (CoGA) status</p>
-            <div className="variant-checkbox-grid variant-checkbox-grid--small">
-              {clinvarOptions.map((option) => (
-                <label key={option.value} className="analysis-checkbox variant-compact-checkbox">
-                  <input
-                    type="checkbox"
-                    aria-label={`ClinVar (CoGA): ${option.label}`}
-                    checked={selectedClinvarCogaValues.includes(option.value)}
-                    onChange={() => toggleDraftFilterListValue('clinvar_coga', option.value)}
-                  />
-                  {option.label}
-                </label>
-              ))}
-            </div>
-          </>
-        ) : null}
+        <p className="table-subtle">{CLINVAR_STATUS_NOTE}</p>
       </div>
     </FilterSection>
   );
@@ -2264,6 +2249,7 @@ export const ExcludeFilterSection = ({ form }: { form: FilterSectionForm }) => {
             </label>
           ))}
         </div>
+        <p className="table-subtle">{CLINVAR_STATUS_NOTE}</p>
         {offers('exclude_review_tags') ? (
           <div className="variant-review-curation-columns">
             <div>

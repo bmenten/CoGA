@@ -6,16 +6,17 @@ the downloaded file differ from the list on screen. The tests pin the declaratio
 parameters on both routes, none declared by a route itself but its paging and project), the
 wiring (a request that sets every parameter hands the analysis the same search from both, the
 export asking for every classified variant), the file (the small-variant export's columns but
-the genotypes and the members without calls, then the NIPT classification), the ClinVar (CoGA)
-the analysis read on the page and in the file, and how a list cut at the classification limit
-is named. The family and its variants are synthetic.
+the genotypes and the members without calls, then the NIPT classification), the ClinVar of
+CoGA's release the analysis read on the page and in the file, and how a list cut at the
+classification limit is named. The family and its variants are synthetic.
 """
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Iterator
 
@@ -28,8 +29,9 @@ from backend.app.dependencies import get_current_user
 from backend.app.main import app
 from backend.app.routers import families_nipt as nipt_router
 from backend.app.routers.families_small_variants import _FAMILY_EXPORT_COLUMNS
-from backend.app.schemas import ClinvarCogaOut, GenotypeOut, SmallVariantReviewOut, VariantOut
+from backend.app.schemas import GenotypeOut, SmallVariantReviewOut, VariantOut
 from backend.app.services.access_control import CurrentUser
+from backend.app.services.clinvar_coga import attach_clinvar_coga
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.nipt import NiptTrio, multiple_pregnancy_note
 from backend.app.services.nipt_analysis import FetalFractionEstimate, NiptClassification, NiptSiteObservation
@@ -41,6 +43,7 @@ from backend.app.services.nipt_service import (
     NiptVariantsResult,
 )
 from backend.app.services.nipt_triage import DeNovoTriage, RecessiveAllele, RecessiveGeneRisk
+from backend.tests._clinvar_release_fakes import READ, RELEASE, wire_clinvar_alleles
 
 _LIST = "/api/families/FAM1/nipt/variants"
 _EXPORT = "/api/families/FAM1/nipt/variants/export"
@@ -349,38 +352,39 @@ def test_the_list_of_a_twin_pregnancy_carries_its_note_on_every_row(client) -> N
     assert len(rows) == 2
 
 
-def test_the_list_and_the_file_show_the_clinvar_coga_the_analysis_read(client) -> None:
-    # Each variant's ClinVar in CoGA's release the analysis read, per ALT, and the two releases
-    # the page names (design B7): what the page's chip and mark, its ACMG evaluation and the
-    # file's ClinVar (CoGA) column show.
+def test_the_list_and_the_file_show_the_clinvar_the_analysis_read(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Each variant's ClinVar in CoGA's release the analysis read, per ALT and as its own ClinVar
+    # fields (``attach_clinvar_coga``, as the service serves it), and the release the page
+    # names: what the page's chip and mark, its ACMG evaluation and the file's ClinVar columns
+    # show. The annotation's ClinVar is not shown.
     test_client, _calls = client
-    release = date(2026, 11, 22)
+    wire_clinvar_alleles(monkeypatch, {"1-100-A-G": "Likely_pathogenic"})
     item = _classified("1-100-A-G")
     assert item.variant_out is not None
-    item.variant_out.clinvar_coga = [
-        ClinvarCogaOut(alt="G", status="in_release", release=release, classification="Likely_pathogenic", stars=1)
-    ]
+    asyncio.run(attach_clinvar_coga(READ, [item.variant_out]))
     test_client.result["next"] = NiptVariantsResult(  # type: ignore[attr-defined]
         fetal_fraction=_fetal_fraction(),
         total=1,
         variants=[item],
         trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER", fetus_sample_ids=("EMB1",)),
-        clinvar_coga_release=release,
-        clinvar_annotation_release=date(2026, 5, 1),
+        clinvar_coga_release=RELEASE,
     )
 
     page = test_client.get(_LIST).json()
     [row] = _rows(test_client.get(_EXPORT))
 
-    assert (page["clinvar_coga_release"], page["clinvar_annotation_release"]) == ("2026-11-22", "2026-05-01")
-    [value] = page["variants"][0]["clinvar_coga"]
+    assert page["clinvar_coga_release"] == "2026-11-22" and "clinvar_annotation_release" not in page
+    [served] = page["variants"]
+    [value] = served["clinvar_coga"]
     assert (value["alt"], value["status"], value["classification"], value["stars"]) == (
         "G",
         "in_release",
         "Likely_pathogenic",
         1,
     )
-    assert row["ClinVar (CoGA)"] == "G: Likely_pathogenic (2026-11-22)"
+    assert (served["clinvar"], served["clinvar_stars"]) == ("Likely_pathogenic", 1)
+    assert (row["ClinVar"], row["ClinVar stars"]) == ("Likely_pathogenic", "1")
+    assert "ClinVar (CoGA)" not in row and "ClinVar from VEP cache" not in row
 
 
 def test_the_recessive_view_lists_its_genes_each_with_its_variants(client) -> None:

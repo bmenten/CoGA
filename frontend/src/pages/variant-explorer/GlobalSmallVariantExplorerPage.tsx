@@ -529,7 +529,6 @@ const GlobalSmallVariantExplorerPage = () => {
               order={order}
               onSort={setSort}
               onOpenCarriers={(variant, mode) => setCarrierModal({ variant, mode })}
-              clinvarCogaRelease={variantPage?.clinvar_coga_release}
             />
             <div className="variant-explorer-pagination">
               <button

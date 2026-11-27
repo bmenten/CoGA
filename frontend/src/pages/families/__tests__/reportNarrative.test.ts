@@ -106,9 +106,6 @@ describe('describeClinvar', () => {
     expect(describeClinvar(makeVariant({ clinvar: 'Likely_pathogenic' }))).toBe(
       'ClinVar reports this variant as Likely pathogenic.',
     );
-    expect(describeClinvar(makeVariant({ clinvar: 'pathogenic', clinvar_from_vep_cache: true }))).toBe(
-      'ClinVar (VEP cache) reports this variant as pathogenic.',
-    );
     expect(describeClinvar(makeVariant({ clinvar: '  ' }))).toBeNull();
     expect(describeClinvar(makeVariant({ clinvar: null }))).toBeNull();
   });

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
+from backend.app.schemas import ClinvarCogaOut
 from backend.app.services import nipt_analysis, nipt_service
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import (
@@ -33,7 +34,8 @@ from backend.app.services.nipt_service import (
 from backend.app.services.nipt_analysis import NiptQualityThresholds
 from backend.app.services.nipt_artifact_pg import recurrence_rules
 from backend.app.services.nipt_target_coverage import TargetCoverageRow, TargetDepthLookup
-from backend.tests._nipt_service_fakes import nipt_family, wire_nipt_reads
+from backend.tests._clinvar_release_fakes import READ, RELEASE
+from backend.tests._nipt_service_fakes import nipt_family, wire_clinvar_release, wire_nipt_reads
 
 FATHER = "FATHER1"
 PLASMA = "CFDNA1"
@@ -379,7 +381,10 @@ def _wire(
     artifacts: set[str] | None = None,
     recurrence: dict[str, CfdnaRecurrence] | None = None,
     other_samples: int = 1,
+    clinvar: dict[str, str] | None = None,
 ) -> list[list[str]]:
+    """The analysis's reads; ``clinvar``: CoGA's ClinVar release holds those alleles with their
+    classification (none: the analysis reads no release)."""
     # Another family's plasma of the assay: what a variant's recurrence is counted in.
     counts = wire_nipt_reads(
         monkeypatch,
@@ -392,6 +397,8 @@ def _wire(
         recurrence=recurrence,
         other_samples=other_samples,
     )
+    if clinvar is not None:
+        wire_clinvar_release(monkeypatch, READ, held=clinvar)
 
     async def fake_tracks(
         _assembly, *, sample_uuid=None, track_type=None, include_metadata=False, record_ids=None, **_kwargs
@@ -465,39 +472,19 @@ async def test_the_paternal_view_lists_what_the_fetus_inherited(monkeypatch: pyt
 async def test_the_variant_list_reads_and_serves_clinvar_in_cogas_release_the_analysis_reads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The ClinVar design's one rule (B11): the list's ClinVar filters read the release the
-    # analysis reads, as the family page's do; each variant carries its value of the release,
-    # which its decisions read, and is served it per ALT with both releases named (B7), so the
-    # page, its export and the ACMG evaluation show what the decisions read.
-    from datetime import date
-
+    # The list's ClinVar filters read the release the analysis reads, as the family page's do;
+    # each variant carries its value of the release, which its decisions read, and is served it
+    # per ALT, its ClinVar fields its shown ALT's, with the release named, so the page, its
+    # export and the ACMG evaluation show what the decisions read. The annotation's ClinVar is
+    # neither read nor shown.
     from backend.app.routers.families_nipt import _nipt_variant_out
-    from backend.app.services import clinvar_coga
-    from backend.app.services.clickhouse_variant_ids import minimal_allele_id, small_allele_key
-    from backend.app.services.clinvar_coga import ClinvarCogaRead
-    from backend.app.services.clinvar_release_store import ClinvarStoredAllele
+    from backend.tests._clinvar_release_fakes import stored_allele, wire_clinvar_alleles
     from backend.tests._nipt_service_fakes import wire_clinvar_release
 
     _wire(monkeypatch, filtered=_gene_sites())
-    release, annotated = date(2026, 11, 22), date(2026, 5, 1)
-    wire_clinvar_release(monkeypatch, ClinvarCogaRead("GRCh38", release, True), annotated=annotated)
-    allele = minimal_allele_id("7", 200, "C", "T")
-    assert allele is not None
-    held = small_allele_key("GRCh38", allele)
-    stored = ClinvarStoredAllele(
-        variant_id="7_200_C_T",
-        classification="Likely_pathogenic",
-        classification_terms=("likely pathogenic",),
-        review_status="criteria_provided,_single_submitter",
-        variation_id=900011,
-        included_only=False,
-        conditions=("Synthetic disorder",),
-    )
-    read: list[Any] = []
-
-    async def alleles(_assembly: str, at: date, keys: Any) -> dict[int, ClinvarStoredAllele]:
-        read.append(at)
-        return {key: stored for key in keys if key == held}
+    wire_clinvar_release(monkeypatch, READ)
+    held = {"7-200-C-T": stored_allele("7_200_C_T", "Likely_pathogenic", variation_id=900011)}
+    lookups = wire_clinvar_alleles(monkeypatch, held)
 
     fetch = nipt_service._fetch_small_variant_rows
     asked: list[Any] = []
@@ -506,30 +493,38 @@ async def test_the_variant_list_reads_and_serves_clinvar_in_cogas_release_the_an
         asked.append(filters.clinvar_coga_release)
         return await fetch(context, filters, **kwargs)
 
-    monkeypatch.setattr(clinvar_coga, "clinvar_alleles", alleles)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fetch_asked)
     inherited = await _variants(inheritance="paternal_dominant")
 
     [item] = inherited.variants
     assert item.record.variant_id == "7-200-C-T"
     # The cohort load reads no filter; the variant load reads the release.
-    assert asked[-1] == release and set(read) == {release}
+    assert asked[-1] == RELEASE and lookups
     assert item.clinvar_coga is not None
     assert (item.clinvar_coga.status, item.clinvar_coga.classification) == ("in_release", "Likely_pathogenic")
-    # The page: the value the decisions read, per ALT, of the same release; both releases named.
+    # The page: the value the decisions read, per ALT, of the same release, which it names; the
+    # variant's own ClinVar fields are that value's.
     served = _nipt_variant_out(item)
     assert served.clinvar_coga == [item.clinvar_coga]
-    assert (served.clinvar_coga[0].release, served.clinvar_coga[0].variation_id) == (release, 900011)
-    assert (inherited.clinvar_coga_release, inherited.clinvar_annotation_release) == (release, annotated)
+    assert (served.clinvar_coga[0].release, served.clinvar_coga[0].variation_id) == (RELEASE, 900011)
+    assert (
+        served.clinvar,
+        served.clinvar_review_status,
+        served.clinvar_stars,
+        served.clinvar_conditions,
+        served.clinvar_variation_id,
+    ) == ("Likely_pathogenic", "criteria_provided,_single_submitter", 1, ["Synthetic disorder"], "900011")
+    assert inherited.clinvar_coga_release == RELEASE
     # The diagnostic candidates are served it the same way: the paternal allele, in a target.
     gene_a = TargetCoverageRow(
         chrom="7", start=150, end=250, gene="GENEA", attribute="GENEA", mean=1500.0, median=1500.0
     )
     _wire(monkeypatch, filtered=_annotated_gene_sites(), targets=[*_plasma_targets(), gene_a])
-    wire_clinvar_release(monkeypatch, ClinvarCogaRead("GRCh38", release, True), annotated=annotated)
+    wire_clinvar_release(monkeypatch, READ)
     [paternal] = (await _diagnostic()).paternal
     assert paternal.item.variant_out is not None
     assert paternal.item.variant_out.clinvar_coga == [paternal.item.clinvar_coga] == [item.clinvar_coga]
+    assert paternal.item.variant_out.clinvar == "Likely_pathogenic"
 
 
 @pytest.mark.asyncio
@@ -718,11 +713,20 @@ async def test_a_de_novo_candidate_in_another_plasma_stays_only_when_clinvar_cal
     assert (await _diagnostic()).de_novo == []
     # A conflicting record is no strict ClinVar call (R): still left out.
     sites = _annotated_gene_sites()
-    sites[4].annotations = [{"impact": "MODERATE", "clinvar": "Conflicting_classifications_of_pathogenicity"}]
-    _wire(monkeypatch, filtered=sites, recurrence=recurrent)
+    sites[4].annotations = [{"impact": "MODERATE"}]
+    _wire(
+        monkeypatch,
+        filtered=sites,
+        recurrence=recurrent,
+        clinvar={"7-500-G-A": "Conflicting_classifications_of_pathogenicity"},
+    )
     assert (await _diagnostic()).de_novo == []
+    # The annotation's ClinVar is not read: its pathogenic call keeps nothing.
     sites[4].annotations = [{"impact": "MODERATE", "clinvar": "Pathogenic"}]
-    _wire(monkeypatch, filtered=sites, recurrence=recurrent)
+    _wire(monkeypatch, filtered=sites, recurrence=recurrent, clinvar={})
+    assert (await _diagnostic()).de_novo == []
+    sites[4].annotations = [{"impact": "MODERATE"}]
+    _wire(monkeypatch, filtered=sites, recurrence=recurrent, clinvar={"7-500-G-A": "Pathogenic"})
     [candidate] = (await _diagnostic()).de_novo
     assert candidate.flags == ["clinvar_pathogenic"]
 
@@ -822,8 +826,13 @@ async def test_a_de_novo_candidate_another_pregnancy_carries(monkeypatch: pytest
     _wire(monkeypatch, filtered=_gene_sites(), recurrence={"7-500-G-A": CfdnaRecurrence(carriers=1)})
     assert (await _variants(inheritance="de_novo")).variants == []
     sites = _gene_sites()
-    sites[4].annotations = [{"impact": "MODERATE", "clinvar": "Pathogenic"}]
-    _wire(monkeypatch, filtered=sites, recurrence={"7-500-G-A": CfdnaRecurrence(carriers=1)})
+    sites[4].annotations = [{"impact": "MODERATE"}]
+    _wire(
+        monkeypatch,
+        filtered=sites,
+        recurrence={"7-500-G-A": CfdnaRecurrence(carriers=1)},
+        clinvar={"7-500-G-A": "Pathogenic"},
+    )
     [candidate] = (await _variants(inheritance="de_novo")).variants
     assert candidate.de_novo is not None and candidate.de_novo.label == "high"
     assert "ClinVar pathogenic: not excluded as recurrent" in candidate.de_novo.reasons
@@ -884,10 +893,14 @@ async def test_the_recurrence_filter_leaves_out_unexplained_low_vaf_calls_that_r
     assert listed(await _variants(max_unexplained_recurrence=0)) == every[:-1]
 
     # A ClinVar record that may call it pathogenic keeps it listed, whatever its count: a de
-    # novo hotspot recurs between pregnancies.
+    # novo hotspot recurs between pregnancies. ClinVar is CoGA's release's, never the
+    # annotation's.
     sites = _gene_sites()
     sites[4].annotations = [{"impact": "MODERATE", "clinvar": "Pathogenic"}]
-    _wire(monkeypatch, filtered=sites, recurrence=recurrence, other_samples=20)
+    _wire(monkeypatch, filtered=sites, recurrence=recurrence, other_samples=20, clinvar={})
+    assert listed(await _variants(max_unexplained_recurrence=0)) == every[:-1]
+    sites[4].annotations = [{"impact": "MODERATE"}]
+    _wire(monkeypatch, filtered=sites, recurrence=recurrence, other_samples=20, clinvar={"7-500-G-A": "Pathogenic"})
     kept = await _variants(max_unexplained_recurrence=0)
     assert listed(kept) == every
     assert kept.variants[-1].recurrence is not None and kept.variants[-1].recurrence.protection == "clinvar"
@@ -923,13 +936,14 @@ def test_what_the_recurrence_filter_leaves_out() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_listed_artefact_the_familys_annotation_protects_stays_in(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_listed_artefact_cogas_clinvar_release_protects_stays_in(monkeypatch: pytest.MonkeyPatch) -> None:
     # The artefact table was imported before any family carrying these alleles was
-    # annotated, so the list holds them unchecked. The family's own annotation protects the
-    # de novo candidate (a ClinVar pathogenic record), not the maternal allele.
+    # annotated, so the list holds them unchecked. CoGA's ClinVar release protects the de novo
+    # candidate (a pathogenic record), not the maternal allele, whatever the annotation's
+    # ClinVar says (it calls the maternal allele pathogenic).
     sites = _gene_sites()
-    sites[4].annotations = [{"impact": "MODERATE", "clinvar": "Pathogenic"}]
-    _wire(monkeypatch, filtered=sites, artifacts={"7-500-G-A", "7-300-A-G"})
+    sites[2].annotations = [{"clinvar": "Pathogenic"}]
+    _wire(monkeypatch, filtered=sites, artifacts={"7-500-G-A", "7-300-A-G"}, clinvar={"7-500-G-A": "Pathogenic"})
     result = await _variants()
     listed = {item.record.variant_id: item for item in result.variants}
     assert "7-300-A-G" not in listed
@@ -938,23 +952,36 @@ async def test_a_listed_artefact_the_familys_annotation_protects_stays_in(monkey
     assert summary.analysis.filter_counts["failed_artifact"] == 1
 
 
+def _clinvar(classification: str | None, status: str = "in_release") -> ClinvarCogaOut:
+    """An allele's value in CoGA's ClinVar release."""
+    return ClinvarCogaOut(alt="G", status=status, release=RELEASE, classification=classification)  # type: ignore[arg-type]
+
+
 def test_what_protects_a_listed_artefact() -> None:
-    assert artifact_protection(_record("7-1-A-G", [], annotations=[{"clinvar": "Likely_pathogenic"}]), None) == "clinvar"
-    assert artifact_protection(
-        _record("7-1-A-G", [], annotations=[{"clinvar": "Conflicting_classifications_of_pathogenicity"}]), None
-    ) == "clinvar"
+    record = _record("7-1-A-G", [])
+    assert artifact_protection(record, _clinvar("Likely_pathogenic")) == "clinvar"
+    assert artifact_protection(record, _clinvar("Conflicting_classifications_of_pathogenicity")) == "clinvar"
     assert artifact_protection(
         _record("7-1-A-G", [], annotations=[{"population_frequencies": {"gnomad_popmax_af": 0.2}}]), None
     ) == "common"
-    assert artifact_protection(_record("7-1-A-G", [], annotations=[{"clinvar": "Benign", "gnomad_af": 0.01}]), None) is None
+    assert artifact_protection(_record("7-1-A-G", [], annotations=[{"gnomad_af": 0.01}]), _clinvar("Benign")) is None
+    # The annotation's ClinVar is not read; an allele the release does not hold has none.
+    annotated = _record("7-1-A-G", [], annotations=[{"clinvar": "Pathogenic"}])
+    assert artifact_protection(annotated, None) is None
+    assert artifact_protection(annotated, _clinvar(None, "not_in_release")) is None
     removed, protected = family_artifact_ids(
-        [
-            _record("7-1-A-G", [], annotations=[{"clinvar": "Pathogenic"}]),
-            _record("7-2-A-G", []),
-            _record("7-3-A-G", []),
-        ],
+        [annotated, _record("7-2-A-G", []), _record("7-3-A-G", [])],
         {"7-1-A-G": 10, "7-2-A-G": 10, "7-9-A-G": 10},
         clinvar_coga={},
+        father_sample_id=FATHER,
+        cfdna_sample_id=PLASMA,
+        qc=NiptQualityThresholds(),
+    )
+    assert (removed, protected) == ({"7-1-A-G", "7-2-A-G"}, {})
+    removed, protected = family_artifact_ids(
+        [_record("7-1-A-G", []), _record("7-2-A-G", []), _record("7-3-A-G", [])],
+        {"7-1-A-G": 10, "7-2-A-G": 10, "7-9-A-G": 10},
+        clinvar_coga={"7-1-A-G": _clinvar("Pathogenic")},
         father_sample_id=FATHER,
         cfdna_sample_id=PLASMA,
         qc=NiptQualityThresholds(),
@@ -992,10 +1019,12 @@ def test_a_listed_allele_the_father_carries_stays_in_when_it_recurs_in_few_plasm
     )
     assert protected == {"7-1-A-G": "paternal_carrier", "7-4-A-G": "paternal_carrier", "7-6-A-G": "paternal_carrier"}
     assert removed == {"7-2-A-G", "7-3-A-G", "7-5-A-G", "7-7-A-G", "7-8-A-G"}
-    # The family's annotation comes first: a ClinVar record names its own reason.
-    clinvar = _record("7-9-A-G", [_call(PLASMA, [1350, 150]), father_het], annotations=[{"clinvar": "Pathogenic"}])
+    # ClinVar comes first: a record of CoGA's release names its own reason.
+    clinvar = _record("7-9-A-G", [_call(PLASMA, [1350, 150]), father_het])
     assert (
-        listed_artifact_protection(clinvar, 1, clinvar_coga=None, father_sample_id=FATHER, cfdna_sample_id=PLASMA, qc=qc)
+        listed_artifact_protection(
+            clinvar, 1, clinvar_coga=_clinvar("Pathogenic"), father_sample_id=FATHER, cfdna_sample_id=PLASMA, qc=qc
+        )
         == "clinvar"
     )
 

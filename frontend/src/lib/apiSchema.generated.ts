@@ -447,8 +447,6 @@ export interface ClassificationDriftItem {
   status: string;
   annotation_version_from: string | null;
   annotation_version_to: string | null;
-  clinvar_from: string | null;
-  clinvar_to: string | null;
   clinvar_coga_from: ClinvarCogaOut[] | null;
   clinvar_coga_to: ClinvarCogaOut[] | null;
   changed: string[];
@@ -3337,7 +3335,6 @@ export interface NiptVariantOut {
   impact: string | null;
   effect: string | null;
   clinvar: string | null;
-  clinvar_from_vep_cache: boolean;
   clinvar_review_status: string | null;
   clinvar_stars: number | null;
   clinvar_conditions: string[];
@@ -3406,7 +3403,6 @@ export interface NiptVariantPage {
   gene_total: number | null;
   variant_total: number | null;
   not_classified: NiptNotClassifiedOut[];
-  clinvar_annotation_release: string | null;
   clinvar_coga_release: string | null;
 }
 
@@ -5281,7 +5277,6 @@ export interface VariantOut {
   impact: string | null;
   effect: string | null;
   clinvar: string | null;
-  clinvar_from_vep_cache: boolean;
   clinvar_review_status: string | null;
   clinvar_stars: number | null;
   clinvar_conditions: string[];
@@ -5355,7 +5350,6 @@ export interface VariantPage {
   summary: Record<string, Record<string, number>> | null;
   small_variant_summary: SmallVariantSummaryOut | null;
   members_without_calls: MemberWithoutCallsOut[] | null;
-  clinvar_annotation_release: string | null;
   clinvar_coga_release: string | null;
 }
 

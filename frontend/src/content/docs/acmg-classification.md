@@ -86,7 +86,7 @@ and stores every criterion with its strength and your note for the audit trail (
 [traceability reference](/docs/reference/clinical-traceability)). If you accept no criterion, no class
 is saved. Saving also freezes the evidence the criteria read, as the dialog shows it:
 
-- the ClinVar significance;
+- the ClinVar of each ALT, in the ClinVar release CoGA loads;
 - the consequence, impact and LoF call (LOFTEE);
 - the gnomAD and other population frequencies and counts;
 - the CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense values of the variant's primary
@@ -143,8 +143,8 @@ the tier the de novo points read.
 
 ## What CoGA pre-evaluates
 
-The rules read the variant's annotation (consequence, gnomAD, in-silico scores, ClinVar), the gene
-profile (ClinGen dosage, GenCC inheritance modes, the gene's HPO terms and gnomAD missense Z), the
+The rules read the variant's annotation (consequence, gnomAD, in-silico scores), its ClinVar (the
+classification in the ClinVar release CoGA loads, never the annotation's), the gene profile (ClinGen dosage, GenCC inheritance modes, the gene's HPO terms and gnomAD missense Z), the
 family genotypes, the Sample QC's parentage checks and the proband's HPO terms. The proband is the
 member with the proband role, otherwise the first affected member.
 
@@ -159,7 +159,7 @@ member with the proband role, otherwise the first affected member.
 | **PP2** | Consider (Supporting) | Missense, in a gene with a gnomAD missense Z of 3.09 or more. See *Missense constraint (PP2)* below. |
 | **PP3 / BP4** | Applied, strength scaled | See *In-silico evidence* below. |
 | **BP7** | Applied or Consider (Supporting) | Synonymous. Applied with SpliceAI below 0.1; Consider with no SpliceAI score: check the splice effect. A higher SpliceAI score marks BP7 as argues against. |
-| **PP5** | Consider (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic: CoGA's own ClinVar release where it holds the allele, named *ClinVar (CoGA, release)* in the evidence, else the annotation's. Never applied: ClinGen's SVI advises against counting another lab's assertion. The evidence gives ClinVar's review status, its stars and the conditions. BP6 is then marked argues against. |
+| **PP5** | Consider (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic, in the ClinVar release CoGA loads; a variant that release does not hold has no ClinVar, so neither PP5 nor BP6 is offered. Never applied: ClinGen's SVI advises against counting another lab's assertion. The evidence gives ClinVar's review status, its stars and the conditions. BP6 is then marked argues against. |
 | **BP6** | Consider (Supporting) | ClinVar lists this variant as benign or likely benign, as for PP5. PP5 is then marked argues against. |
 | **PP4** | Applied (Supporting or Moderate) | See *Phenotype (PP4)* below. |
 | **PS2 / PM6** | Applied or Consider, strength from the phenotype | Present in the proband and absent in both parents: PS2 where the Sample QC confirms the parents, PM6 where it does not. See *De novo (PS2, PM6)* below. |
@@ -368,7 +368,7 @@ only the pre-evaluation differs.
 | --- | --- |
 | **PVS1** | Very strong for a predicted-null change in a protein-coding mt gene. Not applicable at tRNA, rRNA and control-region loci. Consider when the locus type is unknown. |
 | **PM2 / BS1 / BA1** | mtDNA thresholds: BA1 0.5% or more (stand-alone), BS1 0.02% or more, PM2 below 0.002%. With gnomAD-MT or HelixMTdb annotated, BA1 and BS1 read the highest homoplasmic frequency, and PM2 is applied only when the heteroplasmic frequency is below 0.002% too (else Consider). Without them, the annotation's gnomAD frequency; with none at all, PM2 is Consider and BA1 / BS1 stay open. A MITOMAP polymorphism or haplogroup marker goes to BS1. |
-| **PP5 / BP6** | From the MITOMAP or ClinVar status: pathogenic → PP5; benign or polymorphism → BP6, both offered as Consider, never applied. A conflicting ClinVar record reads as uncertain: neither. |
+| **PP5 / BP6** | From the MITOMAP or ClinVar status (ClinVar from the release CoGA loads, MITOMAP from the mutserve annotation): pathogenic → PP5; benign or polymorphism → BP6, both offered as Consider, never applied. A conflicting ClinVar record reads as uncertain: neither. |
 | **PP3 / BP4** | Not applicable: the mtDNA predictors (MitoTIP, APOGEE, HmtVar) are not loaded. Assess by hand. |
 | **PM1** | Consider (Moderate) at tRNA loci. |
 | **PS2 / PM6** | Not applicable: maternally inherited. |

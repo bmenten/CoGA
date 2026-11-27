@@ -65,14 +65,11 @@ class ClassificationDriftItem(BaseModel):
     status: str  # "drifted" | "noted" | "unknown" | "variant_missing"
     annotation_version_from: Optional[str] = None
     annotation_version_to: Optional[str] = None
-    clinvar_from: Optional[str] = None
-    clinvar_to: Optional[str] = None
-    # Each ALT's ClinVar in CoGA's own release as frozen and as it is now (None: the snapshot
-    # froze none that can be read; the variant is gone).
+    # Each ALT's ClinVar in CoGA's release as frozen and as it is now (None: the snapshot froze
+    # none that can be read; the variant is gone). The annotation's ClinVar is not compared.
     clinvar_coga_from: Optional[List[ClinvarCogaOut]] = None
     clinvar_coga_to: Optional[List[ClinvarCogaOut]] = None
-    # What moved: "clinvar"; "clinvar_coga" (an ALT's classification in CoGA's own ClinVar
-    # release); "transcript_id" (the primary transcript the values
+    # What moved: "clinvar_coga" (an ALT's ClinVar classification in CoGA's release); "transcript_id" (the primary transcript the values
     # are read from); its consequence ("effect", "impact", "lof": the LOFTEE call); a
     # population frequency ("gnomad_af", "gnomad_exomes_af", "gnomad_genomes_af",
     # "gnomad_popmax_af", "topmed_af", "gnomad_ac", "gnomad_hom_count",

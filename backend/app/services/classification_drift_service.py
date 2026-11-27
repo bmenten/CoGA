@@ -166,9 +166,9 @@ def _moved_values(frozen: Mapping[str, Any], current: Mapping[str, Any]) -> list
 def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any]:
     """Compare a frozen snapshot against current evidence.
 
-    status is one of: ``current`` (unchanged), ``drifted`` (the annotation set, the ClinVar
-    significance, an ALT's classification in CoGA's own ClinVar release (``clinvar_coga``) or a
-    frozen value changed: the consequence, impact or LoF call, a frequency or in-silico score,
+    status is one of: ``current`` (unchanged), ``drifted`` (the annotation set, an ALT's ClinVar
+    classification in CoGA's release (``clinvar_coga``; the annotation's ClinVar is not read) or
+    a frozen value changed: the consequence, impact or LoF call, a frequency or in-silico score,
     or a missense variant's gene missense Z; ``changed`` names each, ``annotations`` for the
     annotation set), ``noted`` (nothing moved but the review status or the stars of CoGA's same
     classification: shown, not counted at sign-out, the owner's decision B5), ``unknown``
@@ -179,7 +179,6 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     variant holds no missense Z, and is compared on the rest.
     """
     snap_hash = snapshot.get("annotation_set_hash")
-    snap_clinvar = snapshot.get("clinvar")
     snap_version = snapshot.get("annotation_version")
     evidence_from, readable = _evidence_values(snapshot)
     # Every snapshot freezes each ALT's ClinVar (CoGA) value; one that does not, or not as a
@@ -193,8 +192,6 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
             "status": "variant_missing",
             "annotation_version_from": snap_version,
             "annotation_version_to": None,
-            "clinvar_from": snap_clinvar,
-            "clinvar_to": None,
             "clinvar_coga_from": coga_from,
             "clinvar_coga_to": None,
             "changed": [],
@@ -203,15 +200,12 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
         }
 
     cur_hash = current.get("annotation_set_hash")
-    cur_clinvar = current.get("clinvar")
     cur_version = current.get("annotation_version")
     evidence_to = _evidence_values(current)[0] or {}
     coga_to = current.get("clinvar_coga") or []
     coga_move = clinvar_coga_move(coga_from, coga_to) if coga_from is not None else None
 
     changed: list[str] = []
-    if "clinvar" in snapshot and not _same(snap_clinvar, cur_clinvar):
-        changed.append("clinvar")
     if coga_move == "classification":
         changed.append("clinvar_coga")
     if evidence_from:
@@ -239,8 +233,6 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
         "status": status,
         "annotation_version_from": snap_version,
         "annotation_version_to": cur_version,
-        "clinvar_from": snap_clinvar,
-        "clinvar_to": cur_clinvar,
         "clinvar_coga_from": coga_from,
         "clinvar_coga_to": coga_to,
         "changed": changed,

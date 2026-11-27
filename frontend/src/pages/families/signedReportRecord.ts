@@ -20,7 +20,7 @@ import { formatQcLimit, formatQcMetricValue } from '../../lib/qcMetricValue';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import type { ApiSmallVariantEvidence, ApiStructuralEvidence, CoverageContent, QcStatus } from '../../lib/apiTypes';
 import type { ClinvarCogaOut, PgtEmbryoQcFindingOut } from '../../lib/apiSchema.generated';
-import { clinvarCogaLabel } from '../../lib/clinvar';
+import { clinvarReleaseLabel, clinvarValueText } from '../../lib/clinvar';
 import { coverageScale, coverageSourceLabel } from '../../lib/coverageSources';
 import {
   BLOCKS_OUTDATED_WARNING,
@@ -51,7 +51,6 @@ import {
   type RecessiveStatus,
 } from './niptClassification';
 import { DIAGNOSTIC_FLAG_LABELS, describeDiagnosticCriteria } from './NiptDiagnosticCandidates';
-import { clinvarCogaText } from './ClinvarCogaChip';
 import { formatAlleleFrequency, scoreBesideClass } from './reportNarrative';
 import { formatCompoundHetPhaseStatus, formatLocus } from './smallVariantResultUtils';
 import { sourceBase } from '../../lib/pregnancySources';
@@ -283,13 +282,8 @@ export interface SignedEvidenceValue {
 
 /** What `build_evidence_snapshot` froze when the variant was classified. */
 export interface SignedEvidence {
-  clinvar: string | null;
-  /** Each ALT's ClinVar in CoGA's own release, as the classification froze it. */
+  /** Each ALT's ClinVar in CoGA's release, as the classification froze it. */
   clinvarCoga: ClinvarCogaOut[];
-  /** That classification is VEP's cache's, read where no ClinVar file was annotated. */
-  clinvarFromVepCache: boolean;
-  /** The review status of that ClinVar record, where the annotation had it. */
-  clinvarReviewStatus: string | null;
   annotationVersion: string | null;
   capturedAt: string | null;
   /** The primary transcript the consequence, frequencies and scores were read from. */
@@ -379,14 +373,12 @@ export interface SignedStructuralVariant {
 export interface SignedDriftItem {
   variantId: string;
   status: string;
-  clinvarFrom: string | null;
-  clinvarTo: string | null;
-  /** Each ALT's ClinVar in CoGA's own release, as frozen and as it was at sign-out. */
+  /** Each ALT's ClinVar in CoGA's release, as frozen and as it was at sign-out. */
   clinvarCogaFrom: ClinvarCogaOut[] | null;
   clinvarCogaTo: ClinvarCogaOut[] | null;
   /**
-   * What moved: 'clinvar', 'transcript_id', a consequence, frequency or in-silico field, the
-   * gene's 'gene_missense_z' and its 'gene_missense_z_source', 'annotations'.
+   * What moved: 'clinvar_coga', 'transcript_id', a consequence, frequency or in-silico field,
+   * the gene's 'gene_missense_z' and its 'gene_missense_z_source', 'annotations'.
    */
   changed: string[];
   evidenceFrom: ApiSmallVariantEvidence | null;
@@ -1500,10 +1492,7 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
     note: text(entry.note),
     evidence: evidence
       ? {
-          clinvar: text(evidence.clinvar),
           clinvarCoga: parseClinvarCoga(evidence.clinvar_coga) ?? [],
-          clinvarFromVepCache: evidence.clinvar_from_vep_cache === true,
-          clinvarReviewStatus: text(evidence.clinvar_review_status),
           annotationVersion: text(evidence.annotation_version),
           capturedAt: text(evidence.captured_at),
           transcriptId: text(evidence.transcript_id),
@@ -1584,8 +1573,6 @@ export const parseDrift = (value: unknown): SignedDrift | null => {
         ? {
             variantId: text(item.variant_id) ?? 'unnamed variant',
             status: text(item.status) ?? 'unknown',
-            clinvarFrom: text(item.clinvar_from),
-            clinvarTo: text(item.clinvar_to),
             clinvarCogaFrom: parseClinvarCoga(item.clinvar_coga_from),
             clinvarCogaTo: parseClinvarCoga(item.clinvar_coga_to),
             changed: strings(item.changed),
@@ -1596,8 +1583,6 @@ export const parseDrift = (value: unknown): SignedDrift | null => {
         : {
             variantId: 'unnamed variant',
             status: 'unknown',
-            clinvarFrom: null,
-            clinvarTo: null,
             clinvarCogaFrom: null,
             clinvarCogaTo: null,
             changed: [],
@@ -1616,7 +1601,7 @@ export const parseDrift = (value: unknown): SignedDrift | null => {
 const CLINVAR_COGA_STATUSES: ReadonlySet<string> = new Set(['in_release', 'not_in_release', 'no_release', 'not_available']);
 
 /**
- * Each ALT's ClinVar in CoGA's own release as the record holds it (``build_evidence_snapshot``):
+ * Each ALT's ClinVar in CoGA's release as the record holds it (``build_evidence_snapshot``):
  * null when the record holds none; an entry of another shape is left out (noted).
  */
 export const parseClinvarCoga = (value: unknown): ClinvarCogaOut[] | null => {
@@ -1644,32 +1629,33 @@ export const parseClinvarCoga = (value: unknown): ClinvarCogaOut[] | null => {
   });
 };
 
-/** Each ALT's ClinVar (CoGA) value in words: "ClinVar (CoGA, 2026-11-22): Likely pathogenic
- * ★★★☆ (reviewed by expert panel)"; null for none. */
+/** Each ALT's ClinVar value in words, named by its release: "ClinVar 2026-11-22: Likely
+ * pathogenic ★★★☆ (reviewed by expert panel)"; null for none. */
 export const describeClinvarCoga = (values: ClinvarCogaOut[] | null): string | null => {
   if (!values?.length) return null;
   return values
     .map((value) => {
       const of = values.length > 1 ? ` for ${value.alt}` : '';
       const status = value.status === 'in_release' && value.review_status ? ` (${value.review_status})` : '';
-      return `${clinvarCogaLabel(value.release)}${of}: ${clinvarCogaText(value)}${status}`;
+      return `${clinvarReleaseLabel(value.release)}${of}: ${clinvarValueText(value)}${status}`;
     })
     .join('; ');
 };
 
-/** What moved in each ALT's ClinVar (CoGA) value: "ClinVar (CoGA) Likely pathogenic ★★★☆,
- * reviewed by expert panel (2026-11-15) → Pathogenic ★★★☆, reviewed by expert panel
- * (2026-11-22)"; null when no ALT's classification, stars or review status moved. */
+/** What moved in each ALT's ClinVar value: "ClinVar 2026-11-15: Likely pathogenic ★★★☆,
+ * reviewed by expert panel → ClinVar 2026-11-22: Pathogenic ★★★☆, reviewed by expert panel";
+ * null when no ALT's classification, stars or review status moved. */
 export const describeClinvarCogaChange = (
   from: ClinvarCogaOut[] | null | undefined,
   to: ClinvarCogaOut[] | null | undefined,
 ): string | null => {
   if (!from) return null;
   const now = new Map((to ?? []).map((value) => [value.alt, value]));
+  const of = (alt: string) => (from.length > 1 ? ` for ${alt}` : '');
   const said = (entry: ClinvarCogaOut | undefined) =>
     entry
-      ? `${clinvarCogaText(entry)}${entry.review_status ? `, ${entry.review_status}` : ''}${
-          entry.release ? ` (${entry.release})` : ''
+      ? `${clinvarReleaseLabel(entry.release)}${of(entry.alt)}: ${clinvarValueText(entry)}${
+          entry.review_status ? `, ${entry.review_status}` : ''
         }`
       : 'n/a';
   const parts = from.flatMap((value) => {
@@ -1682,7 +1668,7 @@ export const describeClinvarCogaChange = (
     ) {
       return [];
     }
-    return [`ClinVar (CoGA)${from.length > 1 ? ` of ${value.alt}` : ''} ${said(value)} → ${said(current)}`];
+    return [`${said(value)} → ${said(current)}`];
   });
   return parts.length ? parts.join('; ') : null;
 };
@@ -3493,12 +3479,10 @@ export const describeSmallVariantEvidenceChange = (
 };
 
 /**
- * What moved in a small-variant classification's evidence: its annotation's ClinVar
- * significance, its ClinVar in CoGA's own release, then its values.
+ * What moved in a small-variant classification's evidence: its ClinVar in CoGA's release, then
+ * its values.
  */
 export const describeSmallVariantDrift = (item: {
-  clinvarFrom: string | null;
-  clinvarTo: string | null;
   clinvarCogaFrom: ClinvarCogaOut[] | null;
   clinvarCogaTo: ClinvarCogaOut[] | null;
   changed: string[];
@@ -3506,7 +3490,6 @@ export const describeSmallVariantDrift = (item: {
   evidenceTo: ApiSmallVariantEvidence | null;
 }): string | null => {
   const parts = [
-    item.clinvarFrom !== item.clinvarTo ? `ClinVar ${item.clinvarFrom || 'n/a'} → ${item.clinvarTo || 'n/a'}` : null,
     describeClinvarCogaChange(item.clinvarCogaFrom, item.clinvarCogaTo),
     describeSmallVariantEvidenceChange(item.changed, item.evidenceFrom, item.evidenceTo),
   ].filter((part): part is string => part !== null);

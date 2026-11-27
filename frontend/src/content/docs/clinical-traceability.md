@@ -58,10 +58,10 @@ When you save a classification, CoGA freezes the evidence it rests on:
 
 - **ACMG classify** (a small variant):
   - a fingerprint of the variant's annotation;
-  - its ClinVar significance with the record's review status, consequence, impact, LoF call
-    (LOFTEE) with its flags, and VEP's NMD prediction;
-  - its *ClinVar (CoGA)* value for each ALT: the classification, review status and stars in the
-    ClinVar release CoGA loaded, with that release, or why it has none;
+  - its ClinVar for each ALT: the classification, review status and stars in the ClinVar release
+    CoGA loaded, with that release, or why it has none. The ClinVar in the callset's annotation is
+    not frozen: CoGA neither shows nor uses it;
+  - its consequence, impact, LoF call (LOFTEE) with its flags, and VEP's NMD prediction;
   - the population frequencies and in-silico scores the dialog read: the gnomAD frequencies (overall,
     exomes, genomes, popmax, FAF95), the gnomAD datasets the variant's callset was annotated with
     (which say whether a variant without a gnomAD frequency is absent from gnomAD, for PM2), VEP's
@@ -86,13 +86,12 @@ When you save a classification, CoGA freezes the evidence it rests on:
 When you open the report, each frozen classification is compared with the current data. An amber
 banner lists every classification whose evidence changed:
 
-- The ClinVar significance changed (for example *ClinVar Uncertain significance → Pathogenic*).
-- The *ClinVar (CoGA)* classification changed in CoGA's current release, named with its review status
-  and release on each side (for example *ClinVar (CoGA) Uncertain significance ★☆☆☆, criteria
-  provided, single submitter (2026-11-15) → Likely pathogenic ★☆☆☆, criteria provided, single
-  submitter (2026-11-22)*). A new release that only gives the same classification another review
-  status or other stars is shown apart, under *Noted, not counted at sign-out*: it needs no re-review
-  and sign-out does not stop on it.
+- The ClinVar classification changed in CoGA's current ClinVar release, named with its review
+  status and release on each side (for example *Uncertain significance ★☆☆☆, criteria provided,
+  single submitter (2026-11-15) → Likely pathogenic ★☆☆☆, criteria provided, single submitter
+  (2026-11-22)*). A new release that only gives the same classification another review status or
+  other stars is shown apart, under *Noted, not counted at sign-out*: it needs no re-review and
+  sign-out does not stop on it.
 - A frozen consequence, LoF call, frequency or in-silico score, or a missense variant's gene missense Z,
   changed, or a value missing then is there now. Each is named with its value then and now (for example
   *REVEL 0.412 → 0.951*, *gnomAD AF 3.10e-5 → 0.012*, *LoF LC → HC* or *gnomAD missense Z 2.95 →
@@ -216,7 +215,7 @@ SHA-256 content hash), the version the clinical report in the EPD refers to. It 
   - the **gene panels** the family's searches applied (each version, with PanelApp's version of a
     PanelApp panel);
   - the **reference-data releases**: the gene reference for the reported genes, the clinical CNV
-    knowledgebase and the ClinVar release CoGA loaded (*ClinVar (CoGA)*);
+    knowledgebase and the ClinVar release CoGA loaded, the one ClinVar of the small variants;
   - the family's **repeat expansions** (TRGT) and **Paraphase** results, each with its status as CoGA
     reads it at sign-out and the catalogue behind it. Each repeat count as CoGA classified it, with
     QA's count correction for its locus, and TRGT's own count beside it. Beside each count near a
@@ -350,7 +349,7 @@ A signed version never changes, but ClinVar does: CoGA loads a new ClinVar relea
 **ClinVar reclassifications** in the main menu lists, for the project you choose, the signed analyses
 with a small variant that CoGA's current release classifies otherwise than the signed version saw:
 
-- a variant the signed version reports, compared with the *ClinVar (CoGA)* value the signed version
+- a variant the signed version reports, compared with the ClinVar value the signed version
   showed;
 - a variant the analysis classified before the sign-out and did not report, compared with the
   value the signed version saw.
@@ -537,8 +536,8 @@ It shows what the record holds (section 4):
 
 - each reported small variant, named by its variant ID, with its description as you reviewed it, its
   classification and points, the accepted ACMG criteria and their evidence, its tags and its note. Its
-  frozen evidence is the ClinVar significance, the annotation version, the *ClinVar (CoGA)* value
-  with its release, the consequence, impact and LoF call, the frequencies and in-silico scores and,
+  frozen evidence is the annotation version, each ALT's ClinVar with its release, the consequence,
+  impact and LoF call, the frequencies and in-silico scores and,
   for a missense variant, the gene's missense Z with its source (section 2), as they were then. A variant its compound-het pair review reports shows that review (*Compound-het pair*: the
   partner, the gene, the phase, the pair's tags and classification, and its note);
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV

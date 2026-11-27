@@ -1,6 +1,5 @@
 import { Link } from 'react-router';
 
-import { ClinvarCogaMark } from '../families/ClinvarCogaChip';
 import { tagDefinitionLabel, type SmallVariantTagDefinition } from '../families/smallVariantSearch';
 import type { CarrierModalMode, GlobalVariantRow } from './types';
 import type { GlobalVariantSort } from './globalSmallVariantSearch';
@@ -12,8 +11,6 @@ interface GlobalSmallVariantTableProps {
   order: 'asc' | 'desc';
   onSort: (sort: GlobalVariantSort) => void;
   onOpenCarriers: (variant: GlobalVariantRow, mode: CarrierModalMode) => void;
-  // CoGA's own ClinVar release the page read, which a row's mark names.
-  clinvarCogaRelease?: string | null;
 }
 
 const sortIndicator = (active: boolean, order: 'asc' | 'desc') =>
@@ -26,7 +23,6 @@ const GlobalSmallVariantTable = ({
   order,
   onSort,
   onOpenCarriers,
-  clinvarCogaRelease = null,
 }: GlobalSmallVariantTableProps) => {
   const tagLabel = (key: string) => {
     const tag = tagDefinitions.find((definition) => definition.key === key);
@@ -91,7 +87,6 @@ const GlobalSmallVariantTable = ({
                   ) : (
                     <span className="table-empty">—</span>
                   )}
-                  <ClinvarCogaMark variant={variant} release={clinvarCogaRelease} />
                 </td>
                 <td className="table-wrap-cell">
                   {variant.consequence || <span className="table-empty">—</span>}

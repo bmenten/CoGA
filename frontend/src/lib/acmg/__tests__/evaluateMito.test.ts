@@ -88,13 +88,10 @@ describe('evaluateMitoAcmg', () => {
     ).toBe('consider');
   });
 
-  it("names CoGA's ClinVar release where the status reads it (B12)", () => {
-    const fromCoga = evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'pathogenic', clinvarCogaRelease: '2026-11-22' });
-    expect(find(fromCoga, 'PP5')?.evidence).toBe('MITOMAP/ClinVar (CoGA, 2026-11-22) reports pathogenic. Review before applying.');
-    expect(find(fromCoga, 'BP6')?.evidence).toBe('MITOMAP/ClinVar (CoGA, 2026-11-22) reports pathogenic, not benign.');
-    expect(find(evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'pathogenic' }), 'BP6')?.evidence).toBe(
-      'MITOMAP/ClinVar reports pathogenic, not benign.',
-    );
+  it('names the status as MITOMAP/ClinVar in the PP5 and BP6 evidence', () => {
+    const pathogenic = evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'pathogenic' });
+    expect(find(pathogenic, 'PP5')?.evidence).toBe('MITOMAP/ClinVar reports pathogenic. Review before applying.');
+    expect(find(pathogenic, 'BP6')?.evidence).toBe('MITOMAP/ClinVar reports pathogenic, not benign.');
   });
 
   it('reads the homoplasmic mtDNA frequency for BA1 / BS1, and both for PM2', () => {

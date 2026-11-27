@@ -9,7 +9,6 @@ import type { ReportSignoutDetail } from '../../lib/apiSchema.generated';
 import { formatSoftwareVersion, useReportBuild } from '../../lib/appVersion';
 import { formatCnvPoints } from '../../lib/cnvAcmg/format';
 import { sexUnknownWarning } from '../../lib/embryoSegregation';
-import { clinvarLabel } from '../../lib/clinvar';
 import { isNotFoundError } from '../../lib/errorMessage';
 import PageState from '../../components/PageState';
 import { memberAddedOrRemoved } from '../../components/IntakeCorrectionsNotice';
@@ -388,15 +387,8 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> 
           <h3 className="report-subheading">Evidence when classified</h3>
           {variant.evidence ? (
             <p className="report-paragraph">
-              When the variant was classified
-              {variant.evidence.capturedAt ? ` (${formatReportTime(variant.evidence.capturedAt)})` : ''},
-              {clinvarLabel(variant.evidence.clinvarFromVepCache)} reported{' '}
-              {variant.evidence.clinvar
-                ? variant.evidence.clinvar.replace(/_/g, ' ')
-                : 'no significance for it'}
-              {variant.evidence.clinvar && variant.evidence.clinvarReviewStatus
-                ? ` (${variant.evidence.clinvarReviewStatus})`
-                : ''}
+              The evidence was frozen when the variant was classified
+              {variant.evidence.capturedAt ? ` (${formatReportTime(variant.evidence.capturedAt)})` : ''}
               {variant.evidence.annotationVersion
                 ? `, with annotation version ${variant.evidence.annotationVersion}`
                 : ''}
@@ -533,8 +525,8 @@ const describeReferenceDataLine = (record: SignedReport | null): string => {
       : 'clinical CNV knowledgebase not captured';
   const clinvar =
     clinvarCoga.state === 'recorded'
-      ? `ClinVar (CoGA) ${describeClinvarRelease(clinvarCoga.value)}`
-      : 'ClinVar (CoGA) not captured';
+      ? `ClinVar ${describeClinvarRelease(clinvarCoga.value)}`
+      : 'ClinVar not captured';
   const panelApp =
     record.genePanels.state === 'recorded'
       ? record.genePanels.value
@@ -1374,7 +1366,7 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
                 : 'not in the signed record'}
           </li>
           <li>
-            ClinVar (CoGA):{' '}
+            ClinVar:{' '}
             {reference.clinvarCoga.state === 'recorded'
               ? describeClinvarRelease(reference.clinvarCoga.value)
               : reference.clinvarCoga.state === 'unavailable'
@@ -1750,8 +1742,8 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
   // Paraphase reviews, counted as one.
   const driftedAtSignout =
     (record?.drift?.driftedCount ?? 0) + (record?.structuralDrift?.driftedCount ?? 0) + findingDrift.length;
-  // The small variants' drift the sign-out counted, and apart the noted entries: a ClinVar (CoGA)
-  // review status or stars that moved on the same classification, shown and not counted (B5).
+  // The small variants' drift the sign-out counted, and apart the noted entries: a ClinVar review
+  // status or stars that moved on the same classification, shown and not counted (B5).
   const { counted: driftAtSignout, noted: notedAtSignout } = splitNotedDrift(record?.drift?.drifted ?? []);
   const checkedCounts = [
     record?.drift?.checked,
@@ -2035,7 +2027,7 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
             {notedAtSignout.length ? (
               <>
                 <p className="report-paragraph">
-                  Noted, not counted: the review status or the stars of the same ClinVar (CoGA)
+                  Noted, not counted: the review status or the stars of the same ClinVar
                   classification had changed:
                 </p>
                 <ul className="report-drift-list">

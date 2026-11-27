@@ -1,15 +1,17 @@
 # Ontwerp: ClinVar als eigen kennisbron van CoGA
 
-Status: **beslist door de eigenaar op 2026-11-27** (B1–B12, §9), nog niet gebouwd. QA heeft het
-ontwerp nog niet beoordeeld; de vragen voor QA staan in §10.
+Status: **beslist door de eigenaar op 2026-11-27** (B1–B13, §9) en gebouwd. B13 vervangt B7 en de
+terugval op de annotatie van B8, B9, B11 en B12: voor small variants toont en gebruikt CoGA alleen
+de ClinVar van zijn eigen release. QA heeft het ontwerp nog niet beoordeeld; de vragen voor QA
+staan in §10.
 
 ## 1. Aanleiding
 
-De ClinVar-classificatie van een small variant komt vandaag uit de geannoteerde VCF: het
-ClinVar-bestand dat de pipeline met VEP `--custom` annoteert (`ClinVar_CLNSIG`), en zonder zo'n
-bestand de ClinVar van VEP's cache, apart benoemd als *ClinVar (VEP cache)*
-([annotation-provenance.md](annotation-provenance.md), "The ClinVar release"). CoGA leest die
-waarde bij de import en bevriest ze per callset. Dat heeft drie gevolgen:
+Zonder eigen release kent CoGA van een small variant alleen de ClinVar-classificatie uit de
+geannoteerde VCF: het ClinVar-bestand dat de pipeline met VEP `--custom` annoteert
+(`ClinVar_CLNSIG`), en zonder zo'n bestand de ClinVar van VEP's cache
+([annotation-provenance.md](annotation-provenance.md), "The ClinVar release"). Die waarde wordt bij
+de import gelezen en staat vast per callset. Dat heeft drie gevolgen:
 
 - **Een open analyse staat op de ClinVar van haar pipelinerun.** Een familie die in mei
   geannoteerd werd, toont in november nog ClinVar van mei. Een nieuwere classificatie bereikt
@@ -37,11 +39,11 @@ manier.
 
 Doel:
 
-- **D1.** Elke small variant toont naast de geannoteerde ClinVar ook de classificatie in de
-  ClinVar-release die CoGA geladen heeft, met die release erbij.
-- **D2.** Een verschil tussen beide is zichtbaar, een filter vindt de varianten die in CoGA's
-  release een bepaalde classificatie hebben, en een variant die alleen in CoGA's release
-  (likely) pathogenic is, valt niet weg door een frequentie- of consequentiefilter.
+- **D1.** Elke small variant toont de classificatie in de ClinVar-release die CoGA geladen heeft,
+  en alleen die (B13).
+- **D2.** Een filter vindt de varianten die in CoGA's release een bepaalde classificatie hebben,
+  en een variant die in CoGA's release (likely) pathogenic is, valt niet weg door een frequentie-
+  of consequentiefilter.
 - **D3.** Een classificatie en een sign-out bevriezen welke CoGA-release en welke waarde
   getoond werden; een nieuwere release met een andere waarde is drift.
 - **D4.** De Variant Explorer leest voor het hele cohort één release.
@@ -56,10 +58,12 @@ Grenzen:
 - Een ondertekende analyse verandert nooit. Een heranalyse is een nieuwe analyse.
 - De somatische en oncogeniciteitsvelden van ClinVar (`ONC`, `SCI`) vallen buiten dit ontwerp.
 
-## 3. Wat ClinVar vandaag leest
+## 3. Wie ClinVar leest
 
-Alle lezers gaan uit van de geannoteerde waarde. De kolom *Fase* zegt wanneer de lezer ook CoGA's
-release leest (§8.1).
+Zonder eigen release lezen alle lezers de geannoteerde waarde; de tabel zegt waar en hoe. De
+kolom *Fase* zegt wanneer de lezer CoGA's release leest (§8.1). Met B13 leest elke lezer alleen
+CoGA's release; de import vergelijkt de geannoteerde waarde alleen met CoGA's kopie van dezelfde
+release (§6.6).
 
 | Lezer | Waar | Wat het leest | Fase |
 | --- | --- | --- | --- |
@@ -187,31 +191,38 @@ niet als een beheerder intussen een nieuwe vrijgeeft.
 - `VariantOut` krijgt per allel een `clinvar_coga`: release, classificatie, review-status,
   sterren, aandoeningen, VariationID, of de reden dat er geen waarde is (*niet in deze release*,
   *geen release geladen*, *niet beschikbaar voor deze assembly*).
-- Op de variantkaart en in het detailpaneel twee regels:
-  *ClinVar (annotatie, 2026-05-01): Pathogenic ★★* en *ClinVar (CoGA, 2026-11-22): Likely
-  pathogenic ★★★*, met het label **gewijzigd** als classificatie of sterren verschillen. Beide
-  linken naar de VariationID. Die benaming besliste de eigenaar (B7).
-- In de tabel en de Explorer een klein teken als beide verschillen.
+- Op de variantkaart één waarde, gewoon *ClinVar* genoemd, zonder datum: de classificatie van
+  het getoonde allel in CoGA's release, met sterren, review-status en aandoeningen, gelinkt naar
+  de VariationID (B13). Het detailpaneel toont de waarde van elk allel, of de reden dat er geen is.
+  De ClinVar van de annotatie (het ClinVar-bestand of VEP's cache) wordt nergens getoond.
+- De kleur van kaart en tabelrij volgt die waarde. De Explorer toont per rij de classificaties
+  van de ALT's van de variant in de release; de export de classificatie en de sterren van het
+  getoonde allel.
 
 De pagina zoekt de waarden op per allel-sleutel voor de varianten die ze toont, zoals ze nu de
 details opzoekt.
 
 ### 6.3 Filters
 
-- **Nieuw filter *ClinVar (CoGA)*,** naast het bestaande, met dezelfde keuzes. Het test
+- **Het filter *ClinVar status* (`clinvar`)** leest CoGA's release (B13): het houdt een variant
+  waarvan een allel een gevraagde status heeft. Het test
   `arrayExists(k -> k IN (SELECT allele_key FROM … WHERE release = … AND hasAny(classification_terms, …)), e.allele_keys)`
-  en leest alleen de rijen van de familie.
-- **De P/LP-override** laat een variant ook door als CoGA's release ze (likely) pathogenic noemt
-  (B1). Zonder dat valt een variant die pas na de annotatie pathogenic werd, weg door de
-  frequentie- of consequentiefilters, en dat is het gevaar dat dit ontwerp moet afdekken (H1).
-- De bestaande filters `clinvar` en `exclude_clinvar` blijven in fase 1 de annotatie testen. In
-  fase 2 lezen ze CoGA's release waar het allel erin staat, anders de annotatie (B8).
+  en leest alleen de rijen van de familie. Er is geen tweede ClinVar-filter.
+- **De uitgesloten statussen (`exclude_clinvar`)** laten een variant alleen weg als elk allel een
+  uitgesloten status heeft (`arrayAll`): een multi-allelische variant met één pathogeen allel valt
+  nooit weg door de benigne status van een ander allel.
+- **De P/LP-override** laat een variant door als CoGA's release een allel ervan (likely)
+  pathogenic noemt (B1). Zonder dat valt een variant die pas na de annotatie pathogenic werd,
+  weg door de frequentie- of consequentiefilters, en dat is het gevaar dat dit ontwerp moet
+  afdekken (H1).
+- Zonder release voor de assembly heeft geen variant ClinVar: het statusfilter houdt niets, de
+  uitsluiting laat niets weg en de override laat niets extra door.
 
 ### 6.4 Evidence-snapshot en drift
 
-- Een classificatie bevriest naast de geannoteerde ClinVar ook `clinvar_coga`, per allel van
-  het record: release, classificatie, review-status, sterren, VariationID, of de reden dat er
-  geen waarde is.
+- Een classificatie bevriest `clinvar_coga`, per allel van het record: release, classificatie,
+  review-status, sterren, VariationID, of de reden dat er geen waarde is. De geannoteerde ClinVar
+  wordt niet bevroren en niet vergeleken (B13).
 - De drift-check vergelijkt dat met de huidige release. Een andere classificatie is `drifted`,
   met `changed: clinvar_coga` en de waarde van → naar, en houdt de sign-out tegen tot ze erkend
   is, zoals elke drift nu (REQ-TRACE-006).
@@ -286,15 +297,16 @@ de assembly en het allel in minimale vorm.
 | Fase | Inhoud | Waarde van record voor de andere lezers |
 | --- | --- | --- |
 | 1 | Laden (§5); tonen, nieuw filter, P/LP-override, snapshot, drift, manifest, ondertekend record, concordantie (§6.1–6.6); `allele_keys` (§7) | de annotatie |
-| 2 | Eén regel voor elke andere lezer: **CoGA's release waar het allel erin staat, anders de annotatie**. Dat geldt voor de filters `clinvar` en `exclude_clinvar` en de ranking (met de release in de cache-sleutel; B8), PP5/BP6 en de bescherming van de NIPT-artefactlijst (B9), de NIPT-triage en de diagnostische NIPT-kandidaten (B11), en de mtDNA-criteria die ClinVar lezen (`evaluateMito.ts`; MITOMAP blijft uit de annotatie komen; B12) | CoGA's release, anders de annotatie |
+| 2 | Elke andere lezer leest **CoGA's release, en alleen die** (B13): de filters `clinvar` en `exclude_clinvar` en de ranking (met de release in de cache-sleutel; B8), PP5/BP6 en de bescherming van de NIPT-artefactlijst (B9), de NIPT-triage en de diagnostische NIPT-kandidaten (B11), de mtDNA-criteria die ClinVar lezen (`evaluateMito.ts`; MITOMAP blijft uit de annotatie komen; B12), het genoomspoor en de export. Een allel dat de release niet bevat, heeft geen ClinVar | CoGA's release |
 | 3 | Heranalysesignaal na de sign-out (§6.7) | — |
 
-De NIPT-triage en de diagnostische kandidaten volgen nu de vastgezette criteria van de R
-NIPT-M v0.7.3-pipeline (REQ-NIPT-011, REQ-NIPT-020), die de geannoteerde ClinVar lezen. Met B11
-wijkt CoGA daarvan af. Fase 2 vraagt daarom een nieuwe validatie van de NIPT-kandidaten tegen de
-R-pipeline (§8.2).
+De NIPT-triage en de diagnostische kandidaten volgen de vastgezette criteria van de R
+NIPT-M v0.7.3-pipeline (REQ-NIPT-011, REQ-NIPT-020), die de geannoteerde ClinVar lezen. Met B11 en
+B13 leest CoGA daar ClinVar uit zijn eigen release en wijkt het daarvan af. Fase 2 vraagt daarom
+een nieuwe validatie van de NIPT-kandidaten tegen de R-pipeline (§8.2).
 
-Pas als CoGA's release de waarde van record is, kan de pipeline ClinVar weglaten. Dan verandert
+Met B13 is CoGA's release de waarde van record, dus kan de pipeline ClinVar weglaten; dan vervalt
+wel de concordantie van §6.6. Dan verandert
 de annotatieset van een variant niet meer met elke ClinVar-release (ClinVar zit nu in de hash van
 de annotatieset), en kan een import een variant waarvan dezelfde annotatie al opgeslagen is,
 overslaan. Dat is een volgende stap, niet dit ontwerp.
@@ -307,17 +319,16 @@ overslaan. Dat is een volgende stap, niet dit ontwerp.
 - **TF-08:** de rij ClinVar beschrijft de eigen download: per assembly de wekelijkse VCF van
   NCBI, release uit `##fileDate`, MD5 van NCBI en SHA-256 bewaard, de nieuwste bij de eerste
   start, daarna elke week automatisch na de controles van §5.3.
-- **TF-06:** H8 krijgt een maatregel erbij (de actuele ClinVar naast de geannoteerde, drift op
-  CoGA's release), en H1 ook (de P/LP-override leest CoGA's release). Twee nieuwe gevaren:
+- **TF-06:** H8 krijgt een maatregel erbij (één actuele ClinVar, drift op CoGA's release), en H1
+  ook (de filters, de uitsluiting en de P/LP-override lezen CoGA's release). Twee nieuwe gevaren:
   - *ClinVar-record aan het verkeerde allel gekoppeld.* Maatregelen: alleen het exacte allel in
-    minimale vorm, beide waarden zichtbaar, de concordantie van §6.6.
+    minimale vorm, de concordantie van §6.6 bij elke import.
   - *Een defecte release wordt zonder menselijke tussenkomst de huidige.* Maatregelen: de
     controles van §5.3 (MD5, release, assembly, aantal records), de vorige release blijft dan de
     huidige, een mail aan de beheerders, de release op elk scherm en in elke snapshot.
 - **TF-09a:** nieuwe eisen voor het laden met integriteitscontrole, de wekelijkse vrijgave, het
-  tonen naast de annotatie, de override en het bevriezen in snapshot en manifest; klasse C. In
-  fase 2 veranderen REQ-NIPT-011 en REQ-NIPT-020: ze lezen CoGA's release, anders de annotatie
-  (B11).
+  tonen, de filters en de override, en het bevriezen in snapshot en manifest; klasse C. In fase 2
+  veranderen REQ-NIPT-011 en REQ-NIPT-020: ze lezen CoGA's release (B11, B13).
 - **TF-09 en TF-09c:** de concordantie als verificatie, en een synthetisch ClinVar-bestand in
   de end-to-end-fixture.
 - **TF-10 en TF-11 (fase 2):** de diagnostische NIPT-kandidaten opnieuw valideren, omdat ze
@@ -359,12 +370,13 @@ overslaan. Dat is een volgende stap, niet dit ontwerp.
 | B4 | Welke releases blijven bewaard? | De huidige en de vorige |
 | B5 | Welke drift door een nieuwe CoGA-release houdt de sign-out tegen? | Alleen een andere classificatie; een andere review-status of andere sterren wordt getoond |
 | B6 | Controleert elke import de concordantie (§6.6)? | Ja, als de release van de pipeline in CoGA staat; anders *niet vergeleken* |
-| B7 | Hoe heten de twee waarden op het scherm? | *ClinVar (annotatie, datum)* en *ClinVar (CoGA, datum)* |
-| B8 | Fase 2: wat lezen de filters `clinvar` en `exclude_clinvar` en de ranking? | CoGA's release waar het allel erin staat, anders de annotatie |
-| B9 | Fase 2: wat lezen PP5/BP6 en de bescherming van de NIPT-artefactlijst? | CoGA's release waar het allel erin staat, anders de annotatie |
+| B7 | Hoe heten de twee waarden op het scherm? | *ClinVar (annotatie, datum)* en *ClinVar (CoGA, datum)*. Vervangen door B13 |
+| B8 | Fase 2: wat lezen de filters `clinvar` en `exclude_clinvar` en de ranking? | CoGA's release waar het allel erin staat, anders de annotatie. De terugval op de annotatie is vervangen door B13 |
+| B9 | Fase 2: wat lezen PP5/BP6 en de bescherming van de NIPT-artefactlijst? | CoGA's release waar het allel erin staat, anders de annotatie. De terugval op de annotatie is vervangen door B13 |
 | B10 | Fase 3: komt er een heranalysesignaal? | Een lijst per project, alleen lezen, opgevolgd volgens de labo-procedure; geen mail |
-| B11 | Fase 2: wat lezen de NIPT-triage en de diagnostische NIPT-kandidaten? | CoGA's release waar het allel erin staat, anders de annotatie, met een nieuwe validatie (§8.1) |
-| B12 | Fase 2: wat lezen de mtDNA-criteria (`evaluateMito.ts`), die MITOMAP en ClinVar uit de mutserve-annotatie lezen? | Voor ClinVar: CoGA's release waar het allel erin staat (chrM staat in ClinVar's VCF als `MT`, §7), anders de annotatie; MITOMAP ongewijzigd |
+| B11 | Fase 2: wat lezen de NIPT-triage en de diagnostische NIPT-kandidaten? | CoGA's release waar het allel erin staat, anders de annotatie, met een nieuwe validatie (§8.1). De terugval op de annotatie is vervangen door B13 |
+| B12 | Fase 2: wat lezen de mtDNA-criteria (`evaluateMito.ts`), die MITOMAP en ClinVar uit de mutserve-annotatie lezen? | Voor ClinVar: CoGA's release waar het allel erin staat (chrM staat in ClinVar's VCF als `MT`, §7), anders de annotatie; MITOMAP ongewijzigd. De terugval op de annotatie is vervangen door B13 |
+| B13 | Welke ClinVar toont en gebruikt CoGA voor een small variant? (2026-11-27, vervangt B7 en de terugval op de annotatie van B8, B9, B11 en B12) | Eén ClinVar: de classificatie in de ClinVar-release die CoGA zelf laadt. De ClinVar van de annotatie van een callset (het ClinVar-bestand van de pipeline of VEP's cache) wordt nergens getoond of gebruikt; de import vergelijkt ze alleen met CoGA's kopie van dezelfde release (§6.6). Een allel dat de release niet bevat, heeft geen ClinVar. Op de kaart één waarde, *ClinVar*, zonder datum. De uitgesloten statussen laten een variant alleen weg als elk allel er een heeft. Structurele varianten en CNV's houden hun eigen bronnen |
 
 ## 10. Vragen voor QA
 

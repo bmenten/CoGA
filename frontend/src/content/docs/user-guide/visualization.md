@@ -29,15 +29,16 @@ In the chromosome view each small variant is drawn by its class, with a legend o
 | Yellow dot | MODERATE impact |
 | Grey dot | LOW or MODIFIER impact, or none |
 
-Any other variant with a conflicting or uncertain ClinVar record is drawn by its impact. ClinVar is that of
-CoGA's own ClinVar release where it holds the allele, else the annotation's: a variant reclassified after
-the pipeline annotated it is drawn by its newer classification. The dots differ by colour only: hover a
-mark for its impact, ClinVar status (named *ClinVar (CoGA, release)* or *ClinVar*) and parental origin. A review tag draws a ring
-in the tag's colour around the mark; the mark itself does not change.
+Any other variant with a conflicting or uncertain ClinVar record is drawn by its impact. ClinVar is the
+classification in the ClinVar release CoGA loads, never the annotation's: a variant ClinVar reclassified
+after the pipeline annotated it is drawn by its newer classification, and a variant that release does
+not hold is drawn by its impact. The dots differ by colour only: hover a mark for its impact, ClinVar
+status and parental origin. A review tag draws a ring in the tag's colour around the mark; the mark
+itself does not change.
 
 In a window of 250 kb or less the track draws every variant of the sample. In a wider window it draws
 only the variants that are ClinVar pathogenic or likely pathogenic, or of HIGH or MODERATE impact on a
-transcript and not ClinVar benign or likely benign; its head says so. Zoom in to 250 kb or less to see
+transcript unless ClinVar calls every allele of them benign or likely benign; its head says so. Zoom in to 250 kb or less to see
 the others, such as a review-tagged variant of LOW impact. The small-variant list is not affected.
 
 When the sample shown has a parent in the family, the track has three rows: variants inherited from the

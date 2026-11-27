@@ -404,43 +404,9 @@ test('ClinVar pathogenic overrides functional impact', async () => {
 
   await waitFor(() => expect(drawnMarks(container)).toHaveLength(1));
   expect(drawnMarks(container)[0]).toMatchObject({ kind: 'pathogenic', fill: '#dc2626' });
-});
-
-test("marks and names a variant by CoGA's own ClinVar release where it holds the allele (B8)", async () => {
-  useQueryMock.mockImplementation(({ queryKey }) =>
-    queryKey[0] === 'small-variant-track-tags'
-      ? { data: [], isLoading: false }
-      : {
-          data: {
-            total: 1,
-            variants: [
-              {
-                chr: '1',
-                start: 10,
-                end: 10,
-                type: 'SNV',
-                ref: 'G',
-                alt: 'A',
-                impact: 'LOW',
-                // The annotation says benign; CoGA's newer release, pathogenic.
-                clinvar: 'Benign',
-                clinvar_coga: [{ alt: 'A', status: 'in_release', release: '2026-11-22', classification: 'Pathogenic' }],
-                genotypes: [{ sample: 'S1', gt: '0/1' }],
-              },
-            ],
-          },
-          isLoading: false,
-        },
-  );
-
-  const { container } = render(
-    <SmallVariantTrack familyId="F1" sampleId="S1" chrom="1" regionStart={0} regionEnd={100} width={100} height={20} />,
-  );
-
-  await waitFor(() => expect(drawnMarks(container)).toHaveLength(1));
-  expect(drawnMarks(container)[0]).toMatchObject({ kind: 'pathogenic', fill: '#dc2626' });
+  // The tooltip names it plainly: ClinVar is CoGA's release's only.
   fireEvent.mouseMove(container.querySelector('rect') as Element, { clientX: 10, clientY: 12 });
-  expect(document.body.querySelector('.viz-tooltip')?.textContent).toContain('ClinVar (CoGA, 2026-11-22): Pathogenic');
+  expect(document.body.querySelector('.viz-tooltip')?.textContent).toContain('ClinVar: Pathogenic');
 });
 
 test('splits variants into parental-origin rows when parents are provided', async () => {

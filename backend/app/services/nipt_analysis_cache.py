@@ -70,8 +70,8 @@ class NiptAnalysisInputs:
     gate_bound: NiptGateBound
     plasma_targets: list[TargetCoverageRow]
     father_targets: list[TargetCoverageRow]
-    # CoGA's ClinVar release the analysis reads where it holds an allele (the design's one rule,
-    # B9, B11): the protection of the listed artefacts, the triage and the diagnostic candidates.
+    # CoGA's ClinVar release the analysis reads: the protection of the listed artefacts, the
+    # triage and the diagnostic candidates read ClinVar there alone.
     clinvar_coga: ClinvarCogaRead
 
 

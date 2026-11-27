@@ -219,21 +219,20 @@ class VariantOut(ApiDocumentModel):
     transcript_biotype: Optional[str] = None
     impact: Optional[str] = None
     effect: Optional[str] = None
+    # A small variant's ClinVar: the classification, review status (as words), stars (0–4),
+    # conditions and VariationID of its shown ALT in the ClinVar release CoGA loaded
+    # (``clinvar_coga.attach_clinvar_coga``); None (empty) where the release does not hold that
+    # allele. The ClinVar in the callset's annotation is neither shown nor used. A structural
+    # variant's are its annotation's.
     clinvar: Optional[str] = None
-    # True where the ClinVar classification is VEP's cache's (CLIN_SIG), read because the
-    # callset was annotated without a ClinVar file: the known variant's (the dbSNP rsID's),
-    # perhaps of another allele than this one. Every view that shows it names the cache.
-    clinvar_from_vep_cache: bool = False
-    # The ClinVar file's review status, as words, and the stars ClinVar gives it (0–4); the
-    # conditions the record names; its VariationID (from VEP --custom). None (empty) where the
-    # annotation has no ClinVar file, or the file no record.
     clinvar_review_status: Optional[str] = None
     clinvar_stars: Optional[int] = None
     clinvar_conditions: List[str] = Field(default_factory=list)
     clinvar_variation_id: Optional[str] = None
-    # Small variants: each ALT's ClinVar in CoGA's own release, shown beside the annotation's,
-    # served by ``clinvar_coga.attach_clinvar_coga`` on the family page, its track and export,
-    # and on the monogenic NIPT page and export; empty for a structural variant.
+    # Small variants: each ALT's ClinVar in CoGA's release, served by
+    # ``clinvar_coga.attach_clinvar_coga`` with the fields above, on the family page, its track
+    # and export, the Variant Explorer and the monogenic NIPT page and export; empty for a
+    # structural variant.
     clinvar_coga: List[ClinvarCogaOut] = Field(default_factory=list)
     rsid: Optional[str] = None
     hgvsc: Optional[str] = None
@@ -559,9 +558,8 @@ class VariantPage(BaseModel):
     # analysis it reads (``family_members_without_calls``); empty when every member holds calls.
     # None where the response did not read them: a track's page, a presence check, another list.
     members_without_calls: Optional[List[MemberWithoutCallsOut]] = None
-    # The two ClinVar releases a small-variant page names (design B7): the release of the ClinVar
-    # file the analysis's annotation names (its manifest), and CoGA's own release the page read.
-    clinvar_annotation_release: Optional[date] = None
+    # The ClinVar release CoGA loaded that the page's small variants' ClinVar is from (None: the
+    # assembly has none, so no variant has a ClinVar classification).
     clinvar_coga_release: Optional[date] = None
 
 
@@ -640,8 +638,10 @@ class GlobalVariantRowOut(BaseModel):
     effects: List[str] = Field(default_factory=list)
     hgvsc: Optional[str] = None
     hgvsp: Optional[str] = None
+    # The classifications of the variant's ALTs in CoGA's ClinVar release
+    # (``GlobalVariantPageOut.clinvar_coga_release``), and each ALT's value; the annotation's
+    # ClinVar is not shown.
     clinvar: Optional[str] = None
-    # Each ALT's ClinVar in CoGA's own release (``GlobalVariantPageOut.clinvar_coga_release``).
     clinvar_coga: List[ClinvarCogaOut] = Field(default_factory=list)
     # The most severe class the variant's reviews show, each by the family page's rule
     # (review_class_label), and the classification text of the review that shows it, as

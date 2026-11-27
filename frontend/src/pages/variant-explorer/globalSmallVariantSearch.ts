@@ -159,7 +159,6 @@ export const useGlobalSmallVariantSearchState = () => {
         | 'effect'
         | 'clinvar'
         | 'exclude_clinvar'
-        | 'clinvar_coga'
         | 'exclude_review_tags'
         | 'classification'
         | 'review_tags'

@@ -446,10 +446,8 @@ class NiptVariantPage(BaseModel):
     # The variants the review-tag filter selects that the analysis does not classify,
     # whatever the other filters, by variant id; [] without a review-tag filter.
     not_classified: List[NiptNotClassifiedOut] = Field(default_factory=list)
-    # The two ClinVar releases the list names (design B7), as the family page's VariantPage: the
-    # release of the ClinVar file the analysis's annotation names, and CoGA's own release the
-    # analysis read, of each variant's ``clinvar_coga``.
-    clinvar_annotation_release: Optional[date] = None
+    # The ClinVar release CoGA loaded that the analysis read, which the listed variants' ClinVar
+    # is from, as the family page's VariantPage names it.
     clinvar_coga_release: Optional[date] = None
 
 

@@ -60,7 +60,8 @@ differs.
   evidence snapshot (`build_evidence_snapshot`) that the report's drift check later compares
   against. The snapshot holds, as the dialog reads them from the variant's primary transcript
   (`small_variant_evidence`):
-  - the annotation version and set hash, and the ClinVar significance;
+  - the annotation version and set hash, and each ALT's ClinVar in CoGA's release (`clinvar_coga`;
+    the annotation's ClinVar is not frozen);
   - the consequence, impact and LOFTEE call (read by PVS1, PM4, PP2, BP7 and the consequence's
     not-applicable criteria);
   - the population frequencies and in-silico scores the criteria read: gnomAD and the other
@@ -109,12 +110,13 @@ dialog runs on the family structural-variant page. The global Variant Explorer h
 
 Some pre-evaluation rules repeat a backend rule. Change both sides together:
 
-- **ClinVar for PP5 / BP6** is read by the ClinVar design's one rule (B9, B12): the shown ALT's
-  classification in CoGA's own ClinVar release where it holds the allele (`clinvarAssertion` in
-  `evaluate.ts`, from `VariantOut.clinvar_coga`, the evidence naming *ClinVar (CoGA, release)*),
-  else the annotation's. For an mtDNA variant the status `mitochondrial_analysis.py` serves reads
-  its ClinVar part so (`MitoDNAVariantAnnotationOut.clinvar_coga`), MITOMAP's beside it, and the
-  evidence names CoGA's release where it was read.
+- **ClinVar for PP5 / BP6** is the shown ALT's classification in the ClinVar release CoGA loads,
+  and only that: the variant's own ClinVar fields, which the server fills from that release
+  (`clinvar_coga.attach_clinvar_coga`), read in `evaluate.ts` (`describeClinvar`). An allele the
+  release does not hold has no ClinVar, so neither criterion is offered. For an mtDNA variant the
+  status `mitochondrial_analysis.py` serves reads its ClinVar part in the release
+  (`_clinical_significance`, `MitoDNAVariantAnnotationOut.clinvar_coga`), MITOMAP's beside it from
+  the annotation. The annotation's ClinVar is read by neither.
 - **ClinVar.** `lib/clinvar.ts` is the one frontend reading of a ClinVar significance, for PP5 / BP6
   (nuclear and mtDNA), the colours of the ClinVar chip, card and table row, and the small-variant
   track marks. A *Conflicting classifications of pathogenicity* record is neither pathogenic nor

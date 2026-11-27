@@ -244,46 +244,23 @@ describe('evaluateAcmg', () => {
     );
   });
 
-  it("reads PP5 / BP6 from CoGA's own ClinVar release where it holds the allele, else the annotation (B9)", () => {
-    const coga = {
-      alt: 'G',
-      status: 'in_release' as const,
-      release: '2026-11-22',
-      classification: 'Pathogenic',
-      review_status: 'reviewed by expert panel',
-      stars: 3,
-      conditions: ['Synthetic disorder 1'],
-      variation_id: 900001,
-      included_only: false,
-    };
-    // The annotation says benign; CoGA's newer release, pathogenic.
-    const reclassified = evaluateAcmg({ alt: 'G', clinvar: 'Benign', clinvar_coga: [coga] });
-    expect(find(reclassified, 'PP5')?.evidence).toBe(
-      'ClinVar (CoGA, 2026-11-22) reports Pathogenic (3 stars, reviewed by expert panel) for Synthetic disorder 1 — review before applying.',
-    );
-    expect(find(reclassified, 'BP6')?.evidence).toBe('ClinVar (CoGA, 2026-11-22) reports Pathogenic, not benign.');
-    // Not in the release: the annotation's.
-    const annotated = evaluateAcmg({
-      alt: 'G',
-      clinvar: 'Benign',
-      clinvar_coga: [{ ...coga, status: 'not_in_release', classification: null }],
-    });
-    expect(find(annotated, 'BP6')?.evidence).toBe('ClinVar reports Benign — review before applying.');
-    // Held only as part of a combination: no classification, neither criterion.
-    const combination = evaluateAcmg({
-      alt: 'G',
+  it("reads PP5 / BP6 from the variant's ClinVar, CoGA's release's, named plainly", () => {
+    const pathogenic = evaluateAcmg({
       clinvar: 'Pathogenic',
-      clinvar_coga: [{ ...coga, classification: null, included_only: true }],
+      clinvar_review_status: 'reviewed by expert panel',
+      clinvar_stars: 3,
+      clinvar_conditions: ['Synthetic disorder 1'],
     });
-    expect(codes(combination)).not.toContain('PP5');
-  });
-
-  it("names a ClinVar classification from VEP's cache as the cache's in the PP5 and BP6 evidence", () => {
-    const fromCache = evaluateAcmg({ clinvar: 'not_provided&pathogenic', clinvar_from_vep_cache: true });
-    expect(find(fromCache, 'PP5')?.evidence).toBe(
-      'ClinVar (VEP cache) reports not_provided&pathogenic — review before applying.',
+    expect(find(pathogenic, 'PP5')?.evidence).toBe(
+      'ClinVar reports Pathogenic (3 stars, reviewed by expert panel) for Synthetic disorder 1 — review before applying.',
     );
-    expect(find(fromCache, 'BP6')?.evidence).toBe('ClinVar (VEP cache) reports not_provided&pathogenic, not benign.');
+    expect(find(pathogenic, 'BP6')?.evidence).toBe('ClinVar reports Pathogenic, not benign.');
+    const benign = evaluateAcmg({ clinvar: 'Benign' });
+    expect(find(benign, 'BP6')?.evidence).toBe('ClinVar reports Benign — review before applying.');
+    expect(find(benign, 'PP5')?.evidence).toBe('ClinVar reports Benign, not pathogenic.');
+    // An allele the release does not hold has no ClinVar: neither criterion.
+    expect(codes(evaluateAcmg({ clinvar: null }))).not.toContain('PP5');
+    expect(codes(evaluateAcmg({ clinvar: null }))).not.toContain('BP6');
   });
 
   it('offers PVS1 for review where LOFTEE flags the call or NMD is predicted to be escaped', () => {
