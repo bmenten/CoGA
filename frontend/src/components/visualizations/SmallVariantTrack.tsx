@@ -10,7 +10,7 @@ import type {
 } from '../../lib/apiSchema.generated';
 import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { hasAltAllele } from '../../lib/genotypes';
-import { clinvarLabel } from '../../lib/clinvar';
+import { clinvarByTheRule } from '../../lib/clinvar';
 import { cssVar } from '../../lib/colors';
 import {
   SMALL_VARIANT_ALL_MARKS_MAX_SPAN,
@@ -431,6 +431,9 @@ const SmallVariantTrack: React.FC<Props> = ({
       .on('mouseout', () => setTooltip(null));
   }, [withPos, height, originMode, width, getVariantTagColor, emptyMessage, isLoading, isError]);
 
+  // The ClinVar the mark reads, named by its source (the design's one rule, B8).
+  const tooltipClinvar = tooltip ? clinvarByTheRule(tooltip.variant) : null;
+
   return (
     <div className="relative" style={{ width, height }}>
       <svg ref={svgRef} width={width} height={height} role="img" aria-label={chartLabel} />
@@ -450,9 +453,9 @@ const SmallVariantTrack: React.FC<Props> = ({
           {tooltip.variant.hgvsc ? <div>{tooltip.variant.hgvsc}</div> : null}
           {tooltip.variant.hgvsp ? <div>{tooltip.variant.hgvsp}</div> : null}
           {tooltip.variant.impact ? <div>Impact: {tooltip.variant.impact}</div> : null}
-          {tooltip.variant.clinvar ? (
+          {tooltipClinvar?.classification ? (
             <div>
-              {clinvarLabel(tooltip.variant.clinvar_from_vep_cache)}: {tooltip.variant.clinvar}
+              {tooltipClinvar.source}: {tooltipClinvar.classification}
             </div>
           ) : null}
           {tooltip.variant.review?.tags?.length ? (

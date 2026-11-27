@@ -562,6 +562,13 @@ CASES: dict[str, _Case] = {
     "salient only": _case(
         ALL - {MATERNAL_MNV, PATERNAL_SYNONYMOUS, UNANNOTATED, WITH_RSID}, salient_only=True
     ),
+    # With CoGA's release, ClinVar by the one rule (B8): the MNV it holds pathogenic is a diamond,
+    # the de novo missense it holds benign no longer salient for its MODERATE impact.
+    "salient only, CoGA's release where it holds the allele": _case(
+        ALL - {PATERNAL_SYNONYMOUS, UNANNOTATED, WITH_RSID, DE_NOVO_MISSENSE},
+        salient_only=True,
+        clinvar_coga_release=_COGA_RELEASE,
+    ),
     "salient only, in the track's window of a sample": _case(
         {
             DE_NOVO_MISSENSE, HIGH_OFF_MANE, MATERNAL_INSERTION, PATERNAL_DELETION, COMMON_PATHOGENIC,

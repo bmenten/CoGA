@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { clinvarClass } from '../clinvar';
+import { clinvarByTheRule, clinvarClass } from '../clinvar';
 
 describe('clinvarClass', () => {
   it.each([
@@ -52,4 +52,21 @@ describe('clinvarClass', () => {
       expect(clinvarClass(clinvar)).toBeUndefined();
     },
   );
+});
+
+describe('clinvarByTheRule', () => {
+  it("reads CoGA's own release where it holds the shown allele, else the annotation, named by its source", () => {
+    const held = { alt: 'A', status: 'in_release' as const, release: '2026-11-22', classification: 'Likely_pathogenic' };
+    expect(clinvarByTheRule({ alt: 'A', clinvar: 'Benign', clinvar_coga: [held] })).toEqual({
+      classification: 'Likely_pathogenic',
+      source: 'ClinVar (CoGA, 2026-11-22)',
+    });
+    expect(
+      clinvarByTheRule({ alt: 'A', clinvar: 'Benign', clinvar_coga: [{ ...held, status: 'not_in_release', classification: null }] }),
+    ).toEqual({ classification: 'Benign', source: 'ClinVar' });
+    expect(clinvarByTheRule({ alt: 'A', clinvar: 'pathogenic', clinvar_from_vep_cache: true })).toEqual({
+      classification: 'pathogenic',
+      source: 'ClinVar (VEP cache)',
+    });
+  });
 });
