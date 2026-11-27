@@ -24,7 +24,19 @@ from backend.app.services.clickhouse_variant_records import (
     StructuralVariantCall,
     StructuralVariantRecord,
 )
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+
+
+@pytest.fixture(autouse=True)
+def _no_clinvar_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No ClinVar release of CoGA's own: the status reads the annotation's ClinVar. The tests of
+    the release's reading give values of their own."""
+
+    async def no_release(_session, _assembly_name):
+        return NO_CLINVAR_COGA
+
+    monkeypatch.setattr(mitochondrial_analysis, "clinvar_coga_read", no_release)
 
 
 @pytest.fixture(autouse=True)
@@ -356,7 +368,7 @@ async def test_family_mitochondrial_analysis_count_only_coverage_without_variant
 def test_clinical_significance_reads_a_conflicting_record_as_uncertain(
     annotation: dict[str, str], expected: str
 ) -> None:
-    assert mitochondrial_analysis._clinical_significance(annotation) == expected
+    assert mitochondrial_analysis._clinical_significance(annotation, None) == expected
 
 
 def _three_generation_context() -> FamilyMetadataContext:
@@ -810,7 +822,7 @@ def test_an_overlap_variant_names_each_genes_consequence_and_the_primary_ones_lo
             },
         ]
     )
-    annotation = mitochondrial_analysis._annotation_for_record(record)
+    annotation = mitochondrial_analysis._annotation_for_record(record, clinvar_coga=None)
     # The primary entry, picked as every small-variant view picks it: the most severe.
     assert (annotation.gene, annotation.consequence, annotation.region) == ("MT-ATP8", "missense_variant", "MT-ATP8")
     assert [(entry.gene, entry.consequence) for entry in annotation.gene_consequences] == [
@@ -823,12 +835,12 @@ def test_an_overlap_variant_names_each_genes_consequence_and_the_primary_ones_lo
         0.92,
     )
     # A position in one gene names no per-gene list.
-    assert mitochondrial_analysis._annotation_for_record(_mt_record()).gene_consequences == []
+    assert mitochondrial_analysis._annotation_for_record(_mt_record(), clinvar_coga=None).gene_consequences == []
 
 
 def test_helixmtdb_frequencies_from_a_mutserve_table_are_served_apart() -> None:
     record = _overlap_record([{"gene": "MT-ATP6", "helix_af": "0.0003", "helix_af_het": "0.00001"}])
-    annotation = mitochondrial_analysis._annotation_for_record(record)
+    annotation = mitochondrial_analysis._annotation_for_record(record, clinvar_coga=None)
     assert (annotation.helix_af_hom, annotation.helix_af_het) == (0.0003, 0.00001)
     # The locus is the annotation's own gene's, where the position lies in two.
     assert annotation.region == "MT-ATP6"

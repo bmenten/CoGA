@@ -74,6 +74,7 @@ const termsOf = (classification?: string | null): Set<string> =>
 export interface ClinvarCogaValue {
   alt: string;
   status: 'in_release' | 'not_in_release' | 'no_release' | 'not_available';
+  release?: string | null;
   classification?: string | null;
   stars?: number | null;
 }
@@ -106,6 +107,25 @@ export const clinvarCogaOf = <T extends ClinvarCogaValue>(variant: {
   const values = variant.clinvar_coga ?? [];
   const shown = variant.alt_allele ?? variant.alt;
   return values.find((value) => value.alt === shown) ?? (values.length === 1 ? values[0] : undefined);
+};
+
+/**
+ * The design's one rule for the ClinVar readers of phase 2 (B8): a small variant's ClinVar is
+ * the classification in CoGA's own ClinVar release where it holds the shown allele, else the
+ * annotation's; with the name of the source it was read from (*ClinVar (CoGA, 2026-11-22)*,
+ * *ClinVar*, *ClinVar (VEP cache)*). The small-variant track marks and names a variant by it.
+ */
+export const clinvarByTheRule = (variant: {
+  alt?: string | null;
+  alt_allele?: string | null;
+  clinvar?: string | null;
+  clinvar_from_vep_cache?: boolean | null;
+  clinvar_coga?: ClinvarCogaValue[] | null;
+}): { classification: string | null; source: string } => {
+  const coga = clinvarCogaOf(variant);
+  return coga?.status === 'in_release'
+    ? { classification: coga.classification ?? null, source: clinvarCogaLabel(coga.release) }
+    : { classification: variant.clinvar ?? null, source: clinvarLabel(variant.clinvar_from_vep_cache) };
 };
 
 export const VEP_CACHE_CLINVAR_NOTE =
