@@ -125,6 +125,18 @@ The whole administration API is in `backend/app/routers/admin.py` (`/api/admin`)
     - **The data.** The imported data are kept; whatever depends on the changed details is marked as outdated in `families.metadata.derived_data_status`. Only `clear_existing_genomic_data` erases the data (the interface never sends it). The marking then says that the data were not kept, and the version row in `family_structure_versions` counts what was erased. The variants and tracks in ClickHouse go last, just before the commit, after every other write of the change. That way a change that fails earlier puts the family back with its variants and tracks.
     - **Traceable.** Each change to the pedigree becomes a new structure version (append-only and hash-chained per family) and a `pedigree` line in the clinical audit trail, with who made it and each changed member before and after (chapter 11).
 
+### ClinVar (CoGA)
+
+Beside the ClinVar from the annotation of each callset, CoGA loads a ClinVar release itself: per assembly (GRCh37, GRCh38) NCBI's weekly VCF. The page *Organisms and assemblies* (`/reference-data`) shows the current and the previous release under **ClinVar (CoGA)**. **Load newest** starts a load (`clinvar_load_jobs`); at startup and after an import of the assembly from UCSC that happens by itself for an assembly without a release (`REFERENCE_BOOTSTRAP_CLINVAR`).
+
+- The load looks for the newest weekly file NCBI lists. If that release is the current one already, the job ends `unchanged` and nothing is downloaded.
+- It refuses a download whose MD5 is not NCBI's, and a file whose `##fileDate` is not the date in its name or whose `##reference` is not the assembly.
+- Each record goes into the partition of its release in ClickHouse (`<assembly>/SNV_INDEL/clinvar`), keyed by the allele in minimal form. So an untrimmed or multi-allelic record of a callset finds ClinVar's anchored record.
+- Only when every row has been counted back and the release has no more than 5 % fewer records than the current one does it become the current one: recorded in `reference_dataset_imports`, with an event in the clinical audit trail `system:clinvar-releases`. Otherwise its partition is dropped and the current release stays.
+- ClickHouse keeps the current and the previous release.
+
+**Where in the code:** `backend/app/services/clinvar_load_jobs.py`, `clinvar_download.py`, `clinvar_vcf.py`, `clinvar_release_store.py` and `clinvar_releases.py`; the endpoints `/api/admin/clinvar/...`; `frontend/src/pages/reference/ClinvarReleasesPanel.tsx`. See [data-import.md](../../data-import.md#clinvar).
+
 ### ClickHouse maintenance
 
 Per assembly: the status of the tables, and maintenance actions behind a confirmation: creating or updating tables, merging parts (*optimize*), rebuilding the gene index of the small variants, and an integrity check (chapter 11). Without a check being started, the page also shows the last result of the scheduled integrity check per assembly and when it ran, or that it could not run (`GET /api/admin/clickhouse/variants/integrity-monitor`, administrators only).

@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .analysis_scope import analysis_holding
 from .clinical_audit_service import audit_actor, record_clinical_event
+from .clinvar_releases import current_clinvar_release
 from .family_analysis_types import family_analyses
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_package_records import UNSPECIFIED_ANALYSIS, analysis_label
@@ -93,6 +94,8 @@ _MODULE_LABELS: dict[str, str] = {
     # reference databases
     "clinvar": "ClinVar",
     "clinvar_vep_cache": "ClinVar (VEP cache)",
+    # The ClinVar release CoGA loaded itself (clinvar_load_jobs), beside the annotated one.
+    "clinvar_coga": "ClinVar (CoGA)",
     "gnomad": "gnomAD",
     "dbnsfp": "dbNSFP",
     "spliceai": "SpliceAI",
@@ -138,7 +141,7 @@ _MODULE_ORDER = list(_MODULE_LABELS)
 # The reference-layer modules `_platform_modules` looks up. A signed snapshot freezes this
 # list next to its modules, so that one of these missing from the record reads as "not
 # loaded when it was signed" rather than "not looked up by the software that signed it".
-REFERENCE_MODULE_KEYS: tuple[str, ...] = ("assembly", "gene_loci", "monarch", "hpo")
+REFERENCE_MODULE_KEYS: tuple[str, ...] = ("assembly", "gene_loci", "clinvar_coga", "monarch", "hpo")
 
 
 def _as_module(value: Any) -> dict[str, Any]:
@@ -231,6 +234,7 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
     """
     modules: dict[str, dict[str, Any]] = {}
     if assembly_id:
+        assembly_name: str | None = None
         try:
             async with session.begin_nested():
                 row = (
@@ -243,11 +247,27 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
                     )
                 ).mappings().first()
             if row:
+                assembly_name = str(row["assembly_name"])
                 detail = str(row["release_date"]) if row["release_date"] else (row["version"] or None)
-                modules["assembly"] = {"version": row["assembly_name"], "detail": detail}
+                modules["assembly"] = {"version": assembly_name, "detail": detail}
         except Exception:  # provenance must never break sign-out
             logger.warning("Reference-assembly provenance lookup failed", exc_info=True)
             modules["assembly"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
+            modules["clinvar_coga"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
+        # The ClinVar release CoGA loaded itself and every screen reads (clinvar_releases):
+        # its own key, as the pipeline's ClinVar module would otherwise stand in for it.
+        if assembly_name is not None:
+            try:
+                async with session.begin_nested():
+                    clinvar = await current_clinvar_release(session, assembly_name)
+                if clinvar is not None:
+                    modules["clinvar_coga"] = {
+                        "version": clinvar.release.isoformat(),
+                        "detail": "; ".join(part for part in (clinvar.source_version, clinvar.source_url) if part),
+                    }
+            except Exception:  # provenance must never break sign-out
+                logger.warning("ClinVar-release provenance lookup failed", exc_info=True)
+                modules["clinvar_coga"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
         # The gene loci CoGA itself loaded for the assembly (panel regions, gene tracks) and
         # where they came from: GENCODE, or the UCSC table used when GENCODE could not be
         # fetched. Distinct from the pipeline's own annotation version.

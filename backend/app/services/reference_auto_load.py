@@ -1,14 +1,15 @@
-"""The reference data an assembly gets without being asked: its clinical CNV knowledgebase and its
-DGV variants, for a GRCh37 or GRCh38 assembly that has neither yet.
+"""The reference data an assembly gets without being asked: its clinical CNV knowledgebase, its
+DGV variants and its ClinVar release, for a GRCh37 or GRCh38 assembly that has none of them yet.
 
 Adding an assembly from UCSC loads its cytobands and genes (``reference_source_service``). For
-an assembly the clinical CNV knowledgebase build knows, and one with a pinned DGV release, the
-import then queues the knowledgebase build (``clinical_cnv_kb_jobs``) and the DGV load
-(``dgv_load_jobs``) as the importing administrator; a start does the same for such an assembly
-already there, as no account (``REFERENCE_BOOTSTRAP_CLINICAL_CNVS``, ``REFERENCE_BOOTSTRAP_DGV``).
-Each runs in the background as the Reference page's rebuild and load buttons run it, and an
-assembly that already has the data gets nothing new: a later release is the administrator's
-step, on that page.
+an assembly the clinical CNV knowledgebase build knows, one with a pinned DGV release, and one
+ClinVar publishes a VCF for, the import then queues the knowledgebase build
+(``clinical_cnv_kb_jobs``), the DGV load (``dgv_load_jobs``) and the ClinVar load
+(``clinvar_load_jobs``) as the importing administrator; a start does the same for such an
+assembly already there, as no account (``REFERENCE_BOOTSTRAP_CLINICAL_CNVS``,
+``REFERENCE_BOOTSTRAP_DGV``, ``REFERENCE_BOOTSTRAP_CLINVAR``). Each runs in the background as the
+Reference page's rebuild and load buttons run it, and an assembly that already has the data gets
+nothing new: a later release is the administrator's step, on that page.
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from ..core.coga_logging import describe_error
 from ..core.config import DGV_PINNED_RELEASES, settings
 from .access_control import CurrentUser
 from .clinical_cnv_kb_jobs import KNOWLEDGEBASE_ASSEMBLIES, queue_clinical_cnv_kb_rebuild_if_missing
+from .clinvar_load_jobs import queue_clinvar_load_if_missing
+from .clinvar_releases import CLINVAR_ASSEMBLY_FOLDERS
 from .dgv_load_jobs import queue_dgv_load_if_missing
 
 logger = logging.getLogger(__name__)
@@ -35,9 +38,11 @@ async def queue_missing_reference_loads(
     requested_by: CurrentUser | None,
     clinical_cnvs: bool = True,
     dgv: bool = True,
+    clinvar: bool = True,
 ) -> list[str]:
-    """Queue the clinical CNV knowledgebase build and the DGV load for the assembly, each only if
-    it has none of that data yet, and return what was started (or why not) as sentences."""
+    """Queue the clinical CNV knowledgebase build, the DGV load and the ClinVar load for the
+    assembly, each only if it has none of that data yet, and return what was started (or why
+    not) as sentences."""
     notes: list[str] = []
     if clinical_cnvs:
         _job, note = await queue_clinical_cnv_kb_rebuild_if_missing(
@@ -47,6 +52,12 @@ async def queue_missing_reference_loads(
             notes.append(note)
     if dgv:
         _dgv_job, note = await queue_dgv_load_if_missing(
+            session, assembly_name=assembly_name, requested_by=requested_by
+        )
+        if note:
+            notes.append(note)
+    if clinvar:
+        _clinvar_job, note = await queue_clinvar_load_if_missing(
             session, assembly_name=assembly_name, requested_by=requested_by
         )
         if note:
@@ -67,10 +78,14 @@ async def queue_startup_reference_loads(session: AsyncSession) -> None:
     rebuild and the load."""
     if not settings.reference_bootstrap_enabled:
         return
-    if not (settings.reference_bootstrap_clinical_cnvs or settings.reference_bootstrap_dgv):
+    if not (
+        settings.reference_bootstrap_clinical_cnvs
+        or settings.reference_bootstrap_dgv
+        or settings.reference_bootstrap_clinvar
+    ):
         return
     names = sorted(
-        set(KNOWLEDGEBASE_ASSEMBLIES) | set(DGV_PINNED_RELEASES),
+        set(KNOWLEDGEBASE_ASSEMBLIES) | set(DGV_PINNED_RELEASES) | set(CLINVAR_ASSEMBLY_FOLDERS),
         key=lambda name: (name != settings.reference_bootstrap_assembly_name, name),
     )
     try:
@@ -89,6 +104,7 @@ async def queue_startup_reference_loads(session: AsyncSession) -> None:
                 requested_by=None,
                 clinical_cnvs=settings.reference_bootstrap_clinical_cnvs,
                 dgv=settings.reference_bootstrap_dgv,
+                clinvar=settings.reference_bootstrap_clinvar,
             )
         except Exception as exc:  # noqa: BLE001 - a start never stops on it; logged by type
             logger.error("Could not queue the reference data %s lacks (%s)", name, describe_error(exc))

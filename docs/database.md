@@ -30,7 +30,7 @@ baseline files. How to read them:
 
 | Baseline | Columns that name an account, not drawn |
 | --- | --- |
-| `02_reference.sql` | `gene_info_refresh_jobs.requested_by_id`, `clinical_cnv_kb_jobs.requested_by_id`, `dgv_load_jobs.requested_by_id`, `gene_panel_versions.created_by`, `repeat_locus_count_units.updated_by` |
+| `02_reference.sql` | `gene_info_refresh_jobs.requested_by_id`, `clinical_cnv_kb_jobs.requested_by_id`, `dgv_load_jobs.requested_by_id`, `clinvar_load_jobs.requested_by_id`, `gene_panel_versions.created_by`, `repeat_locus_count_units.updated_by` |
 | `03_assay.sql` | `family_statuses.created_by`, `families.assigned_to_id`, `families.reviewed_by_id`, `family_structure_versions.created_by`, `family_import_jobs.requested_by_id`, `import_delivery_revisions.created_by`, `nipt_artifact_variants.created_by`, `qc_threshold_profiles.created_by`, `qc_thresholds.updated_by`, `qc_threshold_changes.changed_by` |
 
 The core: who sees what. A user reaches a family or a sample through the projects it is linked
@@ -138,6 +138,7 @@ erDiagram
     assemblies ||--o{ clinical_cnv_kb_jobs : "assembly_id (cascade)"
     assemblies ||--o{ dgv_variants : "assembly_id (cascade)"
     assemblies ||--o{ dgv_load_jobs : "assembly_id (cascade)"
+    assemblies ||--o{ clinvar_load_jobs : "assembly_id (cascade)"
     assemblies ||--o{ reference_dataset_imports : "assembly_id (cascade)"
 
     genes {
@@ -190,6 +191,12 @@ erDiagram
         uuid assembly_id FK
         text release
         text status "queued, running, completed or failed"
+    }
+    clinvar_load_jobs {
+        uuid id PK
+        uuid assembly_id FK
+        date release
+        text status "queued, running, completed, unchanged or failed"
     }
     reference_dataset_imports {
         uuid id PK
@@ -300,6 +307,7 @@ erDiagram
 | `clinical_cnv_kb_jobs` | admin-triggered rebuilds of the clinical CNV knowledgebase, per assembly: status (`queued`, `running`, `completed` or `failed`), rows inserted, the error (for a failed build, the last reason it gave) and the tail of the build log. At most one job is queued or running (`idx_clinical_cnv_kb_jobs_one_active`, a unique index on a constant). `worker_id` and `heartbeat_at` mark the worker running a job; a job whose heartbeat is ten minutes old is closed as failed. `requested_by_id` is the account that asked for the rebuild. The rebuild runs, and loads what it built, only while that account is an active administrator, checked at the start and before the load; otherwise it ends `failed`, with the reason, and loads nothing. `requested_by` is the e-mail address it was asked under, shown with the job. Deleting the account keeps the job, linked to no account; it can then no longer run. |
 | `dgv_variants` | Database of Genomic Variants entries per assembly, with a gain, loss, mixed or other class |
 | `dgv_load_jobs` | loads of the pinned DGV release for an assembly (`DGV_PINNED_RELEASES`), asked for on the Reference page or queued by a start or an assembly import: release, source URL, status (`queued`, `running`, `completed` or `failed`), the download's progress (`bytes_read` of `bytes_total`), rows inserted and the error. As for `clinical_cnv_kb_jobs`: at most one job queued or running (`idx_dgv_load_jobs_one_active`), `worker_id` and `heartbeat_at` mark its worker and a job silent for ten minutes is closed as failed, and an administrator's load (`requested_by_id`) runs and commits only while that account is an active administrator. A load a start queues is `startup-bootstrap`'s, no account's. A load commits nothing unless the whole file is the pinned one ([data-import.md](data-import.md#dgv)) |
+| `clinvar_load_jobs` | loads of ClinVar's newest weekly VCF for an assembly into the ClickHouse table `SNV_INDEL/clinvar` (below), asked for on the Reference page or queued by a start or an assembly import: the release and file the job found NCBI's newest (`release`, `source_url`), NCBI's MD5 of it (`source_md5`) and the SHA-256 CoGA computed (`source_sha256`), status (`queued`, `running`, `completed`, `unchanged` when NCBI's newest release was current already, or `failed`), the download's progress (`bytes_read` of `bytes_total`), the records read and stored, those skipped by their reason (`records_skipped`) and the error. As for `dgv_load_jobs`: at most one job queued or running (`idx_clinvar_load_jobs_one_active`), a worker with a heartbeat, a job silent for ten minutes closed as failed, and an administrator's load run and released only while that account is an active administrator. A release is released, that is recorded in `reference_dataset_imports` and made current, only once it is stored and checked whole ([data-import.md](data-import.md#clinvar)) |
 | `segmental_duplications` | segmental duplications and low-copy repeats per assembly |
 | `gene_panels`, `gene_panel_genes` | panels and their gene lists. An external panel's `source` and `external_id` (the PanelApp panel's id; `mendeliome` for the Mendeliome) say where it comes from, and `external_selection` which part of it the panel holds: for a PanelApp panel, the confidence levels it was imported with, lowest first (`3` green only, `2,3` green and amber, `1,2,3` green, amber and red). Each choice of levels of one PanelApp panel is a panel of its own, with its own name, versions and genes: `idx_gene_panels_source_external_selection` holds one panel per source, external id and selection (NULL equal to NULL, so there is one Mendeliome). A panel names each gene (`gene`) by its HGNC symbol or by its Ensembl gene ID (`ENSG` and eleven digits, without a version): a gene added by hand as typed, a PanelApp gene by the ID PanelApp gives it, a Mendeliome gene by its symbol. For an ID, `symbol` holds the HGNC symbol the gene reference gives that gene (that of its first loaded assembly, GRCh38 before T2T before GRCh37), or the source panel's for an ID no loaded assembly knows; a CHECK keeps `symbol` NULL for any other gene. A symbol that names the gene of one of the panel's IDs is that gene, kept once, by its ID |
 | `gene_panel_regions` | a panel's coordinates, one row per gene (or PanelApp region) per assembly (below) |
@@ -365,6 +373,10 @@ source states about itself:
   [data-import.md](data-import.md)).
 - A DGV load records the pinned release, the file and its SHA-256 (`2025-12-01
   (GRCh38_hg38_variants_2025-12-01.txt, SHA-256 …)`), and the release's date.
+- A ClinVar load (`dataset_type = 'clinvar'`) records the release, the file and its SHA-256
+  (`2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 …)`), the release's date (from the file name,
+  which its `##fileDate` must equal), the URL and the rows stored. The assembly's newest ClinVar
+  row is its current ClinVar release (`clinvar_releases.py`).
 - An assembly's cytobands from UCSC record the table read as published that day by file name
   and SHA-256 (`read as published: UCSC cytobands: cytoBandIdeo.txt.gz, SHA-256 …`), or, when
   UCSC could not serve it, the shipped backup by name, the day it was taken and SHA-256
@@ -1150,6 +1162,7 @@ names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
 | `SNV_INDEL/carriers` | the Variant Explorer's carrier summary: per variant, the carriers each family adds, kept as the families' rows are written (below, "The variant carrier summary") |
 | `SNV_INDEL/carrier_generations` | what each family's contribution to the carrier summary was computed from |
+| `SNV_INDEL/clinvar` | the ClinVar releases CoGA loaded (`clinvar_release_store.py`): one row per allele of a release, `PARTITION BY release`, `ORDER BY allele_key`, the key of the allele in its minimal form (`clickhouse_variant_ids.small_allele_key`). Each row holds ClinVar's values as published: the classification (CLNSIG) with its terms as the import stores the annotated ClinVar's (`classification_terms`, by `_status_terms`), the conflicting classifications, the review status as words, the conditions, the genes, VariationID and AlleleID, and `included_only` for a variant classified only as part of a combination. Created by the first ClinVar load of the assembly. A release is written into its own partition and removed by dropping it, never by a mutation; the current release and the one before it are kept, and Postgres says which is current ([data-import.md](data-import.md#clinvar)) |
 | `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the SVLEN its caller wrote (`svLen`; the SV length filters measure it), the full annotation. A call written as a sequence allele without SVLEN (VCF 4.4 writes it `.`) is stored with the length its alleles state, len(ALT) − len(REF), negative for a deletion; any other call without SVLEN is stored with none and measured by END − POS. Sorted by the family, then the key (`family_guid, key`), and every read filters the family, so it reads the family's own rows: the SV page and an SV's classification evidence the details of the keys of the `entries` rows of their scope (`_structural_row_details`), the write path's read of a family's stored SVs (`fetch_family_structural_variant_rows`) those of its rows. A key is a hash: sorted by the key alone, one family's SVs would lie across the whole table, and a family's page would read about a granule per SV |
 | `SV/key_lookup` | maps a family's variant ids, per source, to their internal keys |
 | `SV/entries` | the structural-variant calls per family and sample |

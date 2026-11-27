@@ -29,6 +29,14 @@ _STARS: tuple[tuple[str, int], ...] = (
 _CONDITION_SEPARATORS = re.compile(r"[|&]")
 
 
+def clinvar_review_status_words(status: str) -> str:
+    """A review status as words: ClinVar writes ``criteria_provided,_multiple_submitters,_no_conflicts``
+    (VEP its commas as ``&``), read as ``criteria provided, multiple submitters, no conflicts``.
+    The annotation's status and a ClinVar release's are read so, and compare as equal."""
+    words = re.sub(r"\s+", " ", status.replace("&", ",").replace("_", " "))
+    return re.sub(r"\s*,\s*", ", ", words).strip(" ,")
+
+
 def clinvar_stars(review_status: Any) -> int | None:
     """The stars ClinVar gives a review status (0–4); None without one, or for a status it
     does not list."""

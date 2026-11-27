@@ -6,9 +6,13 @@ page is an administrator's alone.
 ### Reference data
 
 - **Species & assemblies** — the genome builds and their reference data (cytobands, genes, clinical
-  CNVs, segmental duplications, DGV), with each dataset's status. Refresh the human gene information,
-  rebuild the clinical-CNV knowledgebase, load the pinned DGV release, or upload a reference file.
-  Adding GRCh37 or GRCh38 starts the clinical-CNV build and the DGV load for it. CoGA holds one
+  CNVs, segmental duplications, DGV), with each dataset's status, and under **ClinVar (CoGA)** the
+  current and the previous ClinVar release CoGA loaded for GRCh37 and GRCh38. Refresh the human gene
+  information, rebuild the clinical-CNV knowledgebase, load the pinned DGV release or ClinVar's newest
+  weekly release (**Load newest**), or upload a reference file. A ClinVar release becomes current only
+  once its file matches NCBI's MD5, names its release and assembly, and is stored and counted whole;
+  otherwise the page says why and the current release stays. Adding GRCh37 or GRCh38 starts the
+  clinical-CNV build, the DGV load and the ClinVar load for it. CoGA holds one
   assembly per name: importing one it holds updates it in place (tick *Replace existing cytobands and
   genes* while it holds them), and **Add assembly** refuses a name that exists.
 - **Gene panels** — the panel catalogue: create panels, import them from PanelApp, and see their genes.

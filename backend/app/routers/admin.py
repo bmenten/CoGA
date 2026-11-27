@@ -23,6 +23,9 @@ from ..schemas import (
     ClinicalCnvKbJobOut,
     ClinicalCnvKbRebuildRequest,
     ClinicalCnvKbStatusOut,
+    ClinvarLoadJobOut,
+    ClinvarLoadRequest,
+    ClinvarLoadStatusOut,
     DgvLoadJobOut,
     DgvLoadRequest,
     DgvLoadStatusOut,
@@ -125,6 +128,7 @@ from ..services.clinical_cnv_kb_jobs import (
     get_clinical_cnv_kb_status,
     queue_clinical_cnv_kb_rebuild,
 )
+from ..services.clinvar_load_jobs import get_clinvar_load_status, queue_clinvar_load
 from ..services.dgv_load_jobs import get_dgv_load_status, queue_dgv_load
 from ..services.hpo_release_download import (
     HpoReleaseUnavailable,
@@ -1101,6 +1105,26 @@ async def request_dgv_load(
     """Load the DGV release pinned for the assembly, replacing its DGV variants once the whole
     file has been read and checked."""
     return await queue_dgv_load(session, assembly=request.assembly, requested_by=user)
+
+
+@router.get("/clinvar/status", response_model=ClinvarLoadStatusOut)
+async def get_clinvar_load_status_route(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> ClinvarLoadStatusOut:
+    del user
+    return await get_clinvar_load_status(session)
+
+
+@router.post("/clinvar/load", response_model=ClinvarLoadJobOut)
+async def request_clinvar_load(
+    request: ClinvarLoadRequest,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> ClinvarLoadJobOut:
+    """Load ClinVar's newest weekly VCF for the assembly; it becomes the current ClinVar release
+    once the whole file has been read, stored and checked."""
+    return await queue_clinvar_load(session, assembly=request.assembly, requested_by=user)
 
 
 @router.post("/clinical-cnv-kb/rebuild", response_model=ClinicalCnvKbJobOut)

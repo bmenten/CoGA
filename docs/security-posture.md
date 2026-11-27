@@ -64,8 +64,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   - an import job keeps its requester (`family_import_jobs.requested_by_id`); the worker runs
     the import as that account while it is an active superuser or administrator (*Session
     tokens*, below);
-  - so do a gene-reference refresh, a clinical CNV knowledgebase rebuild and a DGV load
-    (`requested_by_id` on `gene_info_refresh_jobs`, `clinical_cnv_kb_jobs` and `dgv_load_jobs`);
+  - so do a gene-reference refresh, a clinical CNV knowledgebase rebuild, a DGV load and a
+    ClinVar load (`requested_by_id` on `gene_info_refresh_jobs`, `clinical_cnv_kb_jobs`,
+    `dgv_load_jobs` and `clinvar_load_jobs`);
   - a user's filter presets belong to the account (`owner_id`).
 
   A changed address or user name keeps them the user's. An account that later signs in with an
@@ -439,6 +440,9 @@ address:
 - a DGV load (`dgv_load_jobs._run_job`) is checked as it starts and again before it commits.
   Nothing is committed, and the DGV variants from before stay. The load a start queues
   (`startup-bootstrap`) is no account's, and runs.
+- a ClinVar load (`clinvar_load_jobs._run_job`) is checked as it starts and again before it
+  releases its release. Its partition is dropped, and the current ClinVar release stays. The load
+  a start queues (`startup-bootstrap`) is no account's, and runs.
 
 An import or a refresh already running when its account is deactivated or demoted runs to its
 end: the account is checked as it starts, and stopping an import part-way would leave its

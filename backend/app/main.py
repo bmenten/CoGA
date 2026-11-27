@@ -104,9 +104,6 @@ async def lifespan(app: FastAPI):
         await ensure_human_grch38_reference_on_startup(session)
         # Opt-in second assembly; never blocks startup if it fails.
         await ensure_human_t2t_reference_on_startup(session)
-        # The clinical CNV knowledgebase and the pinned DGV release for a GRCh37/GRCh38 assembly
-        # that has none yet, built and loaded in the background; never blocks startup.
-        await queue_startup_reference_loads(session)
         # On an empty database: HPO's newest release, downloaded; the vendored one as the backup.
         await ensure_hpo_ontology_on_startup(
             session,
@@ -124,6 +121,11 @@ async def lifespan(app: FastAPI):
     # An overwrite import's backup tables (a copy of the family's earlier variant rows)
     # that no running import owns: left by an import whose process stopped. Best-effort.
     await drop_orphaned_import_backups()
+    # The clinical CNV knowledgebase, the pinned DGV release and ClinVar's newest release for a
+    # GRCh37/GRCh38 assembly that has none yet, built and loaded in the background once
+    # ClickHouse, which the ClinVar release is stored in, is ready; never blocks startup.
+    async with session_factory() as session:
+        await queue_startup_reference_loads(session)
     await start_clickhouse_integrity_monitor()
     worker_task = asyncio.create_task(gene_reference_refresh_worker(worker_stop))
     family_import_worker_tasks = [

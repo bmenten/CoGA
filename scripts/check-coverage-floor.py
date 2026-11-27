@@ -54,9 +54,16 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/clickhouse_variant_storage.py": 95.0,  # (98.0, 2026-11-03; also floored combined)
     "backend/app/services/clinical_audit_service.py": 96.0,  # (99.7, 2026-11-03)
     "backend/app/services/clinical_cnv_kb_jobs.py": 96.0,  # (99.4, 2026-11-03)
+    # (97.2 measured locally: NCBI's newest weekly ClinVar VCF found, and downloaded with
+    # its MD5 and SHA-256)
+    "backend/app/services/clinvar_download.py": 94.0,
+    # (100.0 measured locally: the ClinVar releases recorded per assembly, the current first)
+    "backend/app/services/clinvar_releases.py": 97.0,
     # (100.0 measured locally: ClinVar's review status as stars, and its
     # conditions as a list)
     "backend/app/services/clinvar_review_status.py": 97.0,
+    # (94.7 measured locally: ClinVar's VCF read into a release's rows, its header checked)
+    "backend/app/services/clinvar_vcf.py": 91.0,
     # (97.6 measured locally: the conventional NIPT's result rule)
     "backend/app/services/cnipt_result.py": 94.0,
     # (96.9 measured locally: the conventional NIPT's result for a family)
@@ -180,6 +187,10 @@ COMBINED_FLOORS: dict[str, float] = {
     "backend/app/services/clickhouse_family_variants.py": 90.0,  # (93.9, 2026-11-03)
     "backend/app/services/clickhouse_variant_storage.py": 96.0,  # (99.2, 2026-11-03)
     "backend/app/services/clinical_audit_service.py": 96.0,  # (99.7, 2026-11-03)
+    # (93.1 and 100.0 measured locally: a ClinVar release's load, whose job rows, release and
+    # partitions the smoke job's real Postgres and ClickHouse run)
+    "backend/app/services/clinvar_load_jobs.py": 90.0,
+    "backend/app/services/clinvar_release_store.py": 97.0,
     "backend/app/services/family_package_datasets.py": 83.0,  # (86.7, 2026-11-03)
     "backend/app/services/family_package_import.py": 93.0,  # (96.0)
     "backend/app/services/family_package_jobs.py": 96.0,  # (99.3, 2026-11-03)

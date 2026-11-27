@@ -183,6 +183,42 @@ def small_variant_key(assembly_name: str, variant_id: str) -> int:
     return _stable_uint64("small", assembly_name, variant_id)
 
 
+# The bases an allele CoGA keys is written in: a symbolic ALT (``<DEL>``), a spanning
+# deletion (``*``) or a missing one (``.``) names no allele to match.
+_ALLELE_BASES = frozenset("ACGTN")
+
+
+def minimal_allele_id(chrom: str, pos: int, ref: str, alt: str) -> str | None:
+    """One ALT of a record in its minimal form, without a reference genome, as
+    ``chrom-pos-ref-alt``: the chromosome canonical (``chr`` taken off, ``MT`` as ``M``), the
+    bases upper case, then the suffix REF and ALT share taken off, then the prefix they share
+    taken off down to one anchor base, the position moving with it. The second ALT of
+    ``1 100 AT A,ATT`` is ``1-100-A-AT``, as ClinVar writes that allele.
+
+    None for an ALT that is no sequence of bases (symbolic, ``*``, ``.``), or a REF that is
+    none. The form is not left-aligned: that needs the reference genome."""
+    ref, alt = ref.strip().upper(), alt.strip().upper()
+    if not ref or not alt or not set(ref) <= _ALLELE_BASES or not set(alt) <= _ALLELE_BASES:
+        return None
+    while len(ref) > 1 and len(alt) > 1 and ref[-1] == alt[-1]:
+        ref, alt = ref[:-1], alt[:-1]
+    start = int(pos)
+    while len(ref) > 1 and len(alt) > 1 and ref[0] == alt[0]:
+        ref, alt, start = ref[1:], alt[1:], start + 1
+    canonical = normalize_chromosome(chrom)
+    if canonical.upper() in {"M", "MT"}:
+        canonical = "M"
+    return build_small_variant_id(canonical, start, ref, alt)
+
+
+def small_allele_key(assembly_name: str, allele_id: str) -> int:
+    """The key of one allele in its minimal form (:func:`minimal_allele_id`): the same for a
+    family's row and a ClinVar record of that allele, however each writes it. Unlike
+    :func:`small_variant_key`, which hashes the record as the VCF writes it, it joins a record
+    to a ClinVar release."""
+    return _stable_uint64("allele", assembly_name, allele_id)
+
+
 def structural_variant_key(
     assembly_name: str, family_uuid: str, variant_id: str, *, source: str
 ) -> int:

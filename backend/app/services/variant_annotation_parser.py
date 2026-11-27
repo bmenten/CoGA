@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
+from .clinvar_review_status import clinvar_review_status_words
+
 
 @dataclass
 class AnnotationHeaderState:
@@ -767,8 +769,7 @@ def _tidy_clinvar(annotation: Dict[str, Any]) -> None:
     VariationID kept only as one: VEP --custom's ID field holds the matched record's ID."""
     status = annotation.get("clinvar_review_status")
     if isinstance(status, str):
-        words = re.sub(r"\s+", " ", status.replace("&", ",").replace("_", " "))
-        annotation["clinvar_review_status"] = re.sub(r"\s*,\s*", ", ", words).strip(" ,")
+        annotation["clinvar_review_status"] = clinvar_review_status_words(status)
     variation_id = annotation.get("clinvar_variation_id")
     if variation_id is not None and not _CLINVAR_VARIATION_ID.fullmatch(str(variation_id).strip()):
         annotation.pop("clinvar_variation_id")

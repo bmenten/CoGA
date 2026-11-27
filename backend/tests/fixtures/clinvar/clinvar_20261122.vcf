@@ -1,0 +1,23 @@
+##fileformat=VCFv4.1
+##fileDate=2026-11-22
+##source=ClinVar
+##reference=GRCh38
+##ID=<Description="ClinVar Variation ID">
+##INFO=<ID=ALLELEID,Number=1,Type=Integer,Description="the ClinVar Allele ID">
+##INFO=<ID=CLNDN,Number=.,Type=String,Description="ClinVar's preferred disease name">
+##INFO=<ID=CLNREVSTAT,Number=.,Type=String,Description="ClinVar review status">
+##INFO=<ID=CLNSIG,Number=.,Type=String,Description="Aggregate germline classification">
+##INFO=<ID=CLNSIGCONF,Number=.,Type=String,Description="Conflicting germline classification">
+##INFO=<ID=CLNSIGINCL,Number=.,Type=String,Description="Germline classification for a haplotype or genotype that includes this variant">
+##INFO=<ID=GENEINFO,Number=1,Type=String,Description="Gene(s) for the variant">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	1000100	900001	G	A	.	.	ALLELEID=910001;CLNDN=Synthetic_disorder_1;CLNREVSTAT=criteria_provided,_multiple_submitters,_no_conflicts;CLNSIG=Pathogenic;GENEINFO=SYNG1:1001
+1	1000200	900002	AG	A	.	.	ALLELEID=910002;CLNDN=Synthetic_disorder_1|not_provided;CLNREVSTAT=reviewed_by_expert_panel;CLNSIG=Likely_pathogenic;GENEINFO=SYNG1:1001|SYNG2:1002
+1	1000300	900003	A	AT	.	.	ALLELEID=910003;CLNDN=Synthetic_disorder_2;CLNREVSTAT=criteria_provided,_conflicting_classifications;CLNSIG=Conflicting_classifications_of_pathogenicity;CLNSIGCONF=Pathogenic(1)|Uncertain_significance(2);GENEINFO=SYNG2:1002
+2	2000100	900004	C	T	.	.	ALLELEID=910004;CLNDN=not_specified;CLNREVSTAT=criteria_provided,_single_submitter;CLNSIG=Benign/Likely_benign;GENEINFO=SYNG3:1003
+2	2000200	900005	T	C	.	.	ALLELEID=910005;CLNREVSTAT=no_classification_for_the_single_variant;CLNSIGINCL=900099:Pathogenic;GENEINFO=SYNG3:1003
+X	3000100	900006	G	C	.	.	ALLELEID=910006;CLNDN=Synthetic%2C_X-linked_disorder;CLNREVSTAT=practice_guideline;CLNSIG=Pathogenic/Likely_pathogenic|risk_factor;GENEINFO=SYNGX:1010
+MT	3243	900007	A	G	.	.	ALLELEID=910007;CLNDN=Synthetic_mitochondrial_disorder;CLNREVSTAT=criteria_provided,_single_submitter;CLNSIG=Pathogenic;GENEINFO=MT-SYN1:4500
+3	4000100	900008	G	.	.	.	ALLELEID=910008;CLNREVSTAT=no_assertion_criteria_provided;CLNSIG=Uncertain_significance
+3	4000200	900009	G	<DEL>	.	.	ALLELEID=910009;CLNREVSTAT=no_assertion_criteria_provided;CLNSIG=Uncertain_significance
+3	4000300	900010	CTT	CT	.	.	ALLELEID=910010;CLNDN=Synthetic_disorder_3;CLNREVSTAT=criteria_provided,_single_submitter;CLNSIG=Uncertain_significance;GENEINFO=SYNG4:1004
