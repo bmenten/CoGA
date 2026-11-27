@@ -191,6 +191,8 @@ _COLUMNS = (
     "tags",
     "tag_metadata",
     "note",
+    "note_updated_by",
+    "note_updated_at",
     *small_variant_review_repository._compound_het_clear_payload(),
     "acmg",
     "acmg_point_total",
@@ -211,6 +213,8 @@ def _review(variant_id: str, analysis: str, **fields: Any) -> dict[str, Any]:
         "tags": [],
         "tag_metadata": {},
         "note": None,
+        "note_updated_by": None,
+        "note_updated_at": None,
         **small_variant_review_repository._compound_het_clear_payload(),
         "acmg": None,
         "acmg_point_total": None,
@@ -505,6 +509,7 @@ class _SvStore:
         elif sql.startswith("UPDATE structural_variant_reviews"):
             self.rows[params["review_id"]].update(
                 classification=params["classification"], note=params["note"], updated_at=params["updated_at"],
+                note_updated_by=params["note_updated_by"], note_updated_at=params["note_updated_at"],
                 tags=json.loads(params["tags_json"]),
             )
         elif sql.startswith("DELETE FROM structural_variant_reviews"):
@@ -520,6 +525,8 @@ class _SvStore:
                 "tags": json.loads(params["tags_json"]),
                 "tag_metadata": {},
                 "note": params["note"],
+                "note_updated_by": params["note_updated_by"],
+                "note_updated_at": params["note_updated_at"],
                 "cnv_acmg": None,
                 "cnv_point_total": None,
                 "cnv_class": None,
@@ -567,6 +574,8 @@ def _sv_row(analysis: str, **fields: Any) -> dict[str, Any]:
         "tags": [],
         "tag_metadata": {},
         "note": None,
+        "note_updated_by": None,
+        "note_updated_at": None,
         "cnv_acmg": None,
         "cnv_point_total": None,
         "cnv_class": None,

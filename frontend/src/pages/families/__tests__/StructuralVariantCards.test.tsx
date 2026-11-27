@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import StructuralVariantCards from '../StructuralVariantCards';
 import { ACMG_CLASSIFICATION_LABELS, type SmallVariantReview } from '../smallVariantSearch';
 import type { StructuralVariant } from '../structuralVariantSearch';
+import { formatDateTime } from '../../../lib/format';
 import { BUILT_IN_REVIEW_TAGS } from '../../../test/tagDefinitions';
 import { review, structuralVariant } from '../../../test/variants';
 import reviewClassCases from './fixtures/review-class-cases.json';
@@ -240,6 +241,25 @@ describe('StructuralVariantCards review class', () => {
     expect(within(tagRow).getByText('VUS — warm')).toBeInTheDocument();
     expect(within(tagRow).getByText('Secondary finding')).toBeInTheDocument();
     expect(classesOn(card, 'VUS - class 3')).toEqual(['VUS - class 3']);
+  });
+
+  it('puts the tags and the note first under the heading, each with who wrote it and when', () => {
+    const { container } = renderReview({
+      tags: ['secondary_finding'],
+      tag_metadata: { secondary_finding: { updated_by: 'supervisor', updated_at: '2026-11-21T10:00:00Z' } },
+      note: 'Breakpoints checked in IGV.',
+      note_updated_by: 'analyst',
+      note_updated_at: '2026-11-22T11:00:00Z',
+    });
+    const card = container.querySelector('article') as HTMLElement;
+    const block = card.querySelector('.variant-card-review') as HTMLElement;
+    expect(card.querySelector('.variant-card-head')?.nextElementSibling).toBe(block);
+    expect(block.querySelector('.variant-card-review-tags')).toHaveTextContent(
+      `Secondary findingsupervisor · ${formatDateTime('2026-11-21T10:00:00Z')}`,
+    );
+    expect(within(block).getByText('Breakpoints checked in IGV.')).toHaveTextContent(
+      `Breakpoints checked in IGV. analyst · ${formatDateTime('2026-11-22T11:00:00Z')}`,
+    );
   });
 
   it('shows no class tag but the class shown’s own in its tag row', () => {

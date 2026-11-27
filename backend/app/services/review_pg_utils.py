@@ -319,3 +319,20 @@ def _merge_tag_metadata(
                 "updated_at": timestamp,
             }
     return merged
+
+
+def _note_authorship(
+    *,
+    existing: Mapping[str, Any] | None,
+    note: str | None,
+    username: str,
+    timestamp: datetime,
+) -> dict[str, Any]:
+    """Who wrote the review's ``note`` and when: a note the review held as it is keeps its
+    author, a note the save writes or changes is this save's, and no note has none (the
+    tables' ``*_note_author_check``)."""
+    if note is None:
+        return {"note_updated_by": None, "note_updated_at": None}
+    if existing is not None and existing.get("note") == note:
+        return {"note_updated_by": existing["note_updated_by"], "note_updated_at": existing["note_updated_at"]}
+    return {"note_updated_by": username, "note_updated_at": timestamp}

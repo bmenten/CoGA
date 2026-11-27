@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SmallVariantCards from '../SmallVariantCards';
 import { ACMG_CLASSIFICATION_LABELS, type SmallVariant, type SmallVariantReview } from '../smallVariantSearch';
 import api from '../../../lib/api';
+import { formatDateTime } from '../../../lib/format';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import { BUILT_IN_REVIEW_TAGS } from '../../../test/tagDefinitions';
 import { genotype, review, smallVariant, svSecondHit, transcript } from '../../../test/variants';
@@ -1717,6 +1718,40 @@ describe('SmallVariantCards review class', () => {
       // In the heading, a class shown from its class tag alone too.
       expect(within(card.querySelector('.variant-card-headtags') as HTMLElement).getByText(shown)).toBeInTheDocument();
     }
+  });
+
+  it('puts the tags and the note first under the heading, each with who wrote it and when', () => {
+    const { container } = renderReview({
+      tags: ['acmg_vus_warm', 'secondary_finding', 'segregates'],
+      tag_metadata: {
+        acmg_vus_warm: { updated_by: 'supervisor', updated_at: '2026-11-21T10:00:00Z' },
+        secondary_finding: { updated_by: 'supervisor', updated_at: '2026-11-21T10:00:00Z' },
+        segregates: { updated_by: 'analyst', updated_at: '2026-11-20T09:00:00Z' },
+      },
+      note: 'Confirmed by Sanger.',
+      note_updated_by: 'analyst',
+      note_updated_at: '2026-11-22T11:00:00Z',
+    });
+    const card = container.querySelector('article') as HTMLElement;
+    const block = card.querySelector('.variant-card-review') as HTMLElement;
+    // Straight under the heading, before what the gene and the variant are.
+    expect(card.querySelector('.variant-card-head')?.nextElementSibling).toBe(block);
+    // The tags one save added together, with who added them and when; then the other save's
+    // (a tag the family's list does not define, by its key).
+    const saves = Array.from(block.querySelectorAll('.variant-card-review-tags')).map((save) => save.textContent);
+    expect(saves).toEqual([
+      `VUS — warmSecondary findingsupervisor · ${formatDateTime('2026-11-21T10:00:00Z')}`,
+      `segregatesanalyst · ${formatDateTime('2026-11-20T09:00:00Z')}`,
+    ]);
+    // The note, with who wrote it and when.
+    expect(within(block).getByText('Confirmed by Sanger.')).toHaveTextContent(
+      `Confirmed by Sanger. analyst · ${formatDateTime('2026-11-22T11:00:00Z')}`,
+    );
+  });
+
+  it('shows no review block on a card whose review holds no tag or note to show', () => {
+    const { container } = renderReview({ tags: ['report'] });
+    expect(container.querySelector('.variant-card-review')).toBeNull();
   });
 
   it('keeps a VUS tier and Secondary finding as tags beside the class word', () => {

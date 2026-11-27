@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyRepeatExpansionsPage from '../FamilyRepeatExpansionsPage';
 import FamilyParaphasePage from '../FamilyParaphasePage';
 import { differsFromStatus, findingQuickTagPayload } from '../findingReview';
+import { formatDateTime } from '../../../lib/format';
 import { renderFamilyRoute } from '../../../test/familyRoute';
 
 // The reviews of repeat loci and Paraphase regions on their cards
@@ -63,6 +64,8 @@ const review = (overrides: Record<string, unknown> = {}) => ({
   tags: [],
   tag_metadata: {},
   note: null,
+  note_updated_by: null,
+  note_updated_at: null,
   updated_by: 'analyst',
   updated_at: '2026-10-28T10:00:00Z',
   evidence_captured_at: null,
@@ -142,7 +145,10 @@ describe('reviews on the repeat locus cards', () => {
         review: review({
           classification: 'normal',
           tags: ['mosaic'],
+          tag_metadata: { mosaic: { updated_by: 'analyst', updated_at: '2026-10-28T10:00:00Z' } },
           note: 'Reads support 42 repeats.',
+          note_updated_by: 'supervisor',
+          note_updated_at: '2026-10-28T11:00:00Z',
           drift: { status: 'changed', changes: ['PROBAND: 42 → 44'] },
         }),
       }),
@@ -154,7 +160,15 @@ describe('reviews on the repeat locus cards', () => {
     expect(within(card).queryByText("Differs from CoGA's status")).not.toBeInTheDocument();
     expect(within(card).getByText('Changed since review')).toBeInTheDocument();
     expect(within(card).getByText('Mosaic')).toBeInTheDocument();
-    expect(within(card).getByText('Reads support 42 repeats.')).toBeInTheDocument();
+    // The tags and the note under the heading, before the columns, with who wrote them and when.
+    const block = card.querySelector('.variant-card-review') as HTMLElement;
+    expect(card.querySelector('.variant-card-head')?.nextElementSibling).toBe(block);
+    expect(within(block).getByText('Mosaic').closest('.variant-card-review-tags')).toHaveTextContent(
+      `analyst · ${formatDateTime('2026-10-28T10:00:00Z')}`,
+    );
+    expect(within(block).getByText('Reads support 42 repeats.')).toHaveTextContent(
+      `supervisor · ${formatDateTime('2026-10-28T11:00:00Z')}`,
+    );
   });
 
   it('marks a classification that agrees with none of the calls', async () => {

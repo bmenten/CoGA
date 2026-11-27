@@ -35,6 +35,10 @@ cards fold alike.
   **Tags & notes** opens on the class shown. Choosing another class there, or none, replaces the
   classification and every class tag; left alone, the save keeps both as they are.
 - **Notes** keep your reasoning with the variant.
+- **Who and when.** A card shows its tags and note first, just under its heading, each with who added
+  it and when; the tags one save added share one line. A note stays its writer's until someone changes
+  it: adding a tag or a class does not make it theirs. **Review**, **Exclude** and **Report** show as
+  pressed buttons instead.
 - **Report** puts the variant in the family report.
 
 ### ACMG classify

@@ -520,6 +520,11 @@ CREATE TABLE IF NOT EXISTS small_variant_reviews (
     tags jsonb DEFAULT '[]'::jsonb NOT NULL,
     tag_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     note text,
+    -- Who wrote the note and when (review_pg_utils._note_authorship), set exactly when
+    -- the note is: a save that writes or changes the note records itself, one that keeps
+    -- it keeps them.
+    note_updated_by text,
+    note_updated_at timestamp with time zone,
     compound_het_group_id text,
     compound_het_partner_variant_ids jsonb DEFAULT '[]'::jsonb NOT NULL,
     compound_het_gene text,
@@ -539,6 +544,7 @@ CREATE TABLE IF NOT EXISTS small_variant_reviews (
     acmg_class text,
     acmg_evidence_snapshot jsonb,
     CONSTRAINT small_variant_reviews_pkey PRIMARY KEY (id),
+    CONSTRAINT small_variant_reviews_note_author_check CHECK ((((note IS NULL) = (note_updated_by IS NULL)) AND ((note IS NULL) = (note_updated_at IS NULL)))),
     CONSTRAINT small_variant_reviews_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
 );
 
@@ -623,6 +629,8 @@ CREATE TABLE IF NOT EXISTS structural_variant_reviews (
     tags jsonb DEFAULT '[]'::jsonb NOT NULL,
     tag_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     note text,
+    note_updated_by text,
+    note_updated_at timestamp with time zone,
     updated_by text NOT NULL,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
@@ -634,6 +642,7 @@ CREATE TABLE IF NOT EXISTS structural_variant_reviews (
     -- it. The sign-out drift gate compares it with the SV as it is now.
     cnv_evidence_snapshot jsonb,
     CONSTRAINT structural_variant_reviews_pkey PRIMARY KEY (id),
+    CONSTRAINT structural_variant_reviews_note_author_check CHECK ((((note IS NULL) = (note_updated_by IS NULL)) AND ((note IS NULL) = (note_updated_at IS NULL)))),
     CONSTRAINT structural_variant_reviews_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
 );
 
@@ -660,11 +669,14 @@ CREATE TABLE IF NOT EXISTS repeat_expansion_reviews (
     tags jsonb DEFAULT '[]'::jsonb NOT NULL,
     tag_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     note text,
+    note_updated_by text,
+    note_updated_at timestamp with time zone,
     evidence_snapshot jsonb,
     updated_by text NOT NULL,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT repeat_expansion_reviews_pkey PRIMARY KEY (id),
+    CONSTRAINT repeat_expansion_reviews_note_author_check CHECK ((((note IS NULL) = (note_updated_by IS NULL)) AND ((note IS NULL) = (note_updated_at IS NULL)))),
     CONSTRAINT repeat_expansion_reviews_classification_check CHECK ((classification IS NULL) OR (classification = ANY (ARRAY['pathogenic_expansion'::text, 'reduced_penetrance'::text, 'premutation'::text, 'intermediate'::text, 'normal'::text, 'uncertain'::text]))),
     CONSTRAINT repeat_expansion_reviews_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
     CONSTRAINT repeat_expansion_reviews_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
@@ -681,11 +693,14 @@ CREATE TABLE IF NOT EXISTS paraphase_reviews (
     tags jsonb DEFAULT '[]'::jsonb NOT NULL,
     tag_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     note text,
+    note_updated_by text,
+    note_updated_at timestamp with time zone,
     evidence_snapshot jsonb,
     updated_by text NOT NULL,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT paraphase_reviews_pkey PRIMARY KEY (id),
+    CONSTRAINT paraphase_reviews_note_author_check CHECK ((((note IS NULL) = (note_updated_by IS NULL)) AND ((note IS NULL) = (note_updated_at IS NULL)))),
     CONSTRAINT paraphase_reviews_classification_check CHECK ((classification IS NULL) OR (classification = ANY (ARRAY['affected'::text, 'carrier'::text, 'risk_allele'::text, 'normal'::text, 'uncertain'::text]))),
     CONSTRAINT paraphase_reviews_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
     CONSTRAINT paraphase_reviews_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE

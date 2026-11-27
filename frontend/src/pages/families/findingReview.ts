@@ -5,6 +5,7 @@ import { apiPath } from '../../lib/apiPath';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import type { FindingReviewOut } from '../../lib/apiSchema.generated';
+import { pendingNoteAuthorship } from './smallVariantResultUtils';
 
 /**
  * The analyst's review of a repeat locus and of a Paraphase region (docs/repeat-paraphase-
@@ -172,6 +173,7 @@ export function useFindingReviewSave<T>({
         classification: payload.classification,
         tags: payload.tags,
         note: payload.note,
+        ...pendingNoteAuthorship(review, payload.note),
       };
       setCached(key, hasFindingReviewContent(optimistic) ? optimistic : null);
       return { previous };

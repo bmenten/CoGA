@@ -548,6 +548,8 @@ class _ReviewTable:
             "tags": json.loads(params["tags_json"]),
             "tag_metadata": json.loads(params["tag_metadata_json"]),
             "note": params["note"],
+            "note_updated_by": params["note_updated_by"],
+            "note_updated_at": params["note_updated_at"],
             "cnv_acmg": json.loads(params["cnv_acmg_json"]) if params["cnv_acmg_json"] else None,
             "cnv_point_total": params["cnv_point_total"],
             "cnv_class": params["cnv_class"],

@@ -7,7 +7,9 @@ import GenomeWorkspaceLink from './GenomeWorkspaceLink';
  * same place on every page:
  *
  *   head     the gene (to its gene page) — its diseases, what the finding is; at the right
- *            its classification or status; under it the review's tag chips
+ *            its classification or status
+ *   review   under the heading, what the analysts wrote: the review's tags and note, each
+ *            with who wrote it and when (ReviewAnnotations)
  *   columns  "Variant" first (what and where it is, its annotation), "Genotypes" second (each
  *            member's call, FamilyGenotypeGrid), then what the kind of finding adds
  *   footer   the actions at the left, the links at the right in one order (FindingLinks)
@@ -28,14 +30,14 @@ const FindingCard: React.FC<{
   heading: React.ReactNode;
   /** The heading row's right part: the classification or status chips. */
   tags?: React.ReactNode;
-  /** Between the heading and the columns: the review's tag chips. */
+  /** Between the heading and the columns: the review's tags and note (ReviewAnnotations). */
   subhead?: React.ReactNode;
   /** Under the heading of an excluded finding: its ExcludedCardBar. */
   excludedBar?: React.ReactNode;
   /** An excluded finding not unfolded: the heading and its bar alone. */
   folded?: boolean;
   columns: FindingColumn[];
-  /** A line under the columns, for what the whole finding needs said. */
+  /** A line under the columns, for what the whole finding needs said (not the review's note). */
   note?: React.ReactNode;
   actions?: React.ReactNode;
   links?: React.ReactNode;

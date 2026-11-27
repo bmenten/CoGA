@@ -21,7 +21,7 @@ This separation matters clinically: in a recessive disorder a parent is often a 
 
 ### What is recorded
 
-A review records, per variant and per family: the **class** (e.g. "VUS - class 3"), a list of **tags** and a **note**. For each tag CoGA also keeps *who* set it and *when*.
+A review records, per variant and per family: the **class** (e.g. "VUS - class 3"), a list of **tags** and a **note**. For each tag CoGA also keeps *who* set it and *when*, and so it does for the note (`note_updated_by`, `note_updated_at`). A save that writes or changes the note records itself; a save that leaves it as it is (a tag or a class is added) keeps its writer, though the review itself (`updated_by`) is the last saver's. Every variant card shows the tags and the note at the top, just under its heading, each with who and when (`ReviewAnnotations.tsx`).
 
 **A review per analysis.** When a family holds several analyses (short-read and then long-read WGS of the same DNA, or the monogenic NIPT of several pregnancies), a review belongs to one analysis (the owner's decision of 2026-11-20): a variant reviewed in the short-read analysis is not in the long-read analysis's record unless it is reviewed there too. Each row names its analysis (`analysis`, empty for a review of a family without an analysis). A reading for analysis X reads, per variant, X's own review, else the shared one (stored under no analysis the family holds), never another analysis's. A save in X always writes X's own review, made from the review it read and the save's values; the shared review stays as it is. A save that empties X's review keeps it, empty, while a shared review of the variant holds something, so X reads the variant as not reviewed. A family with several analyses with small variants of their own names the analysis on every save (`analysis`), otherwise `422`. Each audit event of a review names the analysis (`metadata.analysis`). The Variant Explorer shows, per family, the tags and classes of every analysis's review.
 
@@ -81,7 +81,7 @@ A repeat locus and a Paraphase region get a review of their own, per family and 
 
 - The card on the repeat page and on the Paraphase page has the buttons of every variant card. *Review*, *Exclude* and *Report* switch their tag on or off; *Tags & notes* opens the dialog (`FindingReviewDialog.tsx`).
 - The dialog does not offer the class tags with key `acmg_*` (the ACMG classes and the VUS levels). If a review carries one anyway, the dialog shows it marked, so that it can be removed (decision B14). *Secondary finding* remains available.
-- The card shows the classification (*Review: …*), the tags and the note. *Differs from CoGA's status* appears when the classification fits none of the members' calls. *Changed since review* reports drift; the tooltip says what changed. *Exclude* collapses the card to its header.
+- The card shows the classification (*Review: …*), the tags and the note at the top, under its heading, with who and when. *Differs from CoGA's status* appears when the classification fits none of the members' calls. *Changed since review* reports drift; the tooltip says what changed. *Exclude* collapses the card to its header.
 - A save writes the review straight into the loaded table. The server's response, with the drift, replaces it; a failed save puts the card back (`useFindingReviewSave` in `findingReview.ts`).
 - The family page counts the reviews per type (`GET /families/{id}/finding-review-summary`).
 

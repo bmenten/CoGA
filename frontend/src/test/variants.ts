@@ -160,6 +160,8 @@ export const review = (
   tags: [],
   tag_metadata: {},
   note: null,
+  note_updated_by: null,
+  note_updated_at: null,
   updated_by: null,
   updated_at: null,
   compound_het: null,

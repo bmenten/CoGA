@@ -8,6 +8,7 @@ import {
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
+import { pendingNoteAuthorship } from './smallVariantResultUtils';
 
 // Shared small-variant review helpers. The review endpoints are family +
 // variant-id scoped, so both the small-variant page and the monogenic NIPT page
@@ -89,6 +90,7 @@ export const buildOptimisticReview = (
     tags: payload.tags,
     tag_metadata: variant.review?.tag_metadata || {},
     note: payload.note ?? null,
+    ...pendingNoteAuthorship(variant.review, payload.note ?? null),
     updated_by: variant.review?.updated_by ?? null,
     // The version the save was made against, not a client clock: a following save sends
     // it back, and a made-up timestamp would read as someone else's edit.

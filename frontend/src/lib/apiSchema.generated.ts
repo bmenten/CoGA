@@ -1504,6 +1504,8 @@ export interface FindingReviewOut {
   tags: string[];
   tag_metadata: Record<string, Record<string, string | null>>;
   note: string | null;
+  note_updated_by: string | null;
+  note_updated_at: string | null;
   updated_by: string | null;
   updated_at: string | null;
   evidence_captured_at: string | null;
@@ -4641,6 +4643,8 @@ export interface SmallVariantReviewOut {
   tags: string[];
   tag_metadata: Record<string, Record<string, string | null>>;
   note: string | null;
+  note_updated_by: string | null;
+  note_updated_at: string | null;
   updated_by: string | null;
   updated_at: string | null;
   compound_het: SmallVariantCompoundHetReviewOut | null;

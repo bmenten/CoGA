@@ -110,6 +110,8 @@ def _review(variant_id: str, classification=None, tags=(), pair_classification=N
         "tags": list(tags),
         "tag_metadata": _tag_metadata(tags),
         "note": None,
+        "note_updated_by": None,
+        "note_updated_at": None,
         "compound_het_classification": pair_classification,
         "compound_het_tags": list(pair_tags),
         "compound_het_tag_metadata": _tag_metadata(pair_tags),
@@ -189,6 +191,8 @@ async def test_get_small_variant_review_map_binds_variant_ids_as_one_array() -> 
                 "tags": ["validated"],
                 "tag_metadata": _tag_metadata(["validated"]),
                 "note": "kept",
+                "note_updated_by": "admin",
+                "note_updated_at": timestamp,
                 "compound_het_group_id": None,
                 "compound_het_partner_variant_ids": [],
                 "compound_het_gene": None,
@@ -232,6 +236,8 @@ _STORED_REVIEW = {
     "tags": ["acmg_class_4", "report"],
     "tag_metadata": _tag_metadata(["acmg_class_4", "report"]),
     "note": "kept",
+    "note_updated_by": "admin",
+    "note_updated_at": datetime(2026, 9, 1, tzinfo=timezone.utc),
     "compound_het_group_id": "group-1",
     "compound_het_partner_variant_ids": ["var-2"],
     "compound_het_gene": "GENE1",
@@ -381,6 +387,8 @@ def _stored_review(**fields) -> dict:
         "tags": ["acmg_class_5", "report"],
         "tag_metadata": {},
         "note": "reported",
+        "note_updated_by": "alice",
+        "note_updated_at": datetime(2026, 9, 28, tzinfo=timezone.utc),
         "acmg": {"criteria": [{"code": "PVS1", "strength": "very_strong", "accepted": True}]},
         "acmg_point_total": 8,
         "acmg_class": "acmg_class_5",
@@ -438,6 +446,27 @@ def _clear(monkeypatch, existing: dict, payload: SmallVariantReviewUpdate):
         )
     )
     return audits, writes, session
+
+
+def test_the_note_keeps_who_wrote_it_until_a_save_changes_it(monkeypatch) -> None:
+    existing = _stored_review()
+    kept = {"classification": "Pathogenic", "tags": ["acmg_class_5", "report"]}
+
+    # Another reviewer's save that leaves the note as it is: the review's last save is theirs,
+    # the note still its writer's.
+    _audits, _writes, session = _clear(monkeypatch, existing, SmallVariantReviewUpdate(**kept, note="reported"))
+    assert (session.written["updated_by"], session.written["note_updated_by"], session.written["note_updated_at"]) == (
+        "carol",
+        "alice",
+        existing["note_updated_at"],
+    )
+
+    # A changed note is this save's.
+    _audits, _writes, session = _clear(monkeypatch, existing, SmallVariantReviewUpdate(**kept, note="reported, confirmed"))
+    assert (session.written["note_updated_by"], session.written["note_updated_at"]) == (
+        "carol",
+        session.written["updated_at"],
+    )
 
 
 def test_deleting_a_cleared_review_is_audited(monkeypatch) -> None:

@@ -121,13 +121,17 @@ def test_no_criteria_clears_the_classification() -> None:
 
 
 def test_an_unreadable_stored_classification_is_flagged_not_dropped() -> None:
-    review = svr._serialize_review({"variant_id": "sv1", "cnv_acmg": "{not json"})
+    review = svr._serialize_review(
+        {"variant_id": "sv1", "note_updated_by": None, "note_updated_at": None, "cnv_acmg": "{not json"}
+    )
     assert review.cnv_acmg is None
     assert review.acmg_unreadable is True
 
 
 def test_a_stored_json_null_is_no_classification() -> None:
-    review = svr._serialize_review({"variant_id": "sv1", "cnv_acmg": "null"})
+    review = svr._serialize_review(
+        {"variant_id": "sv1", "note_updated_by": None, "note_updated_at": None, "cnv_acmg": "null"}
+    )
     assert review.cnv_acmg is None
     assert review.acmg_unreadable is False
 
@@ -289,8 +293,22 @@ def test_the_review_summary_counts_the_reviewed_svs_their_notes_and_tags() -> No
 def test_the_reviews_of_the_listed_svs_are_read_with_their_ids_bound_as_one_array() -> None:
     session = _ReviewRows(
         [
-            {"variant_id": "sv-a", "classification": "pathogenic", "tags": ["report"], "note": None},
-            {"variant_id": None, "classification": "benign", "tags": [], "note": None},
+            {
+                "variant_id": "sv-a",
+                "classification": "pathogenic",
+                "tags": ["report"],
+                "note": None,
+                "note_updated_by": None,
+                "note_updated_at": None,
+            },
+            {
+                "variant_id": None,
+                "classification": "benign",
+                "tags": [],
+                "note": None,
+                "note_updated_by": None,
+                "note_updated_at": None,
+            },
         ]
     )
 
@@ -373,6 +391,8 @@ class _ReviewTable:
             "tags": json.loads(params["tags_json"]),
             "tag_metadata": json.loads(params["tag_metadata_json"]),
             "note": params["note"],
+            "note_updated_by": params["note_updated_by"],
+            "note_updated_at": params["note_updated_at"],
             "cnv_acmg": json.loads(params["cnv_acmg_json"]) if params["cnv_acmg_json"] else None,
             "cnv_point_total": params["cnv_point_total"],
             "cnv_class": params["cnv_class"],
@@ -384,10 +404,15 @@ class _ReviewTable:
         return None
 
 
-def _save(table: _ReviewTable, payload: StructuralVariantReviewUpdate, variant_id: str = "sv1"):
+def _save(
+    table: _ReviewTable,
+    payload: StructuralVariantReviewUpdate,
+    variant_id: str = "sv1",
+    user: CurrentUser = USER,
+):
     return asyncio.run(
         svr.upsert_structural_variant_review(
-            table, context=CONTEXT, variant_id=variant_id, payload=payload, user=USER
+            table, context=CONTEXT, variant_id=variant_id, payload=payload, user=user
         )
     )
 
@@ -411,6 +436,36 @@ def test_a_second_save_updates_the_review_in_place() -> None:
     assert len(table.rows) == 1
     assert "UPDATE" in table.statements
     assert (review.note, review.classification) == ("second look", "likely_pathogenic")
+
+
+def test_the_note_names_who_wrote_it_and_keeps_them_through_another_reviewer_s_save() -> None:
+    table = _ReviewTable()
+    _save(table, StructuralVariantReviewUpdate(note="Breakpoints checked."))
+    written_at = table.rows["sv1"]["note_updated_at"]
+    other = USER.model_copy(update={"id": "u2", "username": "second-reviewer"})
+
+    # Another reviewer classifies the SV: the review's last save is theirs, the note still its
+    # writer's.
+    review = _save(
+        table,
+        StructuralVariantReviewUpdate(note="Breakpoints checked.", classification="likely_pathogenic"),
+        user=other,
+    )
+    assert (review.updated_by, review.note_updated_by, review.note_updated_at) == (
+        "second-reviewer",
+        "reviewer",
+        written_at,
+    )
+
+    # A changed note is the saver's; a cleared one is no one's.
+    review = _save(
+        table,
+        StructuralVariantReviewUpdate(note="Breakpoints confirmed.", classification="likely_pathogenic"),
+        user=other,
+    )
+    assert (review.note_updated_by, review.note_updated_at) == ("second-reviewer", review.updated_at)
+    review = _save(table, StructuralVariantReviewUpdate(classification="likely_pathogenic"))
+    assert (review.note, review.note_updated_by, review.note_updated_at) == (None, None, None)
 
 
 def test_an_empty_save_deletes_the_review() -> None:

@@ -12,6 +12,7 @@ import {
   normalizeReviewClassification,
   tagDefinitionLabel,
   type SmallVariant,
+  type SmallVariantReview,
   type SmallVariantReviewTagMetadata,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
@@ -474,6 +475,21 @@ export const buildReviewTagTooltip = ({
     timestamp ? ` · ${timestamp}` : ''
   }`;
 };
+
+type NoteAuthorship = Pick<SmallVariantReview, 'note_updated_by' | 'note_updated_at'>;
+
+/**
+ * Who wrote a review's note and when while a save of `note` is on its way, as the server will
+ * answer: the note the review held keeps its author; a new or changed note has none until the
+ * saved review names it. A repeat or Paraphase review (FindingReview) reads the same.
+ */
+export const pendingNoteAuthorship = (
+  review: (NoteAuthorship & Pick<SmallVariantReview, 'note'>) | null | undefined,
+  note: string | null,
+): NoteAuthorship =>
+  review && review.note === note
+    ? { note_updated_by: review.note_updated_by, note_updated_at: review.note_updated_at }
+    : { note_updated_by: null, note_updated_at: null };
 
 export const formatReviewTimestamp = (value?: string | null) => {
   if (!value) return null;

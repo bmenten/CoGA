@@ -919,14 +919,23 @@ describe('mtDNA variant review', () => {
     renderWith([
       mitoVariant('m.3243A>G', {
         tags: ['review', 'segregates'],
+        tag_metadata: {
+          review: { updated_by: 'analyst', updated_at: '2026-10-01T09:00:00Z' },
+          segregates: { updated_by: 'analyst', updated_at: '2026-10-01T09:00:00Z' },
+        },
         note: 'Checked in IGV',
+        note_updated_by: 'supervisor',
+        note_updated_at: '2026-10-01T10:00:00Z',
         updated_at: '2026-10-01T10:00:00Z',
       }),
     ]);
     const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
-    // The review's own tags and note on the card; the quick tags as pressed toggles.
+    // The review's own tags and note on the card, each with who wrote it; the quick tags as
+    // pressed toggles.
     expect(within(card).getByText('Segregates')).toBeInTheDocument();
     expect(within(card).getByText('Checked in IGV')).toHaveClass('variant-card-review-note');
+    expect(within(card).getByText(/^supervisor · /)).toBeInTheDocument();
+    expect(within(card).getByText(/^analyst · /)).toBeInTheDocument();
     const footer = card.querySelector('.variant-card-footer .variant-card-quick') as HTMLElement;
     expect(within(footer).getAllByRole('button').map((button) => button.textContent)).toEqual([
       'Review',
@@ -956,6 +965,10 @@ describe('mtDNA variant review', () => {
       mitoVariant('m.3243A>G', {
         classification: 'VUS',
         tags: ['acmg_class_4', 'acmg_vus_warm'],
+        tag_metadata: {
+          acmg_class_4: { updated_by: 'analyst', updated_at: '2026-10-01T10:00:00Z' },
+          acmg_vus_warm: { updated_by: 'analyst', updated_at: '2026-10-01T10:00:00Z' },
+        },
         updated_at: '2026-10-01T10:00:00Z',
       }),
     ]);

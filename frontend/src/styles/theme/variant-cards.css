@@ -593,9 +593,6 @@ a.variant-card-gene:hover {
 }
 
 /* --- Multi-column card body --- */
-.variant-card-tag-row {
-  gap: 0.25rem;
-}
 
 /* Variant, genotypes, frequencies and predictions side by side, as many to a row as fit. */
 .variant-card-cols {
@@ -1093,6 +1090,34 @@ a.variant-card-gene:hover {
   color: var(--color-heading);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* What the analysts wrote on the finding, at the top of the card under its heading
+   (ReviewAnnotations): its tags, a save's together, and its note, each followed by who wrote
+   it and when. */
+.variant-card-review {
+  display: grid;
+  gap: 0.25rem;
+  border-radius: var(--radius-card);
+  background: var(--color-accent-soft);
+  padding: 0.25rem 0.5rem;
+}
+
+.variant-card-tag-row {
+  gap: 0.25rem 0.75rem;
+}
+
+.variant-card-review-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.variant-card-review-author {
+  font-size: var(--fs-2xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 .variant-compound-het-summary {
