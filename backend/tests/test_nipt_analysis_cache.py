@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from backend.app.services.analysis_scope import AnalysisScope
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
 from backend.app.services.nipt_analysis_cache import NiptAnalysisCache, NiptAnalysisInputs, NiptAnalysisKey
 from backend.app.services.nipt_qc_gate import EXPECTED_FETAL_READS, resolve_nipt_gate_bound
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
@@ -37,6 +38,7 @@ INPUTS = NiptAnalysisInputs(
     gate_bound=resolve_nipt_gate_bound({}),
     plasma_targets=[TargetCoverageRow(chrom="7", start=0, end=200, gene="GENEA", attribute="GENEA", mean=900.0)],
     father_targets=[],
+    clinvar_coga=NO_CLINVAR_COGA,
 )
 
 

@@ -33,6 +33,7 @@ from .clickhouse_family_variants import (
 )
 from .clickhouse_variant_ids import build_small_variant_id
 from .clinical_audit_service import record_clinical_event
+from .clinvar_coga import clinvar_coga_read
 from .family_analysis_types import PREGNANCY_SEPARATOR, SAMPLE_ASSAY_PANELS_KEY
 from .nipt import (
     DEFAULT_NIPT_ASSAY_KEY,
@@ -572,6 +573,7 @@ async def _auto_seed_candidates(
     carrier_samples = await assay_cfdna_carrier_samples(session, assay_key=assay_key)
     recurrent = await fetch_recurrent_artifact_candidates(
         assembly_name,
+        clinvar_coga=await clinvar_coga_read(session, assembly_name),
         carrier_samples=carrier_samples,
         rules=rules,
         min_unexplained_samples=min_unexplained_samples,
@@ -715,7 +717,9 @@ async def import_nipt_artifact_table(
     assembly_uuid, assembly_name = await _require_assembly(session, assembly_id)
     table = parse_artifact_table(text_value)
     protected = await fetch_artifact_protection_flags(
-        assembly_name, [item.variant_id for item in table.items]
+        assembly_name,
+        [item.variant_id for item in table.items],
+        clinvar_coga=await clinvar_coga_read(session, assembly_name),
     )
     accepted = [item for item in table.items if item.variant_id not in protected]
     if accepted:

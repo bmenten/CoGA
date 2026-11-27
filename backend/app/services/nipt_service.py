@@ -31,6 +31,7 @@ from sqlalchemy import text
 from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Mapping, Sequence
 
 from ..core.sql import require_uuid
+from ..schemas import ClinvarCogaOut
 
 from .clickhouse_family_variants import (
     _family_small_variant_data_version,
@@ -162,6 +163,7 @@ from .nipt_triage import (
     triage_de_novo,
 )
 from .variant_prioritization import clinvar_may_assert_pathogenic
+from .clinvar_coga import clinvar_coga_by_variant, clinvar_coga_held, clinvar_coga_read
 from .small_variant_callsets import is_nipt_callset
 
 # Bounds the in-memory classification for the variant list: the first variants of the
@@ -626,19 +628,29 @@ def build_nipt_observations(
         )
 
 
-def triage_annotation(record: SmallVariantRecord) -> DeNovoAnnotation:
+def clinvar_read(record: SmallVariantRecord, clinvar_coga: ClinvarCogaOut | None) -> list[str]:
+    """The record's ClinVar as the NIPT readers read it, by the ClinVar design's one rule (B9,
+    B11): the classification in CoGA's release where it holds the allele, else each
+    annotation's; none where there is none."""
+    if clinvar_coga is not None and clinvar_coga_held(clinvar_coga):
+        values = [clinvar_coga.classification]
+    else:
+        values = [_annotation_clinvar(annotation) for annotation in record.annotations or []]
+    return [value for value in values if value]
+
+
+def triage_annotation(record: SmallVariantRecord, clinvar_coga: ClinvarCogaOut | None) -> DeNovoAnnotation:
     """What the de novo triage reads of a record's annotation: its most severe impact,
     its highest SpliceAI delta score and population frequency (the parser keeps all but
     ``gnomad_af`` under ``population_frequencies``; VEP MAX_AF is ``gnomad_popmax_af``),
-    whether it is known (an rsID), and whether a ClinVar record may assert it pathogenic."""
+    whether it is known (an rsID), and whether a ClinVar record may assert it pathogenic,
+    read by the one rule (``clinvar_read``; ``clinvar_coga`` the value of its ALT)."""
     impact: str | None = None
     spliceai: float | None = None
     population_af: float | None = None
     known = bool(record.rsid)
-    clinvar_pathogenic = False
+    clinvar_pathogenic = clinvar_may_assert_pathogenic(clinvar_read(record, clinvar_coga))
     for annotation in record.annotations or []:
-        if clinvar_may_assert_pathogenic(_annotation_clinvar(annotation)):
-            clinvar_pathogenic = True
         value = str(annotation.get("impact") or "").upper()
         if value in _IMPACT_RANK and (impact is None or _IMPACT_RANK[value] > _IMPACT_RANK[impact]):
             impact = value
@@ -677,10 +689,10 @@ PATERNAL_CARRIER_PROTECTION_MAX_VAF = 0.30
 PATERNAL_CARRIER_PROTECTION_MAX_RECURRENCE = 3
 
 
-def artifact_protection(record: SmallVariantRecord) -> str | None:
+def artifact_protection(record: SmallVariantRecord, clinvar_coga: ClinvarCogaOut | None) -> str | None:
     """Why the artifact list may not remove ``record`` from the family's analysis:
     ``clinvar`` or ``common`` (a population frequency above 5%); None when nothing does."""
-    annotation = triage_annotation(record)
+    annotation = triage_annotation(record, clinvar_coga)
     if annotation.clinvar_pathogenic:
         return "clinvar"
     if annotation.max_population_af is not None and annotation.max_population_af > ARTIFACT_PROTECTION_COMMON_AF:
@@ -716,6 +728,7 @@ def family_artifact_ids(
     records: Iterable[SmallVariantRecord],
     listed: Mapping[str, int],
     *,
+    clinvar_coga: Mapping[str, ClinvarCogaOut | None],
     father_sample_id: str,
     cfdna_sample_id: str,
     qc: NiptQualityThresholds,
@@ -734,7 +747,12 @@ def family_artifact_ids(
         if recurrence is None:
             continue
         reason = listed_artifact_protection(
-            record, recurrence, father_sample_id=father_sample_id, cfdna_sample_id=cfdna_sample_id, qc=qc
+            record,
+            recurrence,
+            clinvar_coga=clinvar_coga.get(record.variant_id),
+            father_sample_id=father_sample_id,
+            cfdna_sample_id=cfdna_sample_id,
+            qc=qc,
         )
         if reason is None:
             removed.add(record.variant_id)
@@ -747,6 +765,7 @@ def listed_artifact_protection(
     record: SmallVariantRecord,
     recurrence: int,
     *,
+    clinvar_coga: ClinvarCogaOut | None,
     father_sample_id: str,
     cfdna_sample_id: str,
     qc: NiptQualityThresholds,
@@ -754,7 +773,7 @@ def listed_artifact_protection(
     """Why a listed allele stays in the family's analysis: ``clinvar`` or ``common``
     (``artifact_protection``), or ``paternal_carrier`` (``paternal_carrier_protection``);
     None when the list removes it."""
-    reason = artifact_protection(record)
+    reason = artifact_protection(record, clinvar_coga)
     if reason is None and paternal_carrier_protection(
         record, recurrence, father_sample_id=father_sample_id, cfdna_sample_id=cfdna_sample_id, qc=qc
     ):
@@ -789,6 +808,9 @@ class NiptClassifiedVariant:
 
     record: SmallVariantRecord
     classification: NiptClassification
+    # The value of its ALT in CoGA's ClinVar release, which the NIPT readers read where the
+    # release holds it (``clinvar_read``); None where none is.
+    clinvar_coga: ClinvarCogaOut | None
     variant_out: "VariantOut | None" = None
     site: NiptSiteObservation | None = None
     de_novo: DeNovoTriage | None = None
@@ -954,6 +976,7 @@ async def _load_family_inputs(
         gate_bound=gate_bound,
         plasma_targets=plasma_targets,
         father_targets=father_targets,
+        clinvar_coga=await clinvar_coga_read(session, context.assembly_name),
     )
 
 
@@ -998,7 +1021,7 @@ class _FamilyAnalysis:
         (``model_fetal_sex``)."""
         return model_fetal_sex(self.summary.analysis.fetal_sex_call, len(self.summary.trio.fetus_sample_ids))
 
-    def classify(
+    async def classify(
         self,
         records: list[SmallVariantRecord],
         trio: NiptTrio,
@@ -1008,9 +1031,12 @@ class _FamilyAnalysis:
     ) -> list[NiptClassifiedVariant]:
         """``records``, some of the family's, classified as the summary classifies its sites
         (``_classify_candidates``): against its fetal fraction and fetal sex, with the artifact
-        list and the per-target coverage the analysis read, each observed as the family's every
-        record observes it."""
-        return _classify_candidates(
+        list, the per-target coverage and CoGA's ClinVar release the analysis read, each
+        observed as the family's every record observes it. The values of the release are read
+        once for them all; the classification, pure CPU work, runs in a worker thread."""
+        clinvar_coga = await clinvar_coga_by_variant(self.inputs.clinvar_coga, records)
+        return await asyncio.to_thread(
+            _classify_candidates,
             records,
             trio,
             self.inputs.listed,
@@ -1021,6 +1047,7 @@ class _FamilyAnalysis:
             father_targets=self.inputs.father_targets,
             counterparts=self.counterparts,
             fetal_sex=self.fetal_sex,
+            clinvar_coga=clinvar_coga,
         )
 
 
@@ -1039,6 +1066,7 @@ async def _analyse_family(
     removed, protected = family_artifact_ids(
         listed_records,
         inputs.listed,
+        clinvar_coga=await clinvar_coga_by_variant(inputs.clinvar_coga, listed_records),
         father_sample_id=trio.father_sample_id,
         cfdna_sample_id=trio.cfdna_sample_id,
         qc=qc,
@@ -1292,6 +1320,7 @@ def _classify_candidates(
     plasma_targets: list[TargetCoverageRow],
     father_targets: list[TargetCoverageRow],
     counterparts: NiptCounterparts,
+    clinvar_coga: Mapping[str, ClinvarCogaOut | None],
     fetal_sex: str | None = None,
 ) -> list[NiptClassifiedVariant]:
     # The filtered records are observed with the family's every record's ``counterparts``:
@@ -1315,6 +1344,7 @@ def _classify_candidates(
             listed_artifact_protection(
                 record,
                 recurrence,
+                clinvar_coga=clinvar_coga.get(record.variant_id),
                 father_sample_id=trio.father_sample_id,
                 cfdna_sample_id=trio.cfdna_sample_id,
                 qc=qc,
@@ -1336,7 +1366,12 @@ def _classify_candidates(
         ):
             continue
         classified.append(
-            NiptClassifiedVariant(record=record, classification=classification, site=observation)
+            NiptClassifiedVariant(
+                record=record,
+                classification=classification,
+                clinvar_coga=clinvar_coga.get(record.variant_id),
+                site=observation,
+            )
         )
     return classified
 
@@ -1506,7 +1541,7 @@ def _recessive_view(
                 classification=item.classification,
                 mode=mode,
                 variant_class=item.site.variant_class if item.site is not None else "SNV",
-                has_population_af=triage_annotation(item.record).max_population_af is not None,
+                has_population_af=triage_annotation(item.record, item.clinvar_coga).max_population_af is not None,
                 plasma_call_retained=not technical or _technically_retained(item),
             )
             for item in items
@@ -1568,7 +1603,7 @@ async def _attach_recurrence(items: Sequence[NiptClassifiedVariant], scope: _Rec
         item.recurrence = NiptRecurrence(
             other_samples=scope.other_samples or 0,
             counts=counts.get(item.record.variant_id, CfdnaRecurrence()),
-            protection=artifact_protection(item.record),
+            protection=artifact_protection(item.record, item.clinvar_coga),
         )
 
 
@@ -1609,7 +1644,7 @@ async def _triage_de_novo_candidates(
         triage = triage_de_novo(
             item.site,
             window,
-            triage_annotation(item.record),
+            triage_annotation(item.record, item.clinvar_coga),
             other_cfdna_carriers=item.recurrence.counts.carriers,
         )
         if triage is None:  # pragma: no cover - a window always gives a triage
@@ -1731,6 +1766,9 @@ async def get_family_nipt_variants(
     # pregnancy. The filtered subset is classified against them.
     family = await _kept_family_analysis(session, context, trio, assay_key, qc)
     ff_estimate = family.summary.analysis.fetal_fraction
+    # The ClinVar filters, their exclusion and the P/LP override read CoGA's release the analysis
+    # reads, where it holds the allele (the ClinVar design's one rule, B11), as on the family page.
+    filters.clinvar_coga_release = family.inputs.clinvar_coga.release
 
     # The selected variants no list can show, whatever the other filters: the analysis
     # does not classify them. Read as the signed record reads the reported ones.
@@ -1785,7 +1823,7 @@ async def get_family_nipt_variants(
     capped = len(records) > fetch_limit
     if capped:
         records = records[:fetch_limit]
-    classified = await asyncio.to_thread(family.classify, records, trio, qc, min_confidence=min_confidence)
+    classified = await family.classify(records, trio, qc, min_confidence=min_confidence)
 
     recurrence_scope = await _recurrence_scope(session, context, assay_key, qc)
     if exclude_cohort_common:
@@ -1855,7 +1893,9 @@ async def _not_cohort_common(
     paralogue, a repeat-length allele, an MNV gnomAD lists as its SNVs), unless ClinVar calls
     them pathogenic (``clinvar_override``), as the report's recessive pairing reads them."""
     criteria = NiptDiagnosticCriteria()
-    unannotated = [item for item in items if triage_annotation(item.record).max_population_af is None]
+    unannotated = [
+        item for item in items if triage_annotation(item.record, item.clinvar_coga).max_population_af is None
+    ]
     await _attach_recurrence(unannotated, scope)
     common = {
         item.record.variant_id
@@ -1934,16 +1974,15 @@ class NiptDiagnosticCandidates:
 
 def diagnostic_annotation(item: NiptClassifiedVariant) -> DiagnosticAnnotation:
     """What the locked criteria read of a classified variant: its annotation
-    (``triage_annotation``), whether ClinVar strictly calls it pathogenic, and in how many other
-    cfDNA samples of the assay it is called (its recurrence, counted first)."""
-    base = triage_annotation(item.record)
+    (``triage_annotation``), whether ClinVar strictly calls it pathogenic (read by the one rule,
+    ``clinvar_read``), and in how many other cfDNA samples of the assay it is called (its
+    recurrence, counted first)."""
+    base = triage_annotation(item.record, item.clinvar_coga)
     return DiagnosticAnnotation(
         max_population_af=base.max_population_af,
         impact=base.impact,
         spliceai_max=base.spliceai_max,
-        clinvar_pathogenic=clinvar_strictly_pathogenic(
-            _annotation_clinvar(annotation) for annotation in item.record.annotations or []
-        ),
+        clinvar_pathogenic=clinvar_strictly_pathogenic(clinvar_read(item.record, item.clinvar_coga)),
         other_cfdna_carriers=item.recurrence.counts.carriers if item.recurrence is not None else 0,
     )
 
@@ -2071,7 +2110,7 @@ async def _scoped_diagnostic_candidates(
     )
     capped = len(records) > NIPT_VARIANT_FETCH_LIMIT
     records = records[:NIPT_VARIANT_FETCH_LIMIT]
-    classified = await asyncio.to_thread(family.classify, records, trio, qc)
+    classified = await family.classify(records, trio, qc)
     scope = await _recurrence_scope(session, context, assay_key, qc)
     candidates = await diagnostic_candidates(classified, ff_estimate, qc, scope=scope)
     candidates.capped = capped
@@ -2187,7 +2226,7 @@ async def _classify_selected(
     )
     # By their exact ids: the query reads an id without its surrounding spaces.
     records = [record for record in read if record.variant_id in wanted]
-    classified = await asyncio.to_thread(family.classify, records, trio, qc)
+    classified = await family.classify(records, trio, qc)
     found = {record.variant_id for record in records}
     classified_ids = {item.record.variant_id for item in classified}
     unclassified: dict[str, str] = {}

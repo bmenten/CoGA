@@ -126,7 +126,16 @@ def _view(records, family_records) -> dict[str, Any]:
     trio = NiptTrio(father_sample_id=_FATHER, cfdna_sample_id=_PLASMA)
     counterparts = nipt_counterparts(family_records, father_sample_id=_FATHER, cfdna_sample_id=_PLASMA)
     classified = _classify_candidates(
-        records, trio, {}, ff, qc, None, plasma_targets=[], father_targets=[], counterparts=counterparts
+        records,
+        trio,
+        {},
+        ff,
+        qc,
+        None,
+        plasma_targets=[],
+        father_targets=[],
+        counterparts=counterparts,
+        clinvar_coga={},
     )
     recessive = _recessive_view(classified, qc)
     kept = [item for gene in recessive for item in gene.variants]

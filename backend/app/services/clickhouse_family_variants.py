@@ -98,7 +98,15 @@ from .clickhouse_variant_records import (
     _coerce_float,
 )
 
-from .clinvar_coga import ClinvarCogaRead, clinvar_by_the_rule, clinvar_coga_of, clinvar_coga_read, clinvar_coga_values
+from .clinvar_coga import (
+    ClinvarCogaRead,
+    clinvar_by_the_rule,
+    clinvar_coga_by_variant_id,
+    clinvar_coga_held,
+    clinvar_coga_of,
+    clinvar_coga_read,
+    clinvar_coga_values,
+)
 from .clickhouse_variant_queries import (
     IMPUTED_SMALL_VARIANT_SOURCES,
     PER_SAMPLE_SMALL_VARIANT_SOURCES,
@@ -850,6 +858,7 @@ async def count_cfdna_recurrence(
 async def fetch_recurrent_artifact_candidates(
     assembly_name: str,
     *,
+    clinvar_coga: ClinvarCogaRead,
     carrier_samples: Collection[str],
     rules: CfdnaRecurrenceRules,
     min_unexplained_samples: int,
@@ -873,8 +882,10 @@ async def fetch_recurrent_artifact_candidates(
       (``is_gnomad_gt_5_percent``);
     - a variant whose ClinVar record, in any of its annotations on the assembly, carries or
       may carry a pathogenic or likely pathogenic assertion (``clinvar_may_assert_pathogenic``:
-      P, LP and every conflicting record). A familial founder variant recurs in a
-      disease-focused panel below 5%, and is the last thing an artifact list may hold.
+      P, LP and every conflicting record); read by the ClinVar design's one rule (B9): in
+      CoGA's release (``clinvar_coga``) where it holds the allele (``_clinvar_protected``). A
+      familial founder variant recurs in a disease-focused panel below 5%, and is the last
+      thing an artifact list may hold.
     """
     if not assembly_name or min_unexplained_samples < 1 or not carrier_samples:
         return []
@@ -900,15 +911,35 @@ async def fetch_recurrent_artifact_candidates(
         """,
         params,
     )
-    # Each candidate's ClinVar terms, pooled across its annotations, read by the one
-    # Python ClinVar rule rather than a second copy of it in SQL.
-    pooled = await _pooled_variant_annotations(assembly_name, [str(variant_id) for variant_id, _count in rows])
-    clinvar_terms = {variant_id: pooled_annotations.clinvar_terms for variant_id, pooled_annotations in pooled.items()}
+    # Each candidate's ClinVar, read by the one Python ClinVar rule rather than a second copy
+    # of it in SQL.
+    variant_ids = [str(variant_id) for variant_id, _count in rows]
+    pooled = await _pooled_variant_annotations(assembly_name, variant_ids)
+    protected = await _clinvar_protected(clinvar_coga, variant_ids, pooled)
     return [
         (str(variant_id), int(unexplained or 0))
         for variant_id, unexplained in rows
-        if not clinvar_may_assert_pathogenic(clinvar_terms.get(str(variant_id), []))
+        if str(variant_id) not in protected
     ]
+
+
+async def _clinvar_protected(
+    read: ClinvarCogaRead, variant_ids: Sequence[str], pooled: Mapping[str, "_PooledAnnotations"]
+) -> set[str]:
+    """The variants of ``variant_ids`` whose ClinVar may assert pathogenic
+    (``clinvar_may_assert_pathogenic``), read by the ClinVar design's one rule (B9): the
+    classification in CoGA's release ``read`` where it holds the allele, else the terms of its
+    annotations on the assembly (``pooled``)."""
+    coga = await clinvar_coga_by_variant_id(read, variant_ids)
+    return {
+        variant_id
+        for variant_id in variant_ids
+        if clinvar_may_assert_pathogenic(
+            [coga[variant_id].classification or ""]
+            if variant_id in coga and clinvar_coga_held(coga[variant_id])
+            else (pooled[variant_id].clinvar_terms if variant_id in pooled else [])
+        )
+    }
 
 
 async def count_other_cfdna_samples(
@@ -938,22 +969,23 @@ async def fetch_artifact_protection_flags(
     assembly_name: str,
     variant_ids: Sequence[str],
     *,
+    clinvar_coga: ClinvarCogaRead,
     common_af: float = 0.05,
     chunk_size: int = 5_000,
 ) -> dict[str, str]:
     """The variants of ``variant_ids`` an artifact list may never hold, with the reason:
-    ``common`` (a gnomAD or TopMed frequency above ``common_af`` in any of its annotations
-    on the assembly, the auto-seed's ``is_gnomad_gt_5_percent``) or ``clinvar`` (its pooled
-    ClinVar terms may assert pathogenic: ``clinvar_may_assert_pathogenic``). A variant no
-    family on the assembly carries has no annotation here and is not listed."""
+    ``clinvar`` (its ClinVar may assert pathogenic, read by the one rule:
+    ``_clinvar_protected``) or ``common`` (a gnomAD or TopMed frequency above ``common_af``
+    in any of its annotations on the assembly, the auto-seed's ``is_gnomad_gt_5_percent``).
+    A variant no family on the assembly carries has no annotation here: it is listed unless
+    CoGA's release holds it may-be-pathogenic."""
     if not assembly_name or not variant_ids:
         return {}
-    flags: dict[str, str] = {}
     pooled = await _pooled_variant_annotations(assembly_name, variant_ids, chunk_size=chunk_size)
+    protected = await _clinvar_protected(clinvar_coga, [str(value) for value in variant_ids], pooled)
+    flags: dict[str, str] = {variant_id: "clinvar" for variant_id in protected}
     for variant_id, pooled_annotations in pooled.items():
-        if clinvar_may_assert_pathogenic(pooled_annotations.clinvar_terms):
-            flags[variant_id] = "clinvar"
-        elif pooled_annotations.population_af > common_af:
+        if variant_id not in flags and pooled_annotations.population_af > common_af:
             flags[variant_id] = "common"
     return flags
 

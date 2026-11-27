@@ -34,8 +34,19 @@ from fastapi.testclient import TestClient
 from backend.app.core.postgres import get_postgres_session
 from backend.app.dependencies import get_current_user
 from backend.app.main import app
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
 from backend.app.services import family_package_jobs, nipt_artifact_pg
 from backend.app.services.access_control import CurrentUser
+
+
+@pytest.fixture(autouse=True)
+def _no_clinvar_release_for_the_artifact_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No ClinVar release of CoGA's own: the artifact list's protection reads the annotation."""
+
+    async def no_release(_session, _assembly_name):
+        return NO_CLINVAR_COGA
+
+    monkeypatch.setattr(nipt_artifact_pg, "clinvar_coga_read", no_release)
 
 CANONICAL = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 # Names no record: the session of the route tests finds nothing for any id.

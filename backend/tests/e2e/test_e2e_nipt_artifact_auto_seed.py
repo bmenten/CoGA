@@ -44,6 +44,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
+
 pytestmark = pytest.mark.integration
 
 _TAG = uuid4().hex[:8].upper()
@@ -202,10 +204,14 @@ async def _exercise() -> dict[str, Any]:
         )
         await execute_clickhouse(f"OPTIMIZE TABLE {_small_table_name(_ASSEMBLY, 'entries')} FINAL")
         merged = await fetch_recurrent_artifact_candidates(
-            _ASSEMBLY, carrier_samples=carriers, rules=rules, min_unexplained_samples=_THRESHOLD
+            _ASSEMBLY,
+            clinvar_coga=NO_CLINVAR_COGA,
+            carrier_samples=carriers,
+            rules=rules,
+            min_unexplained_samples=_THRESHOLD,
         )
         unprotected = await fetch_recurrent_artifact_candidates(
-            _ASSEMBLY, carrier_samples=carriers, rules=rules, min_unexplained_samples=2
+            _ASSEMBLY, clinvar_coga=NO_CLINVAR_COGA, carrier_samples=carriers, rules=rules, min_unexplained_samples=2
         )
         return {
             "carriers": sorted(carriers),

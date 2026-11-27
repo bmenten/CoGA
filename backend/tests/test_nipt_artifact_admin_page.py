@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 from backend.app.core.postgres import get_postgres_session
 from backend.app.dependencies import get_current_user
 from backend.app.main import app
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
 from backend.app.services import nipt_artifact_pg
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.nipt_analysis import NiptQualityThresholds
@@ -35,6 +36,16 @@ from backend.app.services.nipt_artifact_pg import (
     preview_auto_seed_nipt_artifacts,
     recurrence_rules,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_clinvar_release_for_the_artifact_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No ClinVar release of CoGA's own: the artifact list's protection reads the annotation."""
+
+    async def no_release(_session, _assembly_name):
+        return NO_CLINVAR_COGA
+
+    monkeypatch.setattr(nipt_artifact_pg, "clinvar_coga_read", no_release)
 
 ASSEMBLY = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 
@@ -109,7 +120,7 @@ def candidates(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """The recurrent alleles ClickHouse answers, and what the reading was asked."""
     asked: dict[str, Any] = {}
 
-    async def fake(assembly_name: str, *, carrier_samples, rules, min_unexplained_samples):
+    async def fake(assembly_name: str, *, clinvar_coga, carrier_samples, rules, min_unexplained_samples):
         asked.update(
             assembly_name=assembly_name,
             carrier_samples=list(carrier_samples),
