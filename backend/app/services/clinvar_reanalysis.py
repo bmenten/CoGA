@@ -3,14 +3,16 @@ B10): a read-only list, per project, of the signed analyses one of whose small v
 current ClinVar release classifies otherwise than it was frozen.
 
 Each family analysis is read in its latest signed version (``report_signouts``, the newest
-version of each ``analysis_type``):
+version of each ``analysis_type``), and each of its variants at the ClinVar (CoGA) value that
+version saw: the value its drift section names where the classification had drifted or been
+noted at sign-out (``clinvar_coga_to``), else the one frozen with the classification. The
+variants are:
 
-- a variant its record reports, its ClinVar (CoGA) as the signed version saw it: the value its
-  drift section names where the classification had drifted or been noted at sign-out
-  (``clinvar_coga_to``), else the one frozen with the classification (``evidence_snapshot``);
-- a variant the analysis's review classifies (an ACMG classification with an evidence snapshot,
-  the review the analysis reads: its own, else the shared one, ``effective_reviews``) and the
-  record does not report, its value frozen with that classification.
+- those its record reports (their ``evidence_snapshot``);
+- those the analysis's review classifies and the record does not report: the review the
+  analysis reads (its own, else the shared one, ``effective_reviews``, as the drift check picks
+  it), where it holds an ACMG classification frozen before the sign-out. A classification made
+  or changed after the sign-out is not the signed version's: the next sign-out checks it.
 
 A variant is listed when an ALT's classification differs, read as the drift check reads it
 (``clinvar_coga_move``: by its terms; one where there was none, or none where there was one,
@@ -54,7 +56,15 @@ class _Signed:
     signed_out_at: datetime
     report_code: str
     assembly: str | None
-    snapshot: Mapping[str, Any]
+    reported_variants: list[Mapping[str, Any]]
+    # Each variant's ClinVar (CoGA) at sign-out where the drift section names it: a
+    # classification that had drifted or been noted then.
+    at_signout: Mapping[str, list[Mapping[str, Any]]]
+
+    def seen(self, variant_id: str, frozen: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+        """A variant's ClinVar (CoGA) as this signed version saw it, its value ``frozen`` with
+        the classification unless the drift section names another."""
+        return self.at_signout.get(variant_id, frozen)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +99,9 @@ async def _latest_signed(session: AsyncSession, project: str) -> list[_Signed]:
                 SELECT DISTINCT ON (r.family_id, r.snapshot->>'analysis_type')
                        r.family_id::text AS family_uuid, r.family_identifier, r.version,
                        r.signed_out_at, r.content_hash, r.snapshot->>'analysis_type' AS analysis,
-                       r.snapshot->>'assembly' AS assembly, r.snapshot
+                       r.snapshot->>'assembly' AS assembly,
+                       r.snapshot->'reported_variants' AS reported_variants,
+                       r.snapshot->'drift'->'drifted' AS drifted
                 FROM report_signouts r
                 JOIN family_projects fp ON fp.family_id = r.family_id
                 WHERE fp.project_id = CAST(:project AS uuid)
@@ -112,7 +124,12 @@ async def _latest_signed(session: AsyncSession, project: str) -> list[_Signed]:
                 signed_out_at=row["signed_out_at"],
                 report_code=code,
                 assembly=row["assembly"],
-                snapshot=row["snapshot"],
+                reported_variants=row["reported_variants"],
+                at_signout={
+                    str(entry["variant_id"]): entry["clinvar_coga_to"]
+                    for entry in row["drifted"]
+                    if entry.get("clinvar_coga_to") is not None
+                },
             )
         )
     return signed
@@ -121,13 +138,8 @@ async def _latest_signed(session: AsyncSession, project: str) -> list[_Signed]:
 def _reported(signed: _Signed) -> list[_Frozen]:
     """The variants the signed record reports, each with its ClinVar (CoGA) as the signed
     version saw it; a variant with no evidence frozen has none to compare, and is left out."""
-    at_signout = {
-        str(entry["variant_id"]): entry["clinvar_coga_to"]
-        for entry in signed.snapshot["drift"]["drifted"]
-        if entry.get("clinvar_coga_to") is not None
-    }
     frozen: list[_Frozen] = []
-    for entry in signed.snapshot["reported_variants"]:
+    for entry in signed.reported_variants:
         evidence = entry.get("evidence_snapshot")
         if evidence is None:
             continue
@@ -138,7 +150,7 @@ def _reported(signed: _Signed) -> list[_Frozen]:
                 variant_id=variant_id,
                 reported=True,
                 classification=entry.get(CLASS_SHOWN_KEY),
-                clinvar_coga=at_signout.get(variant_id, evidence["clinvar_coga"]),
+                clinvar_coga=signed.seen(variant_id, evidence["clinvar_coga"]),
             )
         )
     return frozen
@@ -146,7 +158,9 @@ def _reported(signed: _Signed) -> list[_Frozen]:
 
 async def _classified(session: AsyncSession, signed: Sequence[_Signed]) -> list[_Frozen]:
     """The variants each signed analysis's reviews classify and its record does not report, each
-    with its ClinVar (CoGA) frozen with the classification."""
+    with its ClinVar (CoGA) as the signed version saw it. Each variant's review is the one the
+    analysis reads, picked among all its reviews as the drift check picks it; one without an
+    ACMG classification, or with one frozen after the sign-out, is not the signed version's."""
     families = sorted({item.family_uuid for item in signed})
     if not families:
         return []
@@ -155,11 +169,10 @@ async def _classified(session: AsyncSession, signed: Sequence[_Signed]) -> list[
             text(
                 """
                 SELECT r.family_id::text AS family_uuid, r.analysis, r.variant_id, r.classification,
-                       r.tags, r.acmg_evidence_snapshot, f.metadata
+                       r.tags, r.acmg_evidence_snapshot, r.updated_by, r.updated_at, f.metadata
                 FROM small_variant_reviews r
                 JOIN families f ON f.id = r.family_id
                 WHERE r.family_id = ANY(CAST(:families AS uuid[]))
-                  AND r.acmg_evidence_snapshot IS NOT NULL
                 """
             ),
             {"families": families},
@@ -173,10 +186,15 @@ async def _classified(session: AsyncSession, signed: Sequence[_Signed]) -> list[
         reviews = by_family.get(item.family_uuid, [])
         if not reviews:
             continue
-        reported = {str(entry["variant_id"]) for entry in item.snapshot["reported_variants"]}
+        reported = {str(entry["variant_id"]) for entry in item.reported_variants}
         scope = AnalysisScope(analysis=item.analysis, held=family_analyses(reviews[0]["metadata"]))
         for variant_id, review in sorted(effective_reviews(reviews, scope).items()):
-            if variant_id in reported:
+            snapshot = review["acmg_evidence_snapshot"]
+            if (
+                variant_id in reported
+                or snapshot is None
+                or datetime.fromisoformat(snapshot["captured_at"]) > item.signed_out_at
+            ):
                 continue
             frozen.append(
                 _Frozen(
@@ -184,7 +202,7 @@ async def _classified(session: AsyncSession, signed: Sequence[_Signed]) -> list[
                     variant_id=variant_id,
                     reported=False,
                     classification=review_class_label(review["classification"], review["tags"]),
-                    clinvar_coga=review["acmg_evidence_snapshot"]["clinvar_coga"],
+                    clinvar_coga=item.seen(variant_id, snapshot["clinvar_coga"]),
                 )
             )
     return frozen

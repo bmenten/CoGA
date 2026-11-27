@@ -2,13 +2,14 @@
 analyses one of whose small variants CoGA's current ClinVar release classifies otherwise than
 it was frozen. Read only; nothing of the analysis changes, and no mail goes out.
 
-A reported variant's ClinVar (CoGA) is read as the signed version saw it: the value its drift
-section names at sign-out, else the one frozen with the classification. A variant the
-analysis's review classifies and its record does not report is read as frozen with that
-classification, from the review the analysis reads (its own, else the shared one). A variant
-is listed for another classification of an ALT, not for another review status or other stars
-of the same one (B5), and not where its assembly reads no release. A project outside the
-caller's answers 404, as an unknown one does.
+Each variant is read at the ClinVar (CoGA) value the signed version saw: the value its drift
+section names at sign-out, else the one frozen with the classification. The variants are those
+the record reports and those the analysis's review classifies and the record does not report:
+the review the analysis reads (its own, else the shared one, picked as the drift check picks
+it), where it holds an ACMG classification frozen before the sign-out. A variant is listed for
+another classification of an ALT, not for another review status or other stars of the same one
+(B5), and not where its assembly reads no release. A project outside the caller's answers 404,
+as an unknown one does.
 
 Postgres, the release and its lookup are stood in for;
 ``integration/test_clinvar_coga_drift_integration.py`` reads the list on real Postgres and
@@ -31,6 +32,7 @@ from backend.app.services.clinvar_coga import ClinvarCogaRead
 PROJECT = "00000000-0000-4000-8000-00000000000a"
 FAMILY = "00000000-0000-4000-8000-0000000000f1"
 FROZEN, NOW = date(2026, 11, 15), date(2026, 11, 22)
+CLASSIFIED_AT = datetime(2026, 11, 15, 12, tzinfo=timezone.utc)
 SIGNED_AT = datetime(2026, 11, 16, tzinfo=timezone.utc)
 
 
@@ -59,18 +61,30 @@ def _signed(analysis: str | None, reported: list[dict[str, Any]], drifted: list[
         "content_hash": "ab" * 32,
         "analysis": analysis,
         "assembly": "GRCh38",
-        "snapshot": {"reported_variants": reported, "drift": {"drifted": drifted}},
+        "reported_variants": reported,
+        "drifted": drifted,
     }
 
 
-def _review(variant_id: str, analysis: str, classification: str, clinvar_coga: list[dict[str, Any]]) -> dict[str, Any]:
+def _review(
+    variant_id: str,
+    analysis: str,
+    classification: str | None,
+    clinvar_coga: list[dict[str, Any]] | None,
+    *,
+    captured_at: datetime = CLASSIFIED_AT,
+) -> dict[str, Any]:
+    """A review as Postgres holds it; ``clinvar_coga`` None for one without an ACMG classification."""
+    snapshot = None if clinvar_coga is None else {"clinvar_coga": clinvar_coga, "captured_at": captured_at.isoformat()}
     return {
         "family_uuid": FAMILY,
         "analysis": analysis,
         "variant_id": variant_id,
         "classification": classification,
         "tags": [],
-        "acmg_evidence_snapshot": {"clinvar_coga": clinvar_coga},
+        "acmg_evidence_snapshot": snapshot,
+        "updated_by": "analyst",
+        "updated_at": captured_at,
         "metadata": {"analyses": ["long_read_wgs", "short_read_wgs"]},
     }
 
@@ -86,6 +100,10 @@ class _Session:
         if "FROM projects" in sql:
             return SimpleNamespace(scalar_one=lambda: self.known)
         rows = self.signed if "FROM report_signouts" in sql else self.reviews
+        if "acmg_evidence_snapshot IS NOT NULL" in sql:
+            # A query that left out the reviews without ACMG would let a shared review stand in
+            # for the analysis's own: what Postgres would return for it.
+            rows = [row for row in rows if row["acmg_evidence_snapshot"] is not None]
         return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
 
 
@@ -163,6 +181,38 @@ def test_a_shared_review_counts_for_an_analysis_without_its_own(release: dict[st
     out = _list(_Session(signed=[_signed("long_read_wgs", [], [])], reviews=reviews))
 
     assert [item.variant_id for item in out.items] == ["1-300-G-A"]
+
+
+def test_a_classification_is_read_as_the_signed_version_saw_it(release: dict[str, list[dict[str, Any]]]) -> None:
+    release.update(
+        {
+            "1-300-G-A": [_value("Pathogenic", release=NOW)],  # its drift noted at sign-out
+            "1-310-G-A": [_value("Pathogenic", release=NOW)],  # its own review holds no ACMG
+            "1-320-G-A": [_value("Pathogenic", release=NOW)],  # classified after the sign-out
+        }
+    )
+    signed = _signed(
+        "long_read_wgs",
+        [],
+        # Frozen benign, pathogenic at sign-out: the signed version saw it pathogenic.
+        [{"variant_id": "1-300-G-A", "status": "drifted", "clinvar_coga_to": [_value("Pathogenic", release=NOW)]}],
+    )
+    reviews = [
+        _review("1-300-G-A", "long_read_wgs", "Likely benign - class 2", [_value("Benign")]),
+        # The analysis's own review without an ACMG classification hides the shared one, as
+        # the drift check reads it.
+        _review("1-310-G-A", "", "Likely benign - class 2", [_value("Benign")]),
+        _review("1-310-G-A", "long_read_wgs", None, None),
+        # Frozen after the sign-out: the next sign-out's, not this one's.
+        _review(
+            "1-320-G-A", "long_read_wgs", "Likely benign - class 2", [_value("Benign")],
+            captured_at=datetime(2026, 11, 20, tzinfo=timezone.utc),
+        ),
+    ]
+
+    out = _list(_Session(signed=[signed], reviews=reviews))
+
+    assert out.items == []
 
 
 def test_a_project_without_a_signed_analysis_lists_nothing(release: dict[str, list[dict[str, Any]]]) -> None:

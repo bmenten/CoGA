@@ -352,8 +352,8 @@ with a small variant that CoGA's current release classifies otherwise than the s
 
 - a variant the signed version reports, compared with the *ClinVar (CoGA)* value the signed version
   showed;
-- a variant the analysis classified and did not report, compared with the value frozen with its
-  classification.
+- a variant the analysis classified before the sign-out and did not report, compared with the
+  value the signed version saw.
 
 Each analysis is read in its latest signed version. Another classification of an ALT is listed;
 another review status or other stars of the same classification is not. Each line names the family

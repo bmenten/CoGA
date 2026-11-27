@@ -15,7 +15,9 @@ through the import's write path. Then:
   the sign-out is refused until it is acknowledged;
 - the project's re-analysis list (the design's phase 3) holds no variant while the release says
   what the signed version saw, and the reclassified variant once it does not, with its ClinVar
-  (CoGA) as signed and as now.
+  (CoGA) as signed and as now;
+- a release a load makes current while a signed record is being built becomes current only once
+  the record's transaction has ended, so every read of one record is of one release.
 
 The family context, the Sample QC and the sequencing QC are stubbed, and the variant list's
 hydration (reviews, gene metrics, cohort) is left out. Skipped unless
@@ -24,6 +26,7 @@ hydration (reviews, gene metrics, cohort) is left out. Skipped unless
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from types import SimpleNamespace
 from typing import Any
@@ -56,6 +59,7 @@ pytestmark = pytest.mark.integration
 _VARIANT = "1-1000100-G-A"
 _RECORD_ID = "\t900001\t"
 _FIRST, _REVIEWED, _RECLASSIFIED = date(2026, 11, 22), date(2026, 11, 29), date(2026, 12, 6)
+_WHILE_SIGNING = date(2026, 12, 13)
 _CSQ_FIELDS = "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
 
 
@@ -89,6 +93,7 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
     from backend.app.services import clickhouse_family_variants as family_variants
     from backend.app.services import report_signout_service as rss
     from backend.app.services.clinvar_reanalysis import clinvar_reanalysis_list
+    from backend.app.services.clinvar_releases import current_clinvar_release, hold_current_clinvar_release
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         insert_small_variant_records,
@@ -269,6 +274,30 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
             ]
             assert [value.classification for value in item.clinvar_coga_now] == ["Likely_pathogenic"]
             assert reanalysis.releases == {assembly: _RECLASSIFIED}
+
+            # (d) A release loaded while a record is being built is made current once the
+            # record's transaction has ended, never between two of its reads.
+            async with sm() as building:
+                await hold_current_clinvar_release(building)
+                load = asyncio.create_task(_load(_WHILE_SIGNING, lambda record: record))
+                for _ in range(600):
+                    async with sm() as s:
+                        waiting = (
+                            await s.execute(
+                                text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted")
+                            )
+                        ).scalar_one()
+                    if waiting or load.done():
+                        break
+                    await asyncio.sleep(0.1)
+                assert waiting and not load.done(), "the load did not wait for the record being built"
+                current = await current_clinvar_release(building, assembly)
+                assert current is not None and current.release == _RECLASSIFIED
+                await building.commit()
+            await load
+            async with sm() as s:
+                current = await current_clinvar_release(s, assembly)
+            assert current is not None and current.release == _WHILE_SIGNING
         finally:
             tables = await execute_clickhouse(
                 "SELECT name FROM system.tables WHERE database = %(database)s AND startsWith(name, %(prefix)s)",

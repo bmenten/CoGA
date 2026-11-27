@@ -552,7 +552,10 @@ imported that release, and when and by whom it was first applied.
 - the ClinVar release CoGA loaded for the assembly, current at sign-out (`clinvar_coga`): the
   release, its file and SHA-256 (`source_version`), where it came from, when it was loaded and its
   rows; null when the assembly has none. The drift at sign-out compared each reported variant's
-  frozen *ClinVar (CoGA)* value with this release.
+  frozen *ClinVar (CoGA)* value with this release. Building a record holds the current-release
+  lock shared to the end of its transaction, and a load makes a newer release current under the
+  same lock held exclusively (`hold_current_clinvar_release`), so the manifest, the drift check,
+  a NIPT analysis and this section all read the one release.
 
 PanelApp gives each panel its own version, which `gene_panels` holds.
 
@@ -1236,9 +1239,12 @@ project in its latest signed version (the newest version of each `analysis_type`
   (`clinvar_coga_to`), else the value frozen with its classification
   (`evidence_snapshot.clinvar_coga`). A reported variant without frozen evidence has nothing to
   compare, and is left out;
-- each variant the analysis's review classifies with frozen evidence and its record does not
-  report, at the value frozen with that classification. The review is the one the analysis
-  reads: its own, else the shared one (`effective_reviews`).
+- each variant the analysis's review classifies and its record does not report, at the value
+  the signed version saw, read the same way. The review is the one the analysis reads, its own
+  else the shared one (`effective_reviews`), picked among all the variant's reviews as the drift
+  check picks it: an own review without an ACMG classification hides the shared one. A review
+  whose classification was frozen after the sign-out (`captured_at`) is not the signed
+  version's, and is left out: the next sign-out checks it.
 
 A variant is listed when the assembly's current release gives an ALT another classification,
 read by its terms as the drift check reads it (`clinvar_coga_move`): a classification where
