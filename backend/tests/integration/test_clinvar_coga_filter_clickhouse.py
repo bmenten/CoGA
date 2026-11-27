@@ -8,7 +8,8 @@ each row's own transcripts, and the shared annotation table's, which the Variant
 A search for HIGH impact and rare variants with the override keeps a common, low-impact allele
 that CoGA's release holds pathogenic, as it keeps one the annotation holds pathogenic, unless a
 filter the override does not lift fails it; the *ClinVar (CoGA)* filter keeps the alleles the
-release classifies so. An untrimmed record matches ClinVar's anchored one.
+release classifies so. An untrimmed record matches ClinVar's anchored one, in the filter and in
+the values the page serves, which one lookup of the release reads.
 
 On an assembly of its own, whose tables the test drops. Synthetic data only. Skipped unless
 ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -84,7 +85,8 @@ def test_the_filter_and_the_override_read_cogas_release_on_both_search_paths() -
     from backend.app.services.clickhouse_variant_ids import _require_clickhouse_identifier, _small_table_name
     from backend.app.services.clickhouse_variant_queries import _small_annotation_filter_clauses
     from backend.app.services.clickhouse_variant_storage import insert_small_variant_records
-    from backend.app.services.clinvar_release_store import ensure_clinvar_table, insert_clinvar_rows
+    from backend.app.services.clinvar_coga import ClinvarCogaRead, clinvar_coga_values
+    from backend.app.services.clinvar_release_store import clinvar_alleles, ensure_clinvar_table, insert_clinvar_rows
     from backend.app.services.clinvar_vcf import ClinvarFileReader
     from backend.app.services.family_metadata_context import FamilyMetadataContext
     from backend.app.services.family_variant_filters import SmallVariantQueryFilters
@@ -128,6 +130,20 @@ def test_the_filter_and_the_override_read_cogas_release_on_both_search_paths() -
             reader = ClinvarFileReader(assembly_name=assembly, release=_RELEASE, file_name=_FIXTURE.name)
             await ensure_clinvar_table(assembly)
             await insert_clinvar_rows(assembly, _RELEASE, list(reader.rows(lines)))
+
+            # The values the page serves, read in the release: the untrimmed multi-allelic record's
+            # ALTs each by its own key.
+            [multi, benign, gone] = await clinvar_coga_values(
+                ClinvarCogaRead(assembly, _RELEASE, True),
+                [("chr1", 1000200, "AGG", "AG,AGGG"), ("2", 2000100, "C", "T"), ("3", 9, "C", "T")],
+            )
+            assert [(value.alt, value.status, value.classification, value.stars) for value in multi] == [
+                ("AG", "in_release", "Likely_pathogenic", 3),
+                ("AGGG", "not_in_release", None, None),
+            ]
+            assert (benign[0].classification, benign[0].variation_id) == ("Benign/Likely_benign", 900004)
+            assert gone[0].status == "not_in_release"
+            assert await clinvar_alleles(assembly, _RELEASE, set()) == {}
 
             for context in (family_context, explorer_scope):
                 rare = {"impact": ["HIGH"], "max_gnomad_genomes_af": 0.01}
