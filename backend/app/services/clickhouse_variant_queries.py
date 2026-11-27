@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from bisect import bisect_right
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Collection, Final, Iterable, NamedTuple, Protocol, Sequence, cast
 
 from fastapi import HTTPException
@@ -79,7 +79,7 @@ from .variant_prioritization import (
     MODE_HOM_RECESSIVE,
     MODE_X_LINKED,
 )
-from .clinvar_release_store import clinvar_allele_condition
+from .clinvar_release_store import clinvar_allele_condition, clinvar_alleles_held_condition
 from .clinvar_review_status import clinvar_conditions, clinvar_stars
 from .clickhouse_variant_records import (
     CLINVAR_OVERRIDE_TERMS,
@@ -3914,6 +3914,61 @@ def _clinvar_coga_lifted(
     return f"({membership} OR ({pathogenic} AND {rest_membership}))"
 
 
+def _clinvar_coga_held(context: _SearchAssembly, filters: SmallVariantQueryFilters, *, params: dict[str, Any]) -> str:
+    """"CoGA's ClinVar release of the request holds every allele of the row (alias ``e``)": where
+    the one rule of the design's phase 2 (B8) reads that release alone. Without a release, none."""
+    if filters.clinvar_coga_release is None or not context.assembly_name:
+        return "0"
+    return clinvar_alleles_held_condition(
+        context.assembly_name, filters.clinvar_coga_release, params=params, prefix="coga_held"
+    )
+
+
+def _transcript_filters_clause(
+    context: _SearchAssembly,
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+    reads_text: bool,
+) -> str | None:
+    """"One transcript of the row meets every per-transcript filter together", with the ClinVar
+    P/LP override's reading of CoGA's release (``_clinvar_coga_lifted``); None when the search
+    asks nothing of a transcript."""
+    condition = _small_annotation_filter_condition(filters, params=params)
+    if condition is None:
+        return None
+    membership = _small_annotation_row_membership_condition(
+        context, filters, params=params, condition=condition, reads_text=reads_text
+    )
+    return _clinvar_coga_lifted(context, filters, condition, membership, params=params, reads_text=reads_text)
+
+
+def _clinvar_read_by_the_rule(
+    context: _SearchAssembly,
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+    reads_text: bool,
+) -> str | None:
+    """The per-transcript filters with the *ClinVar status* filter read by the design's one rule
+    (B8): CoGA's release of the request where it holds the row's alleles, else the annotation.
+    A row the release holds whole is kept when one of its alleles has a status asked for there,
+    and the other transcript filters hold on one of its transcripts; any other row when, as
+    without a release, one transcript meets them all, ClinVar's statuses in the annotation
+    included. A multi-allelic row the release holds in part is read both ways."""
+    annotated = _transcript_filters_clause(context, filters, params=params, reads_text=reads_text)
+    if not filters.clinvar or filters.clinvar_coga_release is None or not context.assembly_name:
+        return annotated
+    coga = _clinvar_coga_condition(
+        context, filters, _status_filter_terms(filters.clinvar), params=params, prefix="coga_clinvar"
+    )
+    rest = _transcript_filters_clause(
+        context, replace(filters, clinvar=[]), params=params, reads_text=reads_text
+    )
+    held = _clinvar_coga_held(context, filters, params=params)
+    return f"(({coga}{f' AND {rest}' if rest else ''}) OR (NOT {held} AND {annotated}))"
+
+
 def _small_annotation_filter_clauses(
     context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
@@ -3954,21 +4009,9 @@ def _small_annotation_filter_clauses(
     if gene_condition:
         clauses.append(gene_condition)
 
-    detail_where_clauses, detail_params = _small_detail_filter_clauses(filters)
-    params.update(detail_params)
-    for detail_where_clause in detail_where_clauses:
-        membership = _small_annotation_row_membership_condition(
-            context,
-            filters,
-            params=params,
-            condition=detail_where_clause,
-            reads_text=reads_text,
-        )
-        clauses.append(
-            _clinvar_coga_lifted(
-                context, filters, detail_where_clause, membership, params=params, reads_text=reads_text
-            )
-        )
+    transcript_clause = _clinvar_read_by_the_rule(context, filters, params=params, reads_text=reads_text)
+    if transcript_clause:
+        clauses.append(transcript_clause)
 
     if filters.clinvar_coga:
         clauses.append(
@@ -3979,15 +4022,27 @@ def _small_annotation_filter_clauses(
 
     exclude_annotation_condition = _small_annotation_exclude_filter_condition(filters, params=params)
     if exclude_annotation_condition:
-        clauses.append(
-            _small_annotation_row_membership_condition(
+        # No transcript of an excluded ClinVar status, read by the one rule (B8): a row CoGA's
+        # release holds whole is left out by its statuses there alone.
+        not_annotated = _small_annotation_row_membership_condition(
+            context,
+            filters,
+            params=params,
+            condition=exclude_annotation_condition,
+            negate=True,
+        )
+        if filters.clinvar_coga_release is None or not context.assembly_name:
+            clauses.append(not_annotated)
+        else:
+            excluded = _clinvar_coga_condition(
                 context,
                 filters,
+                _status_filter_terms(filters.exclude_clinvar),
                 params=params,
-                condition=exclude_annotation_condition,
-                negate=True,
+                prefix="coga_exclude",
             )
-        )
+            held = _clinvar_coga_held(context, filters, params=params)
+            clauses.append(f"(NOT {excluded} AND ({held} OR {not_annotated}))")
 
     salient_condition = _small_salient_condition(filters, params=params)
     if salient_condition:

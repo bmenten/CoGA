@@ -117,17 +117,25 @@ def _alleles(rows: Iterable[Sequence[Any]] | None) -> dict[int, ClinvarStoredAll
     }
 
 
+# The keys one lookup names: a query's text holds its bound values, and ClickHouse refuses a
+# query longer than ``max_query_size`` (256 KiB), which about 13,000 keys of 20 digits fill.
+_KEYS_PER_LOOKUP = 5_000
+
+
 async def clinvar_alleles(assembly_name: str, release: date, keys: Collection[int]) -> dict[int, ClinvarStoredAllele]:
     """The release's alleles of ``keys`` (``small_allele_key``), by key; an allele the release
-    does not hold is left out."""
-    if not keys:
-        return {}
-    rows = await execute_clickhouse(
-        f"SELECT {_ALLELE_COLUMNS} FROM {clinvar_table(assembly_name)} "
-        "WHERE release = %(release)s AND allele_key IN %(keys)s",
-        {"release": release, "keys": tuple(sorted(keys))},
-    )
-    return _alleles(rows)
+    does not hold is left out. Read ``_KEYS_PER_LOOKUP`` keys at a time: a page's alleles in one
+    query, a ranking's in a few."""
+    ordered = sorted(keys)
+    found: dict[int, ClinvarStoredAllele] = {}
+    for start in range(0, len(ordered), _KEYS_PER_LOOKUP):
+        rows = await execute_clickhouse(
+            f"SELECT {_ALLELE_COLUMNS} FROM {clinvar_table(assembly_name)} "
+            "WHERE release = %(release)s AND allele_key IN %(keys)s",
+            {"release": release, "keys": tuple(ordered[start : start + _KEYS_PER_LOOKUP])},
+        )
+        found.update(_alleles(rows))
+    return found
 
 
 async def clinvar_alleles_of_callset(
@@ -169,6 +177,24 @@ def clinvar_allele_condition(
         f"arrayExists(k -> k IN (SELECT allele_key FROM {clinvar_table(assembly_name)} "
         f"WHERE release = %({prefix}_release)s AND hasAny(classification_terms, %({prefix}_terms)s)), "
         f"{alias}.allele_keys)"
+    )
+
+
+def clinvar_alleles_held_condition(
+    assembly_name: str,
+    release: date,
+    *,
+    params: dict[str, Any],
+    prefix: str,
+    alias: str = "e",
+) -> str:
+    """"The release holds every allele of the row (alias ``alias``, its ``allele_keys``)", in
+    SQL: where the one rule of the design's phase 2 lets the release alone speak for the row. A
+    row without an allele key (a symbolic ALT) is not held."""
+    params[f"{prefix}_release"] = release
+    return (
+        f"(notEmpty({alias}.allele_keys) AND arrayAll(k -> k IN (SELECT allele_key FROM "
+        f"{clinvar_table(assembly_name)} WHERE release = %({prefix}_release)s), {alias}.allele_keys))"
     )
 
 

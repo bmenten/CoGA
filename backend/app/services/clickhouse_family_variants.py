@@ -98,7 +98,7 @@ from .clickhouse_variant_records import (
     _coerce_float,
 )
 
-from .clinvar_coga import clinvar_coga_read
+from .clinvar_coga import ClinvarCogaRead, clinvar_by_the_rule, clinvar_coga_of, clinvar_coga_read, clinvar_coga_values
 from .clickhouse_variant_queries import (
     IMPUTED_SMALL_VARIANT_SOURCES,
     PER_SAMPLE_SMALL_VARIANT_SOURCES,
@@ -2903,11 +2903,14 @@ async def _rank_small_variants(
     segregation_modes: Mapping[str, list[str]],
     patient_terms: Sequence[str],
     term_labels: Mapping[str, str],
+    clinvar_coga_release: date | None,
 ) -> dict[str, VariantPriorityOut]:
     """Each variant's priority (the Exomiser-style score breakdown and its rank), best first.
 
     The phenotype score of each gene against the affected members' HPO terms is the costly
-    part (~10s for the Mendeliome default view), which the ranking cache saves.
+    part (~10s for the Mendeliome default view), which the ranking cache saves. ClinVar is read
+    by the design's one rule (B8): CoGA's release of the request (``clinvar_coga_release``,
+    which the cache key holds with the filters) where it holds the allele, else the annotation.
     """
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
     segregation_evaluated = bool(affected_names)
@@ -2929,8 +2932,16 @@ async def _rank_small_variants(
     # Gene-level constraint (pLI / missense-Z) from gene_info, for all candidates (the
     # hydrate step only covers the page), in the family's assembly.
     constraint_map = await _fetch_gene_constraint_metric_map(session, variants, assembly_id=context.assembly_id)
+    coga_values = (
+        await clinvar_coga_values(
+            ClinvarCogaRead(context.assembly_name, clinvar_coga_release, True),
+            [(variant.chr, variant.start, variant.ref, variant.alt) for variant in variants],
+        )
+        if clinvar_coga_release is not None and context.assembly_name
+        else [[] for _variant in variants]
+    )
 
-    for variant in variants:
+    for variant, values in zip(variants, coga_values):
         metrics = constraint_map.get(str(variant.id))
         if metrics:
             if variant.gene_pli is None:
@@ -2943,7 +2954,7 @@ async def _rank_small_variants(
         phenotype_value = gene_score.score if gene_score else None
         scored = score_variant(
             impact=variant.impact,
-            clinvar=variant.clinvar,
+            clinvar=clinvar_by_the_rule(variant.clinvar, clinvar_coga_of(variant.alt, variant.alt_allele, values)),
             cadd_phred=variant.cadd_phred,
             revel=variant.revel,
             spliceai_max=variant.spliceai_max,
@@ -3256,6 +3267,7 @@ async def _prioritized_small_variants_page(
         segregation_modes=modes_by_variant,
         patient_terms=patient_terms,
         term_labels=term_labels,
+        clinvar_coga_release=filters.clinvar_coga_release,
     )
 
     # When the candidate set overflowed the ranking window, the ranking only covers the

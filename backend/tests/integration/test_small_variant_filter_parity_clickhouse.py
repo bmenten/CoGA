@@ -533,6 +533,20 @@ CASES: dict[str, _Case] = {
     ),
     "ClinVar (CoGA) benign": _case({DE_NOVO_MISSENSE}, clinvar_coga=["Benign"], clinvar_coga_release=_COGA_RELEASE),
     "ClinVar (CoGA) without a release": _case(set(), clinvar_coga=["Pathogenic"]),
+    # The ClinVar status filter and its exclusion by the one rule (B8): CoGA's release for the
+    # alleles it holds (the MNV pathogenic, the de novo missense benign), the annotation for the
+    # rest.
+    "ClinVar pathogenic, CoGA's release where it holds the allele": _case(
+        {HIGH_OFF_MANE, COMMON_PATHOGENIC, MATERNAL_MNV}, clinvar=["Pathogenic"], clinvar_coga_release=_COGA_RELEASE
+    ),
+    "ClinVar uncertain, which CoGA's release holds benign": _case(
+        set(), clinvar=["Uncertain_significance"], clinvar_coga_release=_COGA_RELEASE
+    ),
+    "ClinVar benign left out, CoGA's release where it holds the allele": _case(
+        ALL - {DE_NOVO_MISSENSE, PATERNAL_SYNONYMOUS},
+        exclude_clinvar=["Benign", "Likely_benign"],
+        clinvar_coga_release=_COGA_RELEASE,
+    ),
     # The override reads CoGA's release too: its (likely) pathogenic alleles pass the impact and
     # frequency filters, on any of their transcripts.
     "impact with the ClinVar override and CoGA's release": _case(

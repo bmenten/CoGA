@@ -28,7 +28,7 @@ The page `FamilySmallVariantsPage.tsx` loads the family and the gene panels; the
 | *Phenotype* | the phenotype prioritisation, and with *Rank by* the order: the combined score or the variant score (chapter 12) |
 | *Structural second hit* | "only genes that are also hit by an SV" |
 | *Inheritance* | inheritance model (de novo/dominant, recessive, X-linked, compound heterozygous, *All, compound het grouped*), genotype per family member, *expanded carrier screening* |
-| *Pathogenicity* | the annotation's ClinVar status, and *ClinVar (CoGA) status*: that in CoGA's own ClinVar release (`clinvar_coga`) |
+| *Pathogenicity* | the ClinVar status: that in CoGA's own ClinVar release where it holds the allele, else the annotation's (the owner's decision B8; also for the excluded statuses); and *ClinVar (CoGA) status*: that in CoGA's own release alone (`clinvar_coga`) |
 | *Annotations* | impact (HIGH, MODERATE, …), consequence terms, the SpliceAI minimum, transcript, rsID, HGVS, only canonical or MANE transcripts, only loss-of-function |
 | *In silico* | CADD, REVEL, SIFT, PolyPhen; the SpliceAI minimum also counts as a predictor |
 | *Frequency* | maximum frequency in gnomAD (exomes, genomes), popmax (gnomAD's own popmax, otherwise VEP's `MAX_AF`, the highest frequency across the populations of 1000 Genomes and gnomAD) and TOPMed; homozygote and hemizygote counts (gnomAD's total: the combined count, otherwise exomes plus genomes); "a (likely) pathogenic ClinVar variant passes the frequency, the consequence and the in-silico filter" |
