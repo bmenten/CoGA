@@ -57,7 +57,9 @@ NOW = datetime(2026, 11, 27, tzinfo=timezone.utc)
 
 
 def _vcf(text: str | None = None) -> bytes:
-    return gzip.compress((text if text is not None else FIXTURE.read_text()).encode())
+    # A fixed gzip time: the header holds the time of compressing, so two calls a second apart
+    # would give two files with two MD5s.
+    return gzip.compress((text if text is not None else FIXTURE.read_text()).encode(), mtime=0)
 
 
 def _account(*, is_active: bool = True, role: str = "admin") -> CurrentUser:
