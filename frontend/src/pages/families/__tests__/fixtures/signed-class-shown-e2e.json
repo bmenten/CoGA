@@ -30,7 +30,7 @@
     "transcript_biotype": null,
     "impact": "HIGH",
     "effect": "stop_gained",
-    "clinvar": "pathogenic",
+    "clinvar": null,
     "clinvar_review_status": null,
     "clinvar_stars": null,
     "clinvar_conditions": [],
@@ -1767,7 +1767,6 @@
      "class_shown": "VUS - class 3",
      "classification": "VUS - class 3",
      "evidence_snapshot": {
-      "clinvar": "pathogenic",
       "in_silico": {
        "sift": null,
        "revel": null,
@@ -1800,7 +1799,6 @@
       "transcript_id": "ENST_GENE_PATH",
       "annotation_version": "vcf_info",
       "annotation_set_hash": "2693417049712698970",
-      "clinvar_review_status": null,
       "clinvar_coga": [
        {
         "alt": "T",
@@ -2754,7 +2752,6 @@
      "class_shown": "VUS - class 3",
      "classification": "VUS - class 3",
      "evidence_snapshot": {
-      "clinvar": "pathogenic",
       "in_silico": {
        "sift": null,
        "revel": null,
@@ -2787,7 +2784,6 @@
       "transcript_id": "ENST_GENE_PATH",
       "annotation_version": "vcf_info",
       "annotation_set_hash": "2693417049712698970",
-      "clinvar_review_status": null,
       "clinvar_coga": [
        {
         "alt": "T",

@@ -95,8 +95,9 @@ describe('SmallVariantCards', () => {
             clinvar_stars: 3,
             clinvar_conditions: ['Synthetic disorder 1'],
             clinvar_variation_id: '900001',
-            // VEP's cache's classification, kept apart in the annotation: not shown.
-            annotation_extra: { clinvar_vep_cache: 'benign' },
+            // The annotation's own ClinVar (VEP's cache's classification, the ClinVar file's
+            // allele ID), which annotation_extra carries: not shown.
+            annotation_extra: { clinvar_vep_cache: 'benign', clinvar_allele_id: 777001 },
             clinvar_coga: [
               {
                 alt: 'A',
@@ -128,11 +129,12 @@ describe('SmallVariantCards', () => {
     expect(chip).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/clinvar/variation/900001/');
     expect(chip).toHaveAttribute('title', 'reviewed by expert panel — Synthetic disorder 1');
     expect(document.querySelectorAll('.variant-card-chip-key')).toHaveLength(1);
-    expect(screen.queryByText(/CoGA|annotation,|VEP cache/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ClinVar \(|VEP cache/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByText('More annotations & detail'));
     const status = screen.getByText('ClinVar review status').closest('div') as HTMLElement;
     expect(within(status).getByText('reviewed by expert panel')).toBeInTheDocument();
-    expect(screen.queryByText(/clinvar vep cache|ClinVar in the VEP cache/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/vep cache|allele id/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('777001')).not.toBeInTheDocument();
   });
 
   it('shows no ClinVar for an allele CoGA’s release does not hold', () => {
@@ -944,8 +946,20 @@ describe('SmallVariantCards', () => {
         gene: 'GENE1',
         ref: 'G',
         alt: 'A',
-        clinvar_conditions: ['Condition one', 'Condition two'],
-        annotation_extra: { clinvar_allele_id: 12345, gnomad_ac: 3, clndn: ['not provided', 'not specified'] },
+        clinvar_coga: [
+          {
+            alt: 'A',
+            status: 'in_release',
+            release: '2026-11-22',
+            classification: 'Pathogenic',
+            review_status: null,
+            stars: null,
+            conditions: ['Condition one', 'Condition two'],
+            variation_id: null,
+            included_only: false,
+          },
+        ],
+        annotation_extra: { custom_score: 12345, gnomad_ac: 3, custom_terms: ['not provided', 'not specified'] },
         genotypes: [],
       }),
     );

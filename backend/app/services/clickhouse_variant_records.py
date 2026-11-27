@@ -12,13 +12,16 @@ from .vcf_fields import field_int
 _KNOWN_ANNOTATION_KEYS = {
     # The ALT a multi-allelic record's annotation is of, served as a field of its own.
     "alt_allele",
-    # Served as fields of their own: ClinVar's review status, conditions and VariationID, the
-    # NMD prediction and SpliceAI's positions.
+    # The annotation's ClinVar (its ClinVar file's or VEP's cache's), which no view shows or uses:
+    # a small variant's ClinVar is CoGA's release's (``clinvar_coga.attach_clinvar_coga``).
+    "clinvar",
     "clinvar_review_status",
     "clinvar_conditions",
     "clinvar_variation_id",
-    # Whether the ClinVar classification is VEP's cache's, served as a field of its own.
+    "clinvar_allele_id",
+    "clinvar_vep_cache",
     "clinvar_from_vep_cache",
+    # Served as fields of their own: the NMD prediction and SpliceAI's positions.
     "nmd",
     "spliceai_dp_ag",
     "spliceai_dp_al",
@@ -35,7 +38,6 @@ _KNOWN_ANNOTATION_KEYS = {
     "effect",
     "consequence",
     "most_severe_consequence",
-    "clinvar",
     "transcript_id",
     "feature_type",
     "transcript_biotype",

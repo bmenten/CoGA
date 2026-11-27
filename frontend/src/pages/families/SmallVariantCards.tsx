@@ -551,8 +551,9 @@ const TranscriptPopup = ({
 };
 
 // annotation_extra keys the disclosure leaves out: those the card surfaces itself, so it does not
-// repeat them, and the annotation's ClinVar. These are the names the annotation carries (see variant_annotation_parser); the parser
-// maps the VEP spellings (am_class, AlphaMissense_pathogenicity) onto them on import.
+// repeat them, and the annotation's ClinVar. These are the names the annotation carries (see
+// variant_annotation_parser); the parser maps the VEP spellings (am_class,
+// AlphaMissense_pathogenicity) onto them on import.
 const CARD_CONSUMED_EXTRA_KEYS = new Set([
   'alpha_missense_class',
   'alpha_missense_pathogenicity',
@@ -560,9 +561,11 @@ const CARD_CONSUMED_EXTRA_KEYS = new Set([
   'gnomad_filter',
   'gnomad_exomes_filter',
   'gnomad_genomes_filter',
-  // The annotation's ClinVar from VEP's cache, kept apart where a ClinVar file was annotated: a
-  // variant's ClinVar is CoGA's release's only, so the annotation's is not shown.
+  // The annotation's own ClinVar (VEP's cache's classification, kept apart where a ClinVar file
+  // was annotated, and the file's allele ID): a variant's ClinVar is CoGA's release's only, so
+  // the annotation's is not shown.
   'clinvar_vep_cache',
+  'clinvar_allele_id',
 ]);
 
 // annotation_extra keys the disclosure names in words rather than by the raw key. The VCF's own

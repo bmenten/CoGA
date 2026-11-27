@@ -39,7 +39,7 @@ const failedLoads = (jobs: ClinvarLoadJobOut[]) => {
 };
 
 // The ClinVar release CoGA loaded itself for each assembly ClinVar publishes a VCF for: the
-// current one, which every screen shows as "ClinVar (CoGA)", and the one before it, with a load
+// current one, the ClinVar every small variant shows and uses, and the one before it, with a load
 // of NCBI's newest weekly VCF. For administrators.
 const ClinvarReleasesPanel: React.FC = () => {
   const queryClient = useQueryClient();
@@ -73,11 +73,11 @@ const ClinvarReleasesPanel: React.FC = () => {
   const failed = failedLoads(status.recent_jobs);
   return (
     <section className="surface-card space-y-4" aria-label="ClinVar releases">
-      <h2 className="section-title">ClinVar (CoGA)</h2>
+      <h2 className="section-title">ClinVar</h2>
       <p className="section-copy">
-        The ClinVar release CoGA loaded from NCBI&apos;s weekly VCF, shown beside the ClinVar of each
-        callset&apos;s annotation. The current release is the one every screen reads; the one before it is
-        kept.
+        The ClinVar release CoGA loaded from NCBI&apos;s weekly VCF: the ClinVar every small variant shows
+        and every filter, ranking and criterion uses. The ClinVar in a callset&apos;s annotation is neither
+        shown nor used. The current release is the one every screen reads; the one before it is kept.
       </p>
       <p className="section-copy">
         {status.weekly_load
