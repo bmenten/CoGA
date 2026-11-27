@@ -57,8 +57,9 @@ halfway. A replacement names the analysis whose manifest it replaces (`analysis_
 for a family that holds several, 422 otherwise), and its audit event names it too.
 `GET /families/{family_id}/annotation-manifest` returns one manifest per analysis the family holds
 (`analyses`), each merged with what CoGA itself loaded: the reference assembly, the gene-loci source
-(`gene_loci`: GENCODE, or the UCSC table used when GENCODE could not be fetched), the Monarch
-release, and the HPO release with the SHA-256 of the ontology file its terms came from
+(`gene_loci`: GENCODE, or the UCSC table used when GENCODE could not be fetched), CoGA's current
+ClinVar release (`clinvar_coga`), the Monarch release, and the HPO release with the SHA-256 of the
+ontology file its terms came from
 ([how each is read](annotation-provenance.md#the-reference-modules)). The pages show each
 analysis's list; a sign-out of an analysis freezes that analysis's.
 
@@ -72,6 +73,10 @@ Taken on every ACMG save, with the time. It holds:
   PP5/BP6 evidence names, and whether it is VEP's cache's (`clinvar_from_vep_cache`: read where no
   ClinVar file was annotated, the known variant's and perhaps another allele's), which the signed
   record names;
+- each ALT's ClinVar in CoGA's own release (`clinvar_coga`, [the release CoGA loads](data-import.md#clinvar)),
+  as the variant list serves it beside the annotation's: the release, the classification, the
+  review status and its stars, the conditions and the VariationID, or why it has none
+  (`not_in_release`, `no_release`, `not_available`). The save reads the assembly's current release;
 - the values the classification rests on, as the ACMG dialog reads them: from the primary
   transcript (MANE Select, then canonical, then most severe impact; its id in `transcript_id`),
   through the variant list's own helpers (`small_variant_review_acmg.small_variant_evidence`).
@@ -368,16 +373,24 @@ variant's current annotation, read as a classification saved now would freeze it
 | --- | --- |
 | `current` | the annotation-set hash and every frozen value are unchanged |
 | `drifted` | the hash changed (a new annotation release; ClinVar and version shown from → to), or a frozen value did, even under the same hash |
+| `noted` | nothing moved but the review status or the stars of an ALT's same classification in CoGA's own ClinVar release: listed, never counted at sign-out (the owner's decision B5) |
 | `unknown` | nothing is seen to have moved, but a hash is missing or a frozen group cannot be read, so the match cannot be verified |
 | `variant_missing` | the variant is no longer in the data |
 
-- `changed` names what moved: `clinvar`, `transcript_id` (the primary transcript), each
+- `changed` names what moved: `clinvar`, `clinvar_coga` (an ALT's classification in CoGA's
+  current ClinVar release), `transcript_id` (the primary transcript), each
   consequence, frequency or in-silico field by name (`effect`, `impact`, `lof`, `gnomad_af`,
   `revel`, …), `gene_missense_z`, `gene_missense_z_source` when PP2 reads the missense Z from the
   other source (the gene's profile gained or lost one: *gnomAD missense Z 4.20 (VCF) → 3.52 (gene
   profile)*), and `annotations` when the hash moved.
 - `evidence_from` and `evidence_to` hold the transcript, consequence, frequencies, in-silico scores
-  and missense Z with its source, as frozen and as now.
+  and missense Z with its source, as frozen and as now; `clinvar_coga_from` and `clinvar_coga_to`
+  each ALT's ClinVar (CoGA) value.
+- ClinVar (CoGA) is read in the assembly's current release, once for all the family's variants. A
+  classification compares by its terms, so an aggregate written in another order is the same one; a
+  classification where there was none, or none where there was one, is a change. Another review
+  status or other stars of the same classification is `noted`, and a new release that says the same
+  is no change. A snapshot without `clinvar_coga`, or not as a list of values, is `unknown`.
 - Each frozen value is compared, numbers by value (JSONB keeps a number's digits, not whether it
   was an integer).
 - A stored snapshot that is not a JSON object (the writer never stores one) counts as one that
@@ -535,7 +548,11 @@ imported that release, and when and by whom it was first applied.
   checksum of the file that answered for each gene, and the genes it has no record of;
 - the clinical CNV knowledgebase loaded for the assembly: its source, the release its source
   states, for a rebuild the ClinGen recurrent CNV file it read by release and SHA-256, and when it
-  was loaded.
+  was loaded;
+- the ClinVar release CoGA loaded for the assembly, current at sign-out (`clinvar_coga`): the
+  release, its file and SHA-256 (`source_version`), where it came from, when it was loaded and its
+  rows; null when the assembly has none. The drift at sign-out compared each reported variant's
+  frozen *ClinVar (CoGA)* value with this release.
 
 PanelApp gives each panel its own version, which `gene_panels` holds.
 
@@ -958,7 +975,7 @@ A stopped or stalled import:
   where it is, its job ended `failed` and the family left marked.
 
 **3. Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
-variant or of an SV or CNV. One acknowledgement covers both; the message says how many are SVs or
+variant or of an SV or CNV; a `noted` one is frozen with them and neither counted nor listed. One acknowledgement covers both; the message says how many are SVs or
 CNVs. The 409 lists each classification it counts, as the snapshot freezes it: small variants in
 `drifted`, SVs and CNVs in `structural_drifted` (without `classified_by` and `classified_at`, which
 a note or tag saved on the review changes). The sign-out dialog lists them as the signed version
@@ -1276,8 +1293,11 @@ count is.
 whose evidence had moved at sign-out with the small variants', and says when its record holds no
 SV/CNV drift check. A small variant's entry names the frozen values that had moved, with the values
 (*REVEL 0.412 → 0.951*, *LoF LC → HC*, *gnomAD missense Z 2.95 → 3.52*); a drift entry the check
-recomputes holds the values as they are now (`evidence_to`). Under *Evidence when classified*, each
-reported small variant shows the consequence, frequencies and in-silico scores its snapshot froze
+recomputes holds the values as they are now (`evidence_to`). A moved *ClinVar (CoGA)* value is
+named with its review status and release on each side; the `noted` entries are listed apart
+(*Noted, not counted*). Under *Evidence when classified*, each reported small variant shows its
+*ClinVar (CoGA)* value per ALT with its release, and the consequence, frequencies and in-silico
+scores its snapshot froze
 from the primary transcript, and in a sentence of its own a missense variant's gene missense Z with
 where PP2 read it (*From its gene's profile: gnomAD missense Z 3.52.*, *From the VCF's MISSENSE_Z,
 as its gene's profile held none: …*, or *Neither its gene's profile nor the VCF held a gnomAD
@@ -1440,10 +1460,10 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   read: the pinned one, ClinGen's recurrent CNV file, by release and SHA-256; the rest (the ClinGen
   dosage curation, ClinVar, the cytobands, Orphanet and a DECIPHER map, as they were that day) by
   file name and SHA-256.
-- The manifest's platform layer covers the assembly, the gene loci, Monarch and HPO. The releases
-  of the gene reference, PanelApp and the clinical CNVs are frozen beside it (`reference_data`,
-  `gene_panels`), not in it, so `GET …/annotation-manifest` and the live report's footer do not
-  show them.
+- The manifest's platform layer covers the assembly, the gene loci, ClinVar (CoGA), Monarch and
+  HPO. The releases of the gene reference, PanelApp and the clinical CNVs are frozen beside it
+  (`reference_data`, `gene_panels`), not in it, so `GET …/annotation-manifest` and the live
+  report's footer do not show them; `reference_data` names ClinVar (CoGA)'s release too.
 - A panel version is recorded the first time a search of the family applies it, not at each search;
   one applied in the variant explorer, which searches across families, for no family.
 - A repeat-expansion call's and a Paraphase result's status is frozen as CoGA classifies it at

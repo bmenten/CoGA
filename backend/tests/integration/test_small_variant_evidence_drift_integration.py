@@ -874,7 +874,9 @@ def test_the_snapshot_survives_the_jsonb_round_trip_of_its_numbers() -> None:
     from backend.app.services.small_variant_review_acmg import build_evidence_snapshot
 
     record = SimpleNamespace(annotation_version="v1", annotation_set_hash="1", annotations=_annotations())
-    snapshot = build_evidence_snapshot(record, datetime(2026, 10, 14, tzinfo=timezone.utc), gene_missense_z=3.0)
+    snapshot = build_evidence_snapshot(
+        record, datetime(2026, 10, 14, tzinfo=timezone.utc), gene_missense_z=3.0, clinvar_coga=[]
+    )
     # A few values whose text forms differ between Python and Postgres.
     snapshot["frequencies"].update(gnomad_af=1e-05, gnomad_popmax_af=0.1 + 0.2, topmed_af=0.0)
     snapshot["in_silico"].update(cadd_phred=25.0, revel=0.30000000000000004)

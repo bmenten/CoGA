@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..schemas import AcmgClassificationPayload
+from ..schemas import AcmgClassificationPayload, ClinvarCogaOut
 from . import acmg_points
 from .clickhouse_variant_queries import _normalize_alpha_missense_class, _select_primary_annotation
 from .clickhouse_variant_records import (
@@ -23,6 +23,7 @@ from .clickhouse_variant_records import (
     _annotation_spliceai_max,
     _annotation_text,
 )
+from .clinvar_coga import clinvar_coga_by_id, clinvar_coga_read
 from .gene_constraint_metrics import fetch_gene_constraint_metrics
 from .hash_chain import jsonb_float
 from .review_pg_utils import _json_payload, _read_stored_classification
@@ -361,7 +362,11 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
 
 
 def build_evidence_snapshot(
-    record: Any, captured_at: datetime, *, gene_missense_z: float | None
+    record: Any,
+    captured_at: datetime,
+    *,
+    gene_missense_z: float | None,
+    clinvar_coga: Sequence[ClinvarCogaOut],
 ) -> dict[str, Any]:
     """Freeze the evidence a classification was based on (clinical traceability).
 
@@ -371,8 +376,10 @@ def build_evidence_snapshot(
     consequence, population frequencies and in-silico scores the classification reads, with
     the transcript they are read from, and, for a missense variant, the gene's missense Z PP2
     reads with its source (``small_variant_evidence``; ``gene_missense_z`` is the gene
-    profile's, as ``evidence_gene_missense_z`` reads it). The drift check compares each value
-    the snapshot froze, so it names what moved.
+    profile's, as ``evidence_gene_missense_z`` reads it), and each ALT's value in CoGA's own
+    ClinVar release (``clinvar_coga``, as ``clinvar_coga.clinvar_coga_values`` gives it: the
+    release, the classification, the review status and stars, the VariationID, or why there is
+    none). The drift check compares each value the snapshot froze, so it names what moved.
     """
     clinvar = None
     clinvar_review_status = None
@@ -394,21 +401,32 @@ def build_evidence_snapshot(
         "clinvar_from_vep_cache": clinvar_from_vep_cache,
         # The review status of that ClinVar record (its stars), which PP5 and BP6 name.
         "clinvar_review_status": clinvar_review_status,
+        # Each ALT's ClinVar in CoGA's own release, as the page showed it beside the annotation's.
+        "clinvar_coga": [value.model_dump(mode="json") for value in clinvar_coga],
         **small_variant_evidence(record, gene_missense_z=gene_missense_z),
         "captured_at": captured_at.isoformat(),
     }
 
 
 async def freeze_evidence_snapshot(
-    session: AsyncSession, record: Any, captured_at: datetime, *, assembly_id: str | None
+    session: AsyncSession,
+    record: Any,
+    captured_at: datetime,
+    *,
+    assembly_id: str | None,
+    assembly_name: str | None,
 ) -> dict[str, Any]:
     """The evidence snapshot a classification of ``record`` saved now freezes, a missense
     variant's gene missense Z looked up as the variant list looks it up, in the family's
-    assembly (``assembly_id``), else read from the VCF (``pp2_gene_missense_z``)."""
+    assembly (``assembly_id``), else read from the VCF (``pp2_gene_missense_z``), and its
+    ClinVar in the current release CoGA loaded for the assembly (``assembly_name``)."""
     gene_missense_z = (
         await evidence_gene_missense_z(session, {"record": record}, assembly_id=assembly_id)
     )["record"]
-    return build_evidence_snapshot(record, captured_at, gene_missense_z=gene_missense_z)
+    clinvar_coga = await clinvar_coga_by_id(await clinvar_coga_read(session, assembly_name), {"record": record})
+    return build_evidence_snapshot(
+        record, captured_at, gene_missense_z=gene_missense_z, clinvar_coga=clinvar_coga["record"]
+    )
 
 
 def _deserialize_acmg(value: Any) -> AcmgClassificationPayload | None:

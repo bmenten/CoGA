@@ -30,15 +30,19 @@ the specifics.
 from __future__ import annotations
 
 import json
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..schemas import ClinvarCogaOut
 
 from .analysis_reviews import effective_reviews, scope_review_clause
 from .clickhouse_small_variants import get_small_variant_family_record
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .access_control import CurrentUser
+from .clickhouse_variant_records import _status_terms
+from .clinvar_coga import clinvar_coga_by_id, clinvar_coga_read
 from .hash_chain import canonical_json
 from .small_variant_review_acmg import (
     EVIDENCE_ALLELE_FIELD,
@@ -77,12 +81,43 @@ _EVIDENCE_ORDER = {
 }
 
 
-def _current_evidence(record: Any, *, gene_missense_z: float | None) -> dict[str, Any]:
+# A drift entry the sign-out does not count: nothing moved but the review status or the stars of
+# CoGA's same ClinVar classification (the owner's decision B5). It is listed with the others.
+NOTED = "noted"
+
+
+def counted_drift(entries: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The drift entries the sign-out gate counts and lists: every one but a ``noted`` one."""
+    return [entry for entry in entries if entry.get("status") != NOTED]
+
+
+def _current_evidence(
+    record: Any, *, gene_missense_z: float | None, clinvar_coga: Sequence[ClinvarCogaOut]
+) -> dict[str, Any]:
     # Reuse the snapshot builder so "current" is extracted exactly like "frozen".
     # captured_at is irrelevant here; pass a sentinel that we never read.
     from datetime import datetime, timezone
 
-    return build_evidence_snapshot(record, datetime.now(timezone.utc), gene_missense_z=gene_missense_z)
+    return build_evidence_snapshot(
+        record, datetime.now(timezone.utc), gene_missense_z=gene_missense_z, clinvar_coga=clinvar_coga
+    )
+
+
+def _clinvar_coga_move(frozen: Any, now: Any) -> str | None:
+    """What moved in an allele's ClinVar in CoGA's own release between the snapshot and now
+    (each a list of one value per ALT, ``build_evidence_snapshot``): ``classification`` when an
+    ALT's classification differs (its terms as ``_status_terms`` reads them; none on one side
+    and one on the other included), ``review`` when only a review status or the stars do (the
+    owner's decision B5: shown, never held against the sign-out), else None."""
+    by_alt = {str(value.get("alt")): value for value in now if isinstance(value, Mapping)}
+    review = False
+    for value in frozen:
+        current = by_alt.get(str(value.get("alt")), {})
+        if _status_terms(value.get("classification")) != _status_terms(current.get("classification")):
+            return "classification"
+        if (value.get("review_status"), value.get("stars")) != (current.get("review_status"), current.get("stars")):
+            review = True
+    return "review" if review else None
 
 
 def _evidence_values(snapshot: Mapping[str, Any]) -> tuple[dict[str, Any] | None, bool]:
@@ -132,11 +167,14 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     """Compare a frozen snapshot against current evidence.
 
     status is one of: ``current`` (unchanged), ``drifted`` (the annotation set, the ClinVar
-    significance or a frozen value changed: the consequence, impact or LoF call, a
-    frequency or in-silico score, or a missense variant's gene missense Z; ``changed`` names
-    each, ``annotations`` for the annotation set), ``unknown`` (nothing is seen to have
-    moved, but a hash is missing or a frozen group cannot be read, so the match cannot be
-    verified) and ``variant_missing`` (the variant is no longer present in the dataset).
+    significance, an ALT's classification in CoGA's own ClinVar release (``clinvar_coga``) or a
+    frozen value changed: the consequence, impact or LoF call, a frequency or in-silico score,
+    or a missense variant's gene missense Z; ``changed`` names each, ``annotations`` for the
+    annotation set), ``noted`` (nothing moved but the review status or the stars of CoGA's same
+    classification: shown, not counted at sign-out, the owner's decision B5), ``unknown``
+    (nothing is seen to have moved, but a hash is missing or a frozen group cannot be read, so
+    the match cannot be verified) and ``variant_missing`` (the variant is no longer present in
+    the dataset).
     Each value the snapshot froze is compared: one of a variant that is not a missense
     variant holds no missense Z, and is compared on the rest.
     """
@@ -144,6 +182,11 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     snap_clinvar = snapshot.get("clinvar")
     snap_version = snapshot.get("annotation_version")
     evidence_from, readable = _evidence_values(snapshot)
+    # Every snapshot freezes each ALT's ClinVar (CoGA) value; one that does not, or not as a
+    # list of mappings, cannot be verified.
+    coga_from = snapshot.get("clinvar_coga")
+    if not isinstance(coga_from, list) or not all(isinstance(value, Mapping) for value in coga_from):
+        coga_from, readable = None, False
 
     if current is None:
         return {
@@ -152,6 +195,8 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
             "annotation_version_to": None,
             "clinvar_from": snap_clinvar,
             "clinvar_to": None,
+            "clinvar_coga_from": coga_from,
+            "clinvar_coga_to": None,
             "changed": [],
             "evidence_from": evidence_from,
             "evidence_to": None,
@@ -161,10 +206,14 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     cur_clinvar = current.get("clinvar")
     cur_version = current.get("annotation_version")
     evidence_to = _evidence_values(current)[0] or {}
+    coga_to = current.get("clinvar_coga") or []
+    coga_move = _clinvar_coga_move(coga_from, coga_to) if coga_from is not None else None
 
     changed: list[str] = []
     if "clinvar" in snapshot and not _same(snap_clinvar, cur_clinvar):
         changed.append("clinvar")
+    if coga_move == "classification":
+        changed.append("clinvar_coga")
     if evidence_from:
         changed.extend(_moved_values(evidence_from, evidence_to))
     if snap_hash and cur_hash and snap_hash != cur_hash:
@@ -176,10 +225,14 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     # sign-out drift gate counts like a real drift (requiring acknowledgement) — rather
     # than silently reporting "current". A value seen to move is a drift whatever else is
     # missing.
+    # Another review status or other stars of CoGA's same classification is ``noted``: the
+    # drift check shows it, and the sign-out does not count it (B5).
     if changed:
         status = "drifted"
     elif not snap_hash or not cur_hash or not readable:
         status = "unknown"
+    elif coga_move == "review":
+        status = NOTED
     else:
         status = "current"
     return {
@@ -188,6 +241,8 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
         "annotation_version_to": cur_version,
         "clinvar_from": snap_clinvar,
         "clinvar_to": cur_clinvar,
+        "clinvar_coga_from": coga_from,
+        "clinvar_coga_to": coga_to,
         "changed": changed,
         "evidence_from": evidence_from,
         "evidence_to": evidence_to,
@@ -265,16 +320,19 @@ async def evaluate_classification_drift(
         compared.append((row, snapshot, current_record))
     # The genes' missense Z as the variant list serves it now, read at once for every variant
     # that is a missense variant now (no other variant's gene is looked up).
-    missense_z = await evidence_gene_missense_z(
-        session,
-        {str(row["variant_id"]): record for row, _snapshot, record in compared if record is not None},
-        assembly_id=context.assembly_id,
-    )
+    present = {str(row["variant_id"]): record for row, _snapshot, record in compared if record is not None}
+    missense_z = await evidence_gene_missense_z(session, present, assembly_id=context.assembly_id)
+    # Each variant's ClinVar in CoGA's current release, read once for them all.
+    coga_values = await clinvar_coga_by_id(await clinvar_coga_read(session, context.assembly_name), present)
 
     drifted: list[dict[str, Any]] = []
     for row, snapshot, current_record in compared:
         current = (
-            _current_evidence(current_record, gene_missense_z=missense_z.get(str(row["variant_id"])))
+            _current_evidence(
+                current_record,
+                gene_missense_z=missense_z.get(str(row["variant_id"])),
+                clinvar_coga=coga_values[str(row["variant_id"])],
+            )
             if current_record is not None
             else None
         )
@@ -294,7 +352,7 @@ async def evaluate_classification_drift(
     return {
         "family_id": context.family_id,
         "checked": len(compared),
-        "drifted_count": len(drifted),
+        "drifted_count": len(counted_drift(drifted)),
         "drifted": drifted,
         "structural": await evaluate_structural_classification_drift(session, context),
     }

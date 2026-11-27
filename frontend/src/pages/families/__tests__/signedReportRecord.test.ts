@@ -14,6 +14,9 @@ import {
   describeSignedRecessivePair,
   describeSignedRecessiveStatus,
   describeCatalogue,
+  describeClinvarCoga,
+  describeClinvarCogaChange,
+  describeClinvarRelease,
   describeCnvKnowledgebase,
   describeCompoundHetPair,
   describeCoverageContent,
@@ -70,12 +73,14 @@ import {
   parseSignedVersionParam,
   parseUnreviewedFindings,
   reportViewSearch,
+  splitNotedDrift,
   type SignedCoverageTrack,
   type SignedNiptRecessiveGene,
   type SignedPgtAnalysis,
   type SignedRepeatExpansions,
   type SignedReport,
 } from '../signedReportRecord';
+import type { ClinvarCogaOut } from '../../../lib/apiSchema.generated';
 import { describeCountUnitWarning } from '../../../lib/repeatStatus';
 import {
   SIGNED_ANALYSIS,
@@ -90,6 +95,7 @@ const FROZEN_EVIDENCE = {
   annotation_version: 'v1',
   annotation_set_hash: 'h1',
   clinvar: null,
+  clinvar_coga: [],
   transcript_id: 'ENST00000000001',
   frequencies: {
     gnomad_af: 3.1e-5,
@@ -244,6 +250,8 @@ describe('parseSignedReport', () => {
           status: 'no_snapshot',
           clinvarFrom: null,
           clinvarTo: null,
+          clinvarCogaFrom: null,
+          clinvarCogaTo: null,
           changed: [],
           evidenceFrom: null,
           evidenceTo: null,
@@ -328,6 +336,7 @@ describe('parseSignedReport', () => {
     // missense Z: none is read.
     expect(classified.evidence).toEqual({
       clinvar: 'Likely_pathogenic',
+      clinvarCoga: [],
       clinvarFromVepCache: false,
       clinvarReviewStatus: null,
       annotationVersion: 'v1',
@@ -971,6 +980,8 @@ describe('the signed report’s wording', () => {
       variantId: 'v',
       clinvarFrom: null,
       clinvarTo: null,
+      clinvarCogaFrom: null,
+      clinvarCogaTo: null,
       changed: [],
       evidenceFrom: null,
       evidenceTo: null,
@@ -1117,6 +1128,83 @@ describe('the signed report’s wording', () => {
     expect(describeSignedDrift(stopGained)).toBe('consequence stop_gained → stop_gained&splice_region_variant; LoF LC → HC');
   });
 
+  it('reads each ALT’s ClinVar (CoGA) value as frozen, and what moved in it at sign-out', () => {
+    const value = (overrides: Partial<ClinvarCogaOut>): ClinvarCogaOut => ({
+      alt: 'A',
+      status: 'in_release',
+      release: '2026-11-15',
+      classification: 'Uncertain_significance',
+      review_status: 'criteria provided, single submitter',
+      stars: 1,
+      conditions: ['Synthetic disorder 1'],
+      variation_id: 900001,
+      included_only: false,
+      ...overrides,
+    });
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '1-100-G-A,T',
+          evidence_snapshot: {
+            clinvar_coga: [value({}), value({ alt: 'T', status: 'not_in_release', classification: null }), { alt: 7 }],
+          },
+        },
+      ],
+      drift: {
+        checked: 2,
+        drifted_count: 1,
+        drifted: [
+          {
+            variant_id: '1-100-G-A',
+            status: 'drifted',
+            clinvar_from: null,
+            clinvar_to: null,
+            clinvar_coga_from: [value({})],
+            clinvar_coga_to: [value({ release: '2026-11-22', classification: 'Likely_pathogenic' })],
+            changed: ['clinvar_coga'],
+          },
+          {
+            variant_id: '2-200-C-A',
+            status: 'noted',
+            clinvar_from: null,
+            clinvar_to: null,
+            clinvar_coga_from: [value({})],
+            clinvar_coga_to: [value({ release: '2026-11-22', review_status: 'reviewed by expert panel', stars: 3 })],
+            changed: [],
+          },
+        ],
+      },
+    })!;
+
+    // An entry of another shape is left out.
+    const [variant] = record.reportedVariants!;
+    expect(variant.evidence!.clinvarCoga.map((entry) => entry.alt)).toEqual(['A', 'T']);
+    expect(describeClinvarCoga(variant.evidence!.clinvarCoga)).toBe(
+      'ClinVar (CoGA, 2026-11-15) for A: Uncertain significance ★☆☆☆ (criteria provided, single submitter); ' +
+        'ClinVar (CoGA, 2026-11-15) for T: not in this release',
+    );
+    expect(describeClinvarCoga([])).toBeNull();
+
+    const [drifted, noted] = record.drift!.drifted;
+    expect(describeSignedDrift(drifted)).toBe(
+      'ClinVar (CoGA) Uncertain significance ★☆☆☆, criteria provided, single submitter (2026-11-15) → ' +
+        'Likely pathogenic ★☆☆☆, criteria provided, single submitter (2026-11-22)',
+    );
+    expect(splitNotedDrift(record.drift!.drifted)).toEqual({ counted: [drifted], noted: [noted] });
+    expect(describeSignedDrift(noted)).toBe(
+      'ClinVar (CoGA) Uncertain significance ★☆☆☆, criteria provided, single submitter (2026-11-15) → ' +
+        'Uncertain significance ★★★☆, reviewed by expert panel (2026-11-22)',
+    );
+    // Only the release moved: nothing to say of it.
+    expect(describeClinvarCogaChange([value({})], [value({ release: '2026-11-22' })])).toBeNull();
+    // A variant gone: its value now is not there.
+    expect(describeClinvarCogaChange([value({})], null)).toBe(
+      'ClinVar (CoGA) Uncertain significance ★☆☆☆, criteria provided, single submitter (2026-11-15) → n/a',
+    );
+    expect(describeClinvarCogaChange(null, [value({})])).toBeNull();
+  });
+
   it('says why an SV/CNV classification counted as drift when the version was signed', () => {
     const evidence = { chrom: '18', start: 55000000, end: 55400000, gene_symbols: ['TCF4', 'TXNL1'], pli: 0.99, sv_type: 'DEL', source: 'needlr', inheritance: 'de_novo' };
     const item = { variantId: 'sv', changed: [], evidenceFrom: evidence, evidenceTo: evidence, classifiedBy: null };
@@ -1252,7 +1340,7 @@ describe('what the analysis looked at', () => {
 
     expect(record.referenceData.state).toBe('recorded');
     if (record.referenceData.state === 'recorded') {
-      const { geneReference, clinicalCnvs } = record.referenceData.value;
+      const { geneReference, clinicalCnvs, clinvarCoga } = record.referenceData.value;
       expect(geneReference.state).toBe('recorded');
       if (geneReference.state === 'recorded') {
         // A partial refresh left two ClinGen dosage releases: both are named.
@@ -1265,6 +1353,12 @@ describe('what the analysis looked at', () => {
       if (clinicalCnvs.state === 'recorded') {
         expect(describeCnvKnowledgebase(clinicalCnvs.value)).toBe(
           'clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated)',
+        );
+      }
+      expect(clinvarCoga.state).toBe('recorded');
+      if (clinvarCoga.state === 'recorded') {
+        expect(describeClinvarRelease(clinvarCoga.value)).toBe(
+          '2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 0123abcd), loaded 2026-11-23 04:00 UTC, 3 alleles',
         );
       }
     }
@@ -1367,6 +1461,7 @@ describe('what the analysis looked at', () => {
       reference_data: {
         gene_reference: { unavailable: "The gene reference's releases could not be read." },
         clinical_cnvs: null,
+        clinvar_coga: { unavailable: 'The ClinVar release CoGA loaded could not be read.' },
       },
     })!;
     expect(record.paraphase).toEqual({ state: 'unavailable', reason: 'The Paraphase results could not be read.' });
@@ -1380,6 +1475,11 @@ describe('what the analysis looked at', () => {
       // None loaded is recorded, as none.
       expect(record.referenceData.value.clinicalCnvs).toEqual({ state: 'recorded', value: null });
       expect(describeCnvKnowledgebase(null)).toBe('none loaded');
+      expect(record.referenceData.value.clinvarCoga).toEqual({
+        state: 'unavailable',
+        reason: 'The ClinVar release CoGA loaded could not be read.',
+      });
+      expect(describeClinvarRelease(null)).toBe('none loaded for this assembly');
     }
   });
 

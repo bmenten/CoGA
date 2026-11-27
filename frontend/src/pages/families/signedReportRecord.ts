@@ -19,7 +19,8 @@ import { cnvCriterionMap } from '../../lib/cnvAcmg';
 import { formatQcLimit, formatQcMetricValue } from '../../lib/qcMetricValue';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import type { ApiSmallVariantEvidence, ApiStructuralEvidence, CoverageContent, QcStatus } from '../../lib/apiTypes';
-import type { PgtEmbryoQcFindingOut } from '../../lib/apiSchema.generated';
+import type { ClinvarCogaOut, PgtEmbryoQcFindingOut } from '../../lib/apiSchema.generated';
+import { clinvarCogaLabel } from '../../lib/clinvar';
 import { coverageScale, coverageSourceLabel } from '../../lib/coverageSources';
 import {
   BLOCKS_OUTDATED_WARNING,
@@ -50,6 +51,7 @@ import {
   type RecessiveStatus,
 } from './niptClassification';
 import { DIAGNOSTIC_FLAG_LABELS, describeDiagnosticCriteria } from './NiptDiagnosticCandidates';
+import { clinvarCogaText } from './ClinvarCogaChip';
 import { formatAlleleFrequency, scoreBesideClass } from './reportNarrative';
 import { formatCompoundHetPhaseStatus, formatLocus } from './smallVariantResultUtils';
 import { sourceBase } from '../../lib/pregnancySources';
@@ -282,6 +284,8 @@ export interface SignedEvidenceValue {
 /** What `build_evidence_snapshot` froze when the variant was classified. */
 export interface SignedEvidence {
   clinvar: string | null;
+  /** Each ALT's ClinVar in CoGA's own release, as the classification froze it. */
+  clinvarCoga: ClinvarCogaOut[];
   /** That classification is VEP's cache's, read where no ClinVar file was annotated. */
   clinvarFromVepCache: boolean;
   /** The review status of that ClinVar record, where the annotation had it. */
@@ -377,6 +381,9 @@ export interface SignedDriftItem {
   status: string;
   clinvarFrom: string | null;
   clinvarTo: string | null;
+  /** Each ALT's ClinVar in CoGA's own release, as frozen and as it was at sign-out. */
+  clinvarCogaFrom: ClinvarCogaOut[] | null;
+  clinvarCogaTo: ClinvarCogaOut[] | null;
   /**
    * What moved: 'clinvar', 'transcript_id', a consequence, frequency or in-silico field, the
    * gene's 'gene_missense_z' and its 'gene_missense_z_source', 'annotations'.
@@ -594,10 +601,21 @@ export interface SignedCnvKnowledgebase {
   records: number | null;
 }
 
+export interface SignedClinvarRelease {
+  release: string | null;
+  /** The release, the file and its SHA-256, as recorded. */
+  sourceVersion: string | null;
+  sourceUrl: string | null;
+  loadedAt: string | null;
+  records: number | null;
+}
+
 export interface SignedReferenceData {
   geneReference: SignedRecordSection<SignedGeneReference>;
   /** `recorded` with null: no knowledgebase was loaded. */
   clinicalCnvs: SignedRecordSection<SignedCnvKnowledgebase | null>;
+  /** The ClinVar release CoGA loaded itself; `recorded` with null: none for the assembly. */
+  clinvarCoga: SignedRecordSection<SignedClinvarRelease | null>;
 }
 
 /** A boundary near a count: the nearest count on one side that reads another status. */
@@ -1483,6 +1501,7 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
     evidence: evidence
       ? {
           clinvar: text(evidence.clinvar),
+          clinvarCoga: parseClinvarCoga(evidence.clinvar_coga) ?? [],
           clinvarFromVepCache: evidence.clinvar_from_vep_cache === true,
           clinvarReviewStatus: text(evidence.clinvar_review_status),
           annotationVersion: text(evidence.annotation_version),
@@ -1567,6 +1586,8 @@ export const parseDrift = (value: unknown): SignedDrift | null => {
             status: text(item.status) ?? 'unknown',
             clinvarFrom: text(item.clinvar_from),
             clinvarTo: text(item.clinvar_to),
+            clinvarCogaFrom: parseClinvarCoga(item.clinvar_coga_from),
+            clinvarCogaTo: parseClinvarCoga(item.clinvar_coga_to),
             changed: strings(item.changed),
             evidenceFrom: isObject(item.evidence_from) ? item.evidence_from : null,
             evidenceTo: isObject(item.evidence_to) ? item.evidence_to : null,
@@ -1577,6 +1598,8 @@ export const parseDrift = (value: unknown): SignedDrift | null => {
             status: 'unknown',
             clinvarFrom: null,
             clinvarTo: null,
+            clinvarCogaFrom: null,
+            clinvarCogaTo: null,
             changed: [],
             evidenceFrom: null,
             evidenceTo: null,
@@ -1588,6 +1611,80 @@ export const parseDrift = (value: unknown): SignedDrift | null => {
     driftedCount: number(value.drifted_count) ?? drifted.length,
     drifted,
   };
+};
+
+const CLINVAR_COGA_STATUSES: ReadonlySet<string> = new Set(['in_release', 'not_in_release', 'no_release', 'not_available']);
+
+/**
+ * Each ALT's ClinVar in CoGA's own release as the record holds it (``build_evidence_snapshot``):
+ * null when the record holds none; an entry of another shape is left out (noted).
+ */
+export const parseClinvarCoga = (value: unknown): ClinvarCogaOut[] | null => {
+  if (value === undefined || value === null) return null;
+  return list(value).flatMap((item): ClinvarCogaOut[] => {
+    const alt = isObject(item) ? text(item.alt) : null;
+    const status = isObject(item) ? text(item.status) : null;
+    if (!isObject(item) || alt === null || status === null || !CLINVAR_COGA_STATUSES.has(status)) {
+      noteMalformed();
+      return [];
+    }
+    return [
+      {
+        alt,
+        status: status as ClinvarCogaOut['status'],
+        release: text(item.release),
+        classification: text(item.classification),
+        review_status: text(item.review_status),
+        stars: number(item.stars),
+        conditions: strings(item.conditions),
+        variation_id: number(item.variation_id),
+        included_only: item.included_only === true,
+      },
+    ];
+  });
+};
+
+/** Each ALT's ClinVar (CoGA) value in words: "ClinVar (CoGA, 2026-11-22): Likely pathogenic
+ * ★★★☆ (reviewed by expert panel)"; null for none. */
+export const describeClinvarCoga = (values: ClinvarCogaOut[] | null): string | null => {
+  if (!values?.length) return null;
+  return values
+    .map((value) => {
+      const of = values.length > 1 ? ` for ${value.alt}` : '';
+      const status = value.status === 'in_release' && value.review_status ? ` (${value.review_status})` : '';
+      return `${clinvarCogaLabel(value.release)}${of}: ${clinvarCogaText(value)}${status}`;
+    })
+    .join('; ');
+};
+
+/** What moved in each ALT's ClinVar (CoGA) value: "ClinVar (CoGA) Likely pathogenic ★★★☆,
+ * reviewed by expert panel (2026-11-15) → Pathogenic ★★★☆, reviewed by expert panel
+ * (2026-11-22)"; null when no ALT's classification, stars or review status moved. */
+export const describeClinvarCogaChange = (
+  from: ClinvarCogaOut[] | null | undefined,
+  to: ClinvarCogaOut[] | null | undefined,
+): string | null => {
+  if (!from) return null;
+  const now = new Map((to ?? []).map((value) => [value.alt, value]));
+  const said = (entry: ClinvarCogaOut | undefined) =>
+    entry
+      ? `${clinvarCogaText(entry)}${entry.review_status ? `, ${entry.review_status}` : ''}${
+          entry.release ? ` (${entry.release})` : ''
+        }`
+      : 'n/a';
+  const parts = from.flatMap((value) => {
+    const current = now.get(value.alt);
+    if (
+      current &&
+      value.classification === current.classification &&
+      value.stars === current.stars &&
+      value.review_status === current.review_status
+    ) {
+      return [];
+    }
+    return [`ClinVar (CoGA)${from.length > 1 ? ` of ${value.alt}` : ''} ${said(value)} → ${said(current)}`];
+  });
+  return parts.length ? parts.join('; ') : null;
 };
 
 // The evidence fields the drift check compares, each kept only when it has the expected type.
@@ -1874,7 +1971,26 @@ const parseReferenceData = (value: Json): SignedReferenceData => ({
           loadedAt: text(part.loaded_at),
           records: number(part.records),
         })),
+  // An assembly without a ClinVar release CoGA loaded is frozen as null: recorded, as none.
+  clinvarCoga:
+    value.clinvar_coga === null
+      ? { state: 'recorded', value: null }
+      : parseRecordSection(value, 'clinvar_coga', (part) => ({
+          release: text(part.release),
+          sourceVersion: text(part.source_version),
+          sourceUrl: text(part.source_url),
+          loadedAt: text(part.loaded_at),
+          records: number(part.records),
+        })),
 });
+
+/** The ClinVar release CoGA loaded, as the record names it. */
+export const describeClinvarRelease = (release: SignedClinvarRelease | null): string =>
+  release
+    ? `${release.sourceVersion ?? release.release ?? 'release not stated'}${
+        release.loadedAt ? `, loaded ${formatReportTime(release.loadedAt)}` : ''
+      }${release.records !== null ? `, ${release.records.toLocaleString()} alleles` : ''}`
+    : 'none loaded for this assembly';
 
 const parseCatalogue = (value: unknown, entries: string): SignedCatalogue | null =>
   isObject(value)
@@ -3376,22 +3492,38 @@ export const describeSmallVariantEvidenceChange = (
   return parts.length ? parts.join('; ') : null;
 };
 
-/** What moved in a small-variant classification's evidence: its ClinVar significance, then its values. */
+/**
+ * What moved in a small-variant classification's evidence: its annotation's ClinVar
+ * significance, its ClinVar in CoGA's own release, then its values.
+ */
 export const describeSmallVariantDrift = (item: {
   clinvarFrom: string | null;
   clinvarTo: string | null;
+  clinvarCogaFrom: ClinvarCogaOut[] | null;
+  clinvarCogaTo: ClinvarCogaOut[] | null;
   changed: string[];
   evidenceFrom: ApiSmallVariantEvidence | null;
   evidenceTo: ApiSmallVariantEvidence | null;
 }): string | null => {
   const parts = [
     item.clinvarFrom !== item.clinvarTo ? `ClinVar ${item.clinvarFrom || 'n/a'} → ${item.clinvarTo || 'n/a'}` : null,
+    describeClinvarCogaChange(item.clinvarCogaFrom, item.clinvarCogaTo),
     describeSmallVariantEvidenceChange(item.changed, item.evidenceFrom, item.evidenceTo),
   ].filter((part): part is string => part !== null);
   return parts.length ? parts.join('; ') : null;
 };
 
-/** Why a classification counted as drift when the version was signed. */
+/**
+ * A drift list split into the entries the sign-out counts and the `noted` ones: only the review
+ * status or the stars of CoGA's same ClinVar classification moved (the owner's decision B5), shown
+ * apart from the drift.
+ */
+export const splitNotedDrift = <T extends { status: string }>(items: T[]): { counted: T[]; noted: T[] } => ({
+  counted: items.filter((item) => item.status !== 'noted'),
+  noted: items.filter((item) => item.status === 'noted'),
+});
+
+/** Why a classification counted as drift, or was noted, when the version was signed. */
 export const describeSignedDrift = (item: SignedDriftItem): string => {
   if (item.status === 'variant_missing') return 'no longer present in the data';
   if (item.status === 'no_snapshot') return 'no frozen evidence (not saved through ACMG classify)';

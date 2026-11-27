@@ -36,8 +36,13 @@ _NOTE = "Segregates with the phenotype in the family"
 
 def _stub_variant_records(monkeypatch, svr) -> None:
     async def _variant_record(*, assembly_name, family_guid, variant_id, left_out_sources=()):
+        chrom, pos, ref, alt = variant_id.split("-")
         return SimpleNamespace(
-            variant_key=int(variant_id.split("-")[1]),
+            variant_key=int(pos),
+            chrom=chrom,
+            pos=int(pos),
+            ref=ref,
+            alt=alt,
             gene_symbols=["GENE1"],
             annotations=[{"clinvar": "Pathogenic"}],
             annotation_version="v1",

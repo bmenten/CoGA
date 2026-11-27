@@ -95,6 +95,13 @@ export const SIGNED_ANALYSIS = {
       loaded_at: '2026-10-01T09:00:00+00:00',
       records: 1234,
     },
+    clinvar_coga: {
+      release: '2026-11-22',
+      source_version: '2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 0123abcd)',
+      source_url: 'https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/weekly/clinvar_20261122.vcf.gz',
+      loaded_at: '2026-11-23T04:00:00+00:00',
+      records: 3,
+    },
   },
   repeat_expansions: {
     catalogue: { loci: 96, sources: ['CoGA built-in', 'STRchive'], digest: 'abcdef0123456789' },

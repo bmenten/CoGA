@@ -3,6 +3,7 @@
 // checks against theirs, aliases of generated types, and those with no generated equivalent,
 // each saying why.
 import type {
+  ClinvarCogaOut,
   FamilyOut,
   FindingReviewOut,
   IdeogramBandOut,
@@ -390,12 +391,18 @@ export interface ApiClassificationDriftItem {
   acmg_class: string | null;
   classified_by: string | null;
   classified_at: string | null;
-  status: string; // 'drifted' | 'unknown' | 'variant_missing'
+  // 'noted': only the review status or the stars of CoGA's same ClinVar classification moved
+  // (shown, not counted at sign-out).
+  status: string; // 'drifted' | 'noted' | 'unknown' | 'variant_missing'
   annotation_version_from: string | null;
   annotation_version_to: string | null;
   clinvar_from: string | null;
   clinvar_to: string | null;
-  // What moved: 'clinvar', 'transcript_id', a consequence, frequency or in-silico field
+  // Each ALT's ClinVar in CoGA's own release, as frozen and as it is now.
+  clinvar_coga_from: ClinvarCogaOut[] | null;
+  clinvar_coga_to: ClinvarCogaOut[] | null;
+  // What moved: 'clinvar', 'clinvar_coga' (an ALT's classification in CoGA's own release),
+  // 'transcript_id', a consequence, frequency or in-silico field
   // ('effect', 'lof', 'gnomad_af', 'revel', …), a missense variant's gene 'gene_missense_z' and
   // its source 'gene_missense_z_source', or 'annotations' (the annotation set).
   changed: string[];

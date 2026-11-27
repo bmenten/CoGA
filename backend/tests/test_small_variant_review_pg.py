@@ -21,11 +21,13 @@ from fastapi import HTTPException
 
 from backend.app.schemas import AcmgClassificationPayload, AcmgCriterionSelection, SmallVariantReviewUpdate
 from backend.app.services import clinical_audit_service
+from backend.app.services import small_variant_review_acmg
 from backend.app.services import small_variant_review_pg
 from backend.app.services import small_variant_review_tags
 from backend.app.services import structural_variant_review_pg
 from backend.app.services.analysis_reviews import ScopedReview
 from backend.app.services.analysis_scope import AnalysisScope
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
 from backend.app.services.small_variant_review_acmg import _normalize_acmg_payload
 from backend.app.services.small_variant_review_repository import _review_document_has_any_content
 
@@ -410,10 +412,13 @@ def _clear(monkeypatch, existing: dict, payload: SmallVariantReviewUpdate):
     writes: list[str] = []
 
     async def _variant(**kwargs):
-        return types.SimpleNamespace(variant_key=1, gene_symbols=[])
+        return types.SimpleNamespace(variant_key=1, gene_symbols=[], chrom="1", pos=100, ref="A", alt="G")
 
     async def _fetch(session_, *, family_uuid, variant_id, scope):
         return ScopedReview(own=existing)
+
+    async def _no_release(session_, assembly_name):
+        return NO_CLINVAR_COGA
 
     async def _write_own(session_, *, family_uuid, scope, reviews, fields, created_at):
         # The family holds no analysis: no shared review to keep an emptied one for.
@@ -427,6 +432,7 @@ def _clear(monkeypatch, existing: dict, payload: SmallVariantReviewUpdate):
         audits.append({**kwargs, "commits_before": session.commits})
 
     monkeypatch.setattr(small_variant_review_pg, "get_small_variant_family_record", _variant)
+    monkeypatch.setattr(small_variant_review_acmg, "clinvar_coga_read", _no_release)
     monkeypatch.setattr(small_variant_review_pg, "_fetch_scoped_review", _fetch)
     monkeypatch.setattr(small_variant_review_pg, "_write_own_review", _write_own)
     monkeypatch.setattr(small_variant_review_pg, "record_review_changes", _audit)
