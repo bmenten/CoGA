@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import types
+from datetime import date
 
 from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE, AnalysisScope
 from backend.app.services import variant_ranking_cache as vrc
@@ -74,6 +76,39 @@ def test_canonical_filters_drops_pagination() -> None:
     cf = vrc.canonical_filters(SmallVariantQueryFilters(page=3, page_size=50, impact=["HIGH"]))
     assert "page" not in cf and "page_size" not in cf
     assert cf["impact"] == ["HIGH"]
+
+
+def test_the_filters_a_ranking_stores_are_json_with_cogas_clinvar_release(monkeypatch) -> None:
+    # A ranked list with a ClinVar release stores its filters in the ranking's provenance
+    # (jsonb): the release's date is written as its ISO text, and the key is the one a date
+    # gave (the hash writes a date as that text).
+    released = _default_filters(clinvar_coga_release=date(2026, 11, 22))
+    stored = json.loads(json.dumps(vrc.canonical_filters(released)))
+    assert stored["clinvar_coga_release"] == "2026-11-22"
+    executed: list[dict] = []
+
+    class _Session:
+        async def execute(self, statement, params=None):
+            executed.append(params or {})
+
+        async def commit(self) -> None:
+            return None
+
+    asyncio.run(
+        vrc.store_ranking(
+            _Session(),  # type: ignore[arg-type]
+            family_uuid="00000000-0000-4000-8000-0000000000f1",
+            inputs_hash="a" * 64,
+            total=0,
+            total_is_estimated=False,
+            ranking_truncated=False,
+            ranking=[],
+            provenance={"filters": vrc.canonical_filters(released)},
+        )
+    )
+    assert json.loads(executed[0]["provenance"])["filters"]["clinvar_coga_release"] == "2026-11-22"
+    as_text = _default_filters(clinvar_coga_release="2026-11-22")  # type: ignore[arg-type]
+    assert _hash(monkeypatch, filters=released) == _hash(monkeypatch, filters=as_text)
 
 
 def test_hash_is_stable_and_hpo_order_independent(monkeypatch) -> None:

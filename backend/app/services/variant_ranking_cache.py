@@ -38,6 +38,7 @@ import hashlib
 import json
 from collections.abc import Iterable
 from dataclasses import asdict, is_dataclass
+from datetime import date
 from typing import Any
 
 from sqlalchemy import text
@@ -57,12 +58,14 @@ _MAX_CACHE_ROWS_PER_FAMILY = 6
 
 def canonical_filters(filters: Any) -> dict[str, Any]:
     """The ranking-relevant filter fields (pagination removed) — used for the hash and
-    to replay the query during background warming."""
+    to replay the query during background warming — as JSON holds them: a ranking stores them
+    in its provenance (``store_ranking``). A date (CoGA's ClinVar release) is its ISO text,
+    which is also how the hash writes it."""
     data = asdict(filters) if is_dataclass(filters) and not isinstance(filters, type) else dict(filters)
     # Pagination doesn't change the ranking — the whole order is cached.
     data.pop("page", None)
     data.pop("page_size", None)
-    return data
+    return {key: value.isoformat() if isinstance(value, date) else value for key, value in data.items()}
 
 
 async def _pedigree_signature(session: AsyncSession, context: Any) -> Any:
