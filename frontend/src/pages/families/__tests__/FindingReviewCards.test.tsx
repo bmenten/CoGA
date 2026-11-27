@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyRepeatExpansionsPage from '../FamilyRepeatExpansionsPage';
 import FamilyParaphasePage from '../FamilyParaphasePage';
 import { differsFromStatus, findingQuickTagPayload } from '../findingReview';
-import { formatDateTime } from '../../../lib/format';
+import { formatDate } from '../../../lib/format';
 import { renderFamilyRoute } from '../../../test/familyRoute';
 
 // The reviews of repeat loci and Paraphase regions on their cards
@@ -164,10 +164,10 @@ describe('reviews on the repeat locus cards', () => {
     const block = card.querySelector('.variant-card-review') as HTMLElement;
     expect(card.querySelector('.variant-card-head')?.nextElementSibling).toBe(block);
     expect(within(block).getByText('Mosaic').closest('.variant-card-review-tags')).toHaveTextContent(
-      `analyst · ${formatDateTime('2026-10-28T10:00:00Z')}`,
+      `analyst · ${formatDate('2026-10-28T10:00:00Z')}`,
     );
     expect(within(block).getByText('Reads support 42 repeats.')).toHaveTextContent(
-      `supervisor · ${formatDateTime('2026-10-28T11:00:00Z')}`,
+      `supervisor · ${formatDate('2026-10-28T11:00:00Z')}`,
     );
   });
 

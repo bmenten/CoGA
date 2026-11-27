@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import StructuralVariantCards from '../StructuralVariantCards';
 import { ACMG_CLASSIFICATION_LABELS, type SmallVariantReview } from '../smallVariantSearch';
 import type { StructuralVariant } from '../structuralVariantSearch';
-import { formatDateTime } from '../../../lib/format';
+import { formatDate } from '../../../lib/format';
 import { BUILT_IN_REVIEW_TAGS } from '../../../test/tagDefinitions';
 import { review, structuralVariant } from '../../../test/variants';
 import reviewClassCases from './fixtures/review-class-cases.json';
@@ -255,10 +255,10 @@ describe('StructuralVariantCards review class', () => {
     const block = card.querySelector('.variant-card-review') as HTMLElement;
     expect(card.querySelector('.variant-card-head')?.nextElementSibling).toBe(block);
     expect(block.querySelector('.variant-card-review-tags')).toHaveTextContent(
-      `Secondary findingsupervisor · ${formatDateTime('2026-11-21T10:00:00Z')}`,
+      `Secondary findingsupervisor · ${formatDate('2026-11-21T10:00:00Z')}`,
     );
     expect(within(block).getByText('Breakpoints checked in IGV.')).toHaveTextContent(
-      `Breakpoints checked in IGV. analyst · ${formatDateTime('2026-11-22T11:00:00Z')}`,
+      `Breakpoints checked in IGV. analyst · ${formatDate('2026-11-22T11:00:00Z')}`,
     );
   });
 

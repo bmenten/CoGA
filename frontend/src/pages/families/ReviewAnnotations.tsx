@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { formatDateTime } from '../../lib/format';
+import { formatDate } from '../../lib/format';
 import ReviewTagChip from './ReviewTagChip';
 import type {
   SmallVariantReview,
@@ -17,8 +17,8 @@ interface TagSave {
 }
 
 /**
- * The tags in their order, those one save added (one analyst, one time) together. A tag whose
- * save is still on its way has no entry yet, and goes with the others that have none.
+ * The tags in their order, those one analyst set on one day together, as their line names them.
+ * A tag whose save is still on its way has no entry yet, and goes with the others that have none.
  */
 const tagSaves = (tagKeys: string[], metadata: AnnotatedReview['tag_metadata']): TagSave[] => {
   const saves = new Map<string, TagSave>();
@@ -26,7 +26,7 @@ const tagSaves = (tagKeys: string[], metadata: AnnotatedReview['tag_metadata']):
     const entry: SmallVariantReviewTagMetadata | undefined = metadata[tagKey];
     const by = entry?.updated_by ?? null;
     const at = entry?.updated_at ?? null;
-    const key = `${by}\u0000${at}`;
+    const key = `${by}\u0000${formatDate(at)}`;
     const save = saves.get(key);
     if (save) save.tagKeys.push(tagKey);
     else saves.set(key, { by, at, tagKeys: [tagKey] });
@@ -34,17 +34,17 @@ const tagSaves = (tagKeys: string[], metadata: AnnotatedReview['tag_metadata']):
   return [...saves.values()];
 };
 
-/** Who wrote it and when, after what they wrote; nothing while its save is on its way. */
+/** Who wrote it and on which day, after what they wrote; nothing while its save is on its way. */
 export const ReviewAuthorship = ({ by, at }: { by: string | null | undefined; at: string | null | undefined }) =>
   by ? (
     <span className="variant-card-review-author">
-      {by} · {formatDateTime(at)}
+      {by} · {formatDate(at)}
     </span>
   ) : null;
 
 /**
  * What the analysts wrote on a finding, at the top of its card under the heading: its review
- * tags, each save's with who added them and when, and its note with who wrote it and when.
+ * tags, with who added them and on which day, and its note with who wrote it and on which day.
  * `leading` opens the tag row with what the card adds to the tags (a compound-het pair, a
  * repeat or Paraphase classification). Nothing to show, no block.
  */

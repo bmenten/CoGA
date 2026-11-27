@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { formatDateTime } from '../../../lib/format';
+import { formatDate } from '../../../lib/format';
 import { review } from '../../../test/variants';
 import ReviewAnnotations from '../ReviewAnnotations';
 import { pendingNoteAuthorship } from '../smallVariantResultUtils';
@@ -38,11 +38,31 @@ describe('ReviewAnnotations', () => {
     );
     // One save per analyst: each tag with its own line of who and when.
     expect(Array.from(container.querySelectorAll('.variant-card-review-tags')).map((save) => save.textContent)).toEqual([
-      `mosaicanalyst · ${formatDateTime(AT)}`,
-      `segregatessupervisor · ${formatDateTime(AT)}`,
+      `mosaicanalyst · ${formatDate(AT)}`,
+      `segregatessupervisor · ${formatDate(AT)}`,
     ]);
     expect(screen.getByText(/Line one\./)).toHaveClass('variant-card-review-note');
-    expect(screen.getByText(/Line one\./)).toHaveTextContent(`supervisor · ${formatDateTime(AT)}`);
+    expect(screen.getByText(/Line one\./)).toHaveTextContent(`supervisor · ${formatDate(AT)}`);
+  });
+
+  it("names the day, not the time, with one line for an analyst's tags of one day", () => {
+    const { container } = render(
+      <ReviewAnnotations
+        review={review({
+          variant_id: 'V1',
+          tags: ['mosaic', 'segregates'],
+          tag_metadata: {
+            mosaic: { updated_by: 'analyst', updated_at: '2026-11-21T11:00:00Z' },
+            segregates: { updated_by: 'analyst', updated_at: '2026-11-21T11:30:00Z' },
+          },
+        })}
+        tagKeys={['mosaic', 'segregates']}
+      />,
+    );
+    expect(Array.from(container.querySelectorAll('.variant-card-review-tags')).map((save) => save.textContent)).toEqual([
+      `mosaicsegregatesanalyst · ${formatDate('2026-11-21T11:00:00Z')}`,
+    ]);
+    expect(container.querySelector('.variant-card-review-author')?.textContent).not.toMatch(/\d:\d\d/);
   });
 
   it('names no one for a tag or a note whose save is still on its way', () => {
