@@ -98,8 +98,8 @@ Waarom de VCF en niet de *variant summary*: het is precies het bestand dat de pi
 `--custom` annoteert. Daardoor kan CoGA voor dezelfde release nagaan dat zijn eigen koppeling
 exact dezelfde waarde geeft als de pipeline (§6.6).
 
-Voor een assembly zonder ClinVar-VCF (T2T) is er geen CoGA-release; de kaart toont "niet
-beschikbaar voor deze assembly".
+Voor een assembly zonder ClinVar-VCF (T2T) is er geen CoGA-release en dus geen ClinVar; het
+detailpaneel van de kaart toont "niet beschikbaar voor deze assembly".
 
 ## 5. Laden en releasebeheer
 

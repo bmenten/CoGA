@@ -86,10 +86,10 @@ When you save a classification, CoGA freezes the evidence it rests on:
 When you open the report, each frozen classification is compared with the current data. An amber
 banner lists every classification whose evidence changed:
 
-- The ClinVar classification changed in CoGA's current ClinVar release, named with its review
-  status and release on each side (for example *Uncertain significance ★☆☆☆, criteria provided,
-  single submitter (2026-11-15) → Likely pathogenic ★☆☆☆, criteria provided, single submitter
-  (2026-11-22)*). A new release that only gives the same classification another review status or
+- The ClinVar classification changed in CoGA's current ClinVar release, named with its release and
+  review status on each side (for example *ClinVar 2026-11-15: Uncertain significance ★☆☆☆,
+  criteria provided, single submitter → ClinVar 2026-11-22: Likely pathogenic ★☆☆☆, criteria
+  provided, single submitter*). A new release that only gives the same classification another review status or
   other stars is shown apart, under *Noted, not counted at sign-out*: it needs no re-review and
   sign-out does not stop on it.
 - A frozen consequence, LoF call, frequency or in-silico score, or a missense variant's gene missense Z,

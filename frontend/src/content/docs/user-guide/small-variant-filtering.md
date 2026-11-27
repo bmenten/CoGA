@@ -137,7 +137,7 @@ its MANE transcript is left out.
 - *ClinVar pathogenic / likely pathogenic overrules the frequency, consequence and in-silico
   filters*, under **Frequency** and on by default: a variant with an allele ClinVar calls pathogenic
   or likely pathogenic passes the impact, consequence and SpliceAI filter, the in-silico filter and
-  every frequency and gnomAD count on every one of its transcripts, whatever its values. The other
+  every frequency and gnomAD count on every one of its transcripts, whatever their values. The other
   filters still apply to it: the transcript, HGVS, *Canonical only*, *MANE only*, *LoF only*, the
   ClinVar status, the genotypes. So a variant ClinVar classified pathogenic after the pipeline
   annotated the callset is not left out.

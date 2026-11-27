@@ -291,12 +291,14 @@ pull request updates this list only when it adds clinical behaviour that no area
   - Classifications that reopen with their saved criteria; CNV classifications preserved by
     review edits.
   - The prioritised ranking and its cache keys.
-  - ClinVar from CoGA's own weekly release where it holds the allele, else the annotation's (the
-    ClinVar design's one rule): the *ClinVar status* filter and its exclusion, the ranking, PP5/BP6,
-    the mtDNA status, the monogenic NIPT's triage, diagnostic candidates, recurrence filter and
-    artifact list. The NIPT diagnostic candidates and triage then differ from the R NIPT-M v0.7.3
-    pipeline's, which reads the annotation, where the release does: validated again against it
-    (the owner's decision B11; QA's V4 sets the scope).
+  - ClinVar from CoGA's own weekly release, and never from the callset's annotation (the owner's
+    decision of 2026-11-27, B13 of the ClinVar design): the card and the export, the *ClinVar
+    status* filter and its exclusion (a variant left out only when every allele of it has an
+    excluded status), the P/LP override, the ranking, the genome track, PP5/BP6, the mtDNA status,
+    the monogenic NIPT's triage, diagnostic candidates, recurrence filter and artifact list; an
+    allele the release does not hold has no ClinVar. The NIPT diagnostic candidates and triage then
+    differ from the R NIPT-M v0.7.3 pipeline's, which reads the annotation, where the release does:
+    validated again against it (the owner's decisions B11 and B13; QA's V4 sets the scope).
 - **Application logic**
   - Monogenic NIPT:
     - **The model:** one fetal fraction; paternally allowed fetal states; the R NIPT-M v0.7.3

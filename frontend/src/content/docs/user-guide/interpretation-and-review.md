@@ -69,10 +69,10 @@ the family genotypes, and scores them on the ClinGen points scale.
   A value the annotation does not hold shows as —. Fold the cards away to see only the criteria.
 - The header links to gnomAD, ClinVar, DECIPHER and a PubMed search on the gene and the patient's HPO
   terms. ClinVar, here and on the variant card, opens the record of the allele in the ClinVar release
-  CoGA loads (its VariationID). Without one it searches ClinVar for the change on a RefSeq transcript
-  (`NM_…:c.…`): the variant's own, or the one MANE pairs with its Ensembl transcript. Else it searches
-  for the rsID, else for every record at the variant's position on GRCh38 or GRCh37. ClinVar knows no
-  Ensembl transcript.
+  CoGA loads (its VariationID). Without one it searches ClinVar for the variant's rsID; else for the
+  change on a RefSeq transcript (`NM_…:c.…`): the variant's own, or the one MANE pairs with its
+  Ensembl transcript; else for every record at the variant's position on GRCh38 or GRCh37. ClinVar
+  knows no Ensembl transcript.
 - **Save classification** stores the class as the variant's classification and review tag, with every
   criterion and your note; the server recomputes the class. It also freezes the evidence the dialog
   read — each ALT's ClinVar in CoGA's release, the consequence and LoF call, the population
