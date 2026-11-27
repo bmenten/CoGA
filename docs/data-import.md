@@ -291,6 +291,31 @@ progress, and a failed load with its reason; **Load newest** starts a load. A st
 newest release for a GRCh37 or GRCh38 assembly that has none (`REFERENCE_BOOTSTRAP_CLINVAR`), and so
 does adding such an assembly from UCSC.
 
+#### Concordance at each import
+
+Each callset annotated with ClinVar's VCF checks CoGA's allele matching against the pipeline's
+(`services/clinvar_concordance.py`). The import writes, on each `entries` row, the allele key of
+each ALT in its minimal form (`allele_keys`), and notes, per allele it stores, the classification,
+review status and VariationID of the ClinVar file the pipeline annotated it with (VEP's cache's
+classification is ClinVar at rsID level, and is not compared). Once the callset is stored, and when
+CoGA keeps the release of that ClinVar file (the date in its name, as the annotation manifest's
+`clinvar` module states it; the current release or the one before it), the import reads that
+release for the callset's own allele keys and compares:
+
+- an allele **agrees** when both sides name the same classification terms (as `_status_terms` reads
+  them), the same review status and the same VariationID;
+- every other allele either side classifies is a **difference**, with its reason: *not in CoGA's
+  release* (the pipeline matched an allele CoGA's minimal form does not find: another
+  representation, such as a left-aligned indel, or a record of ClinVar's `_papu` file), *not in the
+  annotation* (CoGA's release classifies an allele the pipeline did not match), *classification*,
+  *review status* or *VariationID*.
+
+The import keeps the counts and the first 100 differences with the dataset
+(`clinvar_concordance`), and the import page shows them under **ClinVar concordance**. A callset
+whose ClinVar release CoGA does not keep is recorded *not compared*, with its release, and one that
+names none says so. A comparison that fails is recorded as not compared, by the error's kind; it
+never fails the import.
+
 ### Updating the HPO ontology
 
 **Admin → HPO terminology** says whether HPO has published a newer release than the loaded one

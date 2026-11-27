@@ -9,6 +9,7 @@ import type {
   FamilyPackageImportJobOut,
 } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
+import ClinvarConcordanceReport from './ClinvarConcordanceReport';
 import { formatTimestamp } from '../../lib/format';
 import { routePath } from '../../lib/routePath';
 import {
@@ -148,6 +149,8 @@ const ImportJobReport: React.FC<{ job: ImportJob; now: number }> = ({ job, now }
           </table>
         </div>
       ) : null}
+
+      <ClinvarConcordanceReport datasets={job.datasets} />
 
       {job.logs.length > 0 ? (
         <div>

@@ -108,6 +108,10 @@ at its first start; an administrator loads a newer one with **Load newest** in t
   stays, and the Reference catalog says why.
 - The current release and the one before it are kept. Each release made current is recorded with its
   file and SHA-256, and on the clinical audit chain `system:clinvar-releases`.
+- Each import of a callset annotated with a ClinVar release CoGA keeps compares, per allele, the
+  annotation's classification, review status and VariationID with CoGA's. The import page shows, under
+  **ClinVar concordance**, how many alleles agree and each difference with its reason; a callset whose
+  release CoGA does not keep is marked *not compared*. A comparison never fails the import.
 
 **Gene reference refresh.** A new installation refreshes the cached gene information for all human
 genes in the background after its first start, and again once the dbNSFP gene file is added, if

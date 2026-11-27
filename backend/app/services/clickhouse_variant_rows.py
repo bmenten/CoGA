@@ -10,6 +10,7 @@ from .data_scope import normalize_chromosome
 from .clickhouse_variant_ids import (
     build_small_variant_id,
     build_structural_variant_id,
+    record_allele_keys,
     small_variant_key,
     structural_variant_key,
     _stable_uint64,
@@ -649,6 +650,7 @@ def _small_variant_entry_rows(
         gnomad_over_5_percent = _annotation_gnomad_over_5_percent(record.annotations)
         transcripts = _entry_transcripts(row_columns)
         xpos = _xpos(record.chr, record.start)
+        allele_keys = record_allele_keys(assembly_name, record.chr, record.start, record.ref, record.alt)
         sample_ids = [call.sample for call in record.calls]
         sample_gts = [call.gt for call in record.calls]
         sample_gqs = [_small_call_gq(call) for call in record.calls]
@@ -673,6 +675,7 @@ def _small_variant_entry_rows(
                     pos,
                     record.ref,
                     record.alt,
+                    allele_keys,
                     record.source or "",
                     rsid,
                     gnomad_over_5_percent,
