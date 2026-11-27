@@ -299,6 +299,8 @@ def test_a_review_saves_its_calls_and_refuses_what_it_must(run: dict[str, Any]) 
     saved = ok_json(run, "save")
     assert saved["key"] == LOCUS and saved["classification"] == "intermediate"
     assert saved["tags"] == ["report"] and saved["note"] == "Grey zone; PCR sizing requested"
+    # The note is the saver's, stamped with the save.
+    assert (saved["note_updated_by"], saved["note_updated_at"]) == (saved["updated_by"], saved["updated_at"])
     assert saved["evidence_captured_at"] is not None
     assert saved["drift"] == {"status": "unchanged", "changes": []}
     assert _detail(run, "stale", 409)["code"] == "review_conflict"
@@ -363,6 +365,8 @@ def test_each_change_is_on_the_familys_audit_chain(run: dict[str, Any]) -> None:
         "tags": [],
         "tag_metadata": {},
         "note": None,
+        "note_updated_by": None,
+        "note_updated_at": None,
         "updated_by": None,
         "updated_at": None,
         "evidence_captured_at": None,

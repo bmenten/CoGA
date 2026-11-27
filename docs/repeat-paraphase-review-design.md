@@ -93,6 +93,8 @@ repeat_expansion_reviews
   tags jsonb NOT NULL DEFAULT '[]'
   tag_metadata jsonb NOT NULL DEFAULT '{}'
   note text NULL
+  note_updated_by text NULL             -- wie de notitie schreef; gezet precies als note
+  note_updated_at timestamptz NULL      -- en wanneer (CHECK …_note_author_check)
   evidence_snapshot jsonb NULL          -- §5
   updated_by text NOT NULL
   created_at, updated_at timestamptz

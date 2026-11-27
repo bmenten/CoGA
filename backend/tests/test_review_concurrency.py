@@ -36,6 +36,8 @@ def _existing(updated_at=T1, updated_by="alice") -> dict:
         "tags": [],
         "tag_metadata": {},
         "note": "first reviewer's note",
+        "note_updated_by": updated_by,
+        "note_updated_at": updated_at,
         "updated_by": updated_by,
         "updated_at": updated_at,
     }
@@ -220,6 +222,8 @@ def _review_row(variant_id: str, **fields) -> dict:
         "tags": [],
         "tag_metadata": {},
         "note": None,
+        "note_updated_by": None,
+        "note_updated_at": None,
         "acmg": None,
         "acmg_point_total": None,
         "acmg_class": None,

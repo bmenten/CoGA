@@ -21,6 +21,7 @@ import {
   buildSmallVariantGeneInfoHref,
   buildSmallVariantNavigation,
   buildSvSecondHitHref,
+  cardReviewTagKeys,
   formatFrequency,
   formatCompoundHetPhaseStatus,
   GENOMIC_CHANGE_NOTE,
@@ -40,12 +41,11 @@ import {
   parseVariantIds,
   reviewClassChips,
   sortReviewTagKeys,
-  visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import FilterTranscriptNote from './FilterTranscriptNote';
 import FamilyGenotypeGrid, { type GenotypeColumn, type GenotypeRow, type GenotypeTone } from './FamilyGenotypeGrid';
 import { FindingLinks } from './FindingCard';
-import ReviewTagChip from './ReviewTagChip';
+import ReviewAnnotations from './ReviewAnnotations';
 import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
 import CardCollapseToggle, { keepCardHeadingInView, useCollapsedCards } from './CardCollapseToggle';
 import SvSecondHitBadge from './SvSecondHitBadge';
@@ -830,7 +830,7 @@ export function SmallVariantCard({
   const reviewClass = reviewClassChips(
     variant.review?.classification,
     variant.review?.tags,
-    visibleReviewTagKeys(sortedReviewTags),
+    cardReviewTagKeys(sortedReviewTags),
   );
   const visibleReviewTags = reviewClass.tagKeys;
 
@@ -1012,6 +1012,7 @@ export function SmallVariantCard({
       {isExcluded ? (
         <ExcludedCardBar
           subject={cardSubject}
+          tagMetadata={variant.review?.tag_metadata}
           expanded={!folded}
           onToggleExpanded={toggleFold}
           onUndoExclude={() => {
@@ -1029,6 +1030,18 @@ export function SmallVariantCard({
       {/* A folded card shows its heading, and the bar or the change above. */}
       {folded ? null : (
         <>
+          {/* What the analysts wrote, first under the heading, with who wrote it and when. */}
+          <ReviewAnnotations
+            review={variant.review}
+            tagKeys={visibleReviewTags}
+            tagMap={list.tagMap}
+            leading={
+              variant.review?.compound_het ? (
+                <span className="variant-card-chip variant-card-chip--impact">Comp-het pair</span>
+              ) : null
+            }
+          />
+
           {/* Which diseases the gene is linked to, at a glance; every link is under
               "More annotations & detail". Then the gene's curated modes of inheritance
               and its ClinGen dosage curation. A group shows them once, for its gene. */}
@@ -1045,23 +1058,6 @@ export function SmallVariantCard({
           {variant.nipt ? <NiptClassificationBlock nipt={variant.nipt} /> : null}
 
           {variant.priority ? <VariantPriorityBlock priority={variant.priority} rankedBy={rankedBy} /> : null}
-
-          {visibleReviewTags.length || variant.review?.compound_het ? (
-            <div className="variant-card-chip-row variant-card-tag-row">
-              {variant.review?.compound_het ? (
-                <span className="variant-card-chip variant-card-chip--impact">Comp-het pair</span>
-              ) : null}
-              {visibleReviewTags.map((tagKey) => (
-                <ReviewTagChip
-                  key={tagKey}
-                  className="variant-card-chip variant-card-chip--tag"
-                  tagKey={tagKey}
-                  tagMap={list.tagMap}
-                  tagMetadata={variant.review?.tag_metadata}
-                />
-              ))}
-            </div>
-          ) : null}
 
           <div className="variant-card-cols">
             <section className="variant-card-col" aria-label="Variant">
@@ -1268,10 +1264,6 @@ export function SmallVariantCard({
               )}
             </section>
           </div>
-
-          {variant.review?.note ? (
-            <p className="variant-card-review-note">{variant.review.note}</p>
-          ) : null}
 
           <div className="variant-card-footer">
             <div className="variant-card-quick">

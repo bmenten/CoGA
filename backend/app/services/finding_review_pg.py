@@ -55,6 +55,7 @@ from .review_pg_utils import (
     _json_payload,
     _lock_review,
     _merge_tag_metadata,
+    _note_authorship,
     _normalize_tags,
     _raise_on_stale_review,
 )
@@ -139,7 +140,7 @@ def _select_sql(kind: FindingKind, *, one: bool) -> Any:
     return text(
         f"""
         SELECT id::text AS id, {kind.key_column} AS key, classification, tags, tag_metadata,
-               note, evidence_snapshot, updated_by, updated_at
+               note, note_updated_by, note_updated_at, evidence_snapshot, updated_by, updated_at
         FROM {kind.table}
         WHERE family_id = CAST(:family_id AS uuid)
           AND assembly_id = CAST(:assembly_id AS uuid)
@@ -362,6 +363,8 @@ def serialize_finding_review(
         tags=_normalize_tags(row.get("tags") or []),
         tag_metadata=row.get("tag_metadata") or {},
         note=row.get("note"),
+        note_updated_by=row["note_updated_by"],
+        note_updated_at=row["note_updated_at"],
         updated_by=row.get("updated_by"),
         updated_at=row.get("updated_at"),
         evidence_captured_at=_as_utc(captured),
@@ -525,22 +528,25 @@ async def upsert_finding_review(
         or (REPORT_TAG in normalized_tags and REPORT_TAG not in previous_tags)
     )
     snapshot = {"captured_at": now.isoformat(), "evidence": current} if refreeze else stored_snapshot
+    tag_metadata = _merge_tag_metadata(
+        existing_metadata=(existing or {}).get("tag_metadata"),
+        previous_tags=previous_tags,
+        next_tags=normalized_tags,
+        username=user.username,
+        timestamp=now,
+    )
+    note_author = _note_authorship(
+        existing=existing, note=normalized_note, username=user.username, timestamp=now
+    )
     fields = {
         "family_id": context.family_uuid,
         "assembly_id": assembly_id,
         "key": normalized_key,
         "classification": normalized_classification,
         "tags_json": _json_payload(normalized_tags),
-        "tag_metadata_json": _json_payload(
-            _merge_tag_metadata(
-                existing_metadata=(existing or {}).get("tag_metadata"),
-                previous_tags=previous_tags,
-                next_tags=normalized_tags,
-                username=user.username,
-                timestamp=now,
-            )
-        ),
+        "tag_metadata_json": _json_payload(tag_metadata),
         "note": normalized_note,
+        **note_author,
         "snapshot_json": _json_payload(snapshot) if snapshot else None,
         "updated_by": user.username,
         "updated_at": now,
@@ -554,6 +560,8 @@ async def upsert_finding_review(
                     tags = CAST(:tags_json AS jsonb),
                     tag_metadata = CAST(:tag_metadata_json AS jsonb),
                     note = :note,
+                    note_updated_by = :note_updated_by,
+                    note_updated_at = :note_updated_at,
                     evidence_snapshot = CAST(:snapshot_json AS jsonb),
                     updated_by = :updated_by,
                     updated_at = :updated_at
@@ -568,12 +576,14 @@ async def upsert_finding_review(
                 f"""
                 INSERT INTO {kind.table} (
                     family_id, assembly_id, {kind.key_column}, classification, tags, tag_metadata,
-                    note, evidence_snapshot, updated_by, created_at, updated_at
+                    note, note_updated_by, note_updated_at, evidence_snapshot, updated_by,
+                    created_at, updated_at
                 )
                 VALUES (
                     CAST(:family_id AS uuid), CAST(:assembly_id AS uuid), :key, :classification,
                     CAST(:tags_json AS jsonb), CAST(:tag_metadata_json AS jsonb), :note,
-                    CAST(:snapshot_json AS jsonb), :updated_by, :updated_at, :updated_at
+                    :note_updated_by, :note_updated_at, CAST(:snapshot_json AS jsonb),
+                    :updated_by, :updated_at, :updated_at
                 )
                 """
             ),
@@ -584,13 +594,8 @@ async def upsert_finding_review(
     saved = {
         **new_state,
         "key": normalized_key,
-        "tag_metadata": _merge_tag_metadata(
-            existing_metadata=(existing or {}).get("tag_metadata"),
-            previous_tags=previous_tags,
-            next_tags=normalized_tags,
-            username=user.username,
-            timestamp=now,
-        ),
+        "tag_metadata": tag_metadata,
+        **note_author,
         "evidence_snapshot": snapshot,
         "updated_by": user.username,
         "updated_at": now,

@@ -583,14 +583,7 @@ const ParaphaseLocusCard: React.FC<{
           ),
         },
       ]}
-      note={
-        noCallNote || review.note ? (
-          <>
-            {noCallNote ? <p className="paraphase-clinical-note">{noCallNote}</p> : null}
-            {review.note}
-          </>
-        ) : null
-      }
+      note={noCallNote ? <p className="paraphase-clinical-note">{noCallNote}</p> : null}
       actions={
         <>
           {review.actions}

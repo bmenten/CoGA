@@ -2,11 +2,11 @@ import { Link, useLocation } from 'react-router';
 import { formatGt, genotypeZygosity } from '../../lib/genotypes';
 import {
   buildGnomadSvRegionHref,
+  cardReviewTagKeys,
   formatFrequency,
   formatScore,
   reviewClassChips,
   sortReviewTagKeys,
-  visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -20,7 +20,7 @@ import {
   type StructuralVariantFamilyMember,
 } from './structuralVariantSearch';
 import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
-import ReviewTagChip from './ReviewTagChip';
+import ReviewAnnotations from './ReviewAnnotations';
 import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
 import FamilyGenotypeGrid, { type GenotypeColumn, type GenotypeTone } from './FamilyGenotypeGrid';
 import { FindingLinks } from './FindingCard';
@@ -153,7 +153,7 @@ export default function StructuralVariantCards({
         const reviewClass = reviewClassChips(
           variant.review?.classification,
           variant.review?.tags,
-          visibleReviewTagKeys(sortedReviewTags),
+          cardReviewTagKeys(sortedReviewTags),
         );
         const visibleReviewTags = reviewClass.tagKeys;
 
@@ -214,6 +214,7 @@ export default function StructuralVariantCards({
             {isExcluded ? (
               <ExcludedCardBar
                 subject={genes[0] || locus}
+                tagMetadata={variant.review?.tag_metadata}
                 expanded={excludedCards.isUnfolded(rowKey)}
                 onToggleExpanded={() => excludedCards.toggle(rowKey)}
                 onUndoExclude={() => {
@@ -227,21 +228,10 @@ export default function StructuralVariantCards({
             {/* An excluded variant folds to its heading and the bar above. */}
             {isExcluded && !excludedCards.isUnfolded(rowKey) ? null : (
               <>
-                {variant.priority ? <VariantPriorityBlock priority={variant.priority} rankedBy={rankedBy} /> : null}
+                {/* What the analysts wrote, first under the heading, with who wrote it and when. */}
+                <ReviewAnnotations review={variant.review} tagKeys={visibleReviewTags} tagMap={tagMap} />
 
-                {visibleReviewTags.length ? (
-                  <div className="variant-card-chip-row variant-card-tag-row">
-                    {visibleReviewTags.map((tagKey) => (
-                      <ReviewTagChip
-                        key={tagKey}
-                        className="variant-card-chip variant-card-chip--tag"
-                        tagKey={tagKey}
-                        tagMap={tagMap}
-                        tagMetadata={variant.review?.tag_metadata}
-                      />
-                    ))}
-                  </div>
-                ) : null}
+                {variant.priority ? <VariantPriorityBlock priority={variant.priority} rankedBy={rankedBy} /> : null}
 
                 <div className="variant-card-cols">
                   <section className="variant-card-col">
@@ -389,10 +379,6 @@ export default function StructuralVariantCards({
                     </dl>
                   </section>
                 </div>
-
-                {variant.review?.note ? (
-                  <p className="variant-card-review-note">{variant.review.note}</p>
-                ) : null}
 
                 <div className="variant-card-footer">
                   <div className="variant-card-quick">

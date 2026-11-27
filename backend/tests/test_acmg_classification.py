@@ -217,7 +217,13 @@ def test_a_stored_json_null_is_no_classification_and_not_an_error(caplog) -> Non
 def test_the_review_marks_an_unreadable_classification_instead_of_dropping_it(caplog) -> None:
     from backend.app.services.small_variant_review_pg import _serialize_review
 
-    stored = {"variant_id": "1-2000-C-T", "classification": "acmg_class_4", "tag_metadata": {}}
+    stored = {
+        "variant_id": "1-2000-C-T",
+        "classification": "acmg_class_4",
+        "tag_metadata": {},
+        "note_updated_by": None,
+        "note_updated_at": None,
+    }
     with caplog.at_level(logging.ERROR):
         broken = _serialize_review({**stored, "acmg": json.dumps(_UNREADABLE_ACMG)})
     assert broken.acmg is None
@@ -243,13 +249,22 @@ def test_the_structural_review_marks_an_unreadable_cnv_classification(caplog) ->
     unreadable = {"kind": "sideways", "criteria": [{"code": "1A", "evidence": "private curation text"}]}
     with caplog.at_level(logging.ERROR):
         assert _deserialize_cnv_acmg(unreadable) is None
-        review = _serialize_structural_review({"variant_id": "DEL-1-1000-2000", "cnv_acmg": unreadable})
+        review = _serialize_structural_review(
+            {
+                "variant_id": "DEL-1-1000-2000",
+                "note_updated_by": None,
+                "note_updated_at": None,
+                "cnv_acmg": unreadable,
+            }
+        )
     assert review.cnv_acmg is None
     assert review.acmg_unreadable is True
     assert "kind: literal_error" in caplog.text
     assert "private curation text" not in caplog.text
 
-    clean = _serialize_structural_review({"variant_id": "DEL-1-1000-2000", "cnv_acmg": {"kind": "loss"}})
+    clean = _serialize_structural_review(
+        {"variant_id": "DEL-1-1000-2000", "note_updated_by": None, "note_updated_at": None, "cnv_acmg": {"kind": "loss"}}
+    )
     assert clean.cnv_acmg is not None and clean.acmg_unreadable is False
 
 

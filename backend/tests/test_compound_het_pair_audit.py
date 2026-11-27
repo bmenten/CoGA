@@ -34,6 +34,8 @@ def _pair_row(variant_id: str, partner: str, group: str, **fields: Any) -> dict[
         "tags": [],
         "tag_metadata": {},
         "note": None,
+        "note_updated_by": None,
+        "note_updated_at": None,
         "acmg": None,
         "acmg_point_total": None,
         "acmg_class": None,

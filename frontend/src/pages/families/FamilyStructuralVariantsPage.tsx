@@ -32,6 +32,7 @@ import {
   type StructuralVariantTagDefinition,
 } from './structuralVariantSearch';
 import { addableTagDefinitions } from './smallVariantSearch';
+import { pendingNoteAuthorship } from './smallVariantResultUtils';
 import { fetchFamilyReviewTags, quickTagTogglePayload, searchReadsReviews } from './smallVariantReview';
 import { apiPath, raw } from '../../lib/apiPath';
 import { routePath } from '../../lib/routePath';
@@ -54,6 +55,7 @@ const buildOptimisticReview = (
     tags: payload.tags,
     tag_metadata: variant.review?.tag_metadata || {},
     note: payload.note ?? null,
+    ...pendingNoteAuthorship(variant.review, payload.note ?? null),
     updated_by: variant.review?.updated_by ?? null,
     // The loaded version, not a client clock: it is sent back with the next save.
     updated_at: variant.review?.updated_at ?? null,

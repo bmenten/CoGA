@@ -9,7 +9,8 @@ counts in each analysis until you review the variant there.
 
 Each row or card has **Review**, **Exclude** and **Report** (one-click tags), **Tags & notes** and **ACMG
 classify**. An excluded variant stays in the list. Its card folds to its heading and a bar marked
-*Excluded*: **Show card** unfolds it, and **Undo exclude** takes the tag off again. In the table view
+*Excluded*, with who excluded it and when: **Show card** unfolds it, and **Undo exclude** takes the tag
+off again. In the table view
 its row is dimmed.
 
 To go through the list one card at a time, fold each card when you are done with it: **Collapse**, at
@@ -35,6 +36,10 @@ cards fold alike.
   **Tags & notes** opens on the class shown. Choosing another class there, or none, replaces the
   classification and every class tag; left alone, the save keeps both as they are.
 - **Notes** keep your reasoning with the variant.
+- **Who and when.** A card shows its tags and note first, just under its heading, each with who added
+  it and when; the tags one save added share one line. **Review** and **Report** show there too, beside
+  their pressed buttons; who excluded a variant is on its *Excluded* bar. A note stays its writer's
+  until someone changes it: adding a tag or a class does not make it theirs.
 - **Report** puts the variant in the family report.
 
 ### ACMG classify

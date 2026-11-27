@@ -4,9 +4,9 @@ import InfoTip from '../../components/InfoTip';
 import { READ_ONLY_HINT } from '../../lib/familyAccess';
 import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
 import FindingReviewDialog from './FindingReviewDialog';
-import ReviewTagChip from './ReviewTagChip';
+import ReviewAnnotations from './ReviewAnnotations';
 import { fetchFamilyReviewTags } from './smallVariantReview';
-import { sortReviewTagKeys, visibleReviewTagKeys } from './smallVariantResultUtils';
+import { cardReviewTagKeys, sortReviewTagKeys } from './smallVariantResultUtils';
 import { COLLABORATION_QUICK_TAGS, getTagDefinitionMap, type SmallVariantTagDefinition } from './smallVariantSearch';
 import {
   FINDING_DRIFT_LABEL,
@@ -27,7 +27,6 @@ const QUICK_TAGS = [
 /** One finding's review parts, as FindingCard takes them. */
 export type FindingReviewCardParts = {
   subhead: React.ReactNode;
-  note: React.ReactNode;
   actions: React.ReactNode;
   excludedBar: React.ReactNode;
   folded: boolean;
@@ -38,8 +37,9 @@ export type FindingReviewCardParts = {
  * The review on a repeat locus card and a Paraphase region card, the same on both pages and as
  * on the mtDNA cards: the quick tags Review, Exclude and Report and "Tags & notes" in the
  * footer; under the heading the analyst's classification beside CoGA's status (marked when it
- * agrees with none of the calls, H18), whether the calls changed since the review, and the
- * tags; the note under the columns; an excluded finding folded to its heading (B3).
+ * agrees with none of the calls, H18), whether the calls changed since the review, the tags
+ * and the note, with who wrote them and when (ReviewAnnotations); an excluded finding folded to
+ * its heading (B3).
  */
 export function useFindingReviewCards<T>({
   kind,
@@ -72,54 +72,54 @@ export function useFindingReviewCards<T>({
     { subject, statuses }: { subject: string; statuses: (string | null | undefined)[] },
   ): FindingReviewCardParts => {
     const tagKeys = sortReviewTagKeys(review?.tags ?? [], tagMap);
-    const visibleTags = visibleReviewTagKeys(tagKeys);
+    const visibleTags = cardReviewTagKeys(tagKeys);
     const excluded = tagKeys.includes(COLLABORATION_QUICK_TAGS.excluded);
     const classification = findingClassificationLabel(kind, review?.classification);
     const drift = review?.drift && review.drift.status !== 'unchanged' ? review.drift : null;
     const toggle = (tagKey: string) => {
       void save(key, review, findingQuickTagPayload(review, tagKey));
     };
-    const subhead =
-      classification || drift || visibleTags.length ? (
-        <div className="variant-card-chip-row variant-card-tag-row">
-          {classification ? (
-            <span className="variant-card-chip variant-card-chip--strong finding-review-classification">
-              Review: {classification}
-            </span>
-          ) : null}
-          {classification && differsFromStatus(kind, review?.classification, statuses) ? (
-            <span className="variant-card-chip variant-card-chip--review">Differs from CoGA&apos;s status</span>
-          ) : null}
-          {drift ? (
-            <InfoTip
-              staticChild
-              className="variant-card-chip variant-card-chip--warning"
-              label={
-                drift.changes.length
-                  ? drift.changes.join(' · ')
-                  : 'The calls this review rests on cannot be compared with the calls now.'
-              }
-            >
-              {FINDING_DRIFT_LABEL[drift.status] ?? 'Changed since review'}
-            </InfoTip>
-          ) : null}
-          {visibleTags.map((tagKey) => (
-            <ReviewTagChip
-              key={tagKey}
-              className="variant-card-chip variant-card-chip--tag"
-              tagKey={tagKey}
-              tagMap={tagMap}
-              tagMetadata={review?.tag_metadata}
-            />
-          ))}
-        </div>
-      ) : null;
+    const subhead = (
+      <ReviewAnnotations
+        review={review}
+        tagKeys={visibleTags}
+        tagMap={tagMap}
+        leading={
+          classification || drift ? (
+            <>
+              {classification ? (
+                <span className="variant-card-chip variant-card-chip--strong finding-review-classification">
+                  Review: {classification}
+                </span>
+              ) : null}
+              {classification && differsFromStatus(kind, review?.classification, statuses) ? (
+                <span className="variant-card-chip variant-card-chip--review">Differs from CoGA&apos;s status</span>
+              ) : null}
+              {drift ? (
+                <InfoTip
+                  staticChild
+                  className="variant-card-chip variant-card-chip--warning"
+                  label={
+                    drift.changes.length
+                      ? drift.changes.join(' · ')
+                      : 'The calls this review rests on cannot be compared with the calls now.'
+                  }
+                >
+                  {FINDING_DRIFT_LABEL[drift.status] ?? 'Changed since review'}
+                </InfoTip>
+              ) : null}
+            </>
+          ) : null
+        }
+      />
+    );
     return {
       excluded,
       folded: excluded && !excludedCards.isUnfolded(key),
       excludedBar: excluded ? (
         <ExcludedCardBar
           subject={subject}
+          tagMetadata={review?.tag_metadata}
           expanded={excludedCards.isUnfolded(key)}
           onToggleExpanded={() => excludedCards.toggle(key)}
           onUndoExclude={() => toggle(COLLABORATION_QUICK_TAGS.excluded)}
@@ -128,7 +128,6 @@ export function useFindingReviewCards<T>({
         />
       ) : null,
       subhead,
-      note: review?.note ? <p className="variant-card-review-note">{review.note}</p> : null,
       actions: (
         <>
           {QUICK_TAGS.map((quickTag) => {

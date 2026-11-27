@@ -34,8 +34,13 @@ import {
   hasReviewContent,
   quickTagTogglePayload,
 } from './smallVariantReview';
-import { reviewClassChips, sortReviewTagKeys, visibleReviewTagKeys } from './smallVariantResultUtils';
-import ReviewTagChip from './ReviewTagChip';
+import {
+  cardReviewTagKeys,
+  pendingNoteAuthorship,
+  reviewClassChips,
+  sortReviewTagKeys,
+} from './smallVariantResultUtils';
+import ReviewAnnotations from './ReviewAnnotations';
 import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import { apiPath } from '../../lib/apiPath';
@@ -642,6 +647,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
           classification: payload.classification ?? null,
           tags: payload.tags,
           note: payload.note ?? null,
+          ...pendingNoteAuthorship(review, payload.note ?? null),
         } as SmallVariantReview;
         setCachedVariantReview(variantId, hasReviewContent(optimistic) ? optimistic : null);
       }
@@ -981,7 +987,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
             const reviewClass = reviewClassChips(
               variant.review?.classification,
               variant.review?.tags,
-              visibleReviewTagKeys(sortedReviewTags),
+              cardReviewTagKeys(sortedReviewTags),
             );
             const visibleReviewTags = reviewClass.tagKeys;
             const quickTags = [
@@ -1001,6 +1007,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                   isExcluded ? (
                     <ExcludedCardBar
                       subject={variant.label}
+                      tagMetadata={variant.review?.tag_metadata}
                       expanded={excludedCards.isUnfolded(variant.variant_id)}
                       onToggleExpanded={() => excludedCards.toggle(variant.variant_id)}
                       onUndoExclude={() => {
@@ -1012,27 +1019,18 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                   ) : null
                 }
                 subhead={
-                  visibleReviewTags.length || reviewClass.chipLabel ? (
-                    <div className="variant-card-chip-row variant-card-tag-row">
-                      {reviewClass.chipLabel ? (
+                  <ReviewAnnotations
+                    review={variant.review}
+                    tagKeys={visibleReviewTags}
+                    tagMap={tagMap}
+                    leading={
+                      reviewClass.chipLabel ? (
                         <span className={`variant-card-chip variant-card-chip--${reviewClass.tone}`}>
                           {reviewClass.chipLabel}
                         </span>
-                      ) : null}
-                      {visibleReviewTags.map((tagKey) => (
-                        <ReviewTagChip
-                          key={tagKey}
-                          className="variant-card-chip variant-card-chip--tag"
-                          tagKey={tagKey}
-                          tagMap={tagMap}
-                          tagMetadata={variant.review?.tag_metadata}
-                        />
-                      ))}
-                    </div>
-                  ) : null
-                }
-                note={
-                  variant.review?.note ? <p className="variant-card-review-note">{variant.review.note}</p> : null
+                      ) : null
+                    }
+                  />
                 }
                 heading={
                   <GeneDiseaseHeading

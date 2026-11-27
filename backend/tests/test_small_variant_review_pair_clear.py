@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -38,6 +39,8 @@ _COLUMNS = (
     "tags",
     "tag_metadata",
     "note",
+    "note_updated_by",
+    "note_updated_at",
     *small_variant_review_repository._compound_het_clear_payload(),
     "acmg",
     "acmg_point_total",
@@ -57,6 +60,8 @@ def _row(variant_id: str, **fields: Any) -> dict[str, Any]:
         "tags": [],
         "tag_metadata": {},
         "note": None,
+        "note_updated_by": None,
+        "note_updated_at": None,
         **small_variant_review_repository._compound_het_clear_payload(),
         "acmg": None,
         "acmg_point_total": None,
@@ -268,6 +273,29 @@ def test_pairing_with_a_partner_whose_review_held_only_its_old_pair(monkeypatch)
         (B, f"Compound-het pair with {Y} removed"),
         (A, f"Compound-het pair with {B} recorded: gene GENE_CH"),
     ]
+
+
+def test_pairing_keeps_the_partners_note_and_who_wrote_it(monkeypatch) -> None:
+    # The pair save writes the partner's review as the saver's, its note still its writer's.
+    written = datetime(2026, 11, 20, tzinfo=timezone.utc)
+    store = _Store({B: _row(B, note="partner note", note_updated_by="analyst-b", note_updated_at=written)})
+
+    _save(
+        monkeypatch,
+        store,
+        SmallVariantReviewUpdate(note="own note", compound_het={"partner_variant_id": B, "tags": []}),
+    )
+
+    partner = store.rows[B]
+    assert partner["compound_het_partner_variant_ids"] == [A]
+    assert (partner["updated_by"], partner["note"], partner["note_updated_by"], partner["note_updated_at"]) == (
+        "analyst-c",
+        "partner note",
+        "analyst-b",
+        written,
+    )
+    own = store.rows[A]
+    assert (own["note"], own["note_updated_by"], own["note_updated_at"]) == ("own note", "analyst-c", own["updated_at"])
 
 
 # --------------------------------------------------------------- a save not stored

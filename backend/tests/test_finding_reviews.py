@@ -218,6 +218,8 @@ def _row(key: str, **fields: Any) -> dict[str, Any]:
         "classification": None,
         "tags": [],
         "note": None,
+        "note_updated_by": None,
+        "note_updated_at": None,
         "evidence_snapshot": None,
         "updated_by": "analyst",
         "updated_at": "2026-10-28T10:00:00+00:00",
@@ -608,6 +610,37 @@ def test_a_changed_classification_or_a_report_tag_added_freezes_the_calls_again(
     assert frozen["evidence"] == _CALLS_SINCE and frozen != _FROZEN
     assert audited[0]["evidence_digest"] == frp.evidence_digest(frozen)
     assert saved.drift is not None and saved.drift.status == "unchanged"
+
+
+def test_the_note_keeps_who_wrote_it_until_a_save_changes_it(monkeypatch) -> None:
+    written = datetime(2026, 10, 27, tzinfo=timezone.utc)
+    held = _stored(note="Confirmed by PCR", note_updated_by="supervisor", note_updated_at=written)
+
+    # A save of the tags beside the same note: the review's last save is the analyst's, the note
+    # still the supervisor's.
+    saved, session, _audited = _save(
+        monkeypatch,
+        RepeatExpansionReviewUpdate(
+            classification="premutation", tags=["review"], note="Confirmed by PCR", expected_updated_at=_LOADED
+        ),
+        existing=held,
+    )
+    [(_verb, params)] = session.writes()
+    assert (params["note_updated_by"], params["note_updated_at"]) == ("supervisor", written)
+    assert (saved.updated_by, saved.note_updated_by, saved.note_updated_at) == ("analyst", "supervisor", written)
+
+    # A changed note is this save's; a cleared one is no one's.
+    saved, session, _audited = _save(
+        monkeypatch,
+        RepeatExpansionReviewUpdate(classification="premutation", note="PCR repeated", expected_updated_at=_LOADED),
+        existing=held,
+    )
+    assert (saved.note_updated_by, saved.note_updated_at) == ("analyst", saved.updated_at)
+    saved, session, _audited = _save(
+        monkeypatch, RepeatExpansionReviewUpdate(classification="premutation", expected_updated_at=_LOADED), existing=held
+    )
+    [(_verb, params)] = session.writes()
+    assert (params["note"], params["note_updated_by"], params["note_updated_at"]) == (None, None, None)
 
 
 def test_a_first_review_that_bears_a_judgement_is_inserted_with_the_calls_it_rests_on(monkeypatch) -> None:

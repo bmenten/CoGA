@@ -252,7 +252,6 @@ const RepeatLocusCard: React.FC<{
     folded={review.folded}
     excludedBar={review.excludedBar}
     subhead={review.subhead}
-    note={review.note}
     actions={review.actions}
     heading={
       <GeneDiseaseHeading

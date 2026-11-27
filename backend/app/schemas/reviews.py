@@ -78,6 +78,10 @@ class SmallVariantReviewOut(BaseModel):
     tags: List[str] = Field(default_factory=list)
     tag_metadata: Dict[str, Dict[str, Optional[datetime | str]]] = Field(default_factory=dict)
     note: Optional[str] = None
+    # Who wrote the note and when; set exactly when the note is. ``updated_by`` /
+    # ``updated_at`` are the review's last save, which a tag or classification change makes too.
+    note_updated_by: Optional[str] = None
+    note_updated_at: Optional[datetime] = None
     updated_by: Optional[str] = None
     updated_at: Optional[datetime] = None
     compound_het: Optional[SmallVariantCompoundHetReviewOut] = None
@@ -165,6 +169,9 @@ class FindingReviewOut(BaseModel):
     tags: List[str] = Field(default_factory=list)
     tag_metadata: Dict[str, Dict[str, Optional[datetime | str]]] = Field(default_factory=dict)
     note: Optional[str] = None
+    # Who wrote the note and when, as SmallVariantReviewOut's.
+    note_updated_by: Optional[str] = None
+    note_updated_at: Optional[datetime] = None
     updated_by: Optional[str] = None
     updated_at: Optional[datetime] = None
     # When the calls the review rests on were frozen (None: no frozen calls), and whether they
