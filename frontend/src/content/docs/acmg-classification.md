@@ -159,7 +159,7 @@ member with the proband role, otherwise the first affected member.
 | **PP2** | Consider (Supporting) | Missense, in a gene with a gnomAD missense Z of 3.09 or more. See *Missense constraint (PP2)* below. |
 | **PP3 / BP4** | Applied, strength scaled | See *In-silico evidence* below. |
 | **BP7** | Applied or Consider (Supporting) | Synonymous. Applied with SpliceAI below 0.1; Consider with no SpliceAI score: check the splice effect. A higher SpliceAI score marks BP7 as argues against. |
-| **PP5** | Consider (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic. Never applied: ClinGen's SVI advises against counting another lab's assertion. The evidence gives ClinVar's review status, its stars and the conditions. BP6 is then marked argues against. |
+| **PP5** | Consider (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic: CoGA's own ClinVar release where it holds the allele, named *ClinVar (CoGA, release)* in the evidence, else the annotation's. Never applied: ClinGen's SVI advises against counting another lab's assertion. The evidence gives ClinVar's review status, its stars and the conditions. BP6 is then marked argues against. |
 | **BP6** | Consider (Supporting) | ClinVar lists this variant as benign or likely benign, as for PP5. PP5 is then marked argues against. |
 | **PP4** | Applied (Supporting or Moderate) | See *Phenotype (PP4)* below. |
 | **PS2 / PM6** | Applied or Consider, strength from the phenotype | Present in the proband and absent in both parents: PS2 where the Sample QC confirms the parents, PM6 where it does not. See *De novo (PS2, PM6)* below. |

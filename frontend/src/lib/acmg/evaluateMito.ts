@@ -7,7 +7,7 @@
 // mirrors the nuclear `evaluateAcmg` contract (returns AcmgSuggestion[]) so the
 // modal, scorer and `buildInitialSelections` are shared unchanged.
 
-import { clinvarClass } from '../clinvar';
+import { clinvarClass, clinvarCogaLabel } from '../clinvar';
 import { ACMG_CRITERIA_BY_CODE } from './criteria';
 import { effectIncludes, fmtAf, LOF_EFFECTS, pp4NotAssessed, type AcmgVariantInput } from './evaluate';
 import type {
@@ -163,14 +163,16 @@ export function evaluateMitoAcmg(
   const disorders = (mito.disorders ?? []).filter(Boolean);
   const disorderNote = disorders.length ? ` Associated: ${disorders.slice(0, 3).join(', ')}.` : '';
   const clinClass = clinvarClass(clinSig);
+  // Its ClinVar part is CoGA's own release where it holds the allele (B12), and named so.
+  const source = `MITOMAP/${mito.clinvarCogaRelease ? clinvarCogaLabel(mito.clinvarCogaRelease) : 'ClinVar'}`;
   // Offered for review, never applied, as for a nuclear variant (the owner's choice of
   // 2026-11-06: ClinGen's SVI advises against counting another source's assertion).
   if (clinClass === 'pathogenic') {
-    add('PP5', 'supporting', `MITOMAP/ClinVar reports ${clinSig}.${disorderNote} Review before applying.`, 'consider');
-    against('BP6', `MITOMAP/ClinVar reports ${clinSig}, not benign.`);
+    add('PP5', 'supporting', `${source} reports ${clinSig}.${disorderNote} Review before applying.`, 'consider');
+    against('BP6', `${source} reports ${clinSig}, not benign.`);
   } else if (clinClass === 'benign' || isPolymorphism) {
-    add('BP6', 'supporting', `MITOMAP/ClinVar reports ${clinSig}. Review before applying.`, 'consider');
-    against('PP5', `MITOMAP/ClinVar reports ${clinSig}, not pathogenic.`);
+    add('BP6', 'supporting', `${source} reports ${clinSig}. Review before applying.`, 'consider');
+    against('PP5', `${source} reports ${clinSig}, not pathogenic.`);
   }
 
   // ---- PP3 / BP4: no mt in-silico predictor wired in ----

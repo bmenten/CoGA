@@ -188,3 +188,87 @@ def test_the_ranking_scores_clinvar_by_the_rule(monkeypatch: pytest.MonkeyPatch)
     # Without a release: the annotation, and no lookup.
     assert scores(None) == {"1-100-G-A": 0.05, "1-200-G-A": 1.0, "1-300-G-A": 1.0}
     assert asked == [RELEASE]
+
+
+# --- the mtDNA status (B12) ----------------------------------------------------------------------
+
+
+def _mt_record(clinvar: str, mitomap: str) -> SmallVariantRecord:
+    return SmallVariantRecord(
+        variant_key=None,
+        variant_id="chrM-3243-A-G",
+        chr="chrM",
+        start=3243,
+        end=3243,
+        ref="A",
+        alt="G",
+        source="mutserve",
+        rsid=None,
+        filters=[],
+        gene_symbols=["MT-TL1"],
+        annotations=[{"gene": "MT-TL1", "clinvar": clinvar, "mitomap_status": mitomap}],
+        calls=[],
+    )
+
+
+@pytest.mark.parametrize(
+    ("coga", "status"),
+    [
+        (_value("G", classification="Benign"), "benign"),
+        (_value("G", status="not_in_release", classification=None), "pathogenic"),
+        (None, "pathogenic"),
+    ],
+    ids=["coga", "not-in-release", "no-release"],
+)
+def test_the_mtdna_status_reads_clinvar_by_the_rule_beside_mitomap(coga: ClinvarCogaOut | None, status: str) -> None:
+    from backend.app.services import mitochondrial_analysis as mito
+
+    annotation = mito._annotation_for_record(_mt_record("Pathogenic", "Reported"), clinvar_coga=coga)
+
+    assert (annotation.clinical_significance, annotation.clinvar_coga) == (status, coga)
+
+
+def test_the_mtdna_page_reads_each_variants_value_in_the_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.app.services import mitochondrial_analysis as mito
+    from backend.app.services.clinvar_coga import ClinvarCogaRead
+
+    async def records(_context: Any) -> list[SmallVariantRecord]:
+        return [_mt_record("Pathogenic", "")]
+
+    async def release(_session: Any, assembly: Any) -> ClinvarCogaRead:
+        return ClinvarCogaRead("GRCh38", RELEASE, True)
+
+    async def values(read: Any, loci: Any) -> list[list[ClinvarCogaOut]]:
+        assert [locus[:2] for locus in loci] == [("chrM", 3243)]
+        return [[_value("G", classification="Likely_benign")]]
+
+    async def nothing(*_args: Any, **_kwargs: Any) -> Any:
+        return {}
+
+    async def no_thresholds(_session: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"profiles": [], "thresholds": {}}
+
+    async def no_reviews(_session: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(mito, "_fetch_mt_records", records)
+    monkeypatch.setattr(mito, "clinvar_coga_read", release)
+    monkeypatch.setattr(mito, "clinvar_coga_values", values)
+    monkeypatch.setattr(mito, "_coverage_by_sample", lambda *_a, **_k: _coverage())
+    monkeypatch.setattr(mito, "resolve_analysis_qc_thresholds", no_thresholds)
+    monkeypatch.setattr(mito, "_attach_reviews", no_reviews)
+    monkeypatch.setattr(mito, "_fetch_mt_structural_variants", lambda _context: _no_svs())
+
+    response = asyncio.run(mito.get_family_mitochondrial_analysis_response(object(), context=_context()))  # type: ignore[arg-type]
+
+    [variant] = response.variants
+    assert variant.annotation.clinical_significance == "likely_benign"
+    assert variant.annotation.clinvar_coga is not None and variant.annotation.clinvar_coga.release == RELEASE
+
+
+async def _coverage() -> tuple[dict[str, Any], list[str]]:
+    return {}, []
+
+
+async def _no_svs() -> list[Any]:
+    return []

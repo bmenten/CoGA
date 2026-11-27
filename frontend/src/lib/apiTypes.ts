@@ -836,6 +836,9 @@ export interface ApiMitoDNAVariantAnnotation {
     | 'uncertain'
     | 'polymorphism'
     | 'unknown';
+  // The variant's ClinVar in CoGA's own release, which clinical_significance reads where it
+  // holds the allele (the design's one rule, B12); null where the assembly reads no release.
+  clinvar_coga: ClinvarCogaOut | null;
   disorders: string[];
   polymorphism_notes: string[];
   mitomap_query: string;
