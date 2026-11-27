@@ -125,6 +125,18 @@ De hele beheer-API staat in `backend/app/routers/admin.py` (`/api/admin`); elk e
     - **De data.** De geïmporteerde data blijft bewaard; wat van de gewijzigde gegevens afhangt, wordt als verouderd gemarkeerd in `families.metadata.derived_data_status`. Alleen `clear_existing_genomic_data` wist de data (de interface stuurt het nooit). De markering zegt dan dat de data niet bewaard bleef, en de versierij in `family_structure_versions` telt wat gewist werd. De varianten en tracks in ClickHouse gaan als laatste, vlak vóór de vastlegging, na elke andere schrijfactie van de wijziging. Zo zet een wijziging die eerder mislukt, de familie terug met haar varianten en tracks.
     - **Traceerbaar.** Elke wijziging aan de stamboom wordt een nieuwe structuurversie (append-only en hash-geketend per familie) en een `pedigree`-regel in het klinische auditspoor, met wie ze maakte en elk gewijzigd lid ervoor en erna (hoofdstuk 11).
 
+### ClinVar (CoGA)
+
+Naast de ClinVar uit de annotatie van elke callset laadt CoGA zelf een ClinVar-release: per assembly (GRCh37, GRCh38) de wekelijkse VCF van NCBI. De pagina *Organisms and assemblies* (`/reference-data`) toont onder **ClinVar (CoGA)** de huidige en de vorige release. **Load newest** start een load (`clinvar_load_jobs`); bij een start en na een import van de assembly uit UCSC gebeurt dat vanzelf voor een assembly zonder release (`REFERENCE_BOOTSTRAP_CLINVAR`).
+
+- De load zoekt het nieuwste weekbestand dat NCBI toont. Is die release al de huidige, dan eindigt de job `unchanged` en wordt niets gedownload.
+- Hij weigert een download waarvan de MD5 niet die van NCBI is, en een bestand waarvan `##fileDate` niet de datum in zijn naam is of `##reference` niet de assembly.
+- Elk record komt in de partitie van zijn release in ClickHouse (`<assembly>/SNV_INDEL/clinvar`), met als sleutel het allel in minimale vorm. Zo vindt een niet-ingekort of multi-allelisch record van een callset het verankerde record van ClinVar.
+- Pas als elke rij teruggeteld is en de release niet meer dan 5 % minder records heeft dan de huidige, wordt ze de huidige: geregistreerd in `reference_dataset_imports`, met een gebeurtenis in het klinische auditspoor `system:clinvar-releases`. Anders verdwijnt haar partitie en blijft de huidige release staan.
+- ClickHouse bewaart de huidige en de vorige release.
+
+**Waar in de code:** `backend/app/services/clinvar_load_jobs.py`, `clinvar_download.py`, `clinvar_vcf.py`, `clinvar_release_store.py` en `clinvar_releases.py`; de endpoints `/api/admin/clinvar/...`; `frontend/src/pages/reference/ClinvarReleasesPanel.tsx`. Zie [data-import.md](../data-import.md#clinvar).
+
 ### ClickHouse-onderhoud
 
 Per assembly: de status van de tabellen, en onderhoudsacties achter een bevestiging: tabellen aanmaken of bijwerken, onderdelen samenvoegen (*optimize*), de gen-index van de small variants herbouwen, en een integriteitscontrole (hoofdstuk 11). Zonder een controle te starten toont de pagina ook het laatste resultaat van de geplande integriteitscontrole per assembly en wanneer die liep, of dat ze niet kon lopen (`GET /api/admin/clickhouse/variants/integrity-monitor`, alleen voor beheerders).

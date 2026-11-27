@@ -638,6 +638,23 @@ class Settings(BaseSettings):
         ge=60,
         alias="DGV_LOAD_TIMEOUT_SECONDS",
     )
+    # Whether a start loads ClinVar's newest weekly VCF for a GRCh37 or GRCh38 assembly that
+    # has no ClinVar release yet (with REFERENCE_BOOTSTRAP_ENABLED), in the background as the
+    # Reference page's load runs it: about 190 MB per assembly from NCBI.
+    reference_bootstrap_clinvar: bool = Field(default=True, alias="REFERENCE_BOOTSTRAP_CLINVAR")
+    # Where NCBI publishes ClinVar, over HTTPS: an assembly's weekly VCF is in its vcf_GRCh37/ or
+    # vcf_GRCh38/ folder, with the file's MD5 beside it.
+    clinvar_source_url: str = Field(
+        default="https://ftp.ncbi.nlm.nih.gov/pub/clinvar",
+        alias="CLINVAR_SOURCE_URL",
+    )
+    # A ClinVar load longer than this is stopped and its job marked failed, with nothing of the
+    # release kept; a normal one takes minutes, so the bound only catches a load that hangs.
+    clinvar_load_timeout_seconds: int = Field(
+        default=7200,
+        ge=60,
+        alias="CLINVAR_LOAD_TIMEOUT_SECONDS",
+    )
     # The segmental-duplication file the startup reads first; the repository's copy when this
     # one does not exist. Whichever is read must be the shipped file, byte for byte
     # (SEGMENTAL_DUPLICATIONS_PINNED_SHA256 above), or it is not loaded.

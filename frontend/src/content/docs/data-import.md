@@ -95,6 +95,20 @@ administrator rebuilds it with the ↻ button next to the clinical-CNV count in 
   the recurrent CNV file by release and SHA-256, and each other file (the ClinGen dosage curation, the
   cytobands, ClinVar, Orphanet, a DECIPHER map) by name and SHA-256.
 
+**ClinVar (CoGA).** Beside the ClinVar of each callset's annotation, CoGA loads ClinVar itself:
+NCBI's weekly VCF for GRCh37 and GRCh38 (T2T has none). A new installation loads the newest release
+at its first start; an administrator loads a newer one with **Load newest** in the Reference catalog.
+
+- A load refuses a download whose MD5 is not the one NCBI states, and a file whose `##fileDate` is
+  not the date in its name or whose `##reference` is not the assembly.
+- Each record is stored keyed by its allele in minimal form, so a callset's untrimmed or
+  multi-allelic record meets ClinVar's anchored one. A record without an ALT is skipped and counted.
+- The release becomes current only when every stored row is counted back and it has no more than 5%
+  fewer records than the current release. Otherwise nothing of it is kept and the current release
+  stays, and the Reference catalog says why.
+- The current release and the one before it are kept. Each release made current is recorded with its
+  file and SHA-256, and on the clinical audit chain `system:clinvar-releases`.
+
 **Gene reference refresh.** A new installation refreshes the cached gene information for all human
 genes in the background after its first start, and again once the dbNSFP gene file is added, if
 its first refresh ran without it. An administrator can refresh it at any time from the Reference

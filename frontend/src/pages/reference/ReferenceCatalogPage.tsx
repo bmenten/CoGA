@@ -8,6 +8,7 @@ import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { apiPath } from '../../lib/apiPath';
 import QueryFailure from '../../components/QueryFailure';
+import ClinvarReleasesPanel from './ClinvarReleasesPanel';
 import { formatDate, formatDateTime } from '../../lib/format';
 import type {
   AssemblyOut,
@@ -897,6 +898,8 @@ const ReferenceCatalogPage: React.FC = () => {
             </div>
           )}
         </section>
+
+        {userIsAdmin ? <ClinvarReleasesPanel /> : null}
 
         <section className="space-y-4">
           {activeModal === 'add' && (

@@ -89,6 +89,10 @@ ClinVar modules keep the two sources apart:
 - **`clinvar_vep_cache`** (*ClinVar (VEP cache)*) is the ClinVar release of VEP's cache, from the
   `##VEP=` line (`ClinVar="…"`) or a VEP table's `## ClinVar version …`, with or without a ClinVar
   file. Without one it is the release of the records' classification, named as the cache's.
+- **`clinvar_coga`** (*ClinVar (CoGA)*) is the third source: the ClinVar release CoGA loaded
+  itself, NCBI's weekly VCF for the assembly ([data-import.md](data-import.md#clinvar)). It is a
+  module of the reference layer, under a key of its own, so the pipeline's `clinvar` never stands
+  in for it ([below](#the-reference-modules)).
 
 ## How it is stored
 
@@ -166,6 +170,7 @@ versions in use at that moment.
 | --- | --- |
 | `assembly` | the family's assembly, with its release date |
 | `gene_loci` | the source of the latest gene import for the assembly (GENCODE, or the UCSC table used when GENCODE could not be fetched), with its date |
+| `clinvar_coga` | the assembly's current ClinVar release (`clinvar_releases.current_clinvar_release`): its date, with the file, its SHA-256 and its URL (`2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 3f1c…); https://ftp.ncbi.nlm.nih.gov/…`). Looked up by the assembly's name: when the assembly cannot be read, it is `unavailable` too |
 | `monarch` | the loaded Monarch release |
 | `hpo` | the release of the latest HPO ontology import, with its release date and the SHA-256 of the ontology file (`2026-02-16; SHA-256 8d6c…`) |
 

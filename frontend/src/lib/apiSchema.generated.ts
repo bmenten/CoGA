@@ -619,6 +619,61 @@ export interface ClinicalCnvOut {
 }
 
 /**
+ * The ClinVar releases kept for an assembly: the current one, which every screen reads, and
+ * the one before it.
+ */
+export interface ClinvarAssemblyReleasesOut {
+  assembly_name: string;
+  current: ClinvarReleaseOut | null;
+  previous: ClinvarReleaseOut | null;
+}
+
+/**
+ * A load of ClinVar's newest weekly VCF for an assembly (clinvar_load_jobs). The release
+ * and the file are known once the job has found the newest file NCBI lists.
+ */
+export interface ClinvarLoadJobOut {
+  _id: string;
+  assembly_id: string;
+  assembly_name: string;
+  release: string | null;
+  source_url: string | null;
+  source_md5: string | null;
+  source_sha256: string | null;
+  status: "queued" | "running" | "completed" | "unchanged" | "failed";
+  requested_by: string | null;
+  requested_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  bytes_read: number;
+  bytes_total: number | null;
+  records_read: number;
+  records_stored: number;
+  records_skipped: Record<string, number>;
+  error: string | null;
+}
+
+export interface ClinvarLoadRequest {
+  assembly: string;
+}
+
+export interface ClinvarLoadStatusOut {
+  active_job: ClinvarLoadJobOut | null;
+  recent_jobs: ClinvarLoadJobOut[];
+  assemblies: ClinvarAssemblyReleasesOut[];
+}
+
+/** A ClinVar release CoGA loaded for an assembly (reference_dataset_imports). */
+export interface ClinvarReleaseOut {
+  release: string;
+  records: number;
+  source_url: string | null;
+  source_version: string;
+  loaded_at: string;
+  loaded_by: string | null;
+}
+
+/**
  * One bound of the rule as the result applied it: QA's, from the profile
  * ``nipt_conventional``, or the provisional value QA has not replaced (``provisional``).
  */

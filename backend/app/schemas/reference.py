@@ -1,7 +1,7 @@
 """Species, assemblies, reference datasets and chromosome geometry."""
 
 from datetime import date, datetime
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -160,6 +160,65 @@ class DgvLoadStatusOut(BaseModel):
 
 
 class DgvLoadRequest(BaseModel):
+    assembly: str = Field(min_length=1, max_length=64)
+
+
+class ClinvarLoadJobOut(ApiDocumentModel):
+    """A load of ClinVar's newest weekly VCF for an assembly (clinvar_load_jobs). The release
+    and the file are known once the job has found the newest file NCBI lists."""
+
+    assembly_id: str
+    assembly_name: str
+    release: Optional[date] = None
+    source_url: Optional[str] = None
+    # NCBI's MD5 of the file, which the download matched, and the SHA-256 CoGA computed.
+    source_md5: Optional[str] = None
+    source_sha256: Optional[str] = None
+    # completed: the release became the current one; unchanged: NCBI's newest release was
+    # already the current one, and nothing was downloaded.
+    status: Literal["queued", "running", "completed", "unchanged", "failed"]
+    requested_by: Optional[str] = None
+    requested_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    bytes_read: int = 0
+    bytes_total: Optional[int] = None
+    records_read: int = 0
+    records_stored: int = 0
+    # The records not stored, by the reason (a record without an ALT, for one).
+    records_skipped: Dict[str, int] = Field(default_factory=dict)
+    error: Optional[str] = None
+
+
+class ClinvarReleaseOut(BaseModel):
+    """A ClinVar release CoGA loaded for an assembly (reference_dataset_imports)."""
+
+    release: date
+    records: int
+    source_url: Optional[str] = None
+    # The release, the file and its SHA-256, as recorded.
+    source_version: str
+    loaded_at: datetime
+    loaded_by: Optional[str] = None
+
+
+class ClinvarAssemblyReleasesOut(BaseModel):
+    """The ClinVar releases kept for an assembly: the current one, which every screen reads, and
+    the one before it."""
+
+    assembly_name: str
+    current: Optional[ClinvarReleaseOut] = None
+    previous: Optional[ClinvarReleaseOut] = None
+
+
+class ClinvarLoadStatusOut(BaseModel):
+    active_job: Optional[ClinvarLoadJobOut] = None
+    recent_jobs: List[ClinvarLoadJobOut] = Field(default_factory=list)
+    # Each assembly CoGA holds for which ClinVar publishes a VCF.
+    assemblies: List[ClinvarAssemblyReleasesOut] = Field(default_factory=list)
+
+
+class ClinvarLoadRequest(BaseModel):
     assembly: str = Field(min_length=1, max_length=64)
 
 

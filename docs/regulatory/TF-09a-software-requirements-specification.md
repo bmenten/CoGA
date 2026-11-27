@@ -169,6 +169,7 @@
 | REQ-DATA-010 | Capture the analysis pipeline's tool versions and run parameters per family for report traceability. | B | H4 |
 | REQ-DATA-011 | Record per-sample sequencing QC (read metrics, depth) and the location of the pipeline's QC report and aligned reads. | B | H4 |
 | REQ-DATA-012 | Classify every stored genotype — haploid, multi-allelic and half calls included — into exactly one of hom-alt, het, hom-ref or no-call, and apply that one classification in every genotype filter, inheritance check, count and presence check (backend SQL and Python, and the UI). | C | H1, H2 |
+| REQ-DATA-013 | Load ClinVar's weekly VCF per assembly (GRCh37, GRCh38) as a release of its own, and make it the current release only when the download's MD5 is the one NCBI states, the file's `##fileDate` is the date in its name and its `##reference` the assembly, every record that names an allele is stored keyed by the allele in its minimal form and counted back, and the release has no more than 5 % fewer records than the current one; otherwise keep nothing of it and leave the current release current. Record each current release with its file, SHA-256 and URL. | C | H8 |
 
 ### 3.9 Sample QC (REQ-QC)
 

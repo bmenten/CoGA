@@ -1,0 +1,80 @@
+"""Which ClinVar releases CoGA holds for an assembly, and which one is current.
+
+A load (``clinvar_load_jobs``) records its release in ``reference_dataset_imports``
+(``dataset_type = 'clinvar'``) only once the whole release is stored and checked, so the
+releases recorded there are the releases that were complete. The newest of them is the current
+release, which every screen reads; ClickHouse keeps it and the one before it (``KEPT_RELEASES``)
+and drops the others' partitions.
+
+ClinVar publishes a VCF for GRCh37 and GRCh38 only (``CLINVAR_ASSEMBLY_FOLDERS``): another
+assembly has no ClinVar release.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, datetime
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+# The assemblies ClinVar publishes a weekly VCF for, by the folder NCBI keeps it in.
+CLINVAR_ASSEMBLY_FOLDERS: dict[str, str] = {"GRCh38": "vcf_GRCh38", "GRCh37": "vcf_GRCh37"}
+
+# How many releases ClickHouse keeps per assembly: the current one and the one before it.
+KEPT_RELEASES = 2
+
+CLINVAR_DATASET_TYPE = "clinvar"
+
+
+@dataclass(frozen=True, slots=True)
+class ClinvarRelease:
+    """A release recorded for an assembly: its date, the rows stored, and where it came from."""
+
+    release: date
+    records: int
+    source_url: str | None
+    # The release, the file and its SHA-256 (``clinvar_load_jobs.recorded_release``).
+    source_version: str
+    loaded_at: datetime
+    loaded_by: str | None
+
+
+async def recorded_clinvar_releases(
+    session: AsyncSession, assembly_name: str, *, limit: int = KEPT_RELEASES
+) -> list[ClinvarRelease]:
+    """The assembly's recorded releases, newest first: the first is the current one. At most
+    ``limit``; none for an assembly without a ClinVar release."""
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT r.source_release_date AS release, r.inserted AS records, r.source_url,
+                       r.source_version, r.performed_at AS loaded_at, r.performed_by AS loaded_by
+                FROM reference_dataset_imports r
+                JOIN assemblies a ON a.id = r.assembly_id
+                WHERE a.assembly_name = :assembly AND r.dataset_type = :dataset_type
+                ORDER BY r.source_release_date DESC, r.performed_at DESC
+                LIMIT :limit
+                """
+            ),
+            {"assembly": assembly_name, "dataset_type": CLINVAR_DATASET_TYPE, "limit": int(limit)},
+        )
+    ).mappings().all()
+    return [
+        ClinvarRelease(
+            release=row["release"],
+            records=int(row["records"]),
+            source_url=row["source_url"],
+            source_version=str(row["source_version"]),
+            loaded_at=row["loaded_at"],
+            loaded_by=row["loaded_by"],
+        )
+        for row in rows
+    ]
+
+
+async def current_clinvar_release(session: AsyncSession, assembly_name: str) -> ClinvarRelease | None:
+    """The assembly's current release: the newest recorded. None when it has none."""
+    releases = await recorded_clinvar_releases(session, assembly_name, limit=1)
+    return releases[0] if releases else None

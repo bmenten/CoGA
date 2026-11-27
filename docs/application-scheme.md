@@ -138,9 +138,6 @@ On start the backend (`backend/app/main.py`):
    - makes sure GRCh38 exists, with its cytobands (from UCSC, or the shipped backup when UCSC
      cannot serve them) and gene loci (from GENCODE, or the UCSC gene track when GENCODE cannot
      be fetched), and imports T2T-CHM13 when `REFERENCE_BOOTSTRAP_T2T` is set;
-   - for a GRCh37 or GRCh38 assembly that has none yet, queues the clinical CNV knowledgebase
-     build and the load of the pinned DGV release, in the background
-     (`REFERENCE_BOOTSTRAP_CLINICAL_CNVS`, `REFERENCE_BOOTSTRAP_DGV`);
    - loads the HPO ontology if none is loaded (HPO's newest release, downloaded; the vendored
      release as the backup), and Monarch's newest release if no Monarch data is loaded
      (`REFERENCE_BOOTSTRAP_MONARCH`);
@@ -150,8 +147,11 @@ On start the backend (`backend/app/main.py`):
      it;
 4. waits for ClickHouse and creates the database; drops the backup tables of
    `overwrite` imports that no running import owns (left by one whose process stopped;
-   [database.md](database.md#clickhouse-tables)); and starts the scheduled ClickHouse
-   integrity check;
+   [database.md](database.md#clickhouse-tables)); for a GRCh37 or GRCh38 assembly that has none
+   yet, queues the clinical CNV knowledgebase build, the load of the pinned DGV release and the
+   load of ClinVar's newest weekly release (which ClickHouse stores), in the background
+   (`REFERENCE_BOOTSTRAP_CLINICAL_CNVS`, `REFERENCE_BOOTSTRAP_DGV`,
+   `REFERENCE_BOOTSTRAP_CLINVAR`); and starts the scheduled ClickHouse integrity check;
 5. starts the gene-reference refresh worker and the family-package import workers
    (`FAMILY_IMPORT_WORKER_COUNT`; with 0 it starts none and leaves the jobs to
    [import-worker processes](#import-worker-processes), as Docker Compose does). With import

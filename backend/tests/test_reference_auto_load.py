@@ -1,11 +1,15 @@
-"""The clinical CNV knowledgebase and the DGV variants an assembly gets without being asked.
+"""The clinical CNV knowledgebase, the DGV variants and the ClinVar release an assembly gets
+without being asked.
 
 Adding GRCh38 (at a start, or from UCSC on the Reference page) loads its cytobands and genes,
-and the clinical CNV knowledgebase and DGV need no administrator's rebuild or manual load: an
-assembly import from UCSC queues both for a GRCh37 or GRCh38 assembly that has neither, as the importing administrator, and says so in its result; a start does the same as no
-account, the bootstrap assembly first, unless switched off (``REFERENCE_BOOTSTRAP_CLINICAL_CNVS``,
-``REFERENCE_BOOTSTRAP_DGV``), and never stops on a failure. What each queue does is tested with
-its job (``test_clinical_cnv_kb_jobs.py``, ``test_dgv_load_jobs.py``).
+and the clinical CNV knowledgebase, DGV and ClinVar need no administrator's rebuild or manual
+load: an assembly import from UCSC queues each for a GRCh37 or GRCh38 assembly that lacks it, as
+the importing administrator, and says so in its result; a start does the same as no account, the
+bootstrap assembly first, once ClickHouse's schema is made, unless switched off
+(``REFERENCE_BOOTSTRAP_CLINICAL_CNVS``, ``REFERENCE_BOOTSTRAP_DGV``,
+``REFERENCE_BOOTSTRAP_CLINVAR``), and never stops on a failure. What each queue does is tested
+with its job (``test_clinical_cnv_kb_jobs.py``, ``test_dgv_load_jobs.py``,
+``test_clinvar_load_jobs.py``).
 """
 
 from __future__ import annotations
@@ -16,10 +20,13 @@ from typing import Any
 
 import pytest
 
+from backend.app import main as app_main
 from backend.app.routers import assemblies as assemblies_router
 from backend.app.schemas import ReferenceAutoImportRequest, ReferenceAutoImportResult
 from backend.app.services import reference_auto_load as auto
 from backend.app.services.access_control import CurrentUser
+
+from ._lifespan import LifespanApp, stub_lifespan_steps
 
 ADMIN = CurrentUser(
     id="00000000-0000-0000-0000-0000000000d3",
@@ -65,19 +72,25 @@ def queued(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, Any]]:
         return None, None
 
     monkeypatch.setattr(auto, "queue_clinical_cnv_kb_rebuild_if_missing", cnv)
+    async def clinvar(_session: Any, *, assembly_name: str, requested_by: Any) -> tuple[None, str | None]:
+        calls.append(("clinvar", assembly_name, requested_by))
+        return None, f"ClinVar {assembly_name}"
+
     monkeypatch.setattr(auto, "queue_dgv_load_if_missing", dgv)
+    monkeypatch.setattr(auto, "queue_clinvar_load_if_missing", clinvar)
     monkeypatch.setattr(auto.settings, "reference_bootstrap_enabled", True)
     monkeypatch.setattr(auto.settings, "reference_bootstrap_clinical_cnvs", True)
     monkeypatch.setattr(auto.settings, "reference_bootstrap_dgv", True)
+    monkeypatch.setattr(auto.settings, "reference_bootstrap_clinvar", True)
     monkeypatch.setattr(auto.settings, "reference_bootstrap_assembly_name", "GRCh38")
     return calls
 
 
-def test_an_assembly_gets_both_loads_and_the_notes_say_what_started(queued: list) -> None:
+def test_an_assembly_gets_every_load_and_the_notes_say_what_started(queued: list) -> None:
     notes = asyncio.run(auto.queue_missing_reference_loads(object(), assembly_name="GRCh38", requested_by=ADMIN))
 
-    assert queued == [("clinical_cnvs", "GRCh38", ADMIN), ("dgv", "GRCh38", ADMIN)]
-    assert notes == ["CNV GRCh38"]  # the DGV queue had nothing to say
+    assert queued == [("clinical_cnvs", "GRCh38", ADMIN), ("dgv", "GRCh38", ADMIN), ("clinvar", "GRCh38", ADMIN)]
+    assert notes == ["CNV GRCh38", "ClinVar GRCh38"]  # the DGV queue had nothing to say
 
 
 def test_a_start_queues_for_each_grch37_and_grch38_assembly_the_bootstrap_one_first(queued: list) -> None:
@@ -86,8 +99,10 @@ def test_a_start_queues_for_each_grch37_and_grch38_assembly_the_bootstrap_one_fi
     assert queued == [
         ("clinical_cnvs", "GRCh38", None),
         ("dgv", "GRCh38", None),
+        ("clinvar", "GRCh38", None),
         ("clinical_cnvs", "GRCh37", None),
         ("dgv", "GRCh37", None),
+        ("clinvar", "GRCh37", None),
     ]
 
 
@@ -95,9 +110,26 @@ def test_a_start_queues_for_each_grch37_and_grch38_assembly_the_bootstrap_one_fi
     ("switches", "expected"),
     [
         ({"reference_bootstrap_enabled": False}, []),
-        ({"reference_bootstrap_clinical_cnvs": False, "reference_bootstrap_dgv": False}, []),
-        ({"reference_bootstrap_dgv": False}, [("clinical_cnvs", "GRCh38", None)]),
-        ({"reference_bootstrap_clinical_cnvs": False}, [("dgv", "GRCh38", None)]),
+        (
+            {
+                "reference_bootstrap_clinical_cnvs": False,
+                "reference_bootstrap_dgv": False,
+                "reference_bootstrap_clinvar": False,
+            },
+            [],
+        ),
+        (
+            {"reference_bootstrap_dgv": False, "reference_bootstrap_clinvar": False},
+            [("clinical_cnvs", "GRCh38", None)],
+        ),
+        (
+            {"reference_bootstrap_clinical_cnvs": False, "reference_bootstrap_clinvar": False},
+            [("dgv", "GRCh38", None)],
+        ),
+        (
+            {"reference_bootstrap_clinical_cnvs": False, "reference_bootstrap_dgv": False},
+            [("clinvar", "GRCh38", None)],
+        ),
     ],
 )
 def test_a_start_queues_only_what_the_deployment_lets_it(
@@ -121,7 +153,7 @@ def test_a_start_goes_on_when_an_assembly_cannot_be_queued(queued: list, monkeyp
     session = _Session(["GRCh38", "GRCh37"])
     asyncio.run(auto.queue_startup_reference_loads(session))
 
-    assert [entry[1] for entry in queued] == ["GRCh38", "GRCh37", "GRCh37"]
+    assert [entry[1] for entry in queued] == ["GRCh38", "GRCh37", "GRCh37", "GRCh37"]
     assert session.rolled_back == 1
 
 
@@ -130,6 +162,28 @@ def test_a_start_goes_on_when_the_assemblies_cannot_be_read(queued: list) -> Non
     asyncio.run(auto.queue_startup_reference_loads(session))
 
     assert queued == [] and session.rolled_back == 1
+
+
+@pytest.mark.asyncio
+async def test_a_start_queues_the_loads_once_clickhouse_holds_its_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ClinVar release is stored in ClickHouse: its load is queued after the database and
+    its schema exist, never before."""
+    steps = stub_lifespan_steps(monkeypatch)
+    monkeypatch.setattr(app_main, "ensure_hpo_ontology_on_startup", lambda *_a, **_k: asyncio.sleep(0))
+
+    class _SessionFactory:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *_exc: Any) -> bool:
+            return False
+
+    monkeypatch.setattr(app_main, "get_postgres_sessionmaker", lambda: _SessionFactory)
+    monkeypatch.setattr(app_main.settings, "family_import_worker_count", 0)
+    async with app_main.lifespan(LifespanApp()):
+        pass
+
+    assert steps.index("init_clickhouse_schema") < steps.index("queue_startup_reference_loads")
 
 
 def test_an_assembly_import_from_ucsc_starts_the_loads_as_the_importing_administrator(

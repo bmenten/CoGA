@@ -400,6 +400,9 @@ class _ProvenanceResult:
     def first(self):
         return self._row
 
+    def all(self):
+        return [self._row] if self._row is not None else []
+
     def scalar(self):
         return self._scalar
 
@@ -417,9 +420,12 @@ _HPO_RELEASE_ROW = {
 class _ProvenanceSession:
     """Answers the four platform-module lookups, or fails them all."""
 
-    def __init__(self, *, fail: bool, hpo_row: dict | None = _HPO_RELEASE_ROW) -> None:
+    def __init__(
+        self, *, fail: bool, hpo_row: dict | None = _HPO_RELEASE_ROW, clinvar_row: dict | None = None
+    ) -> None:
         self.fail = fail
         self.hpo_row = hpo_row  # None: no HPO ontology is loaded
+        self.clinvar_row = clinvar_row  # None: no ClinVar release is loaded
         self.savepoints = 0
 
     def begin_nested(self):
@@ -431,6 +437,8 @@ class _ProvenanceSession:
             raise RuntimeError('relation "monarch_gene_disease" does not exist')
         if "FROM assemblies" in str(statement):
             return _ProvenanceResult(row={"assembly_name": "GRCh38", "version": "p14", "release_date": None})
+        if "FROM reference_dataset_imports" in str(statement) and "clinvar" in str(params):
+            return _ProvenanceResult(row=self.clinvar_row)
         if "FROM reference_dataset_imports" in str(statement):
             return _ProvenanceResult(
                 row={"source": "ucsc ncbiRefSeq", "performed_at": datetime(2026, 9, 1, tzinfo=timezone.utc)}
@@ -487,7 +495,35 @@ def test_the_reference_module_list_names_every_platform_module() -> None:
     # "not loaded then" rather than "not looked up" (report_signout_service).
     modules = asyncio.run(ams._platform_modules(_ProvenanceSession(fail=True), _ASSEMBLY_ID))
     assert set(modules) == set(ams.REFERENCE_MODULE_KEYS)
-    assert ams.REFERENCE_MODULE_KEYS == ("assembly", "gene_loci", "monarch", "hpo")
+    assert ams.REFERENCE_MODULE_KEYS == ("assembly", "gene_loci", "clinvar_coga", "monarch", "hpo")
+
+
+def test_the_clinvar_release_coga_loaded_is_a_module_of_its_own() -> None:
+    """The current ClinVar release, under its own key: the pipeline's ``clinvar`` module, which
+    wins over a platform module of the same key, never stands in for it."""
+    session = _ProvenanceSession(
+        fail=False,
+        clinvar_row={
+            "release": date(2026, 11, 22),
+            "records": 3_000_000,
+            "source_url": "https://ftp.example/vcf_GRCh38/clinvar_20261122.vcf.gz",
+            "source_version": f"2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 {_HPO_SHA256})",
+            "loaded_at": datetime(2026, 11, 23, tzinfo=timezone.utc),
+            "loaded_by": "startup-bootstrap",
+        },
+    )
+    modules = asyncio.run(ams._platform_modules(session, _ASSEMBLY_ID))
+
+    assert modules["clinvar_coga"] == {
+        "version": "2026-11-22",
+        "detail": f"2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 {_HPO_SHA256}); "
+        "https://ftp.example/vcf_GRCh38/clinvar_20261122.vcf.gz",
+    }
+    listed = ams._module_list({"clinvar": {"version": "20260501"}}, modules)
+    assert {(m["key"], m["label"], m["layer"]) for m in listed if m["key"].startswith("clinvar")} == {
+        ("clinvar", "ClinVar", "pipeline"),
+        ("clinvar_coga", "ClinVar (CoGA)", "reference"),
+    }
 
 
 def test_a_failed_platform_lookup_is_recorded_not_dropped(caplog) -> None:
@@ -499,7 +535,15 @@ def test_a_failed_platform_lookup_is_recorded_not_dropped(caplog) -> None:
         modules = asyncio.run(ams._platform_modules(session, _ASSEMBLY_ID))
 
     marker = {"version": ams.UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
-    assert modules == {"assembly": marker, "gene_loci": marker, "monarch": marker, "hpo": marker}
+    # The ClinVar release is looked up by the assembly's name: with the assembly unread, it is
+    # unavailable too.
+    assert modules == {
+        "assembly": marker,
+        "gene_loci": marker,
+        "clinvar_coga": marker,
+        "monarch": marker,
+        "hpo": marker,
+    }
     # Each lookup is its own savepoint, so a failed statement cannot abort the
     # sign-out transaction around it.
     assert session.savepoints == 4
@@ -512,6 +556,7 @@ def test_a_failed_platform_lookup_is_recorded_not_dropped(caplog) -> None:
     assert listed == {
         "assembly": ("unavailable", "lookup failed"),
         "gene_loci": ("unavailable", "lookup failed"),
+        "clinvar_coga": ("unavailable", "lookup failed"),
         "monarch": ("unavailable", "lookup failed"),
         "hpo": ("unavailable", "lookup failed"),
     }

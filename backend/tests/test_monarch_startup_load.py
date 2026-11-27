@@ -185,7 +185,7 @@ async def test_the_start_runs_it_after_the_hpo_bootstrap(monkeypatch: pytest.Mon
         async def __aexit__(self, *_exc: Any) -> bool:
             return False
 
-    steps = stub_lifespan_steps(monkeypatch, keep=("ensure_monarch_on_startup",))
+    stub_lifespan_steps(monkeypatch, keep=("ensure_monarch_on_startup",))
     monkeypatch.setattr(app_main, "get_postgres_sessionmaker", lambda: _SessionFactory)
     monkeypatch.setattr(app_main.settings, "family_import_worker_count", 1)
     monkeypatch.setattr(app_main.settings, "hpo_bootstrap_on_startup", False)
@@ -194,5 +194,3 @@ async def test_the_start_runs_it_after_the_hpo_bootstrap(monkeypatch: pytest.Mon
         pass
 
     assert calls == [session]
-    # Between the other reference loads of the start and the reference tracks.
-    assert steps.index("queue_startup_reference_loads") < steps.index("seed_builtin_reference_tracks")
