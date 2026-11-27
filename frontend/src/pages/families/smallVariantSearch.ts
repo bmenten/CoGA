@@ -578,8 +578,9 @@ export const NIPT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new
   'require_sv_second_hit',
   'locus',
   'pass_only',
-  // CoGA's own ClinVar release: the NIPT list reads the annotation's ClinVar (phase 1 of
-  // docs/clinvar-knowledgebase-design.md).
+  // The *ClinVar (CoGA) status* filter, which the NIPT route does not take. Its ClinVar status
+  // filter, the excluded statuses and the P/LP override do read CoGA's release where it holds
+  // the allele (the ClinVar design's one rule, B11), and each variant shows its ClinVar (CoGA).
   'clinvar_coga',
 ]);
 

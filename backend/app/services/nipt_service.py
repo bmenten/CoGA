@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import astuple, dataclass, field
+from datetime import date
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -163,7 +164,14 @@ from .nipt_triage import (
     triage_de_novo,
 )
 from .variant_prioritization import clinvar_may_assert_pathogenic
-from .clinvar_coga import clinvar_coga_by_variant, clinvar_coga_held, clinvar_coga_read
+from .annotation_manifest_service import analysis_clinvar_release
+from .clinvar_coga import (
+    ClinvarCogaRead,
+    attach_clinvar_coga,
+    clinvar_coga_by_variant,
+    clinvar_coga_held,
+    clinvar_coga_read,
+)
 from .small_variant_callsets import is_nipt_callset
 
 # Bounds the in-memory classification for the variant list: the first variants of the
@@ -840,6 +848,12 @@ class NiptVariantsResult:
     # that no list shows them, whatever the other filters, and why (variant id -> reason,
     # as the signed record names a reported one); empty without a review-tag filter.
     not_classified: dict[str, str] = field(default_factory=dict)
+    # The two ClinVar releases the list names (design B7): CoGA's release the analysis read, of
+    # each listed variant's ClinVar (CoGA), and the release of the ClinVar file the analysis's
+    # annotation names. None where the search ends before its variants are read (a review-tag
+    # filter or a gene panel that selects none).
+    clinvar_coga_release: date | None = None
+    clinvar_annotation_release: date | None = None
 
 
 @dataclass(slots=True)
@@ -1607,6 +1621,26 @@ async def _attach_recurrence(items: Sequence[NiptClassifiedVariant], scope: _Rec
         )
 
 
+async def _serve_variant_outs(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    items: Sequence[NiptClassifiedVariant],
+    clinvar_coga: ClinvarCogaRead,
+) -> None:
+    """Give each of ``items`` its full small-variant payload (``variant_out``), hydrated as the
+    small-variant list hydrates it (review, internal cohort, gene constraint), so a NIPT list
+    shows a variant as the small-variant view does, classification aside, each naming the
+    transcript the annotation filters held on when its primary one does not. Its ClinVar (CoGA)
+    per ALT is read in ``clinvar_coga``, the release the analysis read: the page, its export and
+    the ACMG evaluation show the value the analysis's decisions read (``clinvar_read``)."""
+    variant_outs = await _small_variant_outs(context, filters, [item.record for item in items])
+    await _hydrate_small_variant_outs(session, context=context, variants=variant_outs)
+    await attach_clinvar_coga(clinvar_coga, variant_outs)
+    for item, variant_out in zip(items, variant_outs):
+        item.variant_out = variant_out
+
+
 def hidden_as_recurrent(item: NiptClassifiedVariant, max_unexplained: int) -> bool:
     """Whether the recurrence filter leaves ``item`` out: an unexplained low-VAF call in
     more than ``max_unexplained`` other cfDNA samples of the assay, and nothing protects it
@@ -1860,15 +1894,7 @@ async def get_family_nipt_variants(
         listed = page_items = _page_of(classified, page, page_size)
         total = len(classified)
     await _attach_recurrence(page_items, recurrence_scope)
-
-    # Serialize the page slice as full small-variant payloads (and hydrate their
-    # review / internal-cohort / gene-constraint data) so the NIPT variant list
-    # carries the same shape as the small-variant view, classification aside, each naming
-    # the transcript the annotation filters held on when its primary one does not.
-    variant_outs = await _small_variant_outs(context, filters, [item.record for item in page_items])
-    await _hydrate_small_variant_outs(session, context=context, variants=variant_outs)
-    for item, variant_out in zip(page_items, variant_outs):
-        item.variant_out = variant_out
+    await _serve_variant_outs(session, context, filters, page_items, family.inputs.clinvar_coga)
 
     return NiptVariantsResult(
         fetal_fraction=ff_estimate,
@@ -1881,6 +1907,8 @@ async def get_family_nipt_variants(
         gene_total=gene_total,
         variant_total=variant_total,
         not_classified=not_classified,
+        clinvar_coga_release=family.inputs.clinvar_coga.release,
+        clinvar_annotation_release=await analysis_clinvar_release(session, context),
     )
 
 
@@ -2160,11 +2188,7 @@ async def get_family_nipt_diagnostic_candidates(
         panel_id=panel_id,
         gene=gene,
     )
-    items = candidates.all_items()
-    variant_outs = await _small_variant_outs(context, filters, [item.record for item in items])
-    await _hydrate_small_variant_outs(session, context=context, variants=variant_outs)
-    for item, variant_out in zip(items, variant_outs):
-        item.variant_out = variant_out
+    await _serve_variant_outs(session, context, filters, candidates.all_items(), family.inputs.clinvar_coga)
     return NiptDiagnosticCandidatesResult(
         candidates=candidates, trio=trio, fetal_fraction=family.summary.analysis.fetal_fraction
     )

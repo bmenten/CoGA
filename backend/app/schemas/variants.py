@@ -231,8 +231,9 @@ class VariantOut(ApiDocumentModel):
     clinvar_stars: Optional[int] = None
     clinvar_conditions: List[str] = Field(default_factory=list)
     clinvar_variation_id: Optional[str] = None
-    # Small variants: each ALT's ClinVar in CoGA's own release, shown beside the annotation's
-    # (``clinvar_coga.attach_clinvar_coga``); empty for a structural variant.
+    # Small variants: each ALT's ClinVar in CoGA's own release, shown beside the annotation's,
+    # served by ``clinvar_coga.attach_clinvar_coga`` on the family page, its track and export,
+    # and on the monogenic NIPT page and export; empty for a structural variant.
     clinvar_coga: List[ClinvarCogaOut] = Field(default_factory=list)
     rsid: Optional[str] = None
     hgvsc: Optional[str] = None

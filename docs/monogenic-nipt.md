@@ -257,7 +257,8 @@ it.
   pregnancies. ClinVar is read by the ClinVar design's one rule (B9, B11; `nipt_service.clinvar_read`):
   the classification in CoGA's own release where it holds the allele, else the annotation's. The
   release is the one the analysis reads (`NiptAnalysisInputs.clinvar_coga`), so a new release
-  recomputes the kept analysis; each classified variant carries its value (`clinvar_coga`).
+  recomputes the kept analysis; each classified variant carries its value (`clinvar_coga`), and the
+  page shows it from that release (see *Two paths*, step 9).
 - **Recessive fetal status** — `nipt_triage.recessive_gene_risks` (the R v0.7.3 gene pairing, with
   CoGA's probabilities): heterozygous and homozygous parents (a homozygous one, or a father on his X,
   always passes the allele). The mother carries an allele where the model places it in her band
@@ -337,8 +338,13 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
      `recessive_at_risk`, with `include_not_inherited` and `de_novo_priority`);
   7. the category filter;
   8. the recurrence filter (`max_unexplained_recurrence`, see *Recurrence in other cfDNA samples*);
-  9. paging, and each listed variant's recurrence. Without a page size (`page_size=None`) the
-     list holds every classified variant: the CSV export.
+  9. paging, and each listed variant's recurrence and payload (`_serve_variant_outs`): the
+     small-variant list's, hydrated as there, with its *ClinVar (CoGA)* per ALT from the release
+     the analysis read (`clinvar_coga.attach_clinvar_coga`). The page names that release and the
+     annotation's (`clinvar_coga_release`, `clinvar_annotation_release`), so its chip and `≠` mark,
+     the export's *ClinVar (CoGA)* column and the ACMG modal's PP5 / BP6 show the value the
+     analysis's decisions read. Without a page size (`page_size=None`) the list holds every
+     classified variant: the CSV export.
 
   The recessive view pairs every carrier variant steps 4 and 5 keep, as the report and the signed
   record pair them, so that a gene's status does not depend on the filters that follow; steps 7 and 8

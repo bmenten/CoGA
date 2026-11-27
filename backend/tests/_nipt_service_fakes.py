@@ -4,7 +4,8 @@ and ``test_nipt_pair_service.py`` (one VCF per parent).
 ``wire_nipt_reads`` answers the family record, its metadata context, the two variant loads
 (the cohort the fetal fraction is read from, without a gene filter, and the filtered variant
 list, with one), the family's data version, the assay's artifact list, the QC gate's bound
-(provisional: QA has set none) and the other cfDNA samples of the assay; the review and
+(provisional: QA has set none), the ClinVar releases (``wire_clinvar_release``: none) and the
+other cfDNA samples of the assay; the review and
 internal-cohort hydration of the listed rows is a database concern exercised elsewhere, and
 is a no-op here. Synthetic families only.
 
@@ -17,7 +18,7 @@ reads none.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -74,14 +75,21 @@ def wire_annotation(monkeypatch: pytest.MonkeyPatch, records: list[SmallVariantR
     monkeypatch.setattr(nipt_service, "annotate_small_variant_records", annotate)
 
 
-def wire_clinvar_release(monkeypatch: pytest.MonkeyPatch, read: ClinvarCogaRead = NO_CLINVAR_COGA) -> None:
+def wire_clinvar_release(
+    monkeypatch: pytest.MonkeyPatch, read: ClinvarCogaRead = NO_CLINVAR_COGA, annotated: date | None = None
+) -> None:
     """CoGA's ClinVar release the analysis reads (``clinvar_coga_read``): none by default, so
-    the NIPT readers read the annotation's ClinVar."""
+    the NIPT readers read the annotation's ClinVar; and the release of the ClinVar file the
+    analysis's annotation names (``analysis_clinvar_release``, its manifest's): ``annotated``."""
 
     async def release(_session: Any, _assembly_name: Any) -> ClinvarCogaRead:
         return read
 
+    async def annotation_release(_session: Any, _context: Any) -> date | None:
+        return annotated
+
     monkeypatch.setattr(nipt_service, "clinvar_coga_read", release)
+    monkeypatch.setattr(nipt_service, "analysis_clinvar_release", annotation_release)
 
 
 def wire_data_version(monkeypatch: pytest.MonkeyPatch, version: str = "1:1") -> None:
