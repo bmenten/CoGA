@@ -102,7 +102,7 @@ def clinvar_coga_of(alt: str | None, alt_allele: str | None, values: Sequence[Cl
 
 
 def clinvar_by_the_rule(annotated: str | None, coga: ClinvarCogaOut | None) -> str | None:
-    """The design's one rule for the readers of phase 2 (B8): the classification in CoGA's
+    """The design's one rule for the readers of phase 2 (B8, B12): the classification in CoGA's
     ClinVar release where it holds the allele, else the annotation's. An allele the release
     holds only as part of a combination has no classification there."""
     return coga.classification if coga is not None and coga.status == "in_release" else annotated

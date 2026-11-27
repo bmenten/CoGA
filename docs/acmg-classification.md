@@ -109,6 +109,12 @@ dialog runs on the family structural-variant page. The global Variant Explorer h
 
 Some pre-evaluation rules repeat a backend rule. Change both sides together:
 
+- **ClinVar for PP5 / BP6** is read by the ClinVar design's one rule (B9, B12): the shown ALT's
+  classification in CoGA's own ClinVar release where it holds the allele (`clinvarAssertion` in
+  `evaluate.ts`, from `VariantOut.clinvar_coga`, the evidence naming *ClinVar (CoGA, release)*),
+  else the annotation's. For an mtDNA variant the status `mitochondrial_analysis.py` serves reads
+  its ClinVar part so (`MitoDNAVariantAnnotationOut.clinvar_coga`), MITOMAP's beside it, and the
+  evidence names CoGA's release where it was read.
 - **ClinVar.** `lib/clinvar.ts` is the one frontend reading of a ClinVar significance, for PP5 / BP6
   (nuclear and mtDNA), the colours of the ClinVar chip, card and table row, and the small-variant
   track marks. A *Conflicting classifications of pathogenicity* record is neither pathogenic nor

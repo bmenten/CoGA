@@ -42,6 +42,7 @@ import pytest
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import clickhouse_interval_tracks, mitochondrial_analysis, nipt_service
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
 from backend.app.services.data_scope import chromosome_aliases, normalize_chromosome
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 
@@ -250,6 +251,11 @@ async def _mito_response(
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_structural_variants", no_structural_variants)
     monkeypatch.setattr(mitochondrial_analysis, "get_small_variant_review_map", no_reviews)
     monkeypatch.setattr(mitochondrial_analysis, "resolve_analysis_qc_thresholds", thresholds)
+
+    async def no_clinvar_release(_session, _assembly_name):
+        return NO_CLINVAR_COGA
+
+    monkeypatch.setattr(mitochondrial_analysis, "clinvar_coga_read", no_clinvar_release)
     return await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
         None,  # type: ignore[arg-type]
         context=_trio_context(),

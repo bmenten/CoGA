@@ -9,6 +9,7 @@ from urllib.parse import quote
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
+    ClinvarCogaOut,
     FamilyMitoDNAAnalysisOut,
     MitoDNACoverageOut,
     MitoDNAQcOut,
@@ -36,6 +37,7 @@ from .coverage_read_depth import (
     coverage_tracks_by_sample,
     not_read_as_depth_note,
 )
+from .clinvar_coga import clinvar_by_the_rule, clinvar_coga_of, clinvar_coga_read, clinvar_coga_values
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype
@@ -221,10 +223,16 @@ def _position_locus(position: int, gene: str | None = None) -> dict[str, Any]:
     return (named or loci or [_INTERGENIC])[0]
 
 
-def _clinical_significance(annotation: dict[str, Any]) -> str:
+def _clinical_significance(annotation: dict[str, Any], clinvar_coga: ClinvarCogaOut | None) -> str:
+    """The variant's status in one word: its ClinVar, read by the design's one rule (B12: CoGA's
+    release where it holds the allele, else the annotation's), joined with MITOMAP's."""
     status_text = " ".join(
         _list_texts(
-            _annotation_value(annotation, "clinical_significance", "clinvar", "ClinVar_CLNSIG"),
+            clinvar_by_the_rule(
+                " ".join(_list_texts(_annotation_value(annotation, "clinical_significance", "clinvar", "ClinVar_CLNSIG")))
+                or None,
+                clinvar_coga,
+            ),
             _annotation_value(annotation, "mitomap_status", "mitomapClinicalSignificance", "status"),
             _annotation_value(annotation, "classification"),
             _annotation_value(annotation, "variant_status", "variantStatus"),
@@ -364,7 +372,7 @@ def _population(annotation: dict[str, Any], key: str) -> float | None:
     return _float(frequencies.get(key)) if isinstance(frequencies, dict) else None
 
 
-def _annotation_for_record(record: SmallVariantRecord) -> MitoDNAVariantAnnotationOut:
+def _annotation_for_record(record: SmallVariantRecord, *, clinvar_coga: ClinvarCogaOut | None) -> MitoDNAVariantAnnotationOut:
     annotation = _primary_annotation(record)
     annotated_gene = _annotation_gene(annotation)
     locus = _position_locus(record.start, annotated_gene)
@@ -402,7 +410,8 @@ def _annotation_for_record(record: SmallVariantRecord) -> MitoDNAVariantAnnotati
         helix_af_het=_float(_annotation_value(annotation, "helix_af_het")),
         gene_consequences=_gene_consequences(record),
         category=_text(locus.get("category")),
-        clinical_significance=_clinical_significance(annotation),  # type: ignore[arg-type]
+        clinical_significance=_clinical_significance(annotation, clinvar_coga),  # type: ignore[arg-type]
+        clinvar_coga=clinvar_coga,
         disorders=disorders,
         polymorphism_notes=polymorphism_notes,
         mitomap_query=_mitomap_query(record),
@@ -585,6 +594,7 @@ def _variant_out(
     member_by_sample: dict[str, dict[str, Any]],
     samples: Sequence[_MemberWithRole],
     parent_links: Sequence[tuple[str, str, str]],
+    clinvar_coga: ClinvarCogaOut | None,
     mtdna_samples: set[str] | None = None,
 ) -> MitoDNAVariantOut:
     calls = {
@@ -601,7 +611,7 @@ def _variant_out(
         label=label,
         type=_variant_type(record.ref, record.alt),
         rsid=record.rsid,
-        annotation=_annotation_for_record(record),
+        annotation=_annotation_for_record(record, clinvar_coga=clinvar_coga),
         calls=calls,
         maternal_transmission=_maternal_transmission(calls, samples, parent_links, mtdna_samples),
     )
@@ -1097,15 +1107,21 @@ async def get_family_mitochondrial_analysis_response(
         for sample in samples
         if sample.coverage.source is not None or sample.coverage.mean_depth is not None
     }
+    # Each variant's ClinVar in CoGA's release, read once for them all (the MT records as chrM).
+    coga_values = await clinvar_coga_values(
+        await clinvar_coga_read(session, context.assembly_name),
+        [(record.chr, record.start, record.ref, record.alt) for record in records],
+    )
     variant_rows = [
         _variant_out(
             record,
             member_by_sample=member_by_sample,
             samples=samples,
             parent_links=parent_links,
+            clinvar_coga=clinvar_coga_of(record.alt, None, values),
             mtdna_samples=mtdna_samples,
         )
-        for record in records
+        for record, values in zip(records, coga_values)
     ]
     await _attach_reviews(session, context=context, variants=variant_rows)
     structural_variants = [

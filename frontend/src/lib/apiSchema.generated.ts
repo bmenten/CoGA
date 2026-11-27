@@ -2558,6 +2558,7 @@ export interface MitoDNAVariantAnnotationOut {
   gene_consequences: MitoGeneConsequenceOut[];
   category: string | null;
   clinical_significance: "pathogenic" | "likely_pathogenic" | "benign" | "likely_benign" | "reported" | "uncertain" | "polymorphism" | "unknown";
+  clinvar_coga: ClinvarCogaOut | null;
   disorders: string[];
   polymorphism_notes: string[];
   mitomap_query: string;
