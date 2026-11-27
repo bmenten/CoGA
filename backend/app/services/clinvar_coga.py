@@ -12,7 +12,7 @@ the reason it has none (``ClinvarCogaOut.status``).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import ClinvarCogaOut, VariantPage
 from .annotation_manifest_service import analysis_clinvar_release
+from .clickhouse_small_variants import SmallVariantFamilyRecord
 from .clickhouse_variant_ids import minimal_allele_id, small_allele_key
 from .clinvar_release_store import ClinvarStoredAllele, clinvar_alleles
 from .clinvar_releases import CLINVAR_ASSEMBLY_FOLDERS, current_clinvar_release
@@ -91,6 +92,16 @@ async def clinvar_coga_values(read: ClinvarCogaRead, loci: Sequence[Locus]) -> l
     keys = {key for pairs in alleles for _alt, key in pairs if key is not None}
     stored = await clinvar_alleles(read.assembly_name, read.release, keys) if read.release is not None else {}
     return [[_value(read, alt, stored.get(key) if key is not None else None) for alt, key in pairs] for pairs in alleles]
+
+
+async def clinvar_coga_by_id(
+    read: ClinvarCogaRead, records: Mapping[str, SmallVariantFamilyRecord]
+) -> dict[str, list[ClinvarCogaOut]]:
+    """Each family record's ClinVar (CoGA), one value per ALT, by the key ``records`` names it
+    under: what a classification freezes (``build_evidence_snapshot``) and the drift check reads
+    now."""
+    values = await clinvar_coga_values(read, [(r.chrom, r.pos, r.ref, r.alt) for r in records.values()])
+    return dict(zip(records, values))
 
 
 async def serve_clinvar_coga(

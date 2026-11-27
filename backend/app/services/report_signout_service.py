@@ -57,7 +57,7 @@ from .annotation_manifest_service import (
     analysis_annotation_manifest,
 )
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
-from .classification_drift_service import evaluate_classification_drift
+from .classification_drift_service import counted_drift, evaluate_classification_drift
 from .clinical_audit_service import audit_actor, compound_het_pair_state, record_clinical_event
 from .family_analysis_types import analysis_type_of, family_analyses
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
@@ -919,7 +919,7 @@ def _drift_concerns(snapshot_body: Mapping[str, Any]) -> dict[str, Any]:
         {
             "drifted": [
                 {key: value for key, value in entry.items() if key not in _REVIEW_SAVED}
-                for entry in snapshot_body["drift"]["drifted"]
+                for entry in counted_drift(snapshot_body["drift"]["drifted"])
             ],
             "structural_drifted": [
                 {key: value for key, value in entry.items() if key not in _REVIEW_SAVED}
@@ -1485,7 +1485,8 @@ async def build_report_snapshot(
         "software": {"version": settings.app_version, "git_sha": settings.git_sha},
         "drift": {
             "checked": drift["checked"] + len(unsnapshotted),
-            "drifted_count": len(drifted),
+            # A ``noted`` entry is frozen with the others and not counted (B5).
+            "drifted_count": len(counted_drift(drifted)),
             # Sorted by the unique, stable variant_id so the hashed snapshot
             # (content_hash) is reproducible for identical content — json.dumps(sort_keys)
             # canonicalizes dict keys but never list-element order. Includes reported

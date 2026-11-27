@@ -177,7 +177,20 @@
      "families": 1
     },
     "priority": null,
-    "sv_second_hit": null
+    "sv_second_hit": null,
+    "clinvar_coga": [
+     {
+      "alt": "T",
+      "status": "no_release",
+      "release": null,
+      "classification": null,
+      "review_status": null,
+      "stars": null,
+      "conditions": [],
+      "variation_id": null,
+      "included_only": false
+     }
+    ]
    },
    {
     "_id": "1-3000-G-A",
@@ -341,7 +354,20 @@
      "families": 1
     },
     "priority": null,
-    "sv_second_hit": null
+    "sv_second_hit": null,
+    "clinvar_coga": [
+     {
+      "alt": "A",
+      "status": "no_release",
+      "release": null,
+      "classification": null,
+      "review_status": null,
+      "stars": null,
+      "conditions": [],
+      "variation_id": null,
+      "included_only": false
+     }
+    ]
    },
    {
     "_id": "1-4000-T-C",
@@ -505,7 +531,20 @@
      "families": 1
     },
     "priority": null,
-    "sv_second_hit": null
+    "sv_second_hit": null,
+    "clinvar_coga": [
+     {
+      "alt": "C",
+      "status": "no_release",
+      "release": null,
+      "classification": null,
+      "review_status": null,
+      "stars": null,
+      "conditions": [],
+      "variation_id": null,
+      "included_only": false
+     }
+    ]
    },
    {
     "_id": "1-5000-A-T",
@@ -664,7 +703,20 @@
      "families": 1
     },
     "priority": null,
-    "sv_second_hit": null
+    "sv_second_hit": null,
+    "clinvar_coga": [
+     {
+      "alt": "T",
+      "status": "no_release",
+      "release": null,
+      "classification": null,
+      "review_status": null,
+      "stars": null,
+      "conditions": [],
+      "variation_id": null,
+      "included_only": false
+     }
+    ]
    }
   ],
   "structural": [
@@ -1502,7 +1554,8 @@
       "GENE_DENOVO",
       "GENE_PATH"
      ]
-    }
+    },
+    "clinvar_coga": null
    },
    "acknowledged_qc": true,
    "coverage_tracks": {
@@ -1747,7 +1800,20 @@
       "transcript_id": "ENST_GENE_PATH",
       "annotation_version": "vcf_info",
       "annotation_set_hash": "2693417049712698970",
-      "clinvar_review_status": null
+      "clinvar_review_status": null,
+      "clinvar_coga": [
+       {
+        "alt": "T",
+        "status": "no_release",
+        "release": null,
+        "classification": null,
+        "review_status": null,
+        "stars": null,
+        "conditions": [],
+        "variation_id": null,
+        "included_only": false
+       }
+      ]
      }
     },
     {
@@ -2209,7 +2275,20 @@
        "assembly": "GRCh38"
       },
       "captured_at": "2026-11-10T11:28:19.022274+00:00",
-      "evidence_hash": "0654119859c02e4c97b32687868b349031bb54681abcd07e411776c48e7ea90c"
+      "evidence_hash": "0654119859c02e4c97b32687868b349031bb54681abcd07e411776c48e7ea90c",
+      "clinvar_coga": [
+       {
+        "alt": "DEL---",
+        "status": "no_release",
+        "release": null,
+        "classification": null,
+        "review_status": null,
+        "stars": null,
+        "conditions": [],
+        "variation_id": null,
+        "included_only": false
+       }
+      ]
      }
     }
    ],
@@ -2462,7 +2541,8 @@
       "GENE_DENOVO",
       "GENE_PATH"
      ]
-    }
+    },
+    "clinvar_coga": null
    },
    "acknowledged_qc": true,
    "coverage_tracks": {
@@ -2707,7 +2787,20 @@
       "transcript_id": "ENST_GENE_PATH",
       "annotation_version": "vcf_info",
       "annotation_set_hash": "2693417049712698970",
-      "clinvar_review_status": null
+      "clinvar_review_status": null,
+      "clinvar_coga": [
+       {
+        "alt": "T",
+        "status": "no_release",
+        "release": null,
+        "classification": null,
+        "review_status": null,
+        "stars": null,
+        "conditions": [],
+        "variation_id": null,
+        "included_only": false
+       }
+      ]
      }
     },
     {
@@ -3169,7 +3262,20 @@
        "assembly": "GRCh38"
       },
       "captured_at": "2026-11-10T11:28:19.022274+00:00",
-      "evidence_hash": "0654119859c02e4c97b32687868b349031bb54681abcd07e411776c48e7ea90c"
+      "evidence_hash": "0654119859c02e4c97b32687868b349031bb54681abcd07e411776c48e7ea90c",
+      "clinvar_coga": [
+       {
+        "alt": "DEL---",
+        "status": "no_release",
+        "release": null,
+        "classification": null,
+        "review_status": null,
+        "stars": null,
+        "conditions": [],
+        "variation_id": null,
+        "included_only": false
+       }
+      ]
      }
     }
    ],

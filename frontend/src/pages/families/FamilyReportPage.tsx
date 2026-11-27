@@ -47,6 +47,7 @@ import {
   liveReportSignedState,
   parseSignedVersionParam,
   reportViewSearch,
+  splitNotedDrift,
 } from './signedReportRecord';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { formatLocus } from './smallVariantResultUtils';
@@ -171,6 +172,8 @@ const describeClassificationDrift = (item: ApiClassificationDriftItem): string =
     describeSmallVariantDrift({
       clinvarFrom: item.clinvar_from,
       clinvarTo: item.clinvar_to,
+      clinvarCogaFrom: item.clinvar_coga_from,
+      clinvarCogaTo: item.clinvar_coga_to,
       changed: item.changed ?? [],
       evidenceFrom: item.evidence_from ?? null,
       evidenceTo: item.evidence_to ?? null,
@@ -476,7 +479,10 @@ const LiveFamilyReport: React.FC = () => {
         await api.get(apiPath`/families/${familyId}/classification-drift${raw(analysisQuery(contentAnalysis))}`)
       ).data as ApiClassificationDrift,
   });
-  // The small variants' drift and the structural variants' / CNVs' drift, in one banner.
+  // The small variants' drift and the structural variants' / CNVs' drift, in one banner; a
+  // ClinVar (CoGA) review status or stars that moved on the same classification apart, as the
+  // sign-out does not count it (B5).
+  const { counted: smallDrift, noted: notedDrift } = splitNotedDrift(drift?.drifted ?? []);
   const structuralDrift = drift?.structural?.drifted ?? [];
   const driftCount = (drift?.drifted_count ?? 0) + (drift?.structural?.drifted_count ?? 0);
 
@@ -909,7 +915,7 @@ const LiveFamilyReport: React.FC = () => {
             sign-out.
           </p>
           <ul className="report-drift-list">
-            {drift.drifted.map((item) => (
+            {smallDrift.map((item) => (
               <li key={item.variant_id}>
                 <strong>{item.variant_id}</strong> — {describeClassificationDrift(item)}
                 {item.classified_by ? (
@@ -924,6 +930,21 @@ const LiveFamilyReport: React.FC = () => {
                 {item.classified_by ? (
                   <span className="report-drift-meta"> (classified by {item.classified_by})</span>
                 ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {notedDrift.length ? (
+        <section className="surface-card">
+          <p className="report-paragraph">
+            Noted, not counted at sign-out: the review status or the stars of the same ClinVar
+            (CoGA) classification changed since it was made.
+          </p>
+          <ul className="report-drift-list">
+            {notedDrift.map((item) => (
+              <li key={item.variant_id}>
+                <strong>{item.variant_id}</strong> — {describeClassificationDrift(item)}
               </li>
             ))}
           </ul>

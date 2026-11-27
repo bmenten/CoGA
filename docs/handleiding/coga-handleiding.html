@@ -3877,10 +3877,11 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <h3>Poort 1 — geen onverklaarde drift</h3>
 <p>Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd. De controle vergelijkt met de huidige data en noemt telkens wat verschoof (hoofdstuk 10):</p>
 <ul>
-<li>elke ACMG-classificatie van een small variant in de familie met bevroren bewijs (gerapporteerd of niet): de bevroren hash van de annotatieset, de ClinVar-waarde, de consequentie en LoF-oproep, de frequenties en in-silicoscores en, bij een missense-variant, de missense-Z van het gen en zijn bron (het genprofiel of de VCF);</li>
+<li>elke ACMG-classificatie van een small variant in de familie met bevroren bewijs (gerapporteerd of niet): de bevroren hash van de annotatieset, de ClinVar-waarde, de <em>ClinVar (CoGA)</em>-classificatie per ALT, de consequentie en LoF-oproep, de frequenties en in-silicoscores en, bij een missense-variant, de missense-Z van het gen en zijn bron (het genprofiel of de VCF);</li>
 <li>elke CNV-classificatie van een SV of CNV: het bevroren bewijs (de genen, de pLI, de overerving, het type en de positie), tegenover de rij van dezelfde caller zoals die nu in de data staat.</li>
 </ul>
 <p>Een ontbrekende hash of onleesbaar bewijs telt als <code>unknown</code>; een gerapporteerde classificatie zonder bevroren bewijs, van een small variant of een SV, als <code>no_snapshot</code>. Beide tellen als drift.</p>
+<p><strong>ClinVar (CoGA).</strong> De controle leest de huidige ClinVar-release van CoGA voor de assembly (hoofdstuk 15). Een andere classificatie van een ALT is drift (<code>clinvar_coga</code>). Krijgt dezelfde classificatie alleen een andere reviewstatus of andere sterren, dan is dat <code>noted</code>: het rapport en het record tonen het apart (<em>Noted, not counted</em>), maar de poort telt het niet (beslissing B5 van de eigenaar).</p>
 <p>Is er drift en heeft de ondertekenaar die niet erkend, dan volgt <code>409</code> (<code>gate = "evidence_drift"</code>); de melding zegt hoeveel ervan SV's of CNV's zijn. De <code>409</code> somt elke getelde classificatie op zoals het snapshot ze bevriest: die van de small variants in <code>drifted</code>, die van de SV's en CNV's in <code>structural_drifted</code>. <code>classified_by</code> en <code>classified_at</code> zitten er niet in, want een notitie of tag op de review verandert ze. De dialoog toont ze zoals de ondertekende versie. Eén erkenning geldt voor beide soorten.</p>
 <p><strong>Repeat- en Paraphase-reviews.</strong> Een review van een repeatlocus of een Paraphase-regio met een classificatie of de tag <em>Report</em> bevriest de calls waarop ze steunt (<code>finding_review_pg.py</code>):</p>
 <ul>
@@ -4072,7 +4073,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </tr>
 <tr>
 <td><code>reference_data</code></td>
-<td>Naast de modules: per bron van de genreferentie de release en checksum die antwoordden voor de genen van de gerapporteerde varianten, en de klinische CNV-kennisbank (bron, de release die de bron vermeldt, en wanneer ze geladen werd)</td>
+<td>Naast de modules: per bron van de genreferentie de release en checksum die antwoordden voor de genen van de gerapporteerde varianten, de klinische CNV-kennisbank (bron, de release die de bron vermeldt, en wanneer ze geladen werd), en de ClinVar-release die CoGA laadde (de release, het bestand met zijn SHA-256, de bron, wanneer ze geladen werd en het aantal rijen)</td>
 </tr>
 <tr>
 <td><code>repeat_expansions</code></td>
@@ -4272,7 +4273,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li><strong>Ruw bestand → hash.</strong> Elk bronbestand staat in <code>raw_import_files</code>, met zijn SHA-256 (hoofdstuk 6).</li>
 <li><strong>Annotatiemanifest.</strong> De tool- en databankversies staan per analyse in <code>family_annotation_manifest</code> (hoofdstuk 6): uit de VCF-headers of het run-manifest van het pakket, met het referentie-FASTA dat het pakketbestand noemt. Een ondertekening bevriest die van haar analyse. Een vervanging door een beheerder komt in het klinische auditspoor.</li>
 <li><strong>Variant in ClickHouse.</strong> Elke variant draagt de hash van de annotatieset waarmee hij werd geannoteerd (hoofdstuk 3).</li>
-<li><strong>Classificatie en bewijs.</strong> Elke ACMG-classificatie van een small variant bevriest de annotatieversie, de hash van de annotatieset, het bewijs van het primaire transcript (ClinVar, consequentie, frequenties, in-silicoscores, bij missense de missense-Z met zijn bron) en het tijdstip. Elke CNV-classificatie bevriest het bewijs van de SV, een hash van zijn annotatie en de versies erachter (hoofdstuk 10).</li>
+<li><strong>Classificatie en bewijs.</strong> Elke ACMG-classificatie van een small variant bevriest de annotatieversie, de hash van de annotatieset, het bewijs van het primaire transcript (ClinVar, consequentie, frequenties, in-silicoscores, bij missense de missense-Z met zijn bron), de <em>ClinVar (CoGA)</em>-waarde per ALT met haar release en het tijdstip. Elke CNV-classificatie bevriest het bewijs van de SV, een hash van zijn annotatie en de versies erachter (hoofdstuk 10).</li>
 <li><strong>Poorten.</strong> Vóór het ondertekenen worden de assembly, lopende schrijfacties, de drift, de sample-QC, een onvolledige import, een pakketmap die na de import wijzigde en afwijkende repeat- en Paraphase-calls zonder review gecontroleerd. De assembly en lopende schrijfacties zijn een harde weigering; de andere bevindingen moeten met een reden erkend worden.</li>
 <li><strong>Bevroren rapport.</strong> Het snapshot (manifest, softwareversie, drift, QC, gerapporteerde varianten en wat de analyse bekeek; zie <em>Het bevroren snapshot</em>) wordt gehasht en append-only opgeslagen als nieuwe versie, met een rapportcode die uit het record berekend wordt.</li>
 <li><strong>Keten en anker.</strong> De ondertekening komt in de hash-keten van de familie, er komt een <code>sign_out</code>-regel in het klinische auditspoor, en een ondertekend anker kan de ketenkoppen extern vastleggen.</li>
@@ -8888,10 +8889,11 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <h3>Gate 1 — no unexplained drift</h3>
 <p>Drift means that the evidence behind a classification changed since it was made. The check compares with the current data and names, each time, what shifted (chapter 10):</p>
 <ul>
-<li>every ACMG classification of a small variant in the family with frozen evidence (reported or not): the frozen hash of the annotation set, the ClinVar value, the consequence and LoF call, the frequencies and in-silico scores and, for a missense variant, the gene's missense Z and its source (the gene profile or the VCF);</li>
+<li>every ACMG classification of a small variant in the family with frozen evidence (reported or not): the frozen hash of the annotation set, the ClinVar value, the <em>ClinVar (CoGA)</em> classification per ALT, the consequence and LoF call, the frequencies and in-silico scores and, for a missense variant, the gene's missense Z and its source (the gene profile or the VCF);</li>
 <li>every CNV classification of an SV or CNV: the frozen evidence (the genes, the pLI, the inheritance, the type and the position), against the row of the same caller as it now stands in the data.</li>
 </ul>
 <p>A missing hash or unreadable evidence counts as <code>unknown</code>; a reported classification without frozen evidence, of a small variant or an SV, as <code>no_snapshot</code>. Both count as drift.</p>
+<p><strong>ClinVar (CoGA).</strong> The check reads CoGA's current ClinVar release for the assembly (chapter 15). Another classification of an ALT is drift (<code>clinvar_coga</code>). If the same classification only gets another review status or other stars, that is <code>noted</code>: the report and the record show it apart (<em>Noted, not counted</em>), but the gate does not count it (the owner's decision B5).</p>
 <p>If there is drift and the signer has not acknowledged it, <code>409</code> follows (<code>gate = "evidence_drift"</code>); the message says how many of them are SVs or CNVs. The <code>409</code> lists every counted classification as the snapshot freezes it: those of the small variants in <code>drifted</code>, those of the SVs and CNVs in <code>structural_drifted</code>. <code>classified_by</code> and <code>classified_at</code> are not in it, because a note or tag on the review changes them. The dialog shows them as the signed version does. One acknowledgement covers both kinds.</p>
 <p><strong>Repeat and Paraphase reviews.</strong> A review of a repeat locus or a Paraphase region with a classification or the tag <em>Report</em> freezes the calls it relies on (<code>finding_review_pg.py</code>):</p>
 <ul>
@@ -9083,7 +9085,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </tr>
 <tr>
 <td><code>reference_data</code></td>
-<td>Besides the modules: per source of the gene reference, the release and checksum that answered for the genes of the reported variants, and the clinical CNV knowledge base (source, the release the source states, and when it was loaded)</td>
+<td>Besides the modules: per source of the gene reference, the release and checksum that answered for the genes of the reported variants, the clinical CNV knowledge base (source, the release the source states, and when it was loaded), and the ClinVar release CoGA loaded (the release, the file with its SHA-256, the source, when it was loaded and the number of rows)</td>
 </tr>
 <tr>
 <td><code>repeat_expansions</code></td>
@@ -9283,7 +9285,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <li><strong>Raw file → hash.</strong> Every source file is in <code>raw_import_files</code>, with its SHA-256 (chapter 6).</li>
 <li><strong>Annotation manifest.</strong> The tool and database versions are stored per analysis in <code>family_annotation_manifest</code> (chapter 6): from the VCF headers or the package's run manifest, with the reference FASTA that the package file names. A sign-out freezes those of its analysis. A replacement by an administrator goes into the clinical audit trail.</li>
 <li><strong>Variant in ClickHouse.</strong> Every variant carries the hash of the annotation set it was annotated with (chapter 3).</li>
-<li><strong>Classification and evidence.</strong> Every ACMG classification of a small variant freezes the annotation version, the hash of the annotation set, the evidence of the primary transcript (ClinVar, consequence, frequencies, in-silico scores, for missense the missense Z with its source) and the time. Every CNV classification freezes the SV's evidence, a hash of its annotation and the versions behind it (chapter 10).</li>
+<li><strong>Classification and evidence.</strong> Every ACMG classification of a small variant freezes the annotation version, the hash of the annotation set, the evidence of the primary transcript (ClinVar, consequence, frequencies, in-silico scores, for missense the missense Z with its source), the <em>ClinVar (CoGA)</em> value per ALT with its release and the time. Every CNV classification freezes the SV's evidence, a hash of its annotation and the versions behind it (chapter 10).</li>
 <li><strong>Gates.</strong> Before signing out, the assembly, ongoing writes, the drift, the sample QC, an incomplete import, a package folder that changed after the import and abnormal repeat and Paraphase calls without a review are checked. The assembly and ongoing writes are a hard refusal; the other findings must be acknowledged with a reason.</li>
 <li><strong>Frozen report.</strong> The snapshot (manifest, software version, drift, QC, reported variants and what the analysis looked at; see <em>The frozen snapshot</em>) is hashed and stored append-only as a new version, with a report code computed from the record.</li>
 <li><strong>Chain and anchor.</strong> The sign-out goes into the family's hash chain, a <code>sign_out</code> entry goes into the clinical audit trail, and a signed anchor can record the chain heads externally.</li>

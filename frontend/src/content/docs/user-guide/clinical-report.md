@@ -25,9 +25,11 @@ It refers to exactly one signed version: the one it rests on.
   the *Reference assembly* (the genome the pipeline aligned to, where it names one), the gene loci,
   the Monarch release and the HPO release.
 - An **evidence-drift** banner when a classification's evidence changed after it was made: for example
-  a new ClinVar significance, REVEL score or gnomAD frequency (*REVEL 0.412 → 0.951*), consequence or
-  LoF call (*LoF LC → HC*), missense Z for a missense variant's gene, or a structural variant that now
-  overlaps other genes. Re-review those variants.
+  a new ClinVar significance, in the annotation or in CoGA's own ClinVar release, REVEL score or gnomAD
+  frequency (*REVEL 0.412 → 0.951*), consequence or LoF call (*LoF LC → HC*), missense Z for a missense
+  variant's gene, or a structural variant that now overlaps other genes. Re-review those variants. A
+  new review status or other stars of the same *ClinVar (CoGA)* classification is listed apart
+  (*Noted, not counted at sign-out*).
 - The **Clinical audit trail**: who classified, tagged or annotated what, who reviewed a
   compound-heterozygous pair, who changed the pedigree or the family's phenotypes, and when. Entries
   can never be changed or deleted. Only analysts, superusers and administrators see it; a viewer, or a

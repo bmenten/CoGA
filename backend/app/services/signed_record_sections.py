@@ -13,9 +13,10 @@ of its own:
 * ``gene_panels`` — each gene-panel version the family's searches applied, with the release
   of its source (REQ-CARR-003; ``panel_use_audit``);
 * ``reference_data`` — beside the manifest's modules, the releases of the reference data
-  the analysis read: the gene reference for the reported variants' genes, and the clinical
-  CNV knowledgebase. PanelApp states a release per panel, which ``gene_panels``
-  holds;
+  the analysis read: the gene reference for the reported variants' genes, the clinical CNV
+  knowledgebase, and the ClinVar release CoGA loaded itself (``clinvar_coga``), which the
+  reported variants' *ClinVar (CoGA)* values are of. PanelApp states a release per panel, which
+  ``gene_panels`` holds;
 * ``repeat_expansions`` — each TRGT call of the family's samples, with its status as CoGA
   classifies it at sign-out and the thresholds and catalogue behind it; beside each allele its
   near-boundary warning, and per locus QA's record of TRGT's counting units there
@@ -98,6 +99,7 @@ from .clickhouse_family_variants import (
     get_family_small_variants_page,
     get_family_structural_variants_page,
 )
+from .clinvar_releases import current_clinvar_release
 from .coverage_content import COVERAGE_CONTENT_KEY
 from .coverage_read_depth import COVERAGE_TRACK_TYPE, coverage_track_content
 from .family_metadata_context import FamilyMetadataContext
@@ -216,6 +218,7 @@ REFERENCE_DATA_PARTS: dict[str, tuple[str, str]] = {
         "Clinical CNV knowledgebase",
         "The clinical CNV knowledgebase's release could not be read.",
     ),
+    "clinvar_coga": ("ClinVar (CoGA)", "The ClinVar release CoGA loaded could not be read."),
 }
 
 
@@ -502,6 +505,22 @@ async def clinical_cnv_release(session: AsyncSession, assembly_id: str | None) -
     }
 
 
+async def clinvar_coga_record(session: AsyncSession, assembly_name: str | None) -> dict[str, Any] | None:
+    """The ClinVar release CoGA loaded for the assembly and read at sign-out (its current one):
+    the release, the file and its SHA-256, where it came from, when it was loaded and its rows.
+    None when the assembly has none (none loaded, or no ClinVar VCF for it)."""
+    current = await current_clinvar_release(session, assembly_name) if assembly_name else None
+    if current is None:
+        return None
+    return {
+        "release": current.release.isoformat(),
+        "source_version": current.source_version,
+        "source_url": current.source_url,
+        "loaded_at": _iso(current.loaded_at),
+        "records": current.records,
+    }
+
+
 async def reference_data(
     session: AsyncSession, context: FamilyMetadataContext, genes: list[str]
 ) -> dict[str, Any]:
@@ -518,6 +537,11 @@ async def reference_data(
             session,
             REFERENCE_DATA_PARTS["clinical_cnvs"][1],
             lambda: clinical_cnv_release(session, assembly_id),
+        ),
+        "clinvar_coga": await _guarded(
+            session,
+            REFERENCE_DATA_PARTS["clinvar_coga"][1],
+            lambda: clinvar_coga_record(session, context.assembly_name),
         ),
     }
 

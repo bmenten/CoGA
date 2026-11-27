@@ -219,6 +219,9 @@ VEP's `assembly`), per input where they differ (`GRCh38_no_alt.fa (package), hg3
   CoGA's current release once and serves it with the page (`VariantPage.clinvar_coga_release`), and
   its filters read the same one: a page never shows two releases, even while a newer one is
   released. The card marks CoGA's value *changed* where its classification or stars differ.
+- **ClinVar (CoGA) in the trail.** A small-variant classification freezes each ALT's value with its
+  release; the drift check compares it with the release current then, and the signed record names
+  the release it was signed with ([clinical-traceability.md](clinical-traceability.md#evidence-drift)).
 
 ## Limitations
 

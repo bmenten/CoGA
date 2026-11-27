@@ -24,6 +24,11 @@ def _table_name(assembly_name: str, suffix: str) -> str:
 class SmallVariantFamilyRecord:
     variant_key: int | None
     variant_id: str
+    # The variant's locus as stored: what its ClinVar (CoGA) value is looked up by, per ALT.
+    chrom: str
+    pos: int
+    ref: str
+    alt: str
     gene_symbols: list[str]
     sample_calls: dict[str, str]
     annotations: list[dict[str, Any]]
@@ -49,6 +54,10 @@ def _rows_to_variant_record(rows: list[tuple[Any, ...]]) -> SmallVariantFamilyRe
     (
         variant_key,
         variant_id,
+        chrom,
+        pos,
+        ref,
+        alt,
         gene_symbols,
         sample_ids,
         sample_gts,
@@ -70,6 +79,10 @@ def _rows_to_variant_record(rows: list[tuple[Any, ...]]) -> SmallVariantFamilyRe
     return SmallVariantFamilyRecord(
         variant_key=int(variant_key) if variant_key is not None else None,
         variant_id=str(variant_id),
+        chrom=str(chrom),
+        pos=int(pos),
+        ref=str(ref),
+        alt=str(alt),
         gene_symbols=normalized_gene_symbols,
         sample_calls=sample_calls,
         annotations=annotations,
@@ -107,6 +120,10 @@ async def get_small_variant_family_record(
         SELECT
             e.key,
             e.variantId,
+            e.chrom,
+            e.pos,
+            e.ref,
+            e.alt,
             e.gene_symbols,
             e.calls.sampleId,
             e.calls.gt,

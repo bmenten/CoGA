@@ -273,7 +273,15 @@ def test_the_variant_list_shows_a_stored_genotype_as_stored() -> None:
 def test_the_compound_het_check_reads_a_genotype_as_every_filter_does() -> None:
     def record(gt: str) -> SmallVariantFamilyRecord:
         return SmallVariantFamilyRecord(
-            variant_key=None, variant_id="1-1000-A-G", gene_symbols=["GENE1"], sample_calls={"S1": gt}, annotations=[]
+            variant_key=None,
+            variant_id="1-1000-A-G",
+            chrom="1",
+            pos=1000,
+            ref="A",
+            alt="G",
+            gene_symbols=["GENE1"],
+            sample_calls={"S1": gt},
+            annotations=[],
         )
 
     # A word is no het call, whatever it spells.

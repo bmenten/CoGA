@@ -90,6 +90,8 @@ import {
   describeRepeatLocusCalls,
   describeRepeatThresholds,
   describeReportSections,
+  describeClinvarCoga,
+  describeClinvarRelease,
   describeSignedDrift,
   describeSignedPhaseCorrections,
   describeSignedQcVerdict,
@@ -124,6 +126,7 @@ import {
   type SignedVariantDescriptions,
   packageSourceChangeWords,
   type SignedNiptDiagnosticCandidate,
+  splitNotedDrift,
 } from './signedReportRecord';
 import MultiplePregnancyNote from './MultiplePregnancyNote';
 
@@ -405,6 +408,9 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> 
               classify.
             </p>
           )}
+          {variant.evidence && describeClinvarCoga(variant.evidence.clinvarCoga) ? (
+            <p className="report-paragraph">{describeClinvarCoga(variant.evidence.clinvarCoga)}.</p>
+          ) : null}
           {variant.evidence && describeFrozenEvidenceValues(variant.evidence) ? (
             <p className="report-paragraph">{describeFrozenEvidenceValues(variant.evidence)}</p>
           ) : null}
@@ -516,7 +522,7 @@ const describeReferenceDataLine = (record: SignedReport | null): string => {
   const reference = record?.referenceData;
   if (!reference) return 'not in the signed record';
   if (reference.state === 'unavailable') return `not captured (${reference.reason})`;
-  const { geneReference, clinicalCnvs } = reference.value;
+  const { geneReference, clinicalCnvs, clinvarCoga } = reference.value;
   const genes =
     geneReference.state === 'recorded'
       ? `gene reference ${describeGeneReferenceReleases(geneReference.value) ?? 'with no release recorded'}`
@@ -525,13 +531,17 @@ const describeReferenceDataLine = (record: SignedReport | null): string => {
     clinicalCnvs.state === 'recorded'
       ? `clinical CNV knowledgebase ${describeCnvKnowledgebase(clinicalCnvs.value)}`
       : 'clinical CNV knowledgebase not captured';
+  const clinvar =
+    clinvarCoga.state === 'recorded'
+      ? `ClinVar (CoGA) ${describeClinvarRelease(clinvarCoga.value)}`
+      : 'ClinVar (CoGA) not captured';
   const panelApp =
     record.genePanels.state === 'recorded'
       ? record.genePanels.value
           .filter((panel) => panel.source === 'panelapp')
           .map((panel) => `${panel.name ?? panel.externalId} ${panel.externalVersion ?? 'version not stated'}`)
       : [];
-  return [genes, cnvs, panelApp.length ? `PanelApp ${panelApp.join(', ')}` : null]
+  return [genes, cnvs, clinvar, panelApp.length ? `PanelApp ${panelApp.join(', ')}` : null]
     .filter((part): part is string => Boolean(part))
     .join('; ');
 };
@@ -1364,6 +1374,14 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
                 : 'not in the signed record'}
           </li>
           <li>
+            ClinVar (CoGA):{' '}
+            {reference.clinvarCoga.state === 'recorded'
+              ? describeClinvarRelease(reference.clinvarCoga.value)
+              : reference.clinvarCoga.state === 'unavailable'
+                ? `not captured (${reference.clinvarCoga.reason})`
+                : 'not in the signed record'}
+          </li>
+          <li>
             PanelApp: each PanelApp panel’s version is listed with the panel, under Gene panels
             applied.
           </li>
@@ -1732,6 +1750,9 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
   // Paraphase reviews, counted as one.
   const driftedAtSignout =
     (record?.drift?.driftedCount ?? 0) + (record?.structuralDrift?.driftedCount ?? 0) + findingDrift.length;
+  // The small variants' drift the sign-out counted, and apart the noted entries: a ClinVar (CoGA)
+  // review status or stars that moved on the same classification, shown and not counted (B5).
+  const { counted: driftAtSignout, noted: notedAtSignout } = splitNotedDrift(record?.drift?.drifted ?? []);
   const checkedCounts = [
     record?.drift?.checked,
     record?.structuralDrift?.checked,
@@ -1978,7 +1999,7 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
                   be verified, when this version was signed:
                 </p>
                 <ul className="report-drift-list">
-                  {(record.drift?.drifted ?? []).map((item, index) => (
+                  {driftAtSignout.map((item, index) => (
                     <li key={`${item.variantId}-${index}`}>
                       <strong>{item.variantId}</strong> — {describeSignedDrift(item)}
                       {item.classifiedBy ? (
@@ -2011,6 +2032,21 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
                 </p>
               </>
             )}
+            {notedAtSignout.length ? (
+              <>
+                <p className="report-paragraph">
+                  Noted, not counted: the review status or the stars of the same ClinVar (CoGA)
+                  classification had changed:
+                </p>
+                <ul className="report-drift-list">
+                  {notedAtSignout.map((item, index) => (
+                    <li key={`noted:${item.variantId}-${index}`}>
+                      <strong>{item.variantId}</strong> — {describeSignedDrift(item)}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
             {record.drift && !record.structuralDrift ? (
               <p className="report-paragraph">
                 The signed record holds no drift check of the structural-variant and CNV

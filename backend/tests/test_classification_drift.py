@@ -3,9 +3,14 @@ from __future__ import annotations
 import asyncio
 import types
 from datetime import datetime, timezone
+from typing import Any
+
+import pytest
 
 from backend.app.services import classification_drift_service as cds
 from backend.app.services.analysis_scope import AnalysisScope
+from backend.app.services import small_variant_review_acmg as acmg
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA, ClinvarCogaRead
 from backend.app.services.small_variant_review_acmg import build_evidence_snapshot
 
 _WHEN = datetime(2026, 6, 25, tzinfo=timezone.utc)
@@ -13,14 +18,30 @@ _WHEN = datetime(2026, 6, 25, tzinfo=timezone.utc)
 _ASSEMBLY_ID = "assembly-uuid"
 
 
-def _freeze(record, gene_missense_z: float | None = None) -> dict:
+def _freeze(record, gene_missense_z: float | None = None, clinvar_coga: list | None = None) -> dict:
     """The snapshot a save freezes, its gene's missense Z as the gene profile gives it."""
-    return build_evidence_snapshot(record, _WHEN, gene_missense_z=gene_missense_z)
+    return build_evidence_snapshot(record, _WHEN, gene_missense_z=gene_missense_z, clinvar_coga=clinvar_coga or [])
 
 
-def _now(record, gene_missense_z: float | None = None) -> dict:
+def _now(record, gene_missense_z: float | None = None, clinvar_coga: list | None = None) -> dict:
     """The evidence as the drift check reads it now."""
-    return cds._current_evidence(record, gene_missense_z=gene_missense_z)
+    return cds._current_evidence(record, gene_missense_z=gene_missense_z, clinvar_coga=clinvar_coga or [])
+
+
+@pytest.fixture(autouse=True)
+def no_clinvar_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No ClinVar release of CoGA's own: each record holds no ALT value (the stand-in records
+    name no alleles). The tests of ``clinvar_coga`` drift pass values of their own."""
+
+    async def read(_session: Any, assembly_name: Any) -> ClinvarCogaRead:
+        return NO_CLINVAR_COGA
+
+    async def by_id(_read: Any, records: Any) -> dict:
+        return {key: [] for key in records}
+
+    for module in (cds, acmg):
+        monkeypatch.setattr(module, "clinvar_coga_read", read)
+        monkeypatch.setattr(module, "clinvar_coga_by_id", by_id)
 
 
 def _record(hash_: str | None, clinvar: str | None = None, version: str = "v1"):
@@ -57,13 +78,13 @@ def test_build_evidence_snapshot_treats_placeholder_as_no_clinvar() -> None:
 
 
 def test_diff_unchanged_is_current() -> None:
-    snap = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1"}
+    snap = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
     assert cds._diff(snap, dict(snap))["status"] == "current"
 
 
 def test_diff_changed_hash_is_drifted_with_from_to() -> None:
-    snap = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1"}
-    cur = {"annotation_set_hash": "h2", "clinvar": "Pathogenic", "annotation_version": "v2"}
+    snap = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
+    cur = {"annotation_set_hash": "h2", "clinvar": "Pathogenic", "annotation_version": "v2", "clinvar_coga": []}
     diff = cds._diff(snap, cur)
     assert diff["status"] == "drifted"
     assert diff["clinvar_from"] == "VUS" and diff["clinvar_to"] == "Pathogenic"
@@ -71,7 +92,7 @@ def test_diff_changed_hash_is_drifted_with_from_to() -> None:
 
 
 def test_diff_missing_variant() -> None:
-    snap = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1"}
+    snap = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
     diff = cds._diff(snap, None)
     assert diff["status"] == "variant_missing" and diff["clinvar_to"] is None
 
@@ -81,13 +102,13 @@ def test_diff_missing_hash_is_unknown_not_false_current() -> None:
     # a false "drifted" — but it must also not read as a false "current" (which would
     # silently clear the sign-out drift gate). Fail safe to "unknown", which the gate
     # counts like a drift (requiring acknowledgement).
-    snap = {"annotation_set_hash": None, "clinvar": "VUS", "annotation_version": "v1"}
-    cur = {"annotation_set_hash": "h2", "clinvar": "VUS", "annotation_version": "v1"}
+    snap = {"annotation_set_hash": None, "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
+    cur = {"annotation_set_hash": "h2", "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
     assert cds._diff(snap, cur)["status"] == "unknown"
 
     # The finding's case: a present current record whose hash field is empty/renamed.
-    snap2 = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1"}
-    cur2 = {"annotation_set_hash": None, "clinvar": "VUS", "annotation_version": "v1"}
+    snap2 = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
+    cur2 = {"annotation_set_hash": None, "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
     assert cds._diff(snap2, cur2)["status"] == "unknown"
 
 
@@ -111,6 +132,7 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
                         "annotation_set_hash": "OLD",
                         "clinvar": "Uncertain significance",
                         "annotation_version": "v1",
+                        "clinvar_coga": [],
                     },
                     "updated_by": "alice",
                     "updated_at": _WHEN,
@@ -122,6 +144,7 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
                         "annotation_set_hash": "SAME",
                         "clinvar": None,
                         "annotation_version": "v1",
+                        "clinvar_coga": [],
                     },
                     "updated_by": "bob",
                     "updated_at": _WHEN,
@@ -195,7 +218,7 @@ def test_the_drift_of_an_analysis_checks_the_classifications_it_reads(monkeypatc
             "variant_id": variant_id,
             "analysis": analysis,
             "acmg_class": "acmg_class_4",
-            "acmg_evidence_snapshot": {"annotation_set_hash": f"{analysis}-hash", "annotation_version": "v1"},
+            "acmg_evidence_snapshot": {"annotation_set_hash": f"{analysis}-hash", "annotation_version": "v1", "clinvar_coga": []},
             "updated_by": by,
             "updated_at": _WHEN,
         }
@@ -511,7 +534,7 @@ def test_a_number_compares_by_value_whatever_its_encoding() -> None:
 
 
 def test_a_frozen_group_that_cannot_be_read_is_unknown_not_current() -> None:
-    unreadable = {"annotation_version": "v1", "annotation_set_hash": "h1", "clinvar": None, "frequencies": "?"}
+    unreadable = {"annotation_version": "v1", "annotation_set_hash": "h1", "clinvar": None, "frequencies": "?", "clinvar_coga": []}
     now = _now(_annotated("h1", _OTHER, _MANE))
     assert cds._diff(unreadable, now)["status"] == "unknown"
     # What can be read still names what moved.
@@ -546,7 +569,7 @@ def test_evaluate_classification_drift_names_the_moved_value(monkeypatch) -> Non
             # Its variant unchanged: not listed.
             "variant_id": "2-200-C-T",
             "acmg_class": "acmg_class_3",
-            "acmg_evidence_snapshot": {"annotation_set_hash": "h9", "clinvar": None, "annotation_version": "v1"},
+            "acmg_evidence_snapshot": {"annotation_set_hash": "h9", "clinvar": None, "annotation_version": "v1", "clinvar_coga": []},
             "updated_by": "bob",
             "updated_at": _WHEN,
         },
@@ -766,7 +789,7 @@ def test_a_save_freezes_the_missense_z_its_genes_profile_holds() -> None:
     from backend.app.services.small_variant_review_acmg import freeze_evidence_snapshot
 
     def _frozen(session, record) -> dict:
-        return asyncio.run(freeze_evidence_snapshot(session, record, _WHEN, assembly_id=_ASSEMBLY_ID))
+        return asyncio.run(freeze_evidence_snapshot(session, record, _WHEN, assembly_id=_ASSEMBLY_ID, assembly_name=None))
 
     session = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)])
     snap = _frozen(session, _annotated("h1", _MANE))
@@ -1111,7 +1134,7 @@ def test_a_save_freezes_the_vcf_missense_z_when_the_genes_profile_holds_none() -
     from backend.app.services.small_variant_review_acmg import freeze_evidence_snapshot
 
     def _frozen(session, record) -> dict:
-        return asyncio.run(freeze_evidence_snapshot(session, record, _WHEN, assembly_id=_ASSEMBLY_ID))
+        return asyncio.run(freeze_evidence_snapshot(session, record, _WHEN, assembly_id=_ASSEMBLY_ID, assembly_name=None))
 
     record = _vcf_z("h1", (_MANE, "4.2"))
     assert _frozen(_GeneProfiles([]), record)["gene_constraint"] == {

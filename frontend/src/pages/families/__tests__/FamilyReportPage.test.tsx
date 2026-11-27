@@ -589,6 +589,84 @@ describe('FamilyReportPage', () => {
     expect(items).toContain('2-200-C-T — annotation set changed (classified by alice)');
   });
 
+  it('counts a moved ClinVar (CoGA) classification as drift, and notes moved review status or stars apart', async () => {
+    const coga = (classification: string, reviewStatus: string, stars: number, release: string) => ({
+      alt: 'A',
+      status: 'in_release',
+      release,
+      classification,
+      review_status: reviewStatus,
+      stars,
+      conditions: [],
+      variation_id: 900001,
+      included_only: false,
+    });
+    const item = (variantId: string, status: string, from: unknown, to: unknown, changed: string[]) => ({
+      variant_id: variantId,
+      acmg_class: 'acmg_class_4',
+      classified_by: 'alice',
+      classified_at: null,
+      status,
+      annotation_version_from: 'v1',
+      annotation_version_to: 'v1',
+      clinvar_from: null,
+      clinvar_to: null,
+      clinvar_coga_from: [from],
+      clinvar_coga_to: [to],
+      changed,
+      evidence_from: null,
+      evidence_to: null,
+    });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], can_sign_out: true } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/classification-drift') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            checked: 2,
+            drifted_count: 1,
+            drifted: [
+              item(
+                '1-100-G-A',
+                'drifted',
+                coga('Uncertain_significance', 'criteria provided, single submitter', 1, '2026-11-15'),
+                coga('Likely_pathogenic', 'criteria provided, single submitter', 1, '2026-11-22'),
+                ['clinvar_coga'],
+              ),
+              item(
+                '2-200-C-A',
+                'noted',
+                coga('Pathogenic', 'criteria provided, single submitter', 1, '2026-11-15'),
+                coga('Pathogenic', 'criteria provided, multiple submitters, no conflicts', 2, '2026-11-22'),
+                [],
+              ),
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('1 classification has evidence changes since being made');
+    expect(alert).toHaveTextContent(
+      '1-100-G-A — ClinVar (CoGA) Uncertain significance ★☆☆☆, criteria provided, single submitter (2026-11-15) → ' +
+        'Likely pathogenic ★☆☆☆, criteria provided, single submitter (2026-11-22) (classified by alice)',
+    );
+    expect(alert).not.toHaveTextContent('2-200-C-A');
+    const noted = screen.getByText(/Noted, not counted at sign-out/).closest('section')!;
+    expect(noted).toHaveTextContent(
+      '2-200-C-A — ClinVar (CoGA) Pathogenic ★☆☆☆, criteria provided, single submitter (2026-11-15) → ' +
+        'Pathogenic ★★☆☆, criteria provided, multiple submitters, no conflicts (2026-11-22)',
+    );
+  });
+
   it('names a moved consequence, LoF call or gene missense Z since a classification', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
@@ -1571,6 +1649,19 @@ describe('FamilyReportPage', () => {
           annotation_set_hash: 'h1',
           clinvar: 'Likely_pathogenic',
           captured_at: '2026-06-20T08:30:00+00:00',
+          clinvar_coga: [
+            {
+              alt: 'G',
+              status: 'in_release',
+              release: '2026-06-15',
+              classification: 'Pathogenic',
+              review_status: 'reviewed by expert panel',
+              stars: 3,
+              conditions: ['Synthetic disorder 1'],
+              variation_id: 900001,
+              included_only: false,
+            },
+          ],
         },
       },
     ],
@@ -1708,6 +1799,9 @@ describe('FamilyReportPage', () => {
       expect(within(variant).queryByText('BP4')).not.toBeInTheDocument();
       expect(variant).toHaveTextContent('Evidence: Functional assay shows loss of function.');
       expect(variant).toHaveTextContent('ClinVar reported Likely pathogenic, with annotation version v1');
+      expect(variant).toHaveTextContent(
+        'ClinVar (CoGA, 2026-06-15): Pathogenic ★★★☆ (reviewed by expert panel).',
+      );
       expect(variant).toHaveTextContent('Interpretation as signed.');
       expect(variant).toHaveTextContent('Tags: acmg_class_4, report');
 
@@ -1887,12 +1981,15 @@ describe('FamilyReportPage', () => {
       expect(reference).toHaveTextContent(
         'Clinical CNV knowledgebase: clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated)',
       );
+      expect(reference).toHaveTextContent(
+        'ClinVar (CoGA): 2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 0123abcd), loaded 2026-11-23 04:00 UTC, 3 alleles',
+      );
 
       // Beside the modules in the footer, with the code.
       const footer = container.querySelector('footer')!;
       expect(footer).toHaveTextContent('Signed version 2 · signed out 2026-06-25 10:00 UTC · report code 7KQM2X-2-4PHT');
       expect(footer).toHaveTextContent(
-        'Reference data as signed: gene reference ClinGen dosage 2026-09-30 and 2026-08-30 · HGNC 2026-09-01; clinical CNV knowledgebase clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated); PanelApp Epilepsy 3.1',
+        'Reference data as signed: gene reference ClinGen dosage 2026-09-30 and 2026-08-30 · HGNC 2026-09-01; clinical CNV knowledgebase clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated); ClinVar (CoGA) 2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 0123abcd), loaded 2026-11-23 04:00 UTC, 3 alleles; PanelApp Epilepsy 3.1',
       );
 
       // Still nothing of the family's current data.
@@ -3085,6 +3182,51 @@ describe('FamilyReportPage', () => {
       const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
       expect(drift).toHaveTextContent(
         '17-43000000-A-G — gnomAD missense Z 4.20 (VCF) → 3.52 (gene profile) (classified by alice)',
+      );
+    });
+
+    it('lists a ClinVar (CoGA) review status that had moved apart, as noted and not counted', async () => {
+      const coga = (reviewStatus: string, stars: number, release: string) => ({
+        alt: 'G',
+        status: 'in_release',
+        release,
+        classification: 'Pathogenic',
+        review_status: reviewStatus,
+        stars,
+        conditions: [],
+        variation_id: 900001,
+        included_only: false,
+      });
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          drift: {
+            checked: 1,
+            drifted_count: 0,
+            drifted: [
+              {
+                variant_id: '17-43000000-A-G',
+                status: 'noted',
+                clinvar_from: 'Likely_pathogenic',
+                clinvar_to: 'Likely_pathogenic',
+                clinvar_coga_from: [coga('criteria provided, single submitter', 1, '2026-06-15')],
+                clinvar_coga_to: [coga('reviewed by expert panel', 3, '2026-06-22')],
+                changed: [],
+                classified_by: 'alice',
+              },
+            ],
+          },
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      expect(drift).toHaveTextContent('No reported classification had changed evidence when this version was signed');
+      expect(drift).toHaveTextContent(
+        'Noted, not counted: the review status or the stars of the same ClinVar (CoGA) classification had changed:' +
+          '17-43000000-A-G — ClinVar (CoGA) Pathogenic ★☆☆☆, criteria provided, single submitter (2026-06-15) → ' +
+          'Pathogenic ★★★☆, reviewed by expert panel (2026-06-22)',
       );
     });
 

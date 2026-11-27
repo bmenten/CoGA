@@ -449,6 +449,8 @@ export interface ClassificationDriftItem {
   annotation_version_to: string | null;
   clinvar_from: string | null;
   clinvar_to: string | null;
+  clinvar_coga_from: ClinvarCogaOut[] | null;
+  clinvar_coga_to: ClinvarCogaOut[] | null;
   changed: string[];
   evidence_from: Record<string, unknown> | null;
   evidence_to: Record<string, unknown> | null;

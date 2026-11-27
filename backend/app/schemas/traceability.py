@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ..services.family_analysis_types import ANALYSIS_KEY_MAX_LENGTH
+from .variants import ClinvarCogaOut
 
 
 class AnnotationModuleOut(BaseModel):
@@ -59,12 +60,19 @@ class ClassificationDriftItem(BaseModel):
     acmg_class: Optional[str] = None
     classified_by: Optional[str] = None
     classified_at: Optional[datetime] = None
-    status: str  # "drifted" | "unknown" | "variant_missing"
+    # "noted": only the review status or the stars of CoGA's same ClinVar classification moved
+    # (shown, not counted at sign-out).
+    status: str  # "drifted" | "noted" | "unknown" | "variant_missing"
     annotation_version_from: Optional[str] = None
     annotation_version_to: Optional[str] = None
     clinvar_from: Optional[str] = None
     clinvar_to: Optional[str] = None
-    # What moved: "clinvar"; "transcript_id" (the primary transcript the values
+    # Each ALT's ClinVar in CoGA's own release as frozen and as it is now (None: the snapshot
+    # froze none that can be read; the variant is gone).
+    clinvar_coga_from: Optional[List[ClinvarCogaOut]] = None
+    clinvar_coga_to: Optional[List[ClinvarCogaOut]] = None
+    # What moved: "clinvar"; "clinvar_coga" (an ALT's classification in CoGA's own ClinVar
+    # release); "transcript_id" (the primary transcript the values
     # are read from); its consequence ("effect", "impact", "lof": the LOFTEE call); a
     # population frequency ("gnomad_af", "gnomad_exomes_af", "gnomad_genomes_af",
     # "gnomad_popmax_af", "topmed_af", "gnomad_ac", "gnomad_hom_count",

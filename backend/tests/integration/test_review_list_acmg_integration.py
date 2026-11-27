@@ -48,10 +48,15 @@ def test_a_review_saved_with_acmg_criteria_comes_back_through_the_list(monkeypat
     from backend.app.services.analysis_scope import AnalysisScope
 
     async def _variant_record(*, assembly_name, family_guid, variant_id, left_out_sources=()):
-        # What the save reads from ClickHouse: the variant's key, and the annotation it
-        # freezes as evidence.
+        # What the save reads from ClickHouse: the variant's key and locus, and the annotation
+        # it freezes as evidence.
+        chrom, pos, ref, alt = variant_id.split("-")
         return SimpleNamespace(
             variant_key=4242,
+            chrom=chrom,
+            pos=int(pos),
+            ref=ref,
+            alt=alt,
             annotations=[{"clinvar": "Likely_pathogenic"}],
             annotation_version="v1",
             annotation_set_hash="set-1",
@@ -185,7 +190,17 @@ def test_a_review_holding_only_an_acmg_record_counts_as_reviewed(monkeypatch) ->
     from backend.app.services.analysis_scope import AnalysisScope
 
     async def _variant_record(*, assembly_name, family_guid, variant_id, left_out_sources=()):
-        return SimpleNamespace(variant_key=4243, annotations=[], annotation_version="v1", annotation_set_hash="set-1")
+        chrom, pos, ref, alt = variant_id.split("-")
+        return SimpleNamespace(
+            variant_key=4243,
+            chrom=chrom,
+            pos=int(pos),
+            ref=ref,
+            alt=alt,
+            annotations=[],
+            annotation_version="v1",
+            annotation_set_hash="set-1",
+        )
 
     monkeypatch.setattr(svr, "get_small_variant_family_record", _variant_record)
 

@@ -332,7 +332,8 @@ async def _reference_record(assembly_name: str, family_uuid: str, variant_id: st
 
     rows = await execute_clickhouse(
         f"""
-        SELECT e.key, e.variantId, e.gene_symbols, e.calls.sampleId, e.calls.gt, d.annotationsJson,
+        SELECT e.key, e.variantId, e.chrom, e.pos, e.ref, e.alt, e.gene_symbols, e.calls.sampleId, e.calls.gt,
+               d.annotationsJson,
                e.annotation_version, e.annotationSetHash
         FROM {_small_table_name(assembly_name, "entries")} AS e
         LEFT JOIN {_small_table_name(assembly_name, "variants/details")} AS d
