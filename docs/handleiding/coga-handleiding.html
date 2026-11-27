@@ -2530,7 +2530,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </tr>
 <tr>
 <td><em>Pathogenicity</em></td>
-<td>de ClinVar-status van de annotatie, en <em>ClinVar (CoGA) status</em>: die in CoGA's eigen ClinVar-release (<code>clinvar_coga</code>)</td>
+<td>de ClinVar-status: die in CoGA's eigen ClinVar-release waar die het allel bevat, anders die van de annotatie (beslissing B8 van de eigenaar; ook voor de uitgesloten statussen); en <em>ClinVar (CoGA) status</em>: die in CoGA's eigen release alleen (<code>clinvar_coga</code>)</td>
 </tr>
 <tr>
 <td><em>Annotations</em></td>
@@ -4445,7 +4445,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </table></div>
 <p>De eerste drie vormen samen de variantscore. De eindscore is een gewogen combinatie van de variantscore en de fenotypescore. Twee keuzes bewaken de klinische betrouwbaarheid:</p>
 <ul>
-<li><strong>ClinVar gaat voor.</strong> Alleen een pathogene ClinVar-uitspraak geeft de volle pathogeniciteitsscore; bewijs uit alleen voorspellers blijft daaronder. "Conflicting interpretations of pathogenicity" telt niet als pathogeen.</li>
+<li><strong>ClinVar gaat voor.</strong> Alleen een pathogene ClinVar-uitspraak geeft de volle pathogeniciteitsscore; bewijs uit alleen voorspellers blijft daaronder. "Conflicting interpretations of pathogenicity" telt niet als pathogeen. ClinVar is die van CoGA's eigen release waar die het allel bevat, anders die van de annotatie (beslissing B8 van de eigenaar); de release zit in de sleutel van de rankingcache.</li>
 <li><strong>Nieuwe kandidaatgenen verdwijnen niet.</strong> Een gen zonder Monarch-data scoort 0 op fenotype, maar de variantscore blijft apart zichtbaar in de uitsplitsing van de score (<em>Variant</em>). De rangschikking volgt standaard de gecombineerde score, met de variantscore als tweede sleutel. Met <code>rank_by=variant_score</code> (in de UI: <strong>Rank by</strong> → <em>Variant score</em> in de filters onder <strong>Phenotype</strong>) volgt ze de variantscore, met de gecombineerde score als tweede sleutel: een sterke variant in een gen zonder fenotypedata komt dan bovenaan. De scores blijven dezelfde; alleen de volgorde en de rang veranderen, over de hele rangschikking en niet alleen de getoonde pagina. De cache bewaart de gecombineerde volgorde; de andere volgorde wordt bij het serveren op de rangschikking gelegd. Het antwoord noemt zijn volgorde in <code>ranked_by</code>, en de CSV-export van een gerangschikte zoekopdracht schrijft beide scores en de rang.</li>
 </ul>
 <p>De prioritering draait bij <code>GET /api/families/{family_id}/small-variants?prioritize=true</code>. De pagina zet dit standaard aan; de API zelf staat standaard uit. De service haalt de gefilterde kandidaten op, bepaalt de segregatie en de fenotypescores, rangschikt, en geeft per variant een scoreblok terug. De kandidatenset is begrensd. Loopt ze over, dan meldt het antwoord de echte telling, en zegt de UI dat de rangschikking onvolledig is en de filters verfijnd moeten worden. De scores rangschikken binnen één familie; het zijn geen gekalibreerde kansen.</p>
@@ -7543,7 +7543,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </tr>
 <tr>
 <td><em>Pathogenicity</em></td>
-<td>the annotation's ClinVar status, and <em>ClinVar (CoGA) status</em>: that in CoGA's own ClinVar release (<code>clinvar_coga</code>)</td>
+<td>the ClinVar status: that in CoGA's own ClinVar release where it holds the allele, else the annotation's (the owner's decision B8; also for the excluded statuses); and <em>ClinVar (CoGA) status</em>: that in CoGA's own release alone (<code>clinvar_coga</code>)</td>
 </tr>
 <tr>
 <td><em>Annotations</em></td>
@@ -9458,7 +9458,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 </table></div>
 <p>The first three together form the variant score. The final score is a weighted combination of the variant score and the phenotype score. Two choices safeguard clinical reliability:</p>
 <ul>
-<li><strong>ClinVar comes first.</strong> Only a pathogenic ClinVar assertion gives the full pathogenicity score; evidence from predictors alone stays below it. "Conflicting interpretations of pathogenicity" does not count as pathogenic.</li>
+<li><strong>ClinVar comes first.</strong> Only a pathogenic ClinVar assertion gives the full pathogenicity score; evidence from predictors alone stays below it. "Conflicting interpretations of pathogenicity" does not count as pathogenic. ClinVar is that of CoGA's own release where it holds the allele, else that of the annotation (the owner's decision B8); the release is in the key of the ranking cache.</li>
 <li><strong>New candidate genes do not disappear.</strong> A gene without Monarch data scores 0 on phenotype, but the variant score stays visible separately in the breakdown of the score (<em>Variant</em>). By default the ranking follows the combined score, with the variant score as second key. With <code>rank_by=variant_score</code> (in the UI: <strong>Rank by</strong> → <em>Variant score</em> in the filters under <strong>Phenotype</strong>) it follows the variant score, with the combined score as second key: a strong variant in a gene without phenotype data then comes to the top. The scores stay the same; only the order and the rank change, across the whole ranking and not only the page shown. The cache keeps the combined order; the other order is applied to the ranking when it is served. The response names its order in <code>ranked_by</code>, and the CSV export of a ranked search writes both scores and the rank.</li>
 </ul>
 <p>Prioritisation runs at <code>GET /api/families/{family_id}/small-variants?prioritize=true</code>. The page turns this on by default; in the API itself it is off by default. The service fetches the filtered candidates, determines the segregation and the phenotype scores, ranks, and returns a score block per variant. The candidate set is bounded. If it overflows, the response reports the real count, and the UI says that the ranking is incomplete and that the filters must be refined. The scores rank within one family; they are not calibrated probabilities.</p>

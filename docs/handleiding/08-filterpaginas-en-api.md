@@ -28,7 +28,7 @@ De pagina `FamilySmallVariantsPage.tsx` laadt de familie en de genpanels; de zoe
 | *Phenotype* | de fenotypeprioritering, en met *Rank by* de volgorde: de gecombineerde score of de variantscore (hoofdstuk 12) |
 | *Structural second hit* | "alleen genen die ook door een SV geraakt worden" |
 | *Inheritance* | overervingsmodel (de novo/dominant, recessief, X-gebonden, compound heterozygoot, *All, compound het grouped*), genotype per familielid, *expanded carrier screening* |
-| *Pathogenicity* | de ClinVar-status van de annotatie, en *ClinVar (CoGA) status*: die in CoGA's eigen ClinVar-release (`clinvar_coga`) |
+| *Pathogenicity* | de ClinVar-status: die in CoGA's eigen ClinVar-release waar die het allel bevat, anders die van de annotatie (beslissing B8 van de eigenaar; ook voor de uitgesloten statussen); en *ClinVar (CoGA) status*: die in CoGA's eigen release alleen (`clinvar_coga`) |
 | *Annotations* | impact (HIGH, MODERATE, …), effecttermen, het SpliceAI-minimum, transcript, rsID, HGVS, alleen canonieke of MANE-transcripten, alleen loss-of-function |
 | *In silico* | CADD, REVEL, SIFT, PolyPhen; het SpliceAI-minimum telt ook als voorspeller |
 | *Frequency* | maximale frequentie in gnomAD (exomen, genomen), popmax (gnomADs eigen popmax, anders VEP's `MAX_AF`, de hoogste frequentie over de populaties van 1000 Genomes en gnomAD) en TOPMed; aantallen homo- en hemizygoten (gnomADs totaal: het gecombineerde aantal, anders exomen plus genomen); "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentie-, het gevolg- en het in-silicofilter" |

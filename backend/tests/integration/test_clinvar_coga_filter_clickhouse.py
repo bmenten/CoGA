@@ -9,7 +9,9 @@ A search for HIGH impact and rare variants with the override keeps a common, low
 that CoGA's release holds pathogenic, as it keeps one the annotation holds pathogenic, unless a
 filter the override does not lift fails it; the *ClinVar (CoGA)* filter keeps the alleles the
 release classifies so. An untrimmed record matches ClinVar's anchored one, in the filter and in
-the values the page serves, which one lookup of the release reads.
+the values the page serves, which one lookup of the release reads. The *ClinVar status* filter
+and its exclusion read the release where it holds the allele, else the annotation (the design's
+one rule, B8): an annotation the release contradicts is not read.
 
 On an assembly of its own, whose tables the test drops. Synthetic data only. Skipped unless
 ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -72,8 +74,9 @@ _RECORDS = [
     ("1-1000200-AGG-AG", {"impact": "LOW", "frequency": 0.2, "canonical": False}),
     # Kept by the annotation's classification, which CoGA's release does not hold.
     ("1-1000400-G-A", {"impact": "LOW", "frequency": 0.2, "clinvar": "Pathogenic"}),
-    # HIGH impact and rare: kept by the filters themselves.
-    ("2-2000100-C-T", {"impact": "HIGH", "frequency": 0.0001}),
+    # HIGH impact and rare: kept by the filters themselves. Annotated pathogenic, which CoGA's
+    # release, holding it Benign/Likely benign, contradicts.
+    ("2-2000100-C-T", {"impact": "HIGH", "frequency": 0.0001, "clinvar": "Pathogenic"}),
     # Neither.
     ("3-4000300-CTT-CT", {"impact": "LOW", "frequency": 0.2}),
 ]
@@ -107,9 +110,9 @@ def test_the_filter_and_the_override_read_cogas_release_on_both_search_paths() -
     )
     explorer_scope = ExplorerScope(assembly_id="a1", assembly_name=assembly, project_ids=["project-1"])
 
-    async def kept(context: Any, **values: Any) -> list[str]:
+    async def kept(context: Any, release: date | None = _RELEASE, **values: Any) -> list[str]:
         params: dict[str, Any] = {"family": family}
-        filters = SmallVariantQueryFilters(page=1, page_size=10, clinvar_coga_release=_RELEASE, **values)
+        filters = SmallVariantQueryFilters(page=1, page_size=10, clinvar_coga_release=release, **values)
         clauses = _small_annotation_filter_clauses(context, filters, params=params)
         rows = await execute_clickhouse(
             f"SELECT e.variantId FROM {_small_table_name(assembly, 'entries')} AS e "
@@ -165,6 +168,28 @@ def test_the_filter_and_the_override_read_cogas_release_on_both_search_paths() -
                     "1-1000200-AGG-AG",
                 ]
                 assert await kept(context, clinvar_coga=["Benign"]) == ["2-2000100-C-T"]
+
+                # The ClinVar status filter by the one rule: the release for the alleles it
+                # holds, the annotation for 1-1000400 it does not; without a release, the
+                # annotation alone.
+                assert await kept(context, clinvar=["Pathogenic"]) == ["1-1000100-G-A", "1-1000400-G-A"]
+                assert await kept(context, release=None, clinvar=["Pathogenic"]) == [
+                    "1-1000400-G-A",
+                    "2-2000100-C-T",
+                ]
+                # With another transcript filter, on a row the release holds.
+                assert await kept(context, clinvar=["Pathogenic", "Benign"], impact=["HIGH"]) == ["2-2000100-C-T"]
+                assert await kept(context, exclude_clinvar=["Pathogenic"]) == [
+                    "1-1000200-AGG-AG",
+                    "2-2000100-C-T",
+                    "3-4000300-CTT-CT",
+                ]
+                assert await kept(context, exclude_clinvar=["Benign"]) == [
+                    "1-1000100-G-A",
+                    "1-1000200-AGG-AG",
+                    "1-1000400-G-A",
+                    "3-4000300-CTT-CT",
+                ]
         finally:
             tables = await execute_clickhouse(
                 "SELECT name FROM system.tables WHERE database = %(database)s AND startsWith(name, %(prefix)s)",
