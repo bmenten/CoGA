@@ -812,6 +812,12 @@ carries: an MNV (gnomAD lists its SNVs), an indel in a homopolymer or a repeat w
 paralogue. Called in 3 or more cfDNA samples of the assay, this one included, it is read as common,
 not rare, and the recessive view pairs it with nothing. An allele ClinVar calls pathogenic stays. The
 *Recessive (both parents carrier)* preset turns the rule on; the classification does not change.
+
+> **The rule can hide a pathogenic allele.** An allele that gnomAD does not list and ClinVar does not
+> call pathogenic (or does not match, as for an MNV or an indel written otherwise) is left out as soon
+> as 3 pregnancies of the assay carry it, related pregnancies included. The count is fixed, so the
+> rule grows stricter as the assay's samples grow. Turn it off to check a gene that matters; the
+> threshold is still to be settled before diagnostic use.
 The signed record holds each reported variant's recurrence counts as they were at sign-out.
 
 Limits: a father's call written as another representation of the allele (an MNV over it, or its

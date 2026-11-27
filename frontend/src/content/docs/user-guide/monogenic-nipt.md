@@ -100,7 +100,9 @@ its data, reviews and sign-out are its own.
   pregnancy imported, so it is also how you find candidates for the assay's artifact list.
 - **Leave out alleles without a population frequency that 3 or more cfDNA samples of this assay call**
   applies the report's rule: such an allele (often an MNV, an indel in a homopolymer or repeat, or a
-  paralogue) is common in the assay, not rare. An allele ClinVar calls pathogenic stays listed.
+  paralogue) is common in the assay, not rare. An allele ClinVar calls pathogenic stays listed. It can
+  hide a pathogenic allele that gnomAD does not list and ClinVar does not call pathogenic once 3
+  pregnancies of the assay carry it: turn it off to check a gene that matters.
 - **Download CSV**, above the variants, saves the list as a CSV file: every variant the list
   classifies, in its order, with its category, reads, probabilities, de novo triage and recurrence,
   and on every row the fetal fraction and, for a multiple pregnancy, the multiple-pregnancy note. A
