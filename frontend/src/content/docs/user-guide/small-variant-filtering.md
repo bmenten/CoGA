@@ -116,7 +116,14 @@ its MANE transcript is left out.
   filters*, under **Frequency** and on by default: a transcript with a ClinVar pathogenic or likely
   pathogenic record passes the impact, consequence and SpliceAI filter, the in-silico filter and
   every frequency and gnomAD count, whatever its values. The other filters still apply to it: the
-  transcript, HGVS, *Canonical only*, *MANE only*, *LoF only*, the ClinVar status, the genotypes.
+  transcript, HGVS, *Canonical only*, *MANE only*, *LoF only*, the ClinVar status, the genotypes. A
+  variant whose allele CoGA's own ClinVar release (*ClinVar (CoGA)*, below) calls pathogenic or likely
+  pathogenic passes the same filters on every one of its transcripts, so a variant ClinVar reclassified
+  after the pipeline annotated it is not left out.
+- **Pathogenicity** also offers *ClinVar (CoGA) status*: the classifications of CoGA's own ClinVar
+  release, with the same choices. It keeps a variant one of whose alleles that release classifies so;
+  without a loaded release it keeps none. The monogenic NIPT page does not offer it: NIPT reads the
+  annotation's ClinVar.
 
 A card, a table row and a CSV row describe one transcript of the variant: MANE Select, else the
 canonical one, else the most severe. The filters may have held on another. For example, *deleterious*
@@ -171,6 +178,18 @@ Classifications that disagree, such as *uncertain significance & likely pathogen
 light orange when one of them is pathogenic or likely pathogenic. Any other conflicting, uncertain or
 other ClinVar status, or none, leaves the card white. In the table a row is tinted the same way, more
 faintly, and the ClinVar chip takes the same colour.
+
+Beside the ClinVar of the variant's annotation, a card shows CoGA's own ClinVar release, the one CoGA
+loads from NCBI's weekly file. Each value is named by its release: *ClinVar (annotation, 2026-05-01)*,
+the ClinVar file the pipeline annotated, and *ClinVar (CoGA, 2026-11-22)*. CoGA's is matched on the
+exact allele, never on the rsID or the position. It links to its ClinVar record, gives the review
+status and the conditions on hover, and is marked **changed** when its classification or stars
+differ from the annotation's. Without a value it says why: *not in this release*, *no release
+loaded*, or *not available for this assembly*; a variant ClinVar classifies only as part of a
+combination says so. **More annotations & detail** lists CoGA's review status and conditions. In the
+table and the Variant Explorer a **≠** beside the variant marks one whose two classifications
+differ, CoGA's on hover. Every page shows one CoGA release: the one current when the page was asked
+for.
 
 Under its heading, a card names up to three diseases its gene is linked to: Monarch's causal links,
 those more sources back first; else the gene's OMIM diseases; else Monarch's associations, marked *not

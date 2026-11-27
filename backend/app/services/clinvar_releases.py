@@ -12,8 +12,11 @@ assembly has no ClinVar release.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +28,10 @@ CLINVAR_ASSEMBLY_FOLDERS: dict[str, str] = {"GRCh38": "vcf_GRCh38", "GRCh37": "v
 KEPT_RELEASES = 2
 
 CLINVAR_DATASET_TYPE = "clinvar"
+
+# A ClinVar file's release as the manifest's ``clinvar`` module states it: ``20261101``, the
+# date in the file's name, or a version line's ``2026-11-01``.
+_RELEASE = re.compile(r"(\d{4})-?(\d{2})-?(\d{2})")
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,3 +85,17 @@ async def current_clinvar_release(session: AsyncSession, assembly_name: str) -> 
     """The assembly's current release: the newest recorded. None when it has none."""
     releases = await recorded_clinvar_releases(session, assembly_name, limit=1)
     return releases[0] if releases else None
+
+
+def annotated_clinvar_release(modules: Mapping[str, Mapping[str, Any]]) -> date | None:
+    """The release of the ClinVar file a callset was annotated with: its manifest's ``clinvar``
+    module's version as a date. None for a callset annotated without one, or whose release is
+    not a date."""
+    version = str((modules.get("clinvar") or {}).get("version") or "").strip()
+    match = _RELEASE.fullmatch(version)
+    if match is None:
+        return None
+    try:
+        return date(int(match[1]), int(match[2]), int(match[3]))
+    except ValueError:
+        return None

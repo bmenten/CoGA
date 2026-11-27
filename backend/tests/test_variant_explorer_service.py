@@ -1130,7 +1130,7 @@ def _region_join(panel: PanelFilterConstraints) -> str:
     from backend.app.services.variant_explorer_service import _region_key_condition
 
     condition = _region_key_condition(
-        _SCOPE, ves._family_search_filters(GlobalVariantFilters()), panel.regions, prefix="panel_region", params={}
+        _SCOPE, ves._family_search_filters(GlobalVariantFilters(), _SCOPE), panel.regions, prefix="panel_region", params={}
     )
     assert condition is not None
     return condition
@@ -1201,7 +1201,7 @@ def test_the_region_join_reads_the_regions_as_the_family_page_does() -> None:
     )
     explorer_params: dict[str, Any] = {}
     family_params: dict[str, Any] = {}
-    unfiltered = ves._family_search_filters(GlobalVariantFilters())
+    unfiltered = ves._family_search_filters(GlobalVariantFilters(), _SCOPE)
     condition = _region_key_condition(_SCOPE, unfiltered, panel.regions, prefix="panel_region", params=explorer_params)
     _small_region_filter_condition(panel.regions, prefix="panel_region", params=family_params)
     assert explorer_params == family_params == {

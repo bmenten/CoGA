@@ -95,6 +95,7 @@ const page = (overrides: Partial<GlobalVariantPage> = {}): GlobalVariantPage => 
   assembly_id: 'asm-38',
   assembly_name: 'GRCh38',
   pending_families: 0,
+  clinvar_coga_release: null,
   variants: [BRCA2, MECP2],
   ...overrides,
 });

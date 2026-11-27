@@ -240,7 +240,7 @@ def test_the_variant_explorer_applies_the_same_condition() -> None:
         (GlobalVariantFilters(polyphen="benign"), "polyphen", "benign(0.004)", "probably_damaging(0.9)"),
     ):
         params: dict[str, Any] = {}
-        condition = _small_annotation_filter_condition(_family_search_filters(filters), params=params)
+        condition = _small_annotation_filter_condition(_family_search_filters(filters, scope), params=params)
         assert condition is not None
         # It is the condition the explorer's search puts on a transcript row.
         assert any(condition in clause for clause in _carriers_where(scope, filters, {}, tag_variant_ids=None, shown_members=()))

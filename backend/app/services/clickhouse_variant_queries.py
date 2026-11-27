@@ -79,6 +79,7 @@ from .variant_prioritization import (
     MODE_HOM_RECESSIVE,
     MODE_X_LINKED,
 )
+from .clinvar_release_store import clinvar_allele_condition
 from .clinvar_review_status import clinvar_conditions, clinvar_stars
 from .clickhouse_variant_records import (
     CLINVAR_OVERRIDE_TERMS,
@@ -2873,6 +2874,7 @@ def _small_annotation_filter_condition(
     *,
     params: dict[str, Any],
     strict_transcript_filters: bool = False,
+    lifted: bool = False,
 ) -> str | None:
     """The search's per-transcript filters as one condition on a transcript row (alias ``a``),
     or None when the search asks nothing of a transcript: a variant is kept when they all hold
@@ -2893,7 +2895,12 @@ def _small_annotation_filter_condition(
     the transcript a variant names as the one its filters held on
     (``_filter_transcript_matches``) is one whose own consequence and scores meet them, and a
     variant the override alone keeps names none. The frequency filter keeps its override
-    there: a variant's frequencies are the same on each of its transcripts."""
+    there: a variant's frequencies are the same on each of its transcripts.
+
+    ``lifted=True`` is what the override leaves of the filters for a variant CoGA's ClinVar
+    release holds (likely) pathogenic, an allele's classification that lifts the three filters
+    on every transcript at once (``_clinvar_coga_lifted``): the other filters alone, or None
+    when the search asks no other."""
     conditions: list[str] = []
 
     if filters.transcript:
@@ -2951,7 +2958,7 @@ def _small_annotation_filter_condition(
         impact_effect_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
     # The ClinVar P/LP override of the consequence and in-silico blocks.
     override_scores = filters.clinvar_pathogenic_override and not strict_transcript_filters
-    if impact_effect_conditions:
+    if impact_effect_conditions and not lifted:
         consequence_block = f"({' OR '.join(impact_effect_conditions)})"
         if override_scores:
             consequence_block = _clinvar_overridden(consequence_block, params=params)
@@ -2995,7 +3002,7 @@ def _small_annotation_filter_condition(
         params[param] = maximum
         frequency_conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
 
-    if frequency_conditions:
+    if frequency_conditions and not lifted:
         if filters.clinvar_pathogenic_override:
             frequency_block = f"({' AND '.join(frequency_conditions)})"
             conditions.append(_clinvar_overridden(frequency_block, params=params))
@@ -3020,7 +3027,7 @@ def _small_annotation_filter_condition(
             in_silico_conditions.append(f"match(a.{column}, %(detail_{column}_pattern)s)")
     if filters.min_spliceai is not None:
         in_silico_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
-    if in_silico_conditions:
+    if in_silico_conditions and not lifted:
         in_silico_block = f"({' OR '.join(in_silico_conditions)})"
         if override_scores:
             in_silico_block = _clinvar_overridden(in_silico_block, params=params)
@@ -3858,6 +3865,55 @@ def _small_gene_condition(
     return conditions[0] if len(conditions) == 1 else f"({' OR '.join(conditions)})"
 
 
+def _clinvar_coga_condition(
+    context: _SearchAssembly,
+    filters: SmallVariantQueryFilters,
+    terms: Sequence[str],
+    *,
+    params: dict[str, Any],
+    prefix: str,
+) -> str:
+    """"An allele of the row (alias ``e``) is one CoGA's ClinVar release of the request
+    (``clinvar_coga_release``) classifies with one of ``terms``": the *ClinVar (CoGA)* filter,
+    and the P/LP override's reading of that release. Without a release, no row's is."""
+    if filters.clinvar_coga_release is None or not context.assembly_name:
+        return "0"
+    return clinvar_allele_condition(
+        context.assembly_name, filters.clinvar_coga_release, terms, params=params, prefix=prefix
+    )
+
+
+def _clinvar_coga_lifted(
+    context: _SearchAssembly,
+    filters: SmallVariantQueryFilters,
+    condition: str,
+    membership: str,
+    *,
+    params: dict[str, Any],
+    reads_text: bool,
+) -> str:
+    """The transcript filters' ``membership`` (of their ``condition``), or, with the ClinVar P/LP
+    override, an allele of
+    the row (likely) pathogenic in CoGA's ClinVar release and the filters the override does not
+    lift held on one of its transcripts (design B1): the override lifts the consequence,
+    in-silico and frequency filters for CoGA's classification as for the annotation's. CoGA's
+    is the allele's, not a transcript's, so it lifts them on every transcript of the row."""
+    if not filters.clinvar_pathogenic_override or filters.clinvar_coga_release is None:
+        return membership
+    rest = _small_annotation_filter_condition(filters, params=params, lifted=True)
+    if rest == condition:
+        return membership  # the search asks none of the filters the override lifts
+    pathogenic = _clinvar_coga_condition(
+        context, filters, _status_filter_terms(CLINVAR_OVERRIDE_TERMS), params=params, prefix="coga_override"
+    )
+    if rest is None:
+        return f"({membership} OR {pathogenic})"
+    rest_membership = _small_annotation_row_membership_condition(
+        context, filters, params=params, condition=rest, reads_text=reads_text
+    )
+    return f"({membership} OR ({pathogenic} AND {rest_membership}))"
+
+
 def _small_annotation_filter_clauses(
     context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
@@ -3901,13 +3957,23 @@ def _small_annotation_filter_clauses(
     detail_where_clauses, detail_params = _small_detail_filter_clauses(filters)
     params.update(detail_params)
     for detail_where_clause in detail_where_clauses:
+        membership = _small_annotation_row_membership_condition(
+            context,
+            filters,
+            params=params,
+            condition=detail_where_clause,
+            reads_text=reads_text,
+        )
         clauses.append(
-            _small_annotation_row_membership_condition(
-                context,
-                filters,
-                params=params,
-                condition=detail_where_clause,
-                reads_text=reads_text,
+            _clinvar_coga_lifted(
+                context, filters, detail_where_clause, membership, params=params, reads_text=reads_text
+            )
+        )
+
+    if filters.clinvar_coga:
+        clauses.append(
+            _clinvar_coga_condition(
+                context, filters, _status_filter_terms(filters.clinvar_coga), params=params, prefix="coga_filter"
             )
         )
 

@@ -629,6 +629,25 @@ export interface ClinvarAssemblyReleasesOut {
 }
 
 /**
+ * One ALT's ClinVar in CoGA's own ClinVar release (*ClinVar (CoGA)*), or why it has none:
+ * ``in_release`` (the release holds the allele: its classification, or only that it is
+ * classified as part of a combination, ``included_only``), ``not_in_release``, ``no_release``
+ * (none is loaded for the assembly) or ``not_available`` (ClinVar publishes no VCF for the
+ * assembly).
+ */
+export interface ClinvarCogaOut {
+  alt: string;
+  status: "in_release" | "not_in_release" | "no_release" | "not_available";
+  release: string | null;
+  classification: string | null;
+  review_status: string | null;
+  stars: number | null;
+  conditions: string[];
+  variation_id: number | null;
+  included_only: boolean;
+}
+
+/**
  * One allele whose ClinVar the annotation and CoGA's release of the same ClinVar release
  * give otherwise.
  */
@@ -2001,6 +2020,7 @@ export interface GlobalVariantPageOut {
   assembly_id: string | null;
   assembly_name: string | null;
   pending_families: number;
+  clinvar_coga_release: string | null;
   variants: GlobalVariantRowOut[];
 }
 
@@ -2027,6 +2047,7 @@ export interface GlobalVariantRowOut {
   hgvsc: string | null;
   hgvsp: string | null;
   clinvar: string | null;
+  clinvar_coga: ClinvarCogaOut[];
   classification: string | null;
   classification_text: string | null;
   tags: string[];
@@ -3286,6 +3307,7 @@ export interface NiptVariantOut {
   clinvar_stars: number | null;
   clinvar_conditions: string[];
   clinvar_variation_id: string | null;
+  clinvar_coga: ClinvarCogaOut[];
   rsid: string | null;
   hgvsc: string | null;
   hgvsp: string | null;
@@ -5227,6 +5249,7 @@ export interface VariantOut {
   clinvar_stars: number | null;
   clinvar_conditions: string[];
   clinvar_variation_id: string | null;
+  clinvar_coga: ClinvarCogaOut[];
   rsid: string | null;
   hgvsc: string | null;
   hgvsp: string | null;
@@ -5295,6 +5318,8 @@ export interface VariantPage {
   summary: Record<string, Record<string, number>> | null;
   small_variant_summary: SmallVariantSummaryOut | null;
   members_without_calls: MemberWithoutCallsOut[] | null;
+  clinvar_annotation_release: string | null;
+  clinvar_coga_release: string | null;
 }
 
 export interface VariantPriorityOut {

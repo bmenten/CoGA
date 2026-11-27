@@ -75,9 +75,10 @@ def test_the_region_join_keeps_exactly_what_the_family_page_keeps() -> None:
     family_params: dict[str, Any] = {}
     family = _small_region_filter_condition(regions, prefix="panel_region", params=family_params)
     explorer_params: dict[str, Any] = {}
+    scope = ExplorerScope(assembly_id="a1", assembly_name="GRCh38", project_ids=[])
     explorer = _region_key_condition(
-        ExplorerScope(assembly_id="a1", assembly_name="GRCh38", project_ids=[]),
-        _family_search_filters(GlobalVariantFilters()),
+        scope,
+        _family_search_filters(GlobalVariantFilters(), scope),
         regions,
         prefix="panel_region",
         params=explorer_params,

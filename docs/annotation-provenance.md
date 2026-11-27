@@ -212,6 +212,13 @@ VEP's `assembly`), per input where they differ (`GRCh38_no_alt.fa (package), hg3
 - **SV evidence.** A CNV classification freezes the versions its SV comes from: those of the
   manifest of the analysis whose package record lists the SV's caller, or of no analysis for an
   uploaded SV (`structural_variant_evidence.read_structural_evidence_versions`).
+- **ClinVar (CoGA) beside the annotation's.** A small variant's ClinVar is shown twice, each named
+  by its release (the owner's decision B7): *ClinVar (annotation, 2026-05-01)*, of the ClinVar file
+  the analysis's manifest names (`analysis_clinvar_release`), and *ClinVar (CoGA, 2026-11-22)*, CoGA's
+  own release, per ALT (`VariantOut.clinvar_coga`, `services/clinvar_coga.py`). A request reads
+  CoGA's current release once and serves it with the page (`VariantPage.clinvar_coga_release`), and
+  its filters read the same one: a page never shows two releases, even while a newer one is
+  released. The card marks CoGA's value *changed* where its classification or stars differ.
 
 ## Limitations
 

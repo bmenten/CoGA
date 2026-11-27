@@ -125,7 +125,7 @@ def client(monkeypatch: pytest.MonkeyPatch):
         return user
 
     async def context(*_args: Any, **_kwargs: Any) -> SimpleNamespace:
-        return SimpleNamespace(family_uuid="11111111-1111-1111-1111-111111111111", family_id="FAM1")
+        return SimpleNamespace(family_uuid="11111111-1111-1111-1111-111111111111", family_id="FAM1", assembly_name=None)
 
     async def no_panel(*_args: Any, **_kwargs: Any) -> None:
         return None

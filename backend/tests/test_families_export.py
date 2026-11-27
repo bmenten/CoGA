@@ -162,7 +162,7 @@ def test_family_export_names_the_transcript_the_filters_held_on() -> None:
     # ...and the filter-matched transcript follows, after the row's own columns.
     assert labels[: labels.index("Genotypes") + 1] == [
         "Chromosome", "Start", "End", "Type", "Ref", "Alt", "rsID", "Gene", "Gene ID",
-        "Transcript", "Impact", "Effect", "HGVSg", "HGVSc", "HGVSp", "ClinVar", "ClinVar from VEP cache", "gnomAD AF",
+        "Transcript", "Impact", "Effect", "HGVSg", "HGVSc", "HGVSp", "ClinVar", "ClinVar from VEP cache", "ClinVar (CoGA)", "gnomAD AF",
         "gnomAD hom", "CADD", "REVEL", "SpliceAI", "SIFT", "PolyPhen", "Classification",
         "Classification text", "Tags", "Genotypes",
     ]

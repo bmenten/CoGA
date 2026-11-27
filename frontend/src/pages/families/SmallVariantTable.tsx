@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
+import { ClinvarCogaMark } from './ClinvarCogaChip';
 import {
   buildCompactGenotypeSummary,
   COLLABORATION_QUICK_TAGS,
@@ -46,6 +47,8 @@ interface SmallVariantTableProps {
   // The NIPT list's samples: a NIPT variant's genotypes give the plasma's allele fraction and
   // the father's genotype class, without the fetus (niptCompactGenotypes).
   niptTrio?: NiptTrio | null;
+  // CoGA's own ClinVar release the page read, which the row's mark names.
+  clinvarCogaRelease?: string | null;
 }
 
 const MAX_ALLELE_DISPLAY_LENGTH = 48;
@@ -82,6 +85,7 @@ export default function SmallVariantTable({
   onToggleReviewTag,
   rankedBy = null,
   niptTrio = null,
+  clinvarCogaRelease = null,
 }: SmallVariantTableProps) {
   // A reader in the family's projects sees the review but cannot change it.
   const readOnly = useFamilyReadOnly();
@@ -240,6 +244,7 @@ export default function SmallVariantTable({
                   ) : (
                     variant.gene || '—'
                   )}
+                  <ClinvarCogaMark variant={variant} release={clinvarCogaRelease} />
                   {variant.sv_second_hit ? (
                     <>
                       {' '}

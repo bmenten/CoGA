@@ -200,6 +200,8 @@ export default function SmallVariantResults({
     onToggleReviewTag,
     rankedBy: data?.ranked_by,
     niptTrio: data?.trio,
+    clinvarAnnotationRelease: data?.clinvar_annotation_release,
+    clinvarCogaRelease: data?.clinvar_coga_release,
   };
 
   return (

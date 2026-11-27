@@ -77,6 +77,60 @@ describe('SmallVariantCards', () => {
     mockGeneProfile([]);
   });
 
+  it('shows the annotation’s ClinVar and CoGA’s own beside it, each named by its release (B7)', async () => {
+    renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: '1-100-G-A',
+            chr: '1',
+            start: 100,
+            end: 100,
+            type: 'SNV',
+            ref: 'G',
+            alt: 'A',
+            gene: 'SYNG1',
+            clinvar: 'Pathogenic',
+            clinvar_stars: 2,
+            clinvar_variation_id: '900001',
+            clinvar_coga: [
+              {
+                alt: 'A',
+                status: 'in_release',
+                release: '2026-11-22',
+                classification: 'Likely_pathogenic',
+                review_status: 'reviewed by expert panel',
+                stars: 3,
+                conditions: ['Synthetic disorder 1'],
+                variation_id: 900001,
+                included_only: false,
+              },
+            ],
+            genotypes: [],
+          }),
+        ]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+        clinvarAnnotationRelease="2026-05-01"
+        clinvarCogaRelease="2026-11-22"
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: /^ClinVar \(annotation, 2026-05-01\)\s*Pathogenic ★★☆☆$/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: /^ClinVar \(CoGA, 2026-11-22\)\s*Likely pathogenic ★★★☆\s*changed$/ }),
+    ).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/clinvar/variation/900001/');
+    await userEvent.click(screen.getByText('More annotations & detail'));
+    const coga = screen.getByText('ClinVar (CoGA) review status').closest('div') as HTMLElement;
+    expect(within(coga).getByText('reviewed by expert panel')).toBeInTheDocument();
+  });
+
   it('opens a transcript popup with all transcript effects from the transcript field', async () => {
     renderCards(
         <SmallVariantCards

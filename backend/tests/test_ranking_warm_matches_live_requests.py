@@ -15,6 +15,7 @@ index and the gene reference. What the warm hands the ranking is what is checked
 from __future__ import annotations
 
 import types
+from datetime import date
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ import pytest
 from backend.app.services import clickhouse_family_variants as cfv
 from backend.app.services.clickhouse_variant_records import Region
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.app.services.clinvar_coga import ClinvarCogaRead
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 from backend.app.services.variant_ranking_cache import canonical_filters
 
@@ -92,6 +94,11 @@ def warm(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(M + "_ensure_family_sv_gene_index", nothing)
     monkeypatch.setattr(M + "get_sv_hit_genes", sv_hit_genes_now)
     monkeypatch.setattr(M + "_fetch_gene_regions", gene_regions)
+
+    async def clinvar_now(_session: Any, assembly_name: str | None) -> ClinvarCogaRead:
+        return ClinvarCogaRead(str(assembly_name), date(2026, 11, 22), True)
+
+    monkeypatch.setattr(M + "clinvar_coga_read", clinvar_now)
     monkeypatch.setattr(postgres, "get_postgres_engine", lambda: None)
     monkeypatch.setattr(family_metadata_context, "build_family_metadata_context", context)
 
@@ -141,3 +148,16 @@ async def test_the_warm_resolves_the_sv_hit_genes_again(warm) -> None:
     # A query that asks for no second hit takes none, whatever was stored.
     stored = canonical_filters(SmallVariantQueryFilters(page=1, page_size=100, sv_hit_genes=["GENEOLD"]))
     assert (await warm(stored))["filters"].sv_hit_genes == []
+
+
+@pytest.mark.asyncio
+async def test_the_warm_reads_cogas_clinvar_release_again(warm) -> None:
+    """The ClinVar (CoGA) filter and the P/LP override read CoGA's release: the warm ranks on the
+    current one, as a live request does, not on the release the stored ranking read."""
+    stored = canonical_filters(
+        SmallVariantQueryFilters(page=1, page_size=100, clinvar_coga_release=date(2026, 11, 15))
+    )
+
+    ranked = await warm(stored)
+
+    assert ranked["filters"].clinvar_coga_release == date(2026, 11, 22)

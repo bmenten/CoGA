@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 import functools
 import math
 import re
@@ -223,6 +224,13 @@ class SmallVariantQueryFilters:
     # SIFT, PolyPhen, SpliceAI) and the frequency filter (population frequencies, gnomAD
     # AC / hom / hemi counts) whatever its values: the ClinVar P/LP override.
     clinvar_pathogenic_override: bool = False
+    # *ClinVar (CoGA)*: the classifications CoGA's own ClinVar release must give an allele of
+    # the variant, read in ``clinvar_coga_release``.
+    clinvar_coga: List[str] = field(default_factory=list)
+    # CoGA's ClinVar release the request reads (``clinvar_coga.clinvar_coga_read``), set
+    # server-side once per request and not a request field: the *ClinVar (CoGA)* filter and the
+    # P/LP override read it. None when the assembly has no release: neither reads one.
+    clinvar_coga_release: date | None = None
     exclude_gene: str | None = None
     exclude_intervals: str | None = None
     rsid: str | None = None
