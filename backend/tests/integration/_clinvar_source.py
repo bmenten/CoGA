@@ -14,10 +14,11 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy import text
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "clinvar" / "clinvar_20261122.vcf"
 SOURCE = "https://clinvar.example/pub/clinvar"
+# The folder of the test's own assembly; NCBI's folder of any other assembly is not there.
+FOLDER = "vcf_TEST"
 
 
 def clinvar_file(
@@ -42,7 +43,7 @@ def clinvar_file(
 
 
 class StandInNcbi:
-    """NCBI's ClinVar folder of the test assembly, listing the files put in it."""
+    """NCBI's ClinVar folder of the test assembly, listing the files put in it; no other."""
 
     def __init__(self) -> None:
         self.files: dict[str, bytes] = {}
@@ -51,6 +52,8 @@ class StandInNcbi:
         self.files[f"clinvar_{release:%Y%m%d}.vcf.gz"] = body
 
     def handle(self, request: httpx.Request) -> httpx.Response:
+        if f"/{FOLDER}/" not in request.url.path:
+            return httpx.Response(404)
         name = request.url.path.rsplit("/", 1)[-1]
         if not name:
             return httpx.Response(200, text="".join(f'<a href="{file}">{file}</a>\n' for file in self.files))
@@ -69,7 +72,7 @@ def stand_in_ncbi(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, str, StandInNcb
 
     name = f"clinvar-{uuid4()}"
     ncbi = StandInNcbi()
-    monkeypatch.setitem(CLINVAR_ASSEMBLY_FOLDERS, name, "vcf_TEST")
+    monkeypatch.setitem(CLINVAR_ASSEMBLY_FOLDERS, name, FOLDER)
     monkeypatch.setattr(clinvar_load_jobs.settings, "clinvar_source_url", SOURCE)
     monkeypatch.setattr(clinvar_load_jobs, "_start", lambda job_id: None)
     monkeypatch.setattr(
@@ -80,20 +83,8 @@ def stand_in_ncbi(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, str, StandInNcb
     return clinvar_load_jobs, name, ncbi
 
 
-async def load_clinvar_release(jobs: Any, sm: Any, assembly: str) -> dict[str, Any]:
-    """Queue a load of NCBI's newest file for ``assembly``, run it to its end, and return the
-    job as recorded."""
-    async with sm() as s:
-        job = await jobs.queue_clinvar_load(s, assembly=assembly, requested_by=jobs.STARTUP_REQUESTER)
-    await jobs._run_job(str(job.id))
-    async with sm() as s:
-        row = (
-            await s.execute(
-                text(
-                    "SELECT status, error, release, source_sha256, records_read, records_stored, "
-                    "records_skipped FROM clinvar_load_jobs WHERE id = CAST(:j AS uuid)"
-                ),
-                {"j": str(job.id)},
-            )
-        ).mappings().one()
-    return dict(row)
+async def load_clinvar_release(jobs: Any, assembly: str) -> dict[str, Any]:
+    """A load of NCBI's newest file for ``assembly``, run to its end, as its job ended."""
+    job = await jobs.run_clinvar_load(assembly, requested_by=jobs.STARTUP_REQUESTER)
+    assert job is not None, "another ClinVar load is active"
+    return job.model_dump()

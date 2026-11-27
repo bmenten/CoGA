@@ -19,12 +19,14 @@ left).
 
 An administrator asks for a load on the Reference page; an assembly import from UCSC, and a
 start (``REFERENCE_BOOTSTRAP_CLINVAR``), queue one for a GRCh37 or GRCh38 assembly with no
-ClinVar release (``queue_clinvar_load_if_missing``). As for the DGV load (``dgv_load_jobs``),
-the job is a row of ``clinvar_load_jobs`` run as a background task of the process that queued
-it: one job queued or running at a time, a worker id and a heartbeat, a job whose worker has
-been silent for the stale window closed as failed by the status read and the next request. A
-load an administrator asked for runs, and is released, only while that account is an active
-administrator; a load a start queued is no account's (``STARTUP_REQUESTER``).
+ClinVar release (``queue_clinvar_load_if_missing``); the daily check for a newer release runs
+one to its end itself (``run_clinvar_load``, ``clinvar_weekly_load``). As for the DGV load
+(``dgv_load_jobs``), the job is a row of ``clinvar_load_jobs`` run as a background task of the
+process that queued it: one job queued or running at a time, a worker id and a heartbeat, a job
+whose worker has been silent for the stale window closed as failed by the status read and the
+next request. A load an administrator asked for runs, and is released, only while that account
+is an active administrator; a load a start or the daily check queued is no account's
+(``STARTUP_REQUESTER``, ``WEEKLY_REQUESTER``).
 """
 
 from __future__ import annotations
@@ -85,9 +87,11 @@ from .reference_metadata_service import record_reference_import
 
 logger = logging.getLogger(__name__)
 
-# Who asked for a load no account asked for: a start's, or an assembly import's at a start.
-SystemRequester = Literal["startup-bootstrap"]
+# Who asked for a load no account asked for: a start's, or an assembly import's at a start;
+# the daily check for a newer release (``clinvar_weekly_load``, CLINVAR_WEEKLY_LOAD).
+SystemRequester = Literal["startup-bootstrap", "clinvar-weekly"]
 STARTUP_REQUESTER: SystemRequester = "startup-bootstrap"
+WEEKLY_REQUESTER: SystemRequester = "clinvar-weekly"
 _SYSTEM_REQUESTERS = frozenset(get_args(SystemRequester))
 # The clinical audit chain each release made current is an event of.
 CLINVAR_RELEASE_CHAIN = "system:clinvar-releases"
@@ -210,9 +214,9 @@ async def _close_jobs_whose_worker_is_gone(session: AsyncSession) -> None:
 
 
 async def get_clinvar_load_status(session: AsyncSession) -> ClinvarLoadStatusOut:
-    """The active load, the ten latest, and the current and previous release of each assembly
-    ClinVar publishes a VCF for, as the Reference page polls them. A job whose worker is gone
-    is closed here first."""
+    """Whether the daily check loads a newer release, the active load, the ten latest, and the
+    current and previous release of each assembly ClinVar publishes a VCF for, as the Reference
+    page polls them. A job whose worker is gone is closed here first."""
     await _close_jobs_whose_worker_is_gone(session)
     await session.commit()
     rows = (
@@ -235,7 +239,9 @@ async def get_clinvar_load_status(session: AsyncSession) -> ClinvarLoadStatusOut
             )
         )
     active = next((job for job in jobs if job.status in ("queued", "running")), None)
-    return ClinvarLoadStatusOut(active_job=active, recent_jobs=jobs, assemblies=assemblies)
+    return ClinvarLoadStatusOut(
+        weekly_load=settings.clinvar_weekly_load, active_job=active, recent_jobs=jobs, assemblies=assemblies
+    )
 
 
 def _start(job_id: str) -> None:
@@ -244,16 +250,16 @@ def _start(job_id: str) -> None:
     task.add_done_callback(_RUNNING.discard)
 
 
-async def queue_clinvar_load(
+async def _queue(
     session: AsyncSession,
     *,
     assembly: str,
     requested_by: CurrentUser | SystemRequester,
 ) -> ClinvarLoadJobOut:
-    """Queue the load of ClinVar's newest weekly VCF for the assembly, and start it.
-    ``requested_by`` is the administrator who asked, kept by the account's id, or the system
-    requester that queued it. 400 for an assembly ClinVar publishes no VCF for, 404 for an
-    unknown one, 409 while another load is queued or running."""
+    """Queue the load of ClinVar's newest weekly VCF for the assembly. ``requested_by`` is the
+    administrator who asked, kept by the account's id, or the system requester that queued it.
+    400 for an assembly ClinVar publishes no VCF for, 404 for an unknown one, 409 while another
+    load is queued or running."""
     if assembly not in CLINVAR_ASSEMBLY_FOLDERS:
         raise HTTPException(
             status_code=400,
@@ -299,9 +305,47 @@ async def queue_clinvar_load(
     except IntegrityError as exc:
         await session.rollback()
         raise HTTPException(status_code=409, detail="A ClinVar load is already queued or running.") from exc
-    job = _job_out(row)
+    return _job_out(row)
+
+
+async def queue_clinvar_load(
+    session: AsyncSession,
+    *,
+    assembly: str,
+    requested_by: CurrentUser | SystemRequester,
+) -> ClinvarLoadJobOut:
+    """Queue the load of ClinVar's newest weekly VCF for the assembly (``_queue``), and start it
+    in the background."""
+    job = await _queue(session, assembly=assembly, requested_by=requested_by)
     _start(str(job.id))
     return job
+
+
+async def run_clinvar_load(assembly: str, *, requested_by: SystemRequester) -> ClinvarLoadJobOut | None:
+    """Queue the load of ClinVar's newest weekly VCF for the assembly and run it here to its end:
+    the job as it ended, or None while another load is queued or running."""
+    async with get_postgres_sessionmaker()() as session:
+        try:
+            job = await _queue(session, assembly=assembly, requested_by=requested_by)
+        except HTTPException as exc:
+            if exc.status_code != 409:
+                raise
+            return None
+    await _run_job(str(job.id))
+    async with get_postgres_sessionmaker()() as session:
+        row = (
+            await session.execute(
+                text(f"SELECT {_JOB_COLUMNS} FROM clinvar_load_jobs WHERE id = CAST(:job AS uuid)"),
+                {"job": str(job.id)},
+            )
+        ).mappings().one()
+    return _job_out(row)
+
+
+async def newest_clinvar_release(assembly: str) -> date:
+    """The release of the newest weekly file NCBI lists for the assembly."""
+    async with clinvar_http_client() as http:
+        return (await newest_clinvar_file(http, assembly)).release
 
 
 async def queue_clinvar_load_if_missing(

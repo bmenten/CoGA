@@ -442,7 +442,8 @@ address:
   (`startup-bootstrap`) is no account's, and runs.
 - a ClinVar load (`clinvar_load_jobs._run_job`) is checked as it starts and again before it
   releases its release. Its partition is dropped, and the current ClinVar release stays. The load
-  a start queues (`startup-bootstrap`) is no account's, and runs.
+  a start queues (`startup-bootstrap`), and the one the daily check runs with
+  `CLINVAR_WEEKLY_LOAD` (`clinvar-weekly`), is no account's, and runs.
 
 An import or a refresh already running when its account is deactivated or demoted runs to its
 end: the account is checked as it starts, and stopping an import part-way would leave its

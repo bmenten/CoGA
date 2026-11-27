@@ -705,6 +705,7 @@ export interface ClinvarLoadRequest {
 }
 
 export interface ClinvarLoadStatusOut {
+  weekly_load: boolean;
   active_job: ClinvarLoadJobOut | null;
   recent_jobs: ClinvarLoadJobOut[];
   assemblies: ClinvarAssemblyReleasesOut[];

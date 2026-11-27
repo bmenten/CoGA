@@ -142,9 +142,9 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
         async with sm() as s:
             return await cds.evaluate_classification_drift(s, family_id=label, user=user)
 
-    async def _load(sm: Any, release: date, edit: Any) -> None:
+    async def _load(release: date, edit: Any) -> None:
         ncbi.put(release, clinvar_file(assembly, release, edit=edit))
-        job = await load_clinvar_release(jobs, sm, assembly)
+        job = await load_clinvar_release(jobs, assembly)
         assert (job["status"], job["release"]) == ("completed", release), job["error"]
 
     async def _run() -> None:
@@ -169,7 +169,7 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
             await insert_small_variant_records(
                 assembly, held["family"], [project], [small_variant(_VARIANT, vep_annotations(_CSQ_FIELDS, [annotation]))]
             )
-            await _load(sm, _FIRST, lambda record: record)
+            await _load(_FIRST, lambda record: record)
 
             # (a) The save freezes the variant's ClinVar in the current release.
             async with sm() as s:
@@ -191,7 +191,7 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
             assert (drift["checked"], drift["drifted_count"], drift["drifted"]) == (1, 0, [])
 
             # (b) The same classification, reviewed by an expert panel: noted, not counted.
-            await _load(sm, _REVIEWED, _expert_panel)
+            await _load(_REVIEWED, _expert_panel)
             drift = await _drift(sm)
             assert (drift["checked"], drift["drifted_count"]) == (1, 0)
             [noted] = drift["drifted"]
@@ -218,7 +218,7 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
             assert release["source_version"].startswith("2026-11-29 (clinvar_20261129.vcf.gz, SHA-256 ")
 
             # (c) Classified otherwise: drift, and the sign-out refused until acknowledged.
-            await _load(sm, _RECLASSIFIED, _likely_pathogenic)
+            await _load(_RECLASSIFIED, _likely_pathogenic)
             drift = await _drift(sm)
             assert drift["drifted_count"] == 1
             [drifted] = drift["drifted"]

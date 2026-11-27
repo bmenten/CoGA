@@ -151,7 +151,9 @@ On start the backend (`backend/app/main.py`):
    yet, queues the clinical CNV knowledgebase build, the load of the pinned DGV release and the
    load of ClinVar's newest weekly release (which ClickHouse stores), in the background
    (`REFERENCE_BOOTSTRAP_CLINICAL_CNVS`, `REFERENCE_BOOTSTRAP_DGV`,
-   `REFERENCE_BOOTSTRAP_CLINVAR`); and starts the scheduled ClickHouse integrity check;
+   `REFERENCE_BOOTSTRAP_CLINVAR`); and starts the scheduled ClickHouse integrity check and, with
+   `CLINVAR_WEEKLY_LOAD`, the daily check for a newer ClinVar release
+   ([data-import.md](data-import.md#clinvar));
 5. starts the gene-reference refresh worker and the family-package import workers
    (`FAMILY_IMPORT_WORKER_COUNT`; with 0 it starts none and leaves the jobs to
    [import-worker processes](#import-worker-processes), as Docker Compose does). With import
