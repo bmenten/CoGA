@@ -367,6 +367,11 @@ class RecessiveCandidate:
     # candidates apply): the mother's allele, known from the plasma alone, is left out; the
     # father's, known from his own genotype, stays with its inheritance not told.
     plasma_call_retained: bool = True
+    # False when the locked criteria do not read the allele as the father's: the cohort count of
+    # a father's allele (the plasmas that show it or the fathers that carry it) reads it as an
+    # unannotated common allele (nipt_diagnostic_filters.is_cohort_common). The mother's allele,
+    # read off the plasma, is counted by the plasmas alone.
+    paternal_counted: bool = True
 
 
 def _frequency_note(candidate: RecessiveCandidate) -> str | None:
@@ -447,8 +452,11 @@ def _paternal_allele(candidate: RecessiveCandidate) -> RecessiveAllele | None:
     allele only where the mother does not carry it and the plasma's call is retained:
     where she carries it too (``maternal_also_carrier``), or the call fails the technical
     filter, the inheritance is not told (the ½ prior, an undetermined status). A site both
-    parents carry is paired on its own (``_shared_site_pair``)."""
+    parents carry is paired on its own (``_shared_site_pair``). An allele the locked criteria do
+    not count as the father's (``paternal_counted``) is none."""
     classification = candidate.classification
+    if not candidate.paternal_counted:
+        return None
     if candidate.mode == "x_linked_sex_unknown":
         # A man's X: hemizygous, a het call there an artefact. Passed to a daughter, never to
         # a son.

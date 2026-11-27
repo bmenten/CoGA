@@ -128,31 +128,45 @@ def _record(variant_id: str, calls: list[tuple[str, list[int], dict[str, float]]
 
 
 async def _seed_postgres() -> str:
-    """The assembly, and the six families' plasmas and fathers, the plasmas tagged with the
-    assay panel; the assembly's UUID."""
+    """The assembly, and the six families' plasmas (their mothers) and fathers, the plasmas
+    tagged with the assay panel; family 6 also has a former father, no longer active, and a
+    seventh family's plasma is of another panel. The assembly's UUID."""
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.tests.integration._datastores import fresh_assembly, fresh_species
 
     async with get_postgres_sessionmaker()() as session:
         species = await fresh_species(session, f"e2e nipt seed {_TAG}")
         assembly_id = await fresh_assembly(session, species, _ASSEMBLY)
-        for index in range(1, 7):
+        for index in range(1, 8):
             family = (
                 await session.execute(
                     text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
                     {"f": f"E2ESEED{index}-{_TAG}"},
                 )
             ).scalar_one()
-            for sample, sex, metadata in (
-                (_sample("CFDNA", index), "female", {"assays": ["nipt_cfdna"], "assay_panels": {"monogenic_nipt": _PANEL}}),
-                (_sample("FATHER", index), "male", {}),
-            ):
+            panel = _PANEL if index < 7 else "OTHER-PANEL"
+            members = [
+                (_sample("CFDNA", index), "female", {"assays": ["nipt_cfdna"], "assay_panels": {"monogenic_nipt": panel}}, "mother", True),
+                (_sample("FATHER", index), "male", {}, "father", True),
+            ]
+            if index == 6:
+                members.append((_sample("FORMERFATHER", index), "male", {}, "father", False))
+            for sample, sex, metadata, role, active in members:
+                sample_uuid = (
+                    await session.execute(
+                        text(
+                            "INSERT INTO samples (sample_id, family_id, sex, metadata) "
+                            "VALUES (:s, CAST(:f AS uuid), :sex, CAST(:m AS jsonb)) RETURNING id::text"
+                        ),
+                        {"s": sample, "f": family, "sex": sex, "m": json.dumps(metadata)},
+                    )
+                ).scalar_one()
                 await session.execute(
                     text(
-                        "INSERT INTO samples (sample_id, family_id, sex, metadata) "
-                        "VALUES (:s, CAST(:f AS uuid), :sex, CAST(:m AS jsonb))"
+                        "INSERT INTO family_members (family_id, sample_id, role, active) "
+                        "VALUES (CAST(:f AS uuid), CAST(:s AS uuid), :role, :active)"
                     ),
-                    {"s": sample, "f": family, "sex": sex, "m": json.dumps(metadata)},
+                    {"f": family, "s": sample_uuid, "role": role, "active": active},
                 )
         await session.commit()
     return assembly_id
@@ -171,6 +185,7 @@ async def _exercise() -> dict[str, Any]:
     from backend.app.services.nipt_analysis import NiptQualityThresholds
     from backend.app.services.nipt_artifact_pg import (
         assay_cfdna_carrier_samples,
+        assay_father_samples,
         auto_seed_nipt_artifacts,
         list_nipt_artifacts,
         preview_auto_seed_nipt_artifacts,
@@ -193,6 +208,7 @@ async def _exercise() -> dict[str, Any]:
         scope = {"assembly_id": assembly_id, "assay_key": _PANEL, "min_unexplained_samples": _THRESHOLD}
         async with get_postgres_sessionmaker()() as session:
             carriers = await assay_cfdna_carrier_samples(session, assay_key=_PANEL)
+            fathers = await assay_father_samples(session, cfdna_samples=carriers)
             preview = await preview_auto_seed_nipt_artifacts(session, **scope)
             listed_after_preview = await list_nipt_artifacts(session, assembly_id=assembly_id, assay_key=_PANEL)
             seeded = await auto_seed_nipt_artifacts(session, **scope)
@@ -215,6 +231,7 @@ async def _exercise() -> dict[str, Any]:
         )
         return {
             "carriers": sorted(carriers),
+            "fathers": fathers,
             "preview": preview,
             "listed_after_preview": listed_after_preview,
             "preview_after_seed": preview_after_seed,
@@ -242,6 +259,12 @@ def run() -> dict[str, Any]:
 
 def test_the_seed_reads_the_assays_plasmas_only(run) -> None:
     assert run["carriers"] == sorted(_sample("CFDNA", index) for index in range(1, 7))
+
+
+def test_the_assays_fathers_are_the_active_fathers_of_its_plasmas_families(run) -> None:
+    # Of families 1-6, whose plasmas the assay holds: not family 6's former father, nor the
+    # father of family 7, whose plasma is of another panel.
+    assert run["fathers"] == sorted(_sample("FATHER", index) for index in range(1, 7))
 
 
 def test_only_the_unexplained_low_vaf_artefact_is_seeded(run) -> None:

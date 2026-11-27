@@ -102,9 +102,11 @@ its data, reviews and sign-out are its own.
   is common in the population, stays listed, marked *kept by the recurrence filter*. The filter narrows
   the list only; the fetal fraction and the classifications do not change. The count grows with every
   pregnancy imported, so it is also how you find candidates for the assay's artifact list.
-- **Leave out alleles without a population frequency that 3 or more cfDNA samples of this assay call**
+- **Leave out alleles without a population frequency that 3 or more families of this assay carry**
   applies the report's rule: such an allele (often an MNV, an indel in a homopolymer or repeat, or a
-  paralogue) is common in the assay, not rare. An allele ClinVar calls pathogenic stays listed. It can
+  paralogue) is common in the assay, not rare. An allele seen in the plasma counts the plasmas that
+  show it; the father's allele counts those or the fathers that carry it, whichever are more. An
+  allele ClinVar calls pathogenic stays listed. It can
   hide a pathogenic allele that gnomAD does not list and ClinVar does not call pathogenic once 3
   pregnancies of the assay carry it: turn it off to check a gene that matters.
 - **Download CSV**, above the variants, saves the list as a CSV file: every variant the list

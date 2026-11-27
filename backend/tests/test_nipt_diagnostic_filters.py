@@ -11,6 +11,7 @@ from backend.app.services.nipt_diagnostic_filters import (
     NiptDiagnosticCriteria,
     clinvar_override,
     clinvar_strictly_pathogenic,
+    cohort_count,
     dominant_failures,
     has_protein_effect,
     is_cohort_common,
@@ -76,6 +77,44 @@ def test_rarity_differs_for_dominant_and_recessive_and_an_unannotated_common_all
     assert not is_rare_recessive(_annotation(af=None, carriers=2), CRITERIA)
     # A known frequency is never "cohort common", however often the allele recurs.
     assert not is_cohort_common(_annotation(af=0.0001, carriers=9), CRITERIA)
+
+
+@pytest.mark.parametrize(
+    ("other_plasmas", "plasma_calls", "other_fathers", "father_carries", "plasma_count", "father_count"),
+    [
+        # Called by this plasma and 2 others: 3 plasmas, common on both sides.
+        (2, True, 0, False, 3, 3),
+        # A father's allele this plasma does not show, called by 2 other plasmas: 2 either way
+        # (2 plasmas; this father alone), rare. This plasma never counts when it shows nothing.
+        (2, False, 0, True, 2, 2),
+        # Carried by this father and 2 others, no plasma calls it: common as the father's allele.
+        (0, False, 2, True, 0, 3),
+        # The larger of the two counts, never their sum.
+        (1, True, 1, True, 2, 2),
+    ],
+)
+def test_the_cohort_count_reads_the_plasmas_and_for_the_fathers_allele_the_fathers_too(
+    other_plasmas: int,
+    plasma_calls: bool,
+    other_fathers: int,
+    father_carries: bool,
+    plasma_count: int,
+    father_count: int,
+) -> None:
+    # The R validation's count of an unannotated allele (v0.7.3): the plasmas that show it; for
+    # the father's allele of the recessive pairing, those or the fathers that carry it, whichever
+    # are more, this family's each counted only when it shows or carries it.
+    annotation = DiagnosticAnnotation(
+        max_population_af=None, impact="MODERATE", spliceai_max=None, clinvar_pathogenic=False,
+        other_cfdna_carriers=other_plasmas, plasma_calls=plasma_calls,
+        other_fathers=other_fathers, father_carries=father_carries,
+    )
+    assert (cohort_count(annotation), cohort_count(annotation, "father")) == (plasma_count, father_count)
+    assert is_cohort_common(annotation, CRITERIA) is (plasma_count >= 3)
+    assert is_cohort_common(annotation, CRITERIA, "father") is (father_count >= 3)
+    assert (recessive_failures(annotation, CRITERIA, "father") == ["not_rare"]) is (father_count >= 3)
+    # A de novo or dominant candidate is read off the plasma: the fathers never count for it.
+    assert is_rare_dominant(annotation, CRITERIA) is (plasma_count < 3)
 
 
 def test_clinvar_counts_as_rare_for_the_recessive_pairing_alone_up_to_five_percent() -> None:

@@ -396,6 +396,29 @@ async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) 
     return [sample_id for sample_id, scope in await _cfdna_sample_scopes(session) if scope == assay_key]
 
 
+async def assay_father_samples(session: AsyncSession, *, cfdna_samples: Sequence[str]) -> list[str]:
+    """The IDs of the fathers of the families that hold one of ``cfdna_samples`` (an assay's
+    cfDNA samples): their active ``father`` members, whose calls the cohort count of a father's
+    allele reads (``clickhouse_family_variants.count_cfdna_recurrence``)."""
+    if not cfdna_samples:
+        return []
+    result = await session.execute(
+        text(
+            """
+            SELECT DISTINCT father.sample_id
+            FROM family_members fm
+            JOIN samples father ON father.id = fm.sample_id
+            WHERE fm.role = 'father'
+              AND fm.active
+              AND fm.family_id IN (SELECT family_id FROM samples WHERE sample_id = ANY(:cfdna_samples))
+            ORDER BY father.sample_id
+            """
+        ),
+        {"cfdna_samples": list(cfdna_samples)},
+    )
+    return [str(sample_id) for (sample_id,) in result.all()]
+
+
 async def list_nipt_artifact_scopes(session: AsyncSession, *, assembly_id: str) -> list[dict[str, Any]]:
     """The scopes an artifact list of the assembly can have, for the admin page to choose
     from: the default scope, each scope a cfDNA sample's ``assay_panel`` resolves to and

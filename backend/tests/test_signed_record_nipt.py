@@ -319,7 +319,10 @@ def _wire(
     async def carriers(_session, *, assay_key):
         return {"other-cfdna": "OTHER1"}
 
-    async def count_recurrence(_assembly, variant_ids, *, carrier_samples, exclude_family_uuid, rules):
+    async def fathers(_session, *, cfdna_samples):
+        return ["OTHERFATHER1"]
+
+    async def count_recurrence(_assembly, variant_ids, *, carrier_samples, father_samples, exclude_family_uuid, rules):
         assert exclude_family_uuid == FAMILY_UUID
         if recurrence_counts is not None:
             recurrence_counts.append(list(variant_ids))
@@ -340,6 +343,7 @@ def _wire(
     monkeypatch.setattr(nipt_service, "load_nipt_gate_bound", gate_bound_loader(gate_bounds))
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
     monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", carriers)
+    monkeypatch.setattr(nipt_service, "assay_father_samples", fathers)
     monkeypatch.setattr(nipt_service, "count_cfdna_recurrence", count_recurrence)
     monkeypatch.setattr(nipt_service, "count_other_cfdna_samples", count_others)
     monkeypatch.setattr(nipt_service, "coverage_tracks_by_sample", fake_coverage_tracks)

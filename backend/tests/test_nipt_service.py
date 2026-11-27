@@ -714,6 +714,53 @@ async def test_the_cohort_rule_leaves_out_an_unannotated_allele_common_in_the_as
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    ("other_fathers", "listed"),
+    [
+        # 2 other plasmas call it, this one not, this father carries it: max(2, 1) = 2, rare.
+        (0, {"GENEA", "GENEC"}),
+        # 2 other fathers carry it too: max(2, 3) = 3, never counted as the father's allele.
+        (2, {"GENEC"}),
+    ],
+)
+async def test_the_cohort_rule_counts_a_fathers_allele_by_the_plasmas_or_the_fathers(
+    monkeypatch: pytest.MonkeyPatch, other_fathers: int, listed: set[str]
+) -> None:
+    # As the R validation counts the father's allele of the recessive pairing: the plasmas that
+    # show it or the fathers that carry it, whichever are more, this family's own each counted
+    # only when it does. GENEA's father allele (1-1) is one this plasma shows no read of.
+    records = _recessive_filtered_records()
+    records[0] = dataclasses.replace(
+        records[0],
+        calls=[_call("father-1", "0/1", dp=50, ad=[25, 25]), _call("cfdna-1", "0/0", dp=400, ad=[400, 0])],
+    )
+    wire_nipt_reads(
+        monkeypatch,
+        family=_nipt_family(),
+        cohort=_cohort_cat7_records(),
+        filtered=records,
+        carrier_samples=["cfdna-2", "cfdna-3"],
+        father_samples=["father-1", "father-2", "father-3"],
+        recurrence={"1-1-A-G": CfdnaRecurrence(carriers=2, maternal=2, fathers=other_fathers)},
+        other_samples=2,
+    )
+
+    async def recessive(exclude_cohort_common: bool) -> set[str]:
+        result = await get_family_nipt_variants(
+            session=None,  # type: ignore[arg-type]
+            family_id="NIPT001",
+            user=None,  # type: ignore[arg-type]
+            query_filters={"gene": "GENEA GENEB GENEC"},
+            inheritance="recessive_at_risk",
+            exclude_cohort_common=exclude_cohort_common,
+        )
+        return {gene.risk.gene for gene in result.recessive_genes}
+
+    assert await recessive(True) == listed
+    assert await recessive(False) == {"GENEA", "GENEC"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("inheritance", "carrier_calls"),
     [
         ("recessive_at_risk", CarrierCallRows(plasma_sample_id="cfdna-1", father_sample_id="father-1", maternal_vaf=0.25)),
