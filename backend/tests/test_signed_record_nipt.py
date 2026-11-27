@@ -456,6 +456,35 @@ async def test_a_reported_chrx_variant_is_frozen_with_the_fetal_sex_the_variant_
 
 
 @pytest.mark.asyncio
+async def test_a_mothers_chrx_allele_in_a_multiple_pregnancy_is_a_recessive_finding_of_undetermined_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Twins: no fetal sex classifies chrX outside the PARs, yet the mother carries an X-linked
+    # allele: a son of hers would inherit it alone. The recessive view lists it, nothing told,
+    # and the record freezes it as the list gives it.
+    maternal_x = _record("X-3000050-C-T", [_call(PLASMA, [1020, 980])], genes=["GENEX"])
+    fetuses = ("FETUS1", "FETUS2")
+    _wire(monkeypatch, sites=[*_paternal_x_sites(), maternal_x], targets=_targets(y_mean=1.0), fetuses=fetuses)
+    listed = await nipt_service.get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPTFAM1",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "GENEX"},
+        inheritance="recessive_at_risk",
+    )
+    [gene] = listed.recessive_genes
+    assert (gene.risk.gene, gene.risk.mode, gene.risk.status, gene.risk.risk) == (
+        "GENEX", "x_linked_sex_unknown", "undetermined", None,
+    )
+    assert [item.record.variant_id for item in gene.variants] == [maternal_x.variant_id]
+    section = await _section([maternal_x.variant_id], fetuses=fetuses)
+    [frozen] = section["recessive_genes"]
+    assert (frozen["gene"], frozen["mode"], frozen["status"], frozen["risk"]) == (
+        "GENEX", "x_linked_sex_unknown", "undetermined", None,
+    )
+
+
+@pytest.mark.asyncio
 async def test_each_reported_variant_is_frozen_as_the_variant_list_classifies_it(monkeypatch: pytest.MonkeyPatch) -> None:
     _wire(monkeypatch)
     section = await _section(["7-100-A-G", "7-200-C-T", "7-400-C-T"])
@@ -628,7 +657,7 @@ async def test_the_variant_lists_reported_view_is_what_a_sign_out_freezes(monkey
 async def test_the_recessive_risk_of_the_reported_variants_genes(monkeypatch: pytest.MonkeyPatch) -> None:
     _wire(monkeypatch)
     section = await _section(["7-100-A-G", "7-200-C-T", "7-500-G-A"])
-    page = {gene.gene: gene for gene in (await nipt_service.get_family_nipt_variants(
+    page = {gene.risk.gene: gene.risk for gene in (await nipt_service.get_family_nipt_variants(
         session=None, family_id="NIPTFAM1", user=None,  # type: ignore[arg-type]
         query_filters={"gene": "GENEA"}, inheritance="recessive_at_risk",
     )).recessive_genes}

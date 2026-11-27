@@ -6,6 +6,7 @@ import {
   type FamilyMember,
   type SmallVariant,
   type SmallVariantPage,
+  type SmallVariantResultGroup,
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
@@ -87,6 +88,28 @@ type SmallVariantResultsProps = {
   readOnly?: boolean;
 };
 
+// The sections of a page's grouped results, in the page's order: each kind of group under its
+// heading and what it holds.
+const GROUP_SECTIONS: { groupType: SmallVariantResultGroup['group_type']; title: string; description: string }[] = [
+  {
+    groupType: 'compound_het',
+    title: 'Compound-het genes',
+    description:
+      'Each gene with two or more variants that can be the recessive cause together, by the parent each came from, with the pairs among them.',
+  },
+  {
+    groupType: 'carrier_gene',
+    title: 'Carrier genes',
+    description: 'Each gene the couple is at risk in, with every variant either partner carries there.',
+  },
+  {
+    groupType: 'nipt_recessive_gene',
+    title: 'Recessive genes',
+    description:
+      "Each gene in which both parents carry a variant, and each X-linked gene in which a parent's variant counts for the fetal sex, with every carrier variant there and which of them the fetus inherited. The probabilities that the fetus is affected (it inherited a maternal and a paternal variant), a carrier, or neither assume the variants are pathogenic and in trans. An inheritance between 20% and 80%, or one the cfDNA did not tell, is not told; a carrier couple's prior is 25%. Screening, not diagnosis: confirm with invasive testing.",
+  },
+];
+
 export default function SmallVariantResults({
   assemblyName,
   assemblyVersion,
@@ -118,12 +141,9 @@ export default function SmallVariantResults({
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportWarning, setExportWarning] = useState<string | null>(null);
   const resultGroups = data?.variant_groups || [];
-  const compoundHetGenes = resultGroups.filter((group) => group.group_type === 'compound_het');
-  const carrierGenes = resultGroups.filter((group) => group.group_type === 'carrier_gene');
   const hasFlatVariants = Boolean(data?.variants.length);
-  const hasCompoundHetGenes = Boolean(compoundHetGenes.length);
-  const hasCarrierGenes = Boolean(carrierGenes.length);
-  const hasResults = hasFlatVariants || hasCompoundHetGenes || hasCarrierGenes;
+  const hasGroups = Boolean(resultGroups.length);
+  const hasResults = hasFlatVariants || hasGroups;
   // A maximum gnomAD count filter cannot exclude a variant without that count.
   const countNote = gnomadCountNote(requestQueryString, data);
   const resultsCount = data ? describeResultsCount(data) : null;
@@ -266,35 +286,22 @@ export default function SmallVariantResults({
           </div>
         ) : (
           <div className="space-y-6">
-            {hasCompoundHetGenes ? (
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <h3 className="section-title">Compound-het genes</h3>
-                  <p className="table-subtle">
-                    Each gene with two or more variants that can be the recessive cause together,
-                    by the parent each came from, with the pairs among them.
-                  </p>
+            {GROUP_SECTIONS.map(({ groupType, title, description }) => {
+              const groups = resultGroups.filter((group) => group.group_type === groupType);
+              return groups.length ? (
+                <div key={groupType} className="space-y-3">
+                  <div className="space-y-1">
+                    <h3 className="section-title">{title}</h3>
+                    <p className="table-subtle">{description}</p>
+                  </div>
+                  <SmallVariantGroupCards groups={groups} memberView={resolvedViewMode} {...cardProps} />
                 </div>
-                <SmallVariantGroupCards groups={compoundHetGenes} memberView={resolvedViewMode} {...cardProps} />
-              </div>
-            ) : null}
-
-            {hasCarrierGenes ? (
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <h3 className="section-title">Carrier genes</h3>
-                  <p className="table-subtle">
-                    Each gene the couple is at risk in, with every variant either partner carries
-                    there.
-                  </p>
-                </div>
-                <SmallVariantGroupCards groups={carrierGenes} memberView={resolvedViewMode} {...cardProps} />
-              </div>
-            ) : null}
+              ) : null;
+            })}
 
             {hasFlatVariants ? (
               <div className="space-y-3">
-                {hasCompoundHetGenes || hasCarrierGenes ? (
+                {hasGroups ? (
                   <div className="space-y-1">
                     <h3 className="section-title">Single variants</h3>
                     <p className="table-subtle">

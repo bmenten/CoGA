@@ -515,7 +515,31 @@ describe('preset frequency ceilings bound popmax', () => {
     expect(result.current.draftFilters.panel_id).toBe('');
   });
 
-  it('sets the BeGECS panel for the carrier screen alone', async () => {
+  it('reads a NIPT pregnancy\'s parents as the carrier screen reads a couple', async () => {
+    const { result } = renderHook(() =>
+      useSmallVariantSearchState({
+        family,
+        locationSearch: '',
+        navigate: () => {},
+        panelsLoaded: true,
+        carrierScreeningPanelId: 'BEGECS',
+      }),
+    );
+    await waitFor(() => expect(result.current.filters).toBeTruthy());
+
+    act(() => result.current.applyPreset('nipt_recessive'));
+    const draft = result.current.draftFilters;
+    expect(draft.inheritance).toBe('recessive_at_risk');
+    expect(draft.panel_id).toBe('BEGECS');
+    expect(draft.impact).toBe('HIGH, MODERATE');
+    expect([draft.max_gnomad_af, draft.max_gnomad_popmax_af]).toEqual(['0.05', '0.05']);
+    expect(draft.clinvar_pathogenic_override).toBe('true');
+    expect(draft.exclude_clinvar).toBe('Benign, Likely benign');
+    // The view's own grouping, not the small-variant page's couple screen.
+    expect(draft.expanded_carrier_screening).toBe('');
+  });
+
+  it('sets the BeGECS panel for the carrier screens alone', async () => {
     const { result } = renderHook(() =>
       useSmallVariantSearchState({
         family,

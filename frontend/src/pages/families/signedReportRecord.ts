@@ -38,11 +38,16 @@ import {
   FATHER_STATE_LABELS,
   RECESSIVE_STATUS_LABELS,
   depth,
+  isRecessiveMode,
+  isRecessiveStatus,
   niptEvidenceSummary,
   pct,
   readsText,
+  recessivePairText,
   recessiveProbabilitiesText,
   recurrenceText,
+  type RecessiveMode,
+  type RecessiveStatus,
 } from './niptClassification';
 import { DIAGNOSTIC_FLAG_LABELS, describeDiagnosticCriteria } from './NiptDiagnosticCandidates';
 import { formatAlleleFrequency, scoreBesideClass } from './reportNarrative';
@@ -1030,10 +1035,13 @@ export interface SignedNiptVariant {
  */
 export interface SignedNiptRecessiveGene {
   gene: string | null;
-  /** affected, carrier, unaffected or undetermined. */
-  status: string | null;
-  /** autosomal; x_linked_daughter (paired as an autosome); x_linked_son (his mother's allele alone). */
-  mode: string | null;
+  /** affected, carrier, unaffected, carrier_or_unaffected or undetermined. */
+  status: RecessiveStatus | null;
+  /**
+   * autosomal; x_linked_daughter (paired as an autosome, one parent's allele at most a carrier);
+   * x_linked_son (his mother's allele alone); x_linked_sex_unknown (each parent's alleles).
+   */
+  mode: RecessiveMode | null;
   risk: number | null;
   carrierProbability: number | null;
   unaffectedProbability: number | null;
@@ -2234,17 +2242,21 @@ const countEntries = (value: unknown): [string, number][] =>
         .map((key): [string, number] => [key, number(value[key]) as number])
     : [];
 
-const parseNiptRecessiveGene = (gene: Json): SignedNiptRecessiveGene => ({
-  gene: text(gene.gene),
-  status: text(gene.status),
-  mode: text(gene.mode),
-  risk: number(gene.risk),
-  carrierProbability: number(gene.carrier_probability),
-  unaffectedProbability: number(gene.unaffected_probability),
-  riskUsesPrior: gene.risk_uses_prior === true,
-  maternalVariantId: text(gene.maternal_variant_id),
-  paternalVariantId: text(gene.paternal_variant_id),
-});
+const parseNiptRecessiveGene = (gene: Json): SignedNiptRecessiveGene => {
+  const status = text(gene.status);
+  const mode = text(gene.mode);
+  return {
+    gene: text(gene.gene),
+    status: status !== null && isRecessiveStatus(status) ? status : null,
+    mode: mode !== null && isRecessiveMode(mode) ? mode : null,
+    risk: number(gene.risk),
+    carrierProbability: number(gene.carrier_probability),
+    unaffectedProbability: number(gene.unaffected_probability),
+    riskUsesPrior: gene.risk_uses_prior === true,
+    maternalVariantId: text(gene.maternal_variant_id),
+    paternalVariantId: text(gene.paternal_variant_id),
+  };
+};
 
 const parseNiptVariant = (entry: Json): SignedNiptVariant => {
   const plasma = isObject(entry.plasma) ? entry.plasma : {};
@@ -3200,22 +3212,26 @@ export const describeSignedGate = (gate: SignedNiptExpectedFetalReads): string =
 
 /** The pair a recessive gene's status rests on, as signed: " (maternal A, paternal B)". */
 export const describeSignedRecessivePair = (gene: SignedNiptRecessiveGene): string => {
-  if (gene.maternalVariantId && gene.paternalVariantId) {
-    return gene.maternalVariantId === gene.paternalVariantId
-      ? ` (${gene.maternalVariantId}, a site both parents carry)`
-      : ` (maternal ${gene.maternalVariantId}, paternal ${gene.paternalVariantId})`;
-  }
-  return gene.maternalVariantId ? ` (maternal ${gene.maternalVariantId})` : '';
+  const pair = recessivePairText(gene.maternalVariantId, gene.paternalVariantId);
+  return pair ? ` (${pair})` : '';
 };
 
 /**
  * A recessive gene's fetal status as signed, worded as the NIPT page words it:
- * "Affected: affected 92.0%, carrier 7.6%, unaffected 0.4%"; a son's X-linked gene says so.
+ * "Affected: affected 92.0%, carrier 7.6%, unaffected 0.4%"; an X-linked gene says so, and of a
+ * fetus whose sex is not known that nothing is told.
  */
-export const describeSignedRecessiveStatus = (gene: SignedNiptRecessiveGene): string =>
-  `${gene.status ? (RECESSIVE_STATUS_LABELS[gene.status] ?? gene.status) : 'Status not in the record'}${
-    gene.mode === 'x_linked_son' || gene.mode === 'x_linked_daughter' ? ' (X-linked)' : ''
-  }: ${recessiveProbabilitiesText(gene.risk, gene.carrierProbability, gene.unaffectedProbability, gene.mode === 'x_linked_son')}`;
+export const describeSignedRecessiveStatus = (gene: SignedNiptRecessiveGene): string => {
+  const status = gene.status ? RECESSIVE_STATUS_LABELS[gene.status] : 'Status not in the record';
+  if (gene.mode === null) return `${status}: how the gene was read is not in the record`;
+  const probabilities = recessiveProbabilitiesText(
+    gene.risk,
+    gene.carrierProbability,
+    gene.unaffectedProbability,
+    gene.mode,
+  );
+  return `${status}${gene.mode === 'autosomal' ? '' : ' (X-linked)'}: ${probabilities ?? 'not told, the fetal sex is not known'}`;
+};
 
 /** A reported variant's NIPT classification as signed, worded as the NIPT page words it. */
 export const describeNiptVariant = (variant: SignedNiptVariant): string => {

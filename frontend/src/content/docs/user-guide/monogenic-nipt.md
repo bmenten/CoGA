@@ -79,9 +79,12 @@ its data, reviews and sign-out are its own.
   - *Paternal, inherited by the fetus* and *Maternal, inherited by the fetus*: each parent's alleles
     with the probability that the fetus inherited them. **Also list the alleles the fetus did not
     inherit** adds the rest.
-  - *Recessive: both parents carriers*: the genes where both parents carry an allele (and, for a son,
-    the X-linked genes in which his mother carries one), in a table with per gene the fetal status
-    (affected, carrier, unaffected or undetermined) and its probabilities.
+  - *Recessive: both parents carriers*: the genes where both parents carry an allele, and the X-linked
+    genes read by the fetal sex (a son's mother's allele, one parent's allele of a daughter, each
+    parent's when the sex is not known), each as a card as in the expanded carrier screen: which of its
+    variants the fetus inherited (both, one of the two, neither), the pair that status rests on, and the
+    fetal status with its probabilities. The status reads every carrier variant: the categories and
+    **Hide recurrent low-VAF calls** choose which genes are listed, not their status.
 - **Each variant** carries its category, the plasma reads, the father's genotype, the probabilities
   that the fetus inherited the paternal or maternal allele or is homozygous, a de novo candidate's
   priority, any flags and **Other cfDNA samples**: in how many other cfDNA samples of the assay, in
@@ -105,9 +108,12 @@ its data, reviews and sign-out are its own.
   **Coverage details** opens the coverage page: the genes below target and above it, each opening to
   its targets and their depth. **Back to NIPT** returns to the NIPT page with your filters.
 
-The built-in presets **De novo**, **Paternal, inherited** and **Recessive (both parents carrier)** set a
-view with high or moderate impact and a gnomAD frequency of 1% or less (a ClinVar pathogenic or likely
-pathogenic record overrides both); **De novo** also leaves out ClinVar benign and likely benign. The page opens
+The built-in presets **De novo** and **Paternal, inherited** set a view with high or moderate impact and a
+gnomAD frequency of 1% or less (a ClinVar pathogenic or likely pathogenic record overrides both); **De
+novo** also leaves out ClinVar benign and likely benign. **Recessive (both parents carrier)** reads the
+parents as the expanded carrier screen reads a couple: the *BeGECS v3* panel, high or moderate impact, a
+gnomAD frequency below 5% (a ClinVar pathogenic or likely pathogenic record overrides both), ClinVar
+benign and likely benign left out. The page opens
 on **De novo** on the **Mendeliome** panel, named under the presets as *Active filter: De novo,
 Mendeliome panel* (*default*), as on the small-variant page. Pick a narrower panel if you need one. A
 link with its own filters, such as **Back to NIPT**, opens on those.
@@ -115,7 +121,8 @@ link with its own filters, such as **Back to NIPT**, opens on those.
 > **Read the probabilities, not only the category.** A de novo or paternal allele shows clearly at any
 > fetal fraction. Whether the fetus inherited a *maternal* allele needs depth and a fair fetal fraction:
 > check its probability. An inheritance between 20% and 80% leaves a recessive gene's status
-> undetermined. The recessive status assumes both alleles are pathogenic and, at two sites, in trans;
+> undetermined, or *not affected (carrier status undetermined)* when the other allele surely did not
+> reach the fetus. The recessive status assumes both alleles are pathogenic and, at two sites, in trans;
 > an allele without a population frequency (every MNV) is noted.
 
 ### The NIPT report

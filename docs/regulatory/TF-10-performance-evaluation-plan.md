@@ -118,7 +118,7 @@ agreement estimates.
   - the **QC gate** on the expected fetal reads (pass or fail);
   - the **per-variant zygosity category** and fetal-inheritance probability, on the autosomes and on chrX by the fetal sex;
   - the **locked diagnostic candidates** per view (de novo, paternal, maternal) within the analysis's diagnostic gene panel;
-  - the **recessive fetal status** per gene (affected, carrier, unaffected, undetermined);
+  - the **recessive fetal status** per gene (affected, carrier, unaffected, not affected with the carrier status undetermined, undetermined);
   - the **inheritance-preset conclusions** (de novo, paternal/maternal dominant, recessive at-risk).
 - **Inputs:** the NIPT-M pipeline's single-sample cfDNA and paternal annotated VCFs with their per-target coverage tables (or combined two-sample VCFs with coverage), pedigree, and the analysis's diagnostic gene panel; external FF where available.
 - **Metrics:**
@@ -130,13 +130,13 @@ agreement estimates.
 - **Proposed acceptance (confirm):**
   - FF within ‹±X absolute / ±Y%› of the comparator.
   - **No missed at-risk fetal call in a sample that passes the QC gate** (a false negative is the safety-critical error of a screening test).
-  - No fetus the comparator shows affected given a recessive status of carrier or unaffected (undetermined is not a miss).
+  - No fetus the comparator shows affected given a recessive status of carrier, unaffected, or not affected with the carrier status undetermined (undetermined is not a miss).
   - Category concordance ≥‹threshold› at adequate FF/coverage.
   - Correct low-confidence behaviour at a low FF or depth: no forced call, and the gate fails below its bound.
 - **Edge cases:**
   - A low fetal fraction. The 22 development families had a high FF (10.6–36.8 %, median 14.5 %); below 8 % the R validation simulated, not observed. Include pregnancies below 8 %.
   - Low depth.
-  - A son's X-linked gene; a homozygous parent.
+  - A son's X-linked gene; a daughter's X-linked allele from one parent; the X-linked alleles of a fetus whose sex is not known, and of twins; a homozygous parent.
   - A call outside the capture targets (left out of the estimates).
   - A de novo indel in a repeat (low confidence); an allele the ClinVar override admits.
   - Category-8 dropout; FF far from the comparator.
@@ -304,7 +304,9 @@ pull request updates this list only when it adds clinical behaviour that no area
       hemizygous model), and left unclassified when the sex is not known.
     - **The calls:** the fetal-inheritance probabilities; the de novo triage; the locked
       diagnostic candidates frozen with their criteria; the per-gene recessive fetal status
-      (homozygous parents, a son's X-linked genes, the 20–80 % band left undetermined); an
+      (homozygous parents; a son's X-linked genes, one parent's allele of a daughter, and either
+      parent's when the fetal sex is not known; the 20–80 % band left undetermined, or not affected
+      beside an allele surely not inherited; a variant in its card's gene); an
       allele written as an MNV in one sample and as SNVs in the other.
     - **The artifacts and the report:** the audited artifact list and its import from the
       pipeline's recurrent table, a father's allele protected from it; each allele's recurrence

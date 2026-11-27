@@ -9,6 +9,7 @@ import {
   ACMG_CLASSIFICATION_LABELS,
   type CompoundHetPair,
   type FamilyMember,
+  type NiptRecessiveGene,
   type SmallVariant,
   type SmallVariantCarrierGene,
   type SmallVariantCompoundHetGene,
@@ -441,5 +442,133 @@ describe('SmallVariantGroupCards carrier genes', () => {
     expect(gene).toHaveClass('variant-card--collapsed');
     expect(gene.querySelectorAll('article.small-variant-card')).toHaveLength(0);
     expect(within(gene).getByText(/c\.1521_1523del\s+\+\s+c\.3846G>A\s+\+\s+c\.1624G>T/)).toBeInTheDocument();
+  });
+});
+
+const recessiveGene = (fields: Partial<NiptRecessiveGene> & Pick<NiptRecessiveGene, 'variants'>) =>
+  ({
+    group_type: 'nipt_recessive_gene',
+    group_key: 'nipt-recessive-gene:ENSG0A',
+    gene: 'GENEA',
+    gene_id: 'ENSG0A',
+    maternal: [],
+    paternal: [],
+    risk: null,
+    maternal_variant_id: null,
+    paternal_variant_id: null,
+    risk_uses_prior: false,
+    status: 'undetermined',
+    carrier_probability: null,
+    unaffected_probability: null,
+    mode: 'autosomal',
+    ...fields,
+  }) satisfies NiptRecessiveGene;
+
+const PREGNANCY = [
+  { sample_id: 'CFDNA1', role: 'mother', affected: false } as FamilyMember,
+  { sample_id: 'FATHER1', role: 'father', affected: false } as FamilyMember,
+];
+
+// The monogenic NIPT's recessive view lists each gene in which both parents carry a variant, and
+// the X-linked genes read by the fetal sex, with which of the variants the fetus inherited.
+describe('SmallVariantGroupCards recessive genes of the monogenic NIPT', () => {
+  const pair = () =>
+    recessiveGene({
+      variants: [
+        coupleVariant('m1', 'GENEA', 117_500_000, '0/1', '0/0', 'NM_000001.1:c.10G>T'),
+        coupleVariant('p1', 'GENEA', 117_550_000, '0/0', '0/1', 'NM_000001.1:c.20C>T'),
+      ],
+      maternal: [{ variant_id: 'm1', inherited_probability: 0.45, category: 2, note: null }],
+      paternal: [{ variant_id: 'p1', inherited_probability: 0.01, category: 8, note: null }],
+      maternal_variant_id: 'm1',
+      paternal_variant_id: 'p1',
+      risk: 0.006,
+      carrier_probability: 0.45,
+      unaffected_probability: 0.544,
+      status: 'carrier_or_unaffected',
+    });
+
+  it('names the pair the status rests on among more alleles, by their change in the table view', () => {
+    const three = pair();
+    three.variants.push(coupleVariant('m2', 'GENEA', 117_600_000, '0/1', '0/0', 'NM_000001.1:c.30A>G'));
+    three.maternal.push({ variant_id: 'm2', inherited_probability: 0.1, category: 2, note: null });
+    renderGroups([three], { members: PREGNANCY, memberView: 'table' });
+    const panel = screen.getByRole('article', { name: 'Recessive gene GENEA' }).querySelector('.variant-group-lines') as HTMLElement;
+    expect(
+      within(panel).getByText(/^The status rests on maternal .*c\.10G>T.*, paternal .*c\.20C>T.*\.$/),
+    ).toBeInTheDocument();
+  });
+
+  it('says which of the two variants the fetus inherited, and what each parent carries', () => {
+    renderGroups([pair()], { members: PREGNANCY });
+    const gene = screen.getByRole('article', { name: 'Recessive gene GENEA' });
+    expect(within(gene).getByText('Recessive gene')).toBeInTheDocument();
+    expect(within(gene).getByText('Both parents')).toBeInTheDocument();
+    expect(within(gene).queryByText('X-linked')).not.toBeInTheDocument();
+    expect(within(gene).getByText('Not affected (carrier status undetermined)')).toBeInTheDocument();
+    const panel = gene.querySelector('.variant-group-lines') as HTMLElement;
+    expect(within(panel).getByText('Both parents carry a variant in GENEA: the fetus can inherit one from each.')).toBeInTheDocument();
+    expect(within(panel).getByText('Not both inherited: one variant surely not, the other not told')).toBeInTheDocument();
+    expect(within(panel).getByText('affected 0.6%, carrier 45.0%, unaffected 54.4%')).toBeInTheDocument();
+    // The pair the status rests on, as the report and the signed record name it.
+    expect(within(panel).getByText('The status rests on maternal variant 1, paternal variant 2.')).toBeInTheDocument();
+    const rows = Array.from(panel.querySelectorAll('.variant-compound-het-summary-row')).map((row) => row.textContent);
+    expect(rows).toEqual([
+      'Mother (plasma)carries variant 1 (category 2), inherited 45.0%',
+      'Fathercarries variant 2 (category 8), inherited 1.0%',
+    ]);
+    const cards = Array.from(gene.querySelectorAll('article.small-variant-card')) as HTMLElement[];
+    const parentChips = (card: HTMLElement) =>
+      Array.from(card.querySelectorAll('.variant-card-headline .variant-group-person')).map((chip) => chip.textContent);
+    expect(cards.map(parentChips)).toEqual([['Maternal'], ['Paternal']]);
+  });
+
+  it('reads a son\'s X-linked gene off his mother\'s variant alone', () => {
+    renderGroups(
+      [
+        recessiveGene({
+          gene: 'DMD',
+          group_key: 'nipt-recessive-gene:DMD',
+          mode: 'x_linked_son',
+          variants: [coupleVariant('x1', 'DMD', 31_000_000, '0/1', '0/0', 'NM_004006.3:c.10G>T')],
+          maternal: [{ variant_id: 'x1', inherited_probability: 0.95, category: 4, note: null }],
+          maternal_variant_id: 'x1',
+          risk: 0.95,
+          carrier_probability: 0,
+          unaffected_probability: 0.05,
+          status: 'affected',
+        }),
+      ],
+      { members: PREGNANCY },
+    );
+    const gene = screen.getByRole('article', { name: 'Recessive gene DMD' });
+    expect(within(gene).getByText('X-linked')).toBeInTheDocument();
+    expect(within(gene).queryByText('Both parents')).not.toBeInTheDocument();
+    expect(within(gene).getByText("Inherited his mother's variant: affected")).toBeInTheDocument();
+    expect(within(gene).getByText('affected 95.0%, unaffected 5.0%')).toBeInTheDocument();
+    expect(within(gene).getByText("a son does not inherit his father's X")).toBeInTheDocument();
+  });
+
+  it('tells nothing of an X-linked gene of a fetus whose sex is not known', () => {
+    renderGroups(
+      [
+        recessiveGene({
+          gene: 'DMD',
+          group_key: 'nipt-recessive-gene:DMD',
+          mode: 'x_linked_sex_unknown',
+          variants: [coupleVariant('x1', 'DMD', 31_000_000, '0/1', '0/0', 'NM_004006.3:c.10G>T')],
+          maternal: [{ variant_id: 'x1', inherited_probability: null, category: null, note: 'fetal sex not known' }],
+        }),
+      ],
+      { members: PREGNANCY },
+    );
+    const gene = screen.getByRole('article', { name: 'Recessive gene DMD' });
+    expect(within(gene).getByText('Undetermined')).toBeInTheDocument();
+    // Said once, in the gene's basis: no probability and no pair.
+    expect(within(gene).getAllByText(/fetal sex is not known/)).toHaveLength(1);
+    expect(within(gene).getByText('Not told whether the fetus is affected')).toBeInTheDocument();
+    expect(within(gene).queryByText(/The status rests on/)).not.toBeInTheDocument();
+    expect(within(gene).getByText(/carries variant 1, inherited not told/)).toBeInTheDocument();
+    expect(within(gene).getByText('carries no variant in DMD')).toBeInTheDocument();
   });
 });

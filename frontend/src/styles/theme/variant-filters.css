@@ -509,19 +509,6 @@
   gap: 0.25rem;
 }
 
-/* The recessive view's gene table: each parent's alleles, the pair the risk reads bold. */
-.nipt-recessive-alleles {
-  display: grid;
-  gap: 0.125rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.nipt-recessive-allele--pair {
-  font-weight: 600;
-}
-
 .nipt-table-cell {
   display: grid;
   gap: 0.125rem;

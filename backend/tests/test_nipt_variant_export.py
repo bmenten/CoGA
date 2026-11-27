@@ -35,10 +35,11 @@ from backend.app.services.nipt_analysis import FetalFractionEstimate, NiptClassi
 from backend.app.services.nipt_service import (
     NIPT_VARIANT_FETCH_LIMIT,
     NiptClassifiedVariant,
+    NiptRecessiveGene,
     NiptRecurrence,
     NiptVariantsResult,
 )
-from backend.app.services.nipt_triage import DeNovoTriage
+from backend.app.services.nipt_triage import DeNovoTriage, RecessiveAllele, RecessiveGeneRisk
 
 _LIST = "/api/families/FAM1/nipt/variants"
 _EXPORT = "/api/families/FAM1/nipt/variants/export"
@@ -343,6 +344,51 @@ def test_the_list_of_a_twin_pregnancy_carries_its_note_on_every_row(client) -> N
 
     assert {row["Multiple pregnancy note"] for row in rows} == {multiple_pregnancy_note(2)}
     assert len(rows) == 2
+
+
+def test_the_recessive_view_lists_its_genes_each_with_its_variants(client) -> None:
+    # The recessive view's results are its genes: the page holds them as groups, each with its
+    # carrier variants and its fetal status, and no variant on its own; the file holds their
+    # variants, gene by gene.
+    test_client, _calls = client
+    maternal, paternal = _classified("1-100-A-G"), _classified("1-300-C-T")
+    test_client.result["next"] = NiptVariantsResult(  # type: ignore[attr-defined]
+        fetal_fraction=_fetal_fraction(),
+        total=1,
+        variants=[],
+        trio=NiptTrio(father_sample_id="FATHER1", cfdna_sample_id="MOTHER"),
+        recessive_genes=[
+            NiptRecessiveGene(
+                risk=RecessiveGeneRisk(
+                    gene="GENEA",
+                    maternal=[RecessiveAllele(variant_id="1-100-A-G", inherited_probability=0.45, category=2)],
+                    paternal=[RecessiveAllele(variant_id="1-300-C-T", inherited_probability=0.01, category=8)],
+                    risk=0.0045,
+                    maternal_variant_id="1-100-A-G",
+                    paternal_variant_id="1-300-C-T",
+                    status="carrier_or_unaffected",
+                    mode="autosomal",
+                    carrier_probability=0.45,
+                    unaffected_probability=0.5455,
+                ),
+                gene_id="ENSG0A",
+                variants=[maternal, paternal],
+            )
+        ],
+        gene_total=1,
+        variant_total=2,
+    )
+    page = test_client.get(_LIST, params={"inheritance": "recessive_at_risk"}).json()
+    assert (page["variants"], page["total"], page["gene_total"], page["variant_total"]) == ([], 1, 1, 2)
+    [group] = page["variant_groups"]
+    assert (group["group_type"], group["group_key"], group["gene"], group["gene_id"]) == (
+        "nipt_recessive_gene", "nipt-recessive-gene:ENSG0A:autosomal", "GENEA", "ENSG0A",
+    )
+    assert (group["status"], group["mode"], group["maternal_variant_id"]) == ("carrier_or_unaffected", "autosomal", "1-100-A-G")
+    assert [variant["_id"] for variant in group["variants"]] == ["1-100-A-G", "1-300-C-T"]
+    assert group["variants"][0]["nipt"]["category"] == 4
+    exported = test_client.get(_EXPORT, params={"inheritance": "recessive_at_risk"})
+    assert [(row["Chromosome"], row["Start"]) for row in _rows(exported)] == [("1", "100"), ("1", "300")]
 
 
 def test_a_complete_list_is_saved_under_its_own_name(client) -> None:

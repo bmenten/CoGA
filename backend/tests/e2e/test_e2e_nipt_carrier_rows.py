@@ -128,7 +128,9 @@ def _view(records, family_records) -> dict[str, Any]:
     classified = _classify_candidates(
         records, trio, {}, ff, qc, None, plasma_targets=[], father_targets=[], counterparts=counterparts
     )
-    kept, genes = _recessive_view(classified, qc)
+    recessive = _recessive_view(classified, qc)
+    kept = [item for gene in recessive for item in gene.variants]
+    genes = [gene.risk for gene in recessive]
     return {
         "maternal": [
             (item.record.variant_id, item.classification.maternal_allele_probability)

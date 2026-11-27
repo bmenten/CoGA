@@ -641,8 +641,9 @@ backend's code (`nipt_service`, `nipt_quality_checks`), never the browser:
   novo view leaves out as recurrent;
 - each reported variant it does not classify, with why (`not_classified`: not in the data, on the
   artifact list, no plasma call);
-- the recessive fetal status of the genes the reported variants make both parents carriers in (and,
-  for a son, of the X-linked genes his mother carries), with its probabilities (`status`, `risk`,
+- the recessive fetal status of the genes the reported variants make both parents carriers in (and
+  of the X-linked genes read by the fetal sex: a son's mother's, one parent's of a daughter, either
+  parent's of a fetus whose sex is not known), with its probabilities (`status`, `risk`,
   `carrier_probability`, `unaffected_probability`, `mode`), as the recessive view computes them over
   them (`recessive_genes`);
 - the analysis's diagnostic gene panel (`diagnostic_panel`, REQ-NIPT-019): the panel's id, name,

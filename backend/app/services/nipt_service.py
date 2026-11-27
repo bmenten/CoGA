@@ -47,7 +47,13 @@ from .clickhouse_family_variants import (
     count_other_cfdna_samples,
     resolve_review_selection,
 )
-from .clickhouse_variant_queries import _parse_interval_regions, _split_gene_terms
+from .clickhouse_variant_queries import (
+    _gene_match_keys,
+    _joined_genes,
+    _parse_interval_regions,
+    _primary_gene_keys,
+    _split_gene_terms,
+)
 from .clickhouse_variant_records import (
     PanelFilterConstraints,
     SmallVariantCall,
@@ -149,6 +155,8 @@ from .nipt_triage import (
     is_de_novo_candidate,
     mother_carries,
     recessive_gene_risks,
+    recessive_listing_order,
+    recessive_mode,
     repeat_units,
     triage_de_novo,
 )
@@ -799,7 +807,12 @@ class NiptVariantsResult:
     # through the genome.
     total_is_estimated: bool = False
     count_limit: int | None = None
-    recessive_genes: list[RecessiveGeneRisk] = field(default_factory=list)
+    # The recessive view's results are its genes, each with its carrier variants (``variants``
+    # holds none): ``total`` counts the genes, ``gene_total`` and ``variant_total`` the genes
+    # and their variants on every page (None in the other views).
+    recessive_genes: list[NiptRecessiveGene] = field(default_factory=list)
+    gene_total: int | None = None
+    variant_total: int | None = None
     # The variants the review-tag filter selects that the analysis does not classify, so
     # that no list shows them, whatever the other filters, and why (variant id -> reason,
     # as the signed record names a reported one); empty without a review-tag filter.
@@ -1381,10 +1394,6 @@ def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
     )
 
 
-def _record_genes(record: SmallVariantRecord) -> set[str]:
-    return {gene.upper() for gene in (record.gene_symbols or []) if gene}
-
-
 def _trusted_father(item: NiptClassifiedVariant, qc: NiptQualityThresholds) -> str:
     return trusted_father_state(item.site, qc) if item.site is not None else "missing"
 
@@ -1444,12 +1453,30 @@ def _technically_retained(item: NiptClassifiedVariant) -> bool:
     return item.site is None or item.site.in_target is not False
 
 
+@dataclass(slots=True)
+class NiptRecessiveGene:
+    """A gene of the recessive view (``_recessive_view``): the fetal status and its
+    probabilities (``RecessiveGeneRisk``), the card gene's id, and the gene's carrier variants
+    in genomic order."""
+
+    risk: RecessiveGeneRisk
+    gene_id: str | None
+    variants: list[NiptClassifiedVariant]
+
+
 def _recessive_view(
     classified: list[NiptClassifiedVariant], qc: NiptQualityThresholds, *, technical: bool = False
-) -> tuple[list[NiptClassifiedVariant], list[RecessiveGeneRisk]]:
-    """The genes where both parents carry an allele, and the X-linked genes in which a son's
-    mother carries one, each with the fetal status and its probabilities (nipt_triage), and
-    every carrier variant in them, most likely affected gene first.
+) -> list[NiptRecessiveGene]:
+    """The genes in which both parents carry an allele, and on chrX outside the
+    pseudo-autosomal regions those in which a son's mother carries one, one parent of a
+    daughter, or either parent of a fetus whose sex is not known, each with the fetal status
+    and its probabilities (``nipt_triage.recessive_gene_risks``) and its carrier variants, in
+    the order of ``nipt_triage.recessive_listing_order``.
+
+    A variant is read in its card's gene, as the expanded carrier screen reads it: the gene id
+    and symbol of its primary annotation (``_gene_match_keys``), the variants that share either
+    one gene (``_joined_genes``). Another gene its annotation names (one it lies up- or
+    downstream of) pairs nothing, and a variant without a gene is in none.
 
     A variant marks the mother a carrier when her inferred genotype is het or hom (categories
     2-6) on a plasma call of 25% or more (``nipt_triage.mother_carries``), and the father when
@@ -1458,35 +1485,38 @@ def _recessive_view(
     plausibly causal. ``technical`` applies the technical filter (``_technically_retained``),
     as the locked diagnostic candidates do.
     """
-    candidates: list[RecessiveCandidate] = []
-    by_variant: dict[str, NiptClassifiedVariant] = {}
-    for item in classified:
-        # A het call of a man's X is an artefact, read as no call (classify_site).
-        father = "missing" if FATHER_X_HET_FLAG in item.classification.flags else _trusted_father(item, qc)
-        if not mother_carries(item.classification) and father not in ("het", "hom_alt"):
-            continue
-        candidates.append(
+    keyed = [(item, keys) for item in classified if (keys := _gene_match_keys(item.record))]
+    genes: dict[tuple[str, str], list[NiptClassifiedVariant]] = {}
+    for (item, _keys), gene in zip(keyed, _joined_genes([keys for _item, keys in keyed]), strict=True):
+        genes.setdefault(gene, []).append(item)
+    recessive: list[NiptRecessiveGene] = []
+    for items in genes.values():
+        symbols = [_primary_gene_keys(item.record) for item in items]
+        gene_id = next((gene_id for _symbol, gene_id in symbols if gene_id), None)
+        name = next((symbol for symbol, _gene_id in symbols if symbol), None) or gene_id
+        assert name is not None  # _gene_match_keys keys a variant by its symbol or its gene id
+        candidates = [
             RecessiveCandidate(
                 variant_id=item.record.variant_id,
-                genes=sorted(_record_genes(item.record)),
-                father_state=father,
+                # A het call of a man's X is an artefact, read as no call (classify_site).
+                father_state="missing"
+                if FATHER_X_HET_FLAG in item.classification.flags
+                else _trusted_father(item, qc),
                 classification=item.classification,
+                mode=mode,
                 variant_class=item.site.variant_class if item.site is not None else "SNV",
                 has_population_af=triage_annotation(item.record).max_population_af is not None,
                 plasma_call_retained=not technical or _technically_retained(item),
             )
-        )
-        by_variant[item.record.variant_id] = item
-    genes = recessive_gene_risks(candidates)
-    order: list[str] = []
-    for gene in genes:
-        for allele in [*gene.maternal, *gene.paternal]:
-            if allele.variant_id not in order:
-                order.append(allele.variant_id)
-    # The carrier variants of the genes at risk, in genomic order.
-    wanted = set(order)
-    kept = [item for item in classified if item.record.variant_id in wanted]
-    return kept, genes
+            for item in items
+            if (mode := recessive_mode(item.classification, item.record.chr)) is not None
+        ]
+        for risk in recessive_gene_risks(name, candidates):
+            carried = {allele.variant_id for allele in [*risk.maternal, *risk.paternal]}
+            variants = [item for item in items if item.record.variant_id in carried]
+            recessive.append(NiptRecessiveGene(risk=risk, gene_id=gene_id, variants=variants))
+    recessive.sort(key=lambda gene: recessive_listing_order(gene.risk))
+    return recessive
 
 
 @dataclass(slots=True)
@@ -1636,10 +1666,12 @@ async def get_family_nipt_variants(
     - ``paternal_dominant``: the father's alleles the fetus inherited (with
       ``include_not_inherited``, also those it did not);
     - ``maternal_dominant``: the mother's alleles the fetus inherited (idem);
-    - ``recessive_at_risk``: the carrier variants of the genes where both parents carry
-      one, with each gene's fetal risk (``recessive_genes``).
+    - ``recessive_at_risk``: the genes of ``_recessive_view`` (``recessive_genes``), each with
+      its fetal status and its carrier variants; a page holds genes.
 
-    ``categories`` keeps the given maternal/fetal categories (within a view, both apply).
+    ``categories`` keeps the given maternal/fetal categories (within a view, both apply); in
+    the recessive view it keeps the genes with a carrier variant in one of them, the pairing
+    reading every carrier variant.
     ``review_tags`` keeps the variants with one of the review tags, and
     ``exclude_review_tags`` leaves out those with one of these, as the small-variant list
     reads them (``resolve_review_selection``); a selected variant the analysis does not
@@ -1650,7 +1682,8 @@ async def get_family_nipt_variants(
     Each listed variant carries its recurrence in the other cfDNA samples of the assay
     (``NiptRecurrence``). ``max_unexplained_recurrence`` leaves out, after the view and the
     categories, the variants that are an unexplained low-VAF call in more of them
-    (``hidden_as_recurrent``), as recurrent artefacts.
+    (``hidden_as_recurrent``), as recurrent artefacts; in the recessive view, the genes with no
+    other carrier variant.
 
     ``page_size`` None gives every classified variant of the search, as the CSV export
     writes them; ``panel_search`` names the search on the family's audit trail when it
@@ -1751,31 +1784,37 @@ async def get_family_nipt_variants(
     classified = await asyncio.to_thread(family.classify, records, trio, qc, min_confidence=min_confidence)
 
     recurrence_scope = await _recurrence_scope(session, context, assay_key, qc)
-    recessive_genes: list[RecessiveGeneRisk] = []
+    gene_total: int | None = None
+    variant_total: int | None = None
     if inheritance == RECESSIVE_AT_RISK:
-        classified, recessive_genes = _recessive_view(classified, qc)
-    elif inheritance == PATERNAL_INHERITED:
-        classified = _paternal_view(classified, qc, include_not_inherited=include_not_inherited)
-    elif inheritance == MATERNAL_INHERITED:
-        classified = _maternal_view(classified, include_not_inherited=include_not_inherited)
-    elif inheritance == DE_NOVO:
-        classified = await _de_novo_view(
-            classified, ff_estimate, scope=recurrence_scope, min_priority=de_novo_priority
-        )
-    if wanted:
-        classified = [item for item in classified if item.classification.category in wanted]
-    if max_unexplained_recurrence is not None:
-        await _attach_recurrence(classified, recurrence_scope)
-        classified = [
-            item for item in classified if not hidden_as_recurrent(item, max_unexplained_recurrence)
-        ]
-
-    total = len(classified)
-    if page_size is None:
-        page_items = classified
+        # The pairing reads every carrier variant of the search, as the report and the signed
+        # record pair them; the categories and the recurrence filter choose the genes listed,
+        # each with every carrier variant of its own. A page holds genes.
+        genes = _recessive_view(classified, qc)
+        carriers = [item for gene in genes for item in gene.variants]
+        shown = {
+            item.record.variant_id
+            for item in await _shown(carriers, wanted, max_unexplained_recurrence, recurrence_scope)
+        }
+        genes = [gene for gene in genes if any(item.record.variant_id in shown for item in gene.variants)]
+        page_genes = _page_of(genes, page, page_size)
+        listed: list[NiptClassifiedVariant] = []
+        page_items = [item for gene in page_genes for item in gene.variants]
+        total = gene_total = len(genes)
+        variant_total = sum(len(gene.variants) for gene in genes)
     else:
-        offset = max(0, (page - 1) * page_size)
-        page_items = classified[offset : offset + page_size]
+        if inheritance == PATERNAL_INHERITED:
+            classified = _paternal_view(classified, qc, include_not_inherited=include_not_inherited)
+        elif inheritance == MATERNAL_INHERITED:
+            classified = _maternal_view(classified, include_not_inherited=include_not_inherited)
+        elif inheritance == DE_NOVO:
+            classified = await _de_novo_view(
+                classified, ff_estimate, scope=recurrence_scope, min_priority=de_novo_priority
+            )
+        classified = await _shown(classified, wanted, max_unexplained_recurrence, recurrence_scope)
+        page_genes = []
+        listed = page_items = _page_of(classified, page, page_size)
+        total = len(classified)
     await _attach_recurrence(page_items, recurrence_scope)
 
     # Serialize the page slice as full small-variant payloads (and hydrate their
@@ -1790,13 +1829,38 @@ async def get_family_nipt_variants(
     return NiptVariantsResult(
         fetal_fraction=ff_estimate,
         total=total,
-        variants=page_items,
+        variants=listed,
         trio=trio,
         total_is_estimated=capped,
         count_limit=fetch_limit if capped else None,
-        recessive_genes=recessive_genes,
+        recessive_genes=page_genes,
+        gene_total=gene_total,
+        variant_total=variant_total,
         not_classified=not_classified,
     )
+
+
+async def _shown(
+    items: list[NiptClassifiedVariant],
+    wanted: set[int],
+    max_unexplained_recurrence: int | None,
+    scope: _RecurrenceScope,
+) -> list[NiptClassifiedVariant]:
+    """The ``items`` in one of the ``wanted`` categories (every item without), less those the
+    recurrence filter leaves out (``hidden_as_recurrent``)."""
+    shown = [item for item in items if item.classification.category in wanted] if wanted else items
+    if max_unexplained_recurrence is None:
+        return shown
+    await _attach_recurrence(shown, scope)
+    return [item for item in shown if not hidden_as_recurrent(item, max_unexplained_recurrence)]
+
+
+def _page_of[T](items: list[T], page: int, page_size: int | None) -> list[T]:
+    """``items`` on ``page`` of ``page_size`` (every item without a page size)."""
+    if page_size is None:
+        return items
+    offset = max(0, (page - 1) * page_size)
+    return items[offset : offset + page_size]
 
 
 # --------------------------------------------------------------------------- #
@@ -1931,7 +1995,10 @@ async def diagnostic_candidates(
     paternal = dominant(_paternal_view(retained, qc, include_not_inherited=False))
     maternal = dominant(_maternal_view(retained, include_not_inherited=True))
     qualifying = [item for item in classified if not recessive_failures(annotations[item.record.variant_id], criteria)]
-    carriers, genes = _recessive_view(qualifying, qc, technical=True)
+    recessive_genes = _recessive_view(qualifying, qc, technical=True)
+    carried = {item.record.variant_id for gene in recessive_genes for item in gene.variants}
+    carriers = [item for item in qualifying if item.record.variant_id in carried]
+    genes = [gene.risk for gene in recessive_genes]
     recessive = [
         NiptDiagnosticCandidate(
             item=item,
@@ -2149,7 +2216,7 @@ async def get_family_nipt_record(
             # allele above it, or a call below it, is none, and the page triages neither.
             if item.de_novo is not None and item.de_novo.window not in _FETAL_WINDOWS:
                 item.de_novo = None
-    _carriers, recessive_genes = _recessive_view(classified, qc)
+    recessive_genes = [gene.risk for gene in _recessive_view(classified, qc)]
     diagnostic, _filters = await _scoped_diagnostic_candidates(
         session,
         context,

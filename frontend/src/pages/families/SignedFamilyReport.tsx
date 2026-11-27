@@ -862,8 +862,9 @@ const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
         {nipt.recessiveGenes.length ? (
           <>
             <p className="report-paragraph">
-              Fetal status of the genes in which the reported variants make both parents carriers, or a son&rsquo;s
-              mother a carrier of an X-linked allele:
+              Fetal status of the genes in which the reported variants make both parents carriers, and of the
+              X-linked genes in which they make a son&rsquo;s mother, one parent of a daughter, or either parent of a
+              fetus whose sex is not known a carrier:
             </p>
             <ul className="report-signed-list">
               {nipt.recessiveGenes.map((gene, index) => (
