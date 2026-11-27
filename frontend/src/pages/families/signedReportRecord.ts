@@ -1195,6 +1195,7 @@ export interface SignedNiptDiagnosticCandidate {
   spliceaiMax: number | null;
   clinvarPathogenic: boolean;
   otherCfdnaCarriers: number | null;
+  otherFathers: number | null;
 }
 
 /** The locked diagnostic candidates as the record froze them, with the criteria's version. */
@@ -2552,6 +2553,7 @@ const parseNipt = (value: Json): SignedNipt => {
     spliceaiMax: number(entry.spliceai_max),
     clinvarPathogenic: entry.clinvar_pathogenic === true,
     otherCfdnaCarriers: number(entry.other_cfdna_carriers),
+    otherFathers: number(entry.other_fathers),
   });
   const inputs = isObject(value.inputs) ? value.inputs : {};
   const artifacts = isObject(inputs.artifact_list) ? inputs.artifact_list : null;
@@ -3305,6 +3307,7 @@ export const describeSignedDiagnosticCandidate = (candidate: SignedNiptDiagnosti
     candidate.spliceaiMax !== null ? `SpliceAI ${candidate.spliceaiMax}` : null,
     candidate.clinvarPathogenic ? 'ClinVar pathogenic' : null,
     candidate.otherCfdnaCarriers ? `in ${candidate.otherCfdnaCarriers} other cfDNA sample(s)` : null,
+    candidate.otherFathers ? `carried by ${candidate.otherFathers} other father(s)` : null,
   ].filter(Boolean);
   const low =
     candidate.confidence === 'low'

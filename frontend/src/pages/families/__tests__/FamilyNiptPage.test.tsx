@@ -1071,7 +1071,7 @@ describe('FamilyNiptPage', () => {
       await openAdvancedFilters();
       fireEvent.click(
         screen.getByRole('checkbox', {
-          name: 'Leave out alleles without a population frequency that 3 or more cfDNA samples of this assay call',
+          name: 'Leave out alleles without a population frequency that 3 or more families of this assay carry',
         }),
       );
       fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));

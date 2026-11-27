@@ -2247,6 +2247,7 @@ describe('a NIPT family’s NIPT results', () => {
       spliceai_max: null,
       clinvar_pathogenic: false,
       other_cfdna_carriers: 0,
+      other_fathers: 0,
       confidence: 'low',
       flags: ['repeat_context'],
     };
@@ -2282,6 +2283,8 @@ describe('a NIPT family’s NIPT results', () => {
               father_state: 'hom_ref',
               maternal_allele_probability: 0.31,
               max_population_af: 0.0002,
+              other_cfdna_carriers: 1,
+              other_fathers: 2,
               confidence: 'standard',
               flags: [],
             },
@@ -2300,6 +2303,10 @@ describe('a NIPT family’s NIPT results', () => {
     );
     // A maternal candidate with a low inheritance probability: listed, with its probability.
     expect(describeSignedDiagnosticCandidate(frozen.maternal[0])).toContain('maternal inherited 31.0%');
+    // How it recurs in the assay, as the cohort count read it: other plasmas and other fathers.
+    expect(describeSignedDiagnosticCandidate(frozen.maternal[0])).toContain(
+      'in 1 other cfDNA sample(s), carried by 2 other father(s)',
+    );
     expect(frozen.recessiveVariants).toEqual([]);
   });
 

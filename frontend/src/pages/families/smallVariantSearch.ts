@@ -295,8 +295,8 @@ export type SmallFilterState = {
   // alleles the fetus did not inherit ('true'), the lowest de novo priority listed
   // (high, medium or low), the recurrence filter: the most other cfDNA samples of the
   // assay a listed variant may be an unexplained low-VAF call in, and the locked criteria's
-  // cohort rule ('true': an allele without a population frequency in 3 or more cfDNA samples of
-  // the assay is left out as common). Never set by the small-variant UI.
+  // cohort rule ('true': an allele without a population frequency that 3 or more families of the
+  // assay carry is left out as common). Never set by the small-variant UI.
   category: string;
   min_confidence: string;
   include_not_inherited: string;
@@ -1110,9 +1110,9 @@ const buildPresetState = (
     // parents carry a variant, and the X-linked variants of either parent. The backend's
     // recessive_at_risk view lists each gene with every carrier variant and the fetal status
     // (none, one or both inherited).
-    // An allele without a population frequency that 3 or more cfDNA samples of the assay call
-    // is an unannotated common allele (a paralogue, a repeat-length allele, an MNV gnomAD
-    // lists as its SNVs), as the report's locked criteria read it: it is paired with nothing.
+    // An allele without a population frequency that 3 or more families of the assay carry is an
+    // unannotated common allele (a paralogue, a repeat-length allele, an MNV gnomAD lists as its
+    // SNVs), as the report's locked criteria read it: it is paired with nothing.
     filters.inheritance = 'recessive_at_risk';
     filters.exclude_cohort_common = 'true';
     setCarrierScreenVariants();

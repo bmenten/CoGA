@@ -330,10 +330,11 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
      artifact-list sites;
   4. `min_confidence`;
   5. on request (`exclude_cohort_common`, set by the *Recessive (both parents carrier)* preset), the
-     locked criteria's cohort rule (`_not_cohort_common`): an allele without a population frequency
-     that `cohort_common_min_samples` (3) cfDNA samples of the assay call, this one included, is an
-     unannotated common allele and is left out, unless ClinVar calls it pathogenic
-     (`clinvar_override`), as the report's recessive pairing reads it;
+     locked criteria's cohort rule (`_cohort_common`): an allele without a population frequency that
+     `cohort_common_min_samples` (3) families of the assay carry, counted as the report counts them
+     (*The locked diagnostic candidates*), is an unannotated common allele and is left out, unless
+     ClinVar calls it pathogenic (`clinvar_override`); one common only by the count of a father's
+     allele stays, and the recessive view never counts it as the father's (`not_paternal`);
   6. the view (`inheritance`: `de_novo`, `paternal_dominant`, `maternal_dominant`,
      `recessive_at_risk`, with `include_not_inherited` and `de_novo_priority`);
   7. the category filter;
@@ -454,8 +455,8 @@ father calls); the diagnostic candidates mark a son's paternal-X call low confid
 
 `nipt_diagnostic_filters.py` holds the R validation's blinded-analysis criteria (REQ-NIPT-020),
 frozen with their version (`NiptDiagnosticCriteria`, `NIPT_DIAGNOSTIC_CRITERIA_REFERENCE`): the
-rarity ceilings (0.1 % dominant, 1 % recessive; an allele without a frequency in 3 cfDNA samples
-or more is not rare), the protein effect, ClinVar read strictly (`clinvar_strictly_pathogenic`:
+rarity ceilings (0.1 % dominant, 1 % recessive; an allele without a frequency that 3 families of the
+assay or more carry is not rare, below), the protein effect, ClinVar read strictly (`clinvar_strictly_pathogenic`:
 P/LP with no benign or conflicting assertion, stricter than `clinvar_may_assert_pathogenic`) with
 its 5 % override for the recessive pairing alone, and the repeat-context indel. ClinVar is read by
 the one rule (CoGA's release where it holds the allele, else the annotation; B11): R reads the
@@ -475,6 +476,17 @@ gene's variants and classifies them as the variant list does; `GET
 /families/{id}/nipt/diagnostic-candidates` (the report, `NiptDiagnosticCandidates.tsx`) and
 `get_family_nipt_record` (the record's `diagnostic_candidates`, over the diagnostic panel) both use
 it.
+
+**The cohort count** (`cohort_count`, as the R validation counts an unannotated allele). An allele
+read off the plasma (a de novo, paternal or maternal candidate, the mother's allele of the recessive
+pairing) counts the assay's plasmas that show it: `other_cfdna_carriers`, plus this plasma when its
+call carries the allele by the recurrence count's own reading (`_plasma_carries`). The father's
+allele of the recessive pairing counts those plasmas or the assay's fathers that carry it, whichever
+are more: `other_fathers` (`count_cfdna_recurrence` over `assay_father_samples`, each other family's
+active father read by `_father_carries`), plus this father when he carries it. The father's count is
+never lower, so an allele can qualify as the mother's and not as the father's (`not_paternal`, a
+site both parents carry then paired as the mother's alone), never the other way round. The record
+freezes `other_fathers` beside `other_cfdna_carriers` for each candidate.
 
 ## The artifact list
 
@@ -600,7 +612,8 @@ reported variant once; the de novo triage reads that count.
   never has one. The recessive gene card notes it.
 - The artifact-list protections need annotation or CoGA's release: a site with no population
   frequency and no ClinVar record in either is not protected.
-- The R recurrent table counts the cfDNA families of the R cohort, the index family included.
+- The R validation counts the families of its cohort; CoGA counts those of the assay, in every
+  project, so the count grows as pregnancies are imported.
 - The recurrence count does not look up a father's call in another representation of the allele (an
   MNV over it, or its SNVs), so such a paternal allele counts as unexplained. `other_samples` counts
   the samples with any call on the assembly, not those that covered the site.

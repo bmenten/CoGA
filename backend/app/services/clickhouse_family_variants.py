@@ -640,7 +640,10 @@ class CfdnaRecurrence:
     - ``unexplained_low_vaf``: a lower fraction that neither parent explains: an artefact's
       mark. ``unexplained_median_vaf`` is the median fraction of these calls.
 
-    A call without allele depths counts as a carrier only.
+    A call without allele depths counts as a carrier only. ``fathers`` are the assay's other
+    families whose father carries the allele (his call het or hom-alt by the rules), whether or
+    not their plasma shows it: the R validation's cohort count of a father's allele
+    (``nipt_diagnostic_filters.is_cohort_common``).
     """
 
     carriers: int = 0
@@ -648,6 +651,7 @@ class CfdnaRecurrence:
     paternal_low_vaf: int = 0
     unexplained_low_vaf: int = 0
     unexplained_median_vaf: float | None = None
+    fathers: int = 0
 
 
 # A call's reads: the sum of its allele depths, a missing depth read as 0.
@@ -655,6 +659,53 @@ _READS = "arraySum(arrayMap(x -> ifNull(x, 0), {}))"
 # A sample's call of the allele below the maternal boundary that its family's father does
 # not explain (``_cfdna_sample_calls``): the mark of a recurrent artefact.
 _UNEXPLAINED_LOW_VAF = "isNotNull(sample_vaf) AND sample_vaf < %(maternal_vaf)s AND NOT explained"
+
+
+def _father_carries(rules: CfdnaRecurrenceRules, params: dict[str, Any]) -> str:
+    """"A father's call carries the allele", in SQL over a call's ``(s, g, a, m, q, d)`` (sample,
+    GT, allele depths, metrics, GQ, DP) of an ``entries`` row: het or hom-alt by ``rules``, as
+    ``nipt_service.derive_father_state`` reads it. A call his caller genotyped (a GQ and no TLOD)
+    by its GT, its reads, QUAL and GQ; any other by its allele depths and quality. It adds the
+    father's thresholds to ``params``."""
+    params.update(
+        {
+            "father_min_depth": int(rules.father_min_depth),
+            "father_min_alt_reads": int(rules.father_min_alt_reads),
+            "father_min_quality": float(rules.father_min_quality),
+            "father_min_vaf": float(rules.father_min_vaf),
+            "father_min_genotyped_quality": float(rules.father_min_genotyped_quality),
+            "father_min_gq": float(rules.father_min_gq),
+        }
+    )
+    father_has_alt = clickhouse_genotype_condition("g", ALT_CLASSES, param="father_gt_alt", params=params)
+    # The father's quality is his TLOD, else his QUAL (nipt_service._call_quality).
+    father_quality = "if(mapContains(m, 'TLOD'), m['TLOD'], if(mapContains(m, 'QUAL'), m['QUAL'], NULL))"
+    # A call his caller genotyped: a GQ and no TLOD (nipt_analysis.is_genotyped_call). Its
+    # reads are its allele depths' sum, else its DP (nipt_service._ad_depth); a missing
+    # read count, alt-read count, QUAL or GQ passes.
+    father_genotyped = "(isNotNull(q) AND NOT mapContains(m, 'TLOD'))"
+    father_reads = f"if({_READS.format('a')} > 0, {_READS.format('a')}, ifNull(d, %(father_min_depth)s))"
+    return f"""if(
+        {father_genotyped},
+        {father_has_alt}
+        AND {father_reads} >= %(father_min_depth)s
+        AND (length(a) < 2 OR ifNull(a[2], %(father_min_alt_reads)s) >= %(father_min_alt_reads)s)
+        AND if(mapContains(m, 'QUAL'), m['QUAL'], %(father_min_genotyped_quality)s)
+            >= %(father_min_genotyped_quality)s
+        AND ifNull(q, %(father_min_gq)s) >= %(father_min_gq)s,
+        (
+            length(a) >= 2
+            AND ifNull(a[2], 0) >= %(father_min_alt_reads)s
+            AND {_READS.format('a')} >= %(father_min_depth)s
+            AND ifNull(a[2], 0) >= %(father_min_vaf)s * {_READS.format('a')}
+            AND ifNull({father_quality}, %(father_min_quality)s) >= %(father_min_quality)s
+        )
+        OR (length(a) < 2 AND {father_has_alt})
+    )"""
+
+
+# A row's calls as ``_father_carries`` reads them.
+_FATHER_CALLS = "`calls.sampleId`, `calls.gt`, `calls.ad`, `calls.metrics`, `calls.gq`, `calls.dp`"
 
 
 def _cfdna_sample_calls(
@@ -672,10 +723,8 @@ def _cfdna_sample_calls(
     - ``sample_vaf``: the call's alt reads over all its reads; NULL without allele depths;
     - ``explained``: whether the father of the call's family explains it. He is any sample
       of the family's row outside ``carrier_ids``, and explains the call when his own call
-      of the allele is het or hom-alt by ``rules`` (``nipt_service.derive_father_state``):
-      a call his caller genotyped (a GQ and no TLOD) by its GT, its reads, QUAL and GQ;
-      any other by its allele depths and quality. His call in another representation of
-      the allele (an MNV over it, or its SNVs) is not looked up.
+      of the allele is het or hom-alt by ``rules`` (``_father_carries``). His call in another
+      representation of the allele (an MNV over it, or its SNVs) is not looked up.
 
     A family stored under more than one project gives one row.
     """
@@ -684,23 +733,10 @@ def _cfdna_sample_calls(
             "min_alt_reads": int(rules.min_alt_reads),
             "min_alt_fraction": float(rules.min_alt_fraction),
             "maternal_vaf": float(rules.maternal_vaf_boundary),
-            "father_min_depth": int(rules.father_min_depth),
-            "father_min_alt_reads": int(rules.father_min_alt_reads),
-            "father_min_quality": float(rules.father_min_quality),
-            "father_min_vaf": float(rules.father_min_vaf),
-            "father_min_genotyped_quality": float(rules.father_min_genotyped_quality),
-            "father_min_gq": float(rules.father_min_gq),
         }
     )
     has_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
-    father_has_alt = clickhouse_genotype_condition("g", ALT_CLASSES, param="father_gt_alt", params=params)
-    # The father's quality is his TLOD, else his QUAL (nipt_service._call_quality).
-    father_quality = "if(mapContains(m, 'TLOD'), m['TLOD'], if(mapContains(m, 'QUAL'), m['QUAL'], NULL))"
-    # A call his caller genotyped: a GQ and no TLOD (nipt_analysis.is_genotyped_call). Its
-    # reads are its allele depths' sum, else its DP (nipt_service._ad_depth); a missing
-    # read count, alt-read count, QUAL or GQ passes.
-    father_genotyped = "(isNotNull(q) AND NOT mapContains(m, 'TLOD'))"
-    father_reads = f"if({_READS.format('a')} > 0, {_READS.format('a')}, ifNull(d, %(father_min_depth)s))"
+    father_carries = _father_carries(rules, params)
     call_vaf = (
         f"if(length(ad) >= 2 AND {_READS.format('ad')} > 0, "
         f"ifNull(ad[2], 0) / {_READS.format('ad')}, NULL)"
@@ -714,24 +750,8 @@ def _cfdna_sample_calls(
                 `calls.gt` AS row_gts,
                 `calls.ad` AS row_ads,
                 arrayExists(
-                    (s, g, a, m, q, d) -> s NOT IN %(carrier_ids)s AND if(
-                        {father_genotyped},
-                        {father_has_alt}
-                        AND {father_reads} >= %(father_min_depth)s
-                        AND (length(a) < 2 OR ifNull(a[2], %(father_min_alt_reads)s) >= %(father_min_alt_reads)s)
-                        AND if(mapContains(m, 'QUAL'), m['QUAL'], %(father_min_genotyped_quality)s)
-                            >= %(father_min_genotyped_quality)s
-                        AND ifNull(q, %(father_min_gq)s) >= %(father_min_gq)s,
-                        (
-                            length(a) >= 2
-                            AND ifNull(a[2], 0) >= %(father_min_alt_reads)s
-                            AND {_READS.format('a')} >= %(father_min_depth)s
-                            AND ifNull(a[2], 0) >= %(father_min_vaf)s * {_READS.format('a')}
-                            AND ifNull({father_quality}, %(father_min_quality)s) >= %(father_min_quality)s
-                        )
-                        OR (length(a) < 2 AND {father_has_alt})
-                    ),
-                    `calls.sampleId`, `calls.gt`, `calls.ad`, `calls.metrics`, `calls.gq`, `calls.dp`
+                    (s, g, a, m, q, d) -> s NOT IN %(carrier_ids)s AND {father_carries},
+                    {_FATHER_CALLS}
                 ) AS father_explains
             FROM {entries_table}
             WHERE sign = 1 AND {row_filter}
@@ -798,17 +818,21 @@ async def count_cfdna_recurrence(
     variant_ids: Sequence[str],
     *,
     carrier_samples: Collection[str],
+    father_samples: Collection[str] = (),
     exclude_family_uuid: str,
     rules: CfdnaRecurrenceRules,
     chunk_size: int = 5_000,
 ) -> dict[str, CfdnaRecurrence]:
     """How each of ``variant_ids`` recurs in the ``carrier_samples`` outside the family
-    (``CfdnaRecurrence``).
+    (``CfdnaRecurrence``), and in how many other families one of ``father_samples`` carries it
+    (``CfdnaRecurrence.fathers``).
 
-    ``carrier_samples`` are sample IDs: the cfDNA samples of the family's assay. Each call is
-    read by ``rules`` as ``_cfdna_sample_calls`` reads it: whether it carries the allele, its
-    allele fraction and whether that family's father explains it. A family stored under
-    more than one project counts once. Variants nobody else carries are not listed.
+    ``carrier_samples`` are sample IDs: the cfDNA samples of the family's assay;
+    ``father_samples`` the fathers of the assay's families. Each plasma call is read by
+    ``rules`` as ``_cfdna_sample_calls`` reads it: whether it carries the allele, its allele
+    fraction and whether that family's father explains it; each father's call as
+    ``_father_carries`` reads it. A family stored under more than one project counts once.
+    Variants nobody else carries are not listed.
     """
     if not assembly_name or not variant_ids or not carrier_samples:
         return {}
@@ -843,6 +867,7 @@ async def count_cfdna_recurrence(
             """,
             params,
         )
+        fathers = await _count_other_fathers(entries_table, father_samples, rules, params) if father_samples else {}
         for variant_id, carriers, maternal, paternal, unexplained, median_vaf in rows:
             median = float(median_vaf) if median_vaf is not None else None
             counts[str(variant_id)] = CfdnaRecurrence(
@@ -851,8 +876,33 @@ async def count_cfdna_recurrence(
                 paternal_low_vaf=int(paternal or 0),
                 unexplained_low_vaf=int(unexplained or 0),
                 unexplained_median_vaf=median if median is not None and not math.isnan(median) else None,
+                fathers=fathers.pop(str(variant_id), 0),
             )
+        counts.update({variant_id: CfdnaRecurrence(fathers=count) for variant_id, count in fathers.items()})
     return counts
+
+
+async def _count_other_fathers(
+    entries_table: str, father_samples: Collection[str], rules: CfdnaRecurrenceRules, params: dict[str, Any]
+) -> dict[str, int]:
+    """By variant ID, how many families other than ``params["family_guid"]`` hold a call of one
+    of ``father_samples`` that carries it (``_father_carries``), among ``params["variant_ids"]``;
+    a variant no other father carries is not listed."""
+    params = {**params, "father_ids": tuple(sorted(father_samples))}
+    father_carries = _father_carries(rules, params)
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT variantId, uniqExact(family_guid)
+        FROM {entries_table}
+        WHERE sign = 1
+          AND family_guid != %(family_guid)s
+          AND variantId IN %(variant_ids)s
+          AND arrayExists((s, g, a, m, q, d) -> s IN %(father_ids)s AND {father_carries}, {_FATHER_CALLS})
+        GROUP BY variantId
+        """,
+        params,
+    )
+    return {str(variant_id): int(count or 0) for variant_id, count in rows}
 
 
 async def fetch_recurrent_artifact_candidates(
