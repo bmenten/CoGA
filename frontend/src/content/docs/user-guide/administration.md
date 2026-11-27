@@ -11,7 +11,9 @@ page is an administrator's alone.
   information, rebuild the clinical-CNV knowledgebase, load the pinned DGV release or ClinVar's newest
   weekly release (**Load newest**), or upload a reference file. A ClinVar release becomes current only
   once its file matches NCBI's MD5, names its release and assembly, and is stored and counted whole;
-  otherwise the page says why and the current release stays. Adding GRCh37 or GRCh38 starts the
+  otherwise the page says why and the current release stays. The page also says whether CoGA looks
+  for a newer release itself each day (`CLINVAR_WEEKLY_LOAD`, off by default); a release that check
+  refuses is mailed to every active administrator, and is not loaded again by the check. Adding GRCh37 or GRCh38 starts the
   clinical-CNV build, the DGV load and the ClinVar load for it. CoGA holds one
   assembly per name: importing one it holds updates it in place (tick *Replace existing cytobands and
   genes* while it holds them), and **Add assembly** refuses a name that exists.

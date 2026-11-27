@@ -212,6 +212,8 @@ class ClinvarAssemblyReleasesOut(BaseModel):
 
 
 class ClinvarLoadStatusOut(BaseModel):
+    # Whether the daily check loads a newer release itself (CLINVAR_WEEKLY_LOAD).
+    weekly_load: bool
     active_job: Optional[ClinvarLoadJobOut] = None
     recent_jobs: List[ClinvarLoadJobOut] = Field(default_factory=list)
     # Each assembly CoGA holds for which ClinVar publishes a VCF.

@@ -78,6 +78,11 @@ const ClinvarReleasesPanel: React.FC = () => {
         callset&apos;s annotation. The current release is the one every screen reads; the one before it is
         kept.
       </p>
+      <p className="section-copy">
+        {status.weekly_load
+          ? 'CoGA looks each day for a newer release and loads it; it becomes current only when its checks pass. A release it refused is not loaded again by the check, and every active administrator is told by mail.'
+          : 'A newer release is loaded only when an administrator loads it here (the daily check, CLINVAR_WEEKLY_LOAD, is off).'}
+      </p>
       {notice ? (
         <p
           className="section-copy"

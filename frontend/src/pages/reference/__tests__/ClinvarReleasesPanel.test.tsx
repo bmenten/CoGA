@@ -45,11 +45,12 @@ const job = (id: string, status: ClinvarLoadJobOut['status'], extra: Partial<Cli
   ...extra,
 });
 
-const serve = (jobs: ClinvarLoadJobOut[], assemblies: ClinvarLoadStatusOut['assemblies']) => {
+const serve = (jobs: ClinvarLoadJobOut[], assemblies: ClinvarLoadStatusOut['assemblies'], weeklyLoad = false) => {
   (api.get as unknown as Mock).mockImplementation((url: string) =>
     url === '/admin/clinvar/status'
       ? Promise.resolve({
           data: {
+            weekly_load: weeklyLoad,
             active_job: jobs.find((entry) => entry.status === 'queued' || entry.status === 'running') ?? null,
             recent_jobs: jobs,
             assemblies,
@@ -125,6 +126,19 @@ describe('ClinvarReleasesPanel', () => {
     renderPanel();
 
     expect(await screen.findByLabelText('Failed ClinVar load for GRCh38')).toHaveTextContent(reason);
+  });
+
+  it('says whether CoGA loads a newer release itself each day', async () => {
+    serve([], [{ assembly_name: 'GRCh38', current: RELEASE, previous: null }]);
+    const { unmount } = renderPanel();
+    expect(await screen.findByText(/A newer release is loaded only when an administrator loads it here/)).toBeInTheDocument();
+    unmount();
+
+    serve([], [{ assembly_name: 'GRCh38', current: RELEASE, previous: null }], true);
+    renderPanel();
+    expect(
+      await screen.findByText(/CoGA looks each day for a newer release and loads it; it becomes current only when its checks pass/),
+    ).toBeInTheDocument();
   });
 
   it('shows nothing where no assembly has a ClinVar VCF', async () => {

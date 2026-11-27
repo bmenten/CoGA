@@ -65,6 +65,7 @@ from .services.clickhouse_integrity_monitor import (
     start_clickhouse_integrity_monitor,
     stop_clickhouse_integrity_monitor,
 )
+from .services.clinvar_weekly_load import start_clinvar_weekly_load, stop_clinvar_weekly_load
 from .services.ui_event_pg import start_ui_event_worker, stop_ui_event_worker
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,8 @@ async def lifespan(app: FastAPI):
     async with session_factory() as session:
         await queue_startup_reference_loads(session)
     await start_clickhouse_integrity_monitor()
+    # The daily check for a newer ClinVar release, with CLINVAR_WEEKLY_LOAD on.
+    await start_clinvar_weekly_load()
     worker_task = asyncio.create_task(gene_reference_refresh_worker(worker_stop))
     family_import_worker_tasks = [
         asyncio.create_task(family_package_import_worker(family_import_worker_stop))
@@ -171,6 +174,7 @@ async def lifespan(app: FastAPI):
                 family_import_worker_stop,
             )
         await stop_clickhouse_integrity_monitor()
+        await stop_clinvar_weekly_load()
         await stop_audit_log_worker()
         await stop_ui_event_worker()
         await close_clickhouse_client()

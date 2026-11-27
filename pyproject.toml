@@ -54,6 +54,7 @@ files = [
     "backend/app/services/clinvar_releases.py",
     "backend/app/services/clinvar_review_status.py",
     "backend/app/services/clinvar_vcf.py",
+    "backend/app/services/clinvar_weekly_load.py",
     "backend/app/services/cnipt_result.py",
     "backend/app/services/cnipt_service.py",
     "backend/app/services/cnv_acmg_points.py",

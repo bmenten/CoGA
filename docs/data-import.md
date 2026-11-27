@@ -49,7 +49,7 @@ alone.
 | Clinical CNV syndromes | Built, not read from a file: for a GRCh37 or GRCh38 assembly without clinical CNVs, a start queues the knowledgebase build in the background, which downloads its sources ([below](#loading-or-replacing-reference-data)) | `REFERENCE_BOOTSTRAP_CLINICAL_CNVS` |
 | Monarch associations | For a database without Monarch data: Monarch's newest release, as **Admin → Monarch data** loads it (the gene–disease and disease–phenotype files of `monarch-kg/latest`, both tables in one transaction, refused when the release cannot be read). A failure is logged and the start goes on; the next start or the admin page tries again. No Mendeliome panel is built (a panel is created by an account): build it on the Gene panels page | `REFERENCE_BOOTSTRAP_MONARCH` |
 | DGV | For a GRCh37 or GRCh38 assembly without DGV rows: the load of the pinned DGV release, queued in the background, from dgv.tcag.ca, committed only if the whole file matches its SHA-256 ([DGV](#dgv)) | `REFERENCE_BOOTSTRAP_DGV`, `DGV_LOAD_TIMEOUT_SECONDS` |
-| ClinVar | For a GRCh37 or GRCh38 assembly without a ClinVar release: the load of ClinVar's newest weekly VCF, queued in the background once ClickHouse is ready, from NCBI, released only if its MD5, its release and its assembly check out and every record is stored ([ClinVar](#clinvar)) | `REFERENCE_BOOTSTRAP_CLINVAR`, `CLINVAR_SOURCE_URL`, `CLINVAR_LOAD_TIMEOUT_SECONDS` |
+| ClinVar | For a GRCh37 or GRCh38 assembly without a ClinVar release: the load of ClinVar's newest weekly VCF, queued in the background once ClickHouse is ready, from NCBI, released only if its MD5, its release and its assembly check out and every record is stored ([ClinVar](#clinvar)); with `CLINVAR_WEEKLY_LOAD`, a daily check for a newer release | `REFERENCE_BOOTSTRAP_CLINVAR`, `CLINVAR_WEEKLY_LOAD`, `CLINVAR_SOURCE_URL`, `CLINVAR_LOAD_TIMEOUT_SECONDS` |
 | HPO ontology | HPO's newest release, read from HPO's latest GitHub release and downloaded over HTTPS from the release's versioned PURL; imported only if the file states that release, its SHA-256 kept on the terms. Backup, when HPO cannot be reached, the file is refused or the download is off: `data/ref-data/hpo/hp.obo`, imported only if its SHA-256 is the vendored file's. Another file in place (another release, say) is refused and logged (the file, both digests, the fix), and nothing is imported or downloaded instead. With no file in place, the vendored release is downloaded from its versioned URL, under the same check. The backup's URL and SHA-256 are fixed in code ([how a start loads HPO](../data/ref-data/hpo/README.md#how-a-start-loads-hpo)) | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_DOWNLOAD_LATEST_ON_STARTUP`, `HPO_ONTOLOGY_PATH` |
 | TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and the shipped STRchive release, `data/ref-data/STRchive-loci.json`, both refreshed on every start; any other STRchive file stops the start ([The STRchive release](#the-strchive-release)). A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID (for ARX and HOXA13 the call's region picks the locus). Not assessed (`not_assessed`), never normal: a call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1, CEL, POLG and VWA1), except a count inside the benign range such a row states (POLG: exactly 10; VWA1: exactly 2; MUC1 and CEL state none). In a row without a grey zone of its own (27 of STRchive's 82 loci, ABCD3 and PRTS_ARX among them), a count between the benign range and the pathogenic threshold is grey zone (`intermediate`; the owner's decision of 2026-10-27). The repeat page and the genome tracks classify imported calls against the current catalogue | `TRGT_STRCHIVE_LOCI_PATH` |
 | First gene reference sync | Queued in the background, as no account, when no gene has been synced yet, with or without the dbNSFP gene file; its other sources (HGNC, ClinGen, GenCC, ClinVar) are each one's current export. Without the file every gene costs one NCBI request (the sync takes hours) and dbNSFP's fields stay empty. A start also queues it once the file is in place while no cached gene was synced with it; after that a sync is the administrator's | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, `GENE_REFERENCE_DBNSFP_GENE_PATH` |
@@ -290,6 +290,21 @@ release keeps (one a stopped load left). The Reference page shows both releases,
 progress, and a failed load with its reason; **Load newest** starts a load. A start loads the
 newest release for a GRCh37 or GRCh38 assembly that has none (`REFERENCE_BOOTSTRAP_CLINVAR`), and so
 does adding such an assembly from UCSC.
+
+**The daily check** (`services/clinvar_weekly_load.py`, the owner's decisions B3 and B3b), with
+`CLINVAR_WEEKLY_LOAD` on. Off by default: QA has not yet said whether a weekly release may become
+current within a procedure validated once, without each release being a major change. Ten minutes
+after a start and then once a day, it looks, for each GRCh37 or GRCh38 assembly CoGA holds, at the
+newest weekly file NCBI lists. When that release is newer than the current one, it runs a load as
+the requester `clinvar-weekly`, the Reference page's own, whose checks above decide whether the
+release becomes current; a new release so comes in within a day of its publication. When the load
+does not release its file, the current release stays current, the Reference page shows the failed
+load with its reason, and every active administrator is told by mail (`SMTP_HOST`; without it the
+log says so): the assembly, the release, why, and the release that stays current. The check does
+not load that release again: an administrator loads it once the reason is known, or the next
+week's release comes in. One assembly's check that fails (NCBI does not answer) leaves the other's;
+while another load runs, the check waits for the next day. The Reference page says whether the
+check is on.
 
 #### Concordance at each import
 

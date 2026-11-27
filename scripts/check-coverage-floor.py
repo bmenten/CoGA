@@ -69,6 +69,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/clinvar_review_status.py": 97.0,
     # (94.7 measured locally: ClinVar's VCF read into a release's rows, its header checked)
     "backend/app/services/clinvar_vcf.py": 91.0,
+    # (93.0 measured locally: the daily check for a newer ClinVar release, the mail of a
+    # refused one; its Postgres reads run in the integration suite)
+    "backend/app/services/clinvar_weekly_load.py": 90.0,
     # (97.6 measured locally: the conventional NIPT's result rule)
     "backend/app/services/cnipt_result.py": 94.0,
     # (96.9 measured locally: the conventional NIPT's result for a family)
