@@ -91,7 +91,12 @@ from .clickhouse_variant_queries import (
     _small_sample_call_condition,
     _small_variant_windows,
 )
-from .clickhouse_variant_records import PanelFilterConstraints, Region
+from .clickhouse_variant_records import (
+    CLINVAR_CONFLICT_TERMS,
+    PanelFilterConstraints,
+    Region,
+    _normalized_status_term,
+)
 from .family_variant_filters import (
     SmallVariantQueryFilters,
     SmallVariantSampleFilter,
@@ -235,15 +240,17 @@ _CLASSIFICATION_WORD_RANK = {
     "likely_benign": 2,
     "benign": 1,
 }
+# A variant's ClinVar terms as the annotation index stores them (``_status_terms``), the most
+# severe highest. Each key is ClinVar's own spelling normalised as the import normalises it, so
+# the table reads the stored terms.
 _CLINVAR_RANK = {
-    "pathogenic": 7,
-    "pathogenic/likely_pathogenic": 6,
-    "likely_pathogenic": 5,
-    "drug_response": 4,
-    "conflicting_interpretations_of_pathogenicity": 3,
-    "uncertain_significance": 2,
-    "likely_benign": 1,
-    "benign": 0,
+    _normalized_status_term("Pathogenic"): 6,
+    _normalized_status_term("Likely_pathogenic"): 5,
+    _normalized_status_term("drug_response"): 4,
+    **dict.fromkeys(CLINVAR_CONFLICT_TERMS, 3),
+    _normalized_status_term("Uncertain_significance"): 2,
+    _normalized_status_term("Likely_benign"): 1,
+    _normalized_status_term("Benign"): 0,
 }
 
 # The tag / classification filter reaches ClickHouse as a variant_id list inlined into the

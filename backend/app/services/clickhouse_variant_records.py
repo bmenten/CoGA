@@ -269,6 +269,19 @@ def _normalized_status_term(value: Any) -> str:
 # reads them (``clickhouse_variant_queries._small_annotation_filter_condition``).
 CLINVAR_OVERRIDE_TERMS: tuple[str, ...] = ("Pathogenic", "Likely_pathogenic")
 
+# ClinVar's conflict as the import stores it (``_status_terms``), in either wording ClinVar uses.
+CLINVAR_CONFLICT_TERMS: tuple[str, ...] = (
+    _normalized_status_term("Conflicting_classifications_of_pathogenicity"),
+    _normalized_status_term("Conflicting_interpretations_of_pathogenicity"),
+)
+
+# The ClinVar filter's options that ClinVar words otherwise, and the stored terms each one
+# reads (``_status_filter_terms``): the filter form's "Conflicting classifications" is
+# ClinVar's conflict.
+_CLINVAR_FILTER_OPTION_TERMS: dict[str, tuple[str, ...]] = {
+    _normalized_status_term("Conflicting classifications"): CLINVAR_CONFLICT_TERMS,
+}
+
 # The transcripts *MANE only* keeps: MANE Select and MANE Plus Clinical. Each flag is an
 # annotation key and a column of the ``annotations`` table; the ``annotation_index`` holds
 # it per variant as ``has_<flag>``. The family search, in SQL and in Python, and the
@@ -310,11 +323,15 @@ def _status_terms(value: Any) -> set[str]:
 
 
 def _status_filter_terms(values: Sequence[str]) -> tuple[str, ...]:
+    """The stored terms (``_status_terms``) a ClinVar filter's values match: each value
+    normalised as the import normalises it, an option ClinVar words otherwise as the terms
+    it names (``_CLINVAR_FILTER_OPTION_TERMS``)."""
     return tuple(
         dict.fromkeys(
-            normalized
+            term
             for value in values
             if (normalized := _normalized_status_term(value))
+            for term in _CLINVAR_FILTER_OPTION_TERMS.get(normalized, (normalized,))
         )
     )
 
