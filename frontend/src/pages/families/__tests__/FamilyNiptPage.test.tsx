@@ -577,6 +577,89 @@ describe('FamilyNiptPage', () => {
     ).toBeInTheDocument();
   });
 
+  it("shows each variant's ClinVar in CoGA's release the analysis read, and suggests PP5 from it", async () => {
+    // The analysis's decisions read CoGA's release where it holds the allele (B11): the card
+    // shows that value beside the annotation's, each named by its release (B7), and the ACMG
+    // evaluation reads it (B9), not the annotation's benign.
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: { family_id: 'NIPT001', members: [], metadata: { analyses: ['monogenic_nipt'] } },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            total: 1,
+            fetal_fraction: FETAL_FRACTION,
+            clinvar_annotation_release: '2026-05-01',
+            clinvar_coga_release: '2026-11-22',
+            variants: [
+              {
+                _id: '1-100-A-G',
+                chr: '1',
+                start: 100,
+                end: 100,
+                type: 'SNV',
+                ref: 'A',
+                alt: 'G',
+                gene: 'GENEA',
+                clinvar: 'Benign',
+                clinvar_coga: [
+                  {
+                    alt: 'G',
+                    status: 'in_release',
+                    release: '2026-11-22',
+                    classification: 'Likely_pathogenic',
+                    review_status: 'criteria provided, single submitter',
+                    stars: 1,
+                    conditions: ['Synthetic disorder 1'],
+                    variation_id: 900011,
+                    included_only: false,
+                  },
+                ],
+                genotypes: [],
+                nipt: {
+                  category: 3,
+                  category_label: 'paternal, inherited',
+                  maternal_state: 'hom_ref',
+                  fetal_inheritance: 'paternal_inherited',
+                  confidence: 0.9,
+                  flags: [],
+                  recurrence: NO_RECURRENCE,
+                },
+              },
+            ],
+          },
+        });
+      }
+      if (url === '/panels') {
+        return Promise.resolve({ data: [{ _id: 'panel-mendeliome', name: 'Mendeliome', source: 'mendeliome' }] });
+      }
+      if (url.endsWith('/small-variant-tags') || url.endsWith('-presets') || url.endsWith('/hpo')) {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPage('NIPT001');
+
+    expect(await screen.findByText('ClinVar (annotation, 2026-05-01)')).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: /^ClinVar \(CoGA, 2026-11-22\)\s*Likely pathogenic ★☆☆☆\s*changed$/ }),
+    ).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/clinvar/variation/900011/');
+
+    fireEvent.click(screen.getByRole('button', { name: 'ACMG classify' }));
+    const dialog = await screen.findByRole('dialog');
+    const pp5Box = await within(dialog).findByRole('checkbox', { name: /^PP5/ });
+    const pp5 = pp5Box.closest('.acmg-criterion') as HTMLElement;
+    expect(pp5).toHaveClass('acmg-criterion--suggested');
+    fireEvent.mouseEnter(pp5);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('ClinVar (CoGA, 2026-11-22)');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('review before applying');
+  });
+
   it('shows a loader until the analysis has loaded', async () => {
     let resolveSummary: (value: unknown) => void = () => undefined;
     apiMock.get.mockImplementation((url: string) => {

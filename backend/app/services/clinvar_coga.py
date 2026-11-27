@@ -4,10 +4,11 @@ ClinVar of its annotation.
 A request reads the assembly's current release once (``clinvar_coga_read``), passes it to every
 ClickHouse query it runs (the *ClinVar (CoGA)* filter and the P/LP override,
 ``SmallVariantQueryFilters.clinvar_coga_release``) and serves it with its answer, so one page
-never shows two releases, even while a newer one is released. The variants a page shows are
-looked up by the allele key of each of their ALTs (``record_allele_keys``), as the import keys
-its rows: each ALT gets its classification, review status, stars, conditions and VariationID, or
-the reason it has none (``ClinvarCogaOut.status``).
+never shows two releases, even while a newer one is released; the monogenic NIPT page reads and
+serves the release its analysis read (``NiptAnalysisInputs.clinvar_coga``). The variants a page
+shows are looked up by the allele key of each of their ALTs (``record_allele_keys``), as the
+import keys its rows: each ALT gets its classification, review status, stars, conditions and
+VariationID, or the reason it has none (``ClinvarCogaOut.status``).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..schemas import ClinvarCogaOut, VariantPage
+from ..schemas import ClinvarCogaOut, VariantOut, VariantPage
 from .annotation_manifest_service import analysis_clinvar_release
 from .clickhouse_small_variants import SmallVariantFamilyRecord
 from .clickhouse_variant_records import SmallVariantRecord
@@ -153,6 +154,14 @@ async def clinvar_coga_by_id(
     return dict(zip(records, values))
 
 
+async def attach_clinvar_coga(read: ClinvarCogaRead, variants: Sequence[VariantOut]) -> None:
+    """Each served small variant's ClinVar (CoGA), one value per ALT, from the release ``read``
+    names: one lookup for them all."""
+    values = await clinvar_coga_values(read, [(v.chr, v.start, v.ref, v.alt) for v in variants])
+    for variant, value in zip(variants, values):
+        variant.clinvar_coga = value
+
+
 async def serve_clinvar_coga(
     session: AsyncSession, context: FamilyMetadataContext, read: ClinvarCogaRead, page: VariantPage
 ) -> None:
@@ -162,8 +171,6 @@ async def serve_clinvar_coga(
     variants = [*page.variants, *(variant for group in page.variant_groups for variant in group.variants)]
     if not variants:
         return  # a page without a variant names no ClinVar
-    values = await clinvar_coga_values(read, [(v.chr, v.start, v.ref, v.alt) for v in variants])
-    for variant, value in zip(variants, values):
-        variant.clinvar_coga = value
+    await attach_clinvar_coga(read, variants)
     page.clinvar_coga_release = read.release
     page.clinvar_annotation_release = await analysis_clinvar_release(session, context)

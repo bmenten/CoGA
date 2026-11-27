@@ -462,24 +462,42 @@ async def test_the_paternal_view_lists_what_the_fetus_inherited(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_the_variant_list_reads_clinvar_in_cogas_release_the_analysis_reads(
+async def test_the_variant_list_reads_and_serves_clinvar_in_cogas_release_the_analysis_reads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The ClinVar design's one rule (B11): the list's ClinVar filters read the release the
-    # analysis reads, as the family page's do; each variant carries its value of the release.
+    # analysis reads, as the family page's do; each variant carries its value of the release,
+    # which its decisions read, and is served it per ALT with both releases named (B7), so the
+    # page, its export and the ACMG evaluation show what the decisions read.
     from datetime import date
 
+    from backend.app.routers.families_nipt import _nipt_variant_out
+    from backend.app.services import clinvar_coga
+    from backend.app.services.clickhouse_variant_ids import minimal_allele_id, small_allele_key
     from backend.app.services.clinvar_coga import ClinvarCogaRead
+    from backend.app.services.clinvar_release_store import ClinvarStoredAllele
     from backend.tests._nipt_service_fakes import wire_clinvar_release
 
     _wire(monkeypatch, filtered=_gene_sites())
-    release = date(2026, 11, 22)
-    wire_clinvar_release(monkeypatch, ClinvarCogaRead("GRCh38", release, True))
+    release, annotated = date(2026, 11, 22), date(2026, 5, 1)
+    wire_clinvar_release(monkeypatch, ClinvarCogaRead("GRCh38", release, True), annotated=annotated)
+    allele = minimal_allele_id("7", 200, "C", "T")
+    assert allele is not None
+    held = small_allele_key("GRCh38", allele)
+    stored = ClinvarStoredAllele(
+        variant_id="7_200_C_T",
+        classification="Likely_pathogenic",
+        classification_terms=("likely pathogenic",),
+        review_status="criteria_provided,_single_submitter",
+        variation_id=900011,
+        included_only=False,
+        conditions=("Synthetic disorder",),
+    )
     read: list[Any] = []
 
-    async def values(coga: ClinvarCogaRead, records: list[SmallVariantRecord]) -> dict[str, Any]:
-        read.append(coga.release)
-        return {record.variant_id: None for record in records}
+    async def alleles(_assembly: str, at: date, keys: Any) -> dict[int, ClinvarStoredAllele]:
+        read.append(at)
+        return {key: stored for key in keys if key == held}
 
     fetch = nipt_service._fetch_small_variant_rows
     asked: list[Any] = []
@@ -488,14 +506,30 @@ async def test_the_variant_list_reads_clinvar_in_cogas_release_the_analysis_read
         asked.append(filters.clinvar_coga_release)
         return await fetch(context, filters, **kwargs)
 
-    monkeypatch.setattr(nipt_service, "clinvar_coga_by_variant", values)
+    monkeypatch.setattr(clinvar_coga, "clinvar_alleles", alleles)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fetch_asked)
     inherited = await _variants(inheritance="paternal_dominant")
 
-    assert [item.record.variant_id for item in inherited.variants] == ["7-200-C-T"]
+    [item] = inherited.variants
+    assert item.record.variant_id == "7-200-C-T"
     # The cohort load reads no filter; the variant load reads the release.
     assert asked[-1] == release and set(read) == {release}
-    assert all(item.clinvar_coga is None for item in inherited.variants)
+    assert item.clinvar_coga is not None
+    assert (item.clinvar_coga.status, item.clinvar_coga.classification) == ("in_release", "Likely_pathogenic")
+    # The page: the value the decisions read, per ALT, of the same release; both releases named.
+    served = _nipt_variant_out(item)
+    assert served.clinvar_coga == [item.clinvar_coga]
+    assert (served.clinvar_coga[0].release, served.clinvar_coga[0].variation_id) == (release, 900011)
+    assert (inherited.clinvar_coga_release, inherited.clinvar_annotation_release) == (release, annotated)
+    # The diagnostic candidates are served it the same way: the paternal allele, in a target.
+    gene_a = TargetCoverageRow(
+        chrom="7", start=150, end=250, gene="GENEA", attribute="GENEA", mean=1500.0, median=1500.0
+    )
+    _wire(monkeypatch, filtered=_annotated_gene_sites(), targets=[*_plasma_targets(), gene_a])
+    wire_clinvar_release(monkeypatch, ClinvarCogaRead("GRCh38", release, True), annotated=annotated)
+    [paternal] = (await _diagnostic()).paternal
+    assert paternal.item.variant_out is not None
+    assert paternal.item.variant_out.clinvar_coga == [paternal.item.clinvar_coga] == [item.clinvar_coga]
 
 
 @pytest.mark.asyncio

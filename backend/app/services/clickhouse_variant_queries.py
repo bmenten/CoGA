@@ -4009,6 +4009,39 @@ def _clinvar_read_by_the_rule(
     return f"(({coga}{f' AND {rest}' if rest else ''}) OR (NOT {held} AND {annotated}))"
 
 
+def _clinvar_exclusion_by_the_rule(
+    context: _SearchAssembly,
+    filters: SmallVariantQueryFilters,
+    exclusion: str,
+    *,
+    params: dict[str, Any],
+) -> str:
+    """No allele of the row has an excluded ClinVar status, read by the design's one rule (B8):
+    CoGA's release of the request for the alleles it holds, the annotation for the others (no
+    transcript of the row's annotation meets ``exclusion``), one allele excluded leaving the
+    row out. A transcript of the annotation does not name the allele it is of (an ``entries``
+    row's ``transcripts`` name none, an ``annotations`` row the record's ALTs together), so a
+    multi-allelic row the release holds in part cannot be read per allele: an excluded status
+    there may be that of an allele the release holds, which the rule does not read. Such a row
+    is kept when the release holds one of its alleles (likely) pathogenic, unless the release
+    excludes another, so the annotation never hides an allele the release holds (likely)
+    pathogenic (TF-06 H1); else it is read by its annotation too. A row the release holds whole
+    is read there alone. Without a release, the annotation alone."""
+    not_annotated = _small_annotation_row_membership_condition(
+        context, filters, params=params, condition=exclusion, negate=True
+    )
+    if filters.clinvar_coga_release is None or not context.assembly_name:
+        return not_annotated
+    excluded = _clinvar_coga_condition(
+        context, filters, _status_filter_terms(filters.exclude_clinvar), params=params, prefix="coga_exclude"
+    )
+    pathogenic = _clinvar_coga_condition(
+        context, filters, _status_filter_terms(CLINVAR_OVERRIDE_TERMS), params=params, prefix="coga_exclude_kept"
+    )
+    held = _clinvar_coga_held(context, filters, params=params)
+    return f"(NOT {excluded} AND ({held} OR {pathogenic} OR {not_annotated}))"
+
+
 def _small_annotation_filter_clauses(
     context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
@@ -4020,8 +4053,9 @@ def _small_annotation_filter_clauses(
     (``_small_gene_condition``); one transcript meeting every per-transcript filter together
     (``_small_annotation_filter_condition``: impact, consequence, ClinVar, HGVS, frequency,
     in-silico scores, the ClinVar P/LP override of consequence, scores and frequency,
-    Canonical, MANE and LoF only); no transcript of an excluded ClinVar class; and, for the small-variant
-    track's wide window, the salient variants alone (``_small_salient_condition``). The family
+    Canonical, MANE and LoF only); no allele of an excluded ClinVar class
+    (``_clinvar_exclusion_by_the_rule``); and, for the small-variant track's wide window, the
+    salient variants alone (``_small_salient_condition``). The family
     search (``_small_query_filter_parts``) and the Variant Explorer
     (``variant_explorer_service._carriers_where``) read them here, after the row filters
     (``_small_row_filter_clauses``), whose locus the annotation subqueries repeat. The
@@ -4062,27 +4096,7 @@ def _small_annotation_filter_clauses(
 
     exclude_annotation_condition = _small_annotation_exclude_filter_condition(filters, params=params)
     if exclude_annotation_condition:
-        # No transcript of an excluded ClinVar status, read by the one rule (B8): a row CoGA's
-        # release holds whole is left out by its statuses there alone.
-        not_annotated = _small_annotation_row_membership_condition(
-            context,
-            filters,
-            params=params,
-            condition=exclude_annotation_condition,
-            negate=True,
-        )
-        if filters.clinvar_coga_release is None or not context.assembly_name:
-            clauses.append(not_annotated)
-        else:
-            excluded = _clinvar_coga_condition(
-                context,
-                filters,
-                _status_filter_terms(filters.exclude_clinvar),
-                params=params,
-                prefix="coga_exclude",
-            )
-            held = _clinvar_coga_held(context, filters, params=params)
-            clauses.append(f"(NOT {excluded} AND ({held} OR {not_annotated}))")
+        clauses.append(_clinvar_exclusion_by_the_rule(context, filters, exclude_annotation_condition, params=params))
 
     salient_condition = _small_salient_condition(filters, params=params)
     if salient_condition:

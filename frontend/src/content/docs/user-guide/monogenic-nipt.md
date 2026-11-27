@@ -91,7 +91,10 @@ its data, reviews and sign-out are its own.
   priority, any flags and **Other cfDNA samples**: in how many other cfDNA samples of the assay, in
   every project, its allele is called, and how (maternal, the father's allele, or an *unexplained
   low-VAF* call that no parent explains, the mark of a recurrent artefact). This sits next to the usual
-  annotation, tags and ACMG classification. As on the small-variant page, the diseases its gene is
+  annotation, tags and ACMG classification. Its ClinVar shows beside *ClinVar (CoGA)*, as on the
+  small-variant page: the value of CoGA's own ClinVar release the analysis read, the one its triage,
+  protections, candidates and ClinVar filters read where the release holds the allele, and the one
+  the ACMG classification's PP5 and BP6 read. As on the small-variant page, the diseases its gene is
   linked to are named under the card's heading, and **Collapse** folds a card you are done with to
   its heading.
 - **Hide recurrent low-VAF calls** leaves out the variants that are an unexplained low-VAF call in more
@@ -105,9 +108,9 @@ its data, reviews and sign-out are its own.
   hide a pathogenic allele that gnomAD does not list and ClinVar does not call pathogenic once 3
   pregnancies of the assay carry it: turn it off to check a gene that matters.
 - **Download CSV**, above the variants, saves the list as a CSV file: every variant the list
-  classifies, in its order, with its category, reads, probabilities, de novo triage and recurrence,
-  and on every row the fetal fraction and, for a multiple pregnancy, the multiple-pregnancy note. A
-  list cut at its limit says so in the file name (*TRUNCATED*).
+  classifies, in its order, with its *ClinVar (CoGA)*, category, reads, probabilities, de novo triage
+  and recurrence, and on every row the fetal fraction and, for a multiple pregnancy, the
+  multiple-pregnancy note. A list cut at its limit says so in the file name (*TRUNCATED*).
 - **On-target coverage**, under the variants, gives the median depth over the capture targets of the
   panel and genes you selected (every target without a selection) and how many genes have a weak
   target: a mean below 300× or a base without coverage, where a fetal variant can be missed.
