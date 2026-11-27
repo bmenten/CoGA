@@ -79,6 +79,7 @@ from .clinvar_releases import (
     CLINVAR_DATASET_TYPE,
     ClinvarRelease,
     current_clinvar_release,
+    hold_current_clinvar_release,
     recorded_clinvar_releases,
 )
 from .clinvar_vcf import ClinvarFileReader, ClinvarFileRefused, ClinvarRow
@@ -564,9 +565,10 @@ async def _release(
     job_id: str,
 ) -> None:
     """Make the release the current one: its ``reference_dataset_imports`` row and its event on
-    the clinical audit chain, in one transaction."""
+    the clinical audit chain, in one transaction, once no signed record is being built."""
     version = recorded_release(file, downloaded.sha256)
     async with get_postgres_sessionmaker()() as session:
+        await hold_current_clinvar_release(session, exclusive=True)
         await record_reference_import(
             session,
             assembly_id=job["assembly_id"],
