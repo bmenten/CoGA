@@ -977,6 +977,24 @@ describe('FamilyNiptPage', () => {
       await waitFor(() => expect(variantSearches().at(-1)?.max_unexplained_recurrence).toBe(0));
     });
 
+    it('sends the report\'s cohort rule, chips it, and keeps it in the URL', async () => {
+      serve();
+      renderAt('/families/NIPT001/nipt?exclude_cohort_common=true');
+
+      await waitFor(() => expect(variantSearches().length).toBeGreaterThan(0));
+      expect(variantSearches().at(-1)?.exclude_cohort_common).toBe(true);
+      expect(await screen.findByRole('button', { name: /Common in the assay left out/ })).toBeInTheDocument();
+
+      await openAdvancedFilters();
+      fireEvent.click(
+        screen.getByRole('checkbox', {
+          name: 'Leave out alleles without a population frequency that 3 or more cfDNA samples of this assay call',
+        }),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+      await waitFor(() => expect(variantSearches().at(-1)?.exclude_cohort_common).toBeUndefined());
+    });
+
     it('offers the review tags, but no classification or saved-notes filter the list does not apply', async () => {
       serve();
       renderAt('/families/NIPT001/nipt');

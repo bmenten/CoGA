@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import clickhouse_interval_tracks, nipt_service
-from backend.app.services.clickhouse_family_variants import CarrierCallRows
+from backend.app.services.clickhouse_family_variants import CarrierCallRows, CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
     Region,
@@ -668,6 +668,49 @@ async def test_the_categories_choose_the_recessive_genes_and_the_pairing_reads_e
     assert genea.risk == unfiltered.risk
     assert await recessive([1]) == []
 
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("other_carriers", "clinvar", "listed"),
+    [
+        (1, None, {"GENEA", "GENEC"}),  # in 2 cfDNA samples, this one included: rare
+        (2, None, {"GENEC"}),  # in 3: an unannotated common allele, paired with nothing
+        (2, "Pathogenic", {"GENEA", "GENEC"}),  # ClinVar calls it pathogenic: it stays
+    ],
+)
+async def test_the_cohort_rule_leaves_out_an_unannotated_allele_common_in_the_assay(
+    monkeypatch: pytest.MonkeyPatch, other_carriers: int, clinvar: str | None, listed: set[str]
+) -> None:
+    # The report's rule (nipt_diagnostic_filters.is_cohort_common): an allele without a
+    # population frequency that 3 or more cfDNA samples of the assay call is common, so the
+    # recessive view pairs GENEA's maternal allele with nothing.
+    records = _recessive_filtered_records()
+    if clinvar:
+        records[1] = dataclasses.replace(records[1], annotations=[{"impact": "MODERATE", "clinvar": clinvar}])
+    wire_nipt_reads(
+        monkeypatch,
+        family=_nipt_family(),
+        cohort=_cohort_cat7_records(),
+        filtered=records,
+        carrier_samples=["cfdna-2", "cfdna-3"],
+        recurrence={"1-2-A-G": CfdnaRecurrence(carriers=other_carriers, maternal=other_carriers)},
+        other_samples=2,
+    )
+
+    async def recessive(exclude_cohort_common: bool) -> set[str]:
+        result = await get_family_nipt_variants(
+            session=None,  # type: ignore[arg-type]
+            family_id="NIPT001",
+            user=None,  # type: ignore[arg-type]
+            query_filters={"gene": "GENEA GENEB GENEC"},
+            inheritance="recessive_at_risk",
+            exclude_cohort_common=exclude_cohort_common,
+        )
+        return {gene.risk.gene for gene in result.recessive_genes}
+
+    assert await recessive(True) == listed
+    assert await recessive(False) == {"GENEA", "GENEC"}
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(

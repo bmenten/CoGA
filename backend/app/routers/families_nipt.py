@@ -465,6 +465,9 @@ def _nipt_variant_search(
     # more than this many other cfDNA samples of the assay (unless ClinVar or a population
     # frequency protects them).
     max_unexplained_recurrence: int | None = Query(None, ge=0),
+    # The locked criteria's cohort rule: leave out an allele without a population frequency
+    # that 3 or more cfDNA samples of the assay call (unless ClinVar calls it pathogenic).
+    exclude_cohort_common: bool = False,
     # The pregnancy whose monogenic NIPT is read, of a family that holds several.
     analysis: NiptAnalysisParam = None,
 ) -> dict[str, Any]:
@@ -517,6 +520,7 @@ def _nipt_variant_search(
         "review_tags": review_tags,
         "exclude_review_tags": exclude_review_tags,
         "max_unexplained_recurrence": max_unexplained_recurrence,
+        "exclude_cohort_common": exclude_cohort_common,
         "analysis": analysis,
     }
 

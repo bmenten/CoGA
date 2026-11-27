@@ -100,6 +100,7 @@ _SEARCH: list[tuple[str, str]] = [
     ("review_tag", "report"),
     ("exclude_review_tag", "excluded"),
     ("max_unexplained_recurrence", "2"),
+    ("exclude_cohort_common", "true"),
 ]
 
 

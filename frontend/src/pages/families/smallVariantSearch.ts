@@ -293,14 +293,16 @@ export type SmallFilterState = {
   // Monogenic NIPT only: the maternal/fetal category multi-select, the minimum
   // classification confidence, whether the paternal and maternal views also list the
   // alleles the fetus did not inherit ('true'), the lowest de novo priority listed
-  // (high, medium or low), and the recurrence filter: the most other cfDNA samples of the
-  // assay a listed variant may be an unexplained low-VAF call in. Never set by the
-  // small-variant UI.
+  // (high, medium or low), the recurrence filter: the most other cfDNA samples of the
+  // assay a listed variant may be an unexplained low-VAF call in, and the locked criteria's
+  // cohort rule ('true': an allele without a population frequency in 3 or more cfDNA samples of
+  // the assay is left out as common). Never set by the small-variant UI.
   category: string;
   min_confidence: string;
   include_not_inherited: string;
   de_novo_priority: string;
   max_unexplained_recurrence: string;
+  exclude_cohort_common: string;
 };
 
 export type ActiveSmallFilterChip =
@@ -637,7 +639,14 @@ export const inheritanceLabel = (value: string): string => {
  */
 export const SMALL_VARIANT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new Set<
   keyof SmallFilterState
->(['category', 'min_confidence', 'include_not_inherited', 'de_novo_priority', 'max_unexplained_recurrence']);
+>([
+  'category',
+  'min_confidence',
+  'include_not_inherited',
+  'de_novo_priority',
+  'max_unexplained_recurrence',
+  'exclude_cohort_common',
+]);
 
 /**
  * Whether the family small-variant list applies the filter a chip names: every per-sample filter
@@ -675,6 +684,7 @@ const UNAPPLIED_FILTER_NAMES: Partial<Record<keyof SmallFilterState, string>> = 
   include_not_inherited: 'not-inherited-alleles',
   de_novo_priority: 'de novo priority',
   max_unexplained_recurrence: 'recurrence',
+  exclude_cohort_common: 'cohort-common',
 };
 
 const unappliedFilterName = (chip: ActiveSmallFilterChip): string => {
@@ -755,6 +765,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   include_not_inherited: 'Also not inherited',
   de_novo_priority: 'De novo priority from',
   max_unexplained_recurrence: 'Max unexplained recurrence',
+  exclude_cohort_common: 'Common in the assay left out',
 };
 
 const SAMPLE_FIELD_LABELS: Record<Exclude<keyof SmallVariantSampleFilter, 'gt'>, string> = {
@@ -912,6 +923,7 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   include_not_inherited: '',
   de_novo_priority: '',
   max_unexplained_recurrence: '',
+  exclude_cohort_common: '',
 });
 
 const buildDefaultSampleFilters = (
@@ -1097,7 +1109,11 @@ const buildPresetState = (
     // parents carry a variant, and the X-linked variants of either parent. The backend's
     // recessive_at_risk view lists each gene with every carrier variant and the fetal status
     // (none, one or both inherited).
+    // An allele without a population frequency that 3 or more cfDNA samples of the assay call
+    // is an unannotated common allele (a paralogue, a repeat-length allele, an MNV gnomAD
+    // lists as its SNVs), as the report's locked criteria read it: it is paired with nothing.
     filters.inheritance = 'recessive_at_risk';
+    filters.exclude_cohort_common = 'true';
     setCarrierScreenVariants();
   } else if (preset === 'expanded_carrier_screening') {
     const couple = resolveCarrierScreeningCoupleMembers(members);
@@ -1319,6 +1335,7 @@ export const buildSmallVariantQueryParams = (
   if (currentFilters.max_unexplained_recurrence) {
     params.set('max_unexplained_recurrence', currentFilters.max_unexplained_recurrence);
   }
+  if (currentFilters.exclude_cohort_common === 'true') params.set('exclude_cohort_common', 'true');
   parseCommaSeparatedValues(currentFilters.category).forEach((value) => {
     params.append('category', value);
   });

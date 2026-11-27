@@ -143,6 +143,7 @@ from .nipt_diagnostic_filters import (
     clinvar_override,
     clinvar_strictly_pathogenic,
     dominant_failures,
+    is_cohort_common,
     is_repeat_context_indel,
     recessive_failures,
 )
@@ -1657,6 +1658,7 @@ async def get_family_nipt_variants(
     review_tags: list[str] | None = None,
     exclude_review_tags: list[str] | None = None,
     max_unexplained_recurrence: int | None = None,
+    exclude_cohort_common: bool = False,
     panel_search: str = "nipt_variants",
     analysis: str | None = None,
 ) -> NiptVariantsResult:
@@ -1683,7 +1685,9 @@ async def get_family_nipt_variants(
     (``NiptRecurrence``). ``max_unexplained_recurrence`` leaves out, after the view and the
     categories, the variants that are an unexplained low-VAF call in more of them
     (``hidden_as_recurrent``), as recurrent artefacts; in the recessive view, the genes with no
-    other carrier variant.
+    other carrier variant. ``exclude_cohort_common`` leaves out, before the view, the alleles the
+    locked criteria read as an unannotated common allele (``_not_cohort_common``), so that the
+    recessive view pairs none of them.
 
     ``page_size`` None gives every classified variant of the search, as the CSV export
     writes them; ``panel_search`` names the search on the family's audit trail when it
@@ -1784,6 +1788,8 @@ async def get_family_nipt_variants(
     classified = await asyncio.to_thread(family.classify, records, trio, qc, min_confidence=min_confidence)
 
     recurrence_scope = await _recurrence_scope(session, context, assay_key, qc)
+    if exclude_cohort_common:
+        classified = await _not_cohort_common(classified, recurrence_scope)
     gene_total: int | None = None
     variant_total: int | None = None
     if inheritance == RECESSIVE_AT_RISK:
@@ -1838,6 +1844,26 @@ async def get_family_nipt_variants(
         variant_total=variant_total,
         not_classified=not_classified,
     )
+
+
+async def _not_cohort_common(
+    items: list[NiptClassifiedVariant], scope: _RecurrenceScope
+) -> list[NiptClassifiedVariant]:
+    """The ``items`` less those the locked criteria read as an unannotated common allele
+    (``nipt_diagnostic_filters.is_cohort_common``: no population frequency, called in
+    ``cohort_common_min_samples`` cfDNA samples of the assay or more, this one included: a
+    paralogue, a repeat-length allele, an MNV gnomAD lists as its SNVs), unless ClinVar calls
+    them pathogenic (``clinvar_override``), as the report's recessive pairing reads them."""
+    criteria = NiptDiagnosticCriteria()
+    unannotated = [item for item in items if triage_annotation(item.record).max_population_af is None]
+    await _attach_recurrence(unannotated, scope)
+    common = {
+        item.record.variant_id
+        for item in unannotated
+        if is_cohort_common(annotation := diagnostic_annotation(item), criteria)
+        and not clinvar_override(annotation, criteria)
+    }
+    return [item for item in items if item.record.variant_id not in common]
 
 
 async def _shown(

@@ -473,7 +473,7 @@ The presets combine the views with the usual filters:
 - **Recessive (both parents carrier)**: the recessive view as the expanded carrier screen reads a couple:
   the gene panel named *BeGECS v3* (every gene without one), HIGH or MODERATE impact, gnomAD below 5%,
   ClinVar pathogenic or likely pathogenic overriding the impact and the frequency, ClinVar benign and
-  likely benign left out.
+  likely benign left out, and the report's cohort rule (below).
 
 The page opens on **De novo**, on the analysis's diagnostic gene panel (without one, on the **Mendeliome**), unless its link carries a search of its own.
 
@@ -804,6 +804,14 @@ only narrows the list. The fetal fraction, the funnel and every classification s
 
 The count grows as more pregnancies of the assay are imported. Use it to find artefacts, and to
 propose candidates for the artifact list, which stays the reviewed, audited filter of the analysis.
+
+**Leave out alleles without a population frequency that 3 or more cfDNA samples of this assay call**,
+under the same heading, applies the report's cohort rule. A gnomAD frequency filter lets an allele
+without a frequency through, and in a capture assay such an allele is often one nearly every pregnancy
+carries: an MNV (gnomAD lists its SNVs), an indel in a homopolymer or a repeat whose length varies, a
+paralogue. Called in 3 or more cfDNA samples of the assay, this one included, it is read as common,
+not rare, and the recessive view pairs it with nothing. An allele ClinVar calls pathogenic stays. The
+*Recessive (both parents carrier)* preset turns the rule on; the classification does not change.
 The signed record holds each reported variant's recurrence counts as they were at sign-out.
 
 Limits: a father's call written as another representation of the allele (an MNV over it, or its
