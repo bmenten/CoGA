@@ -38,6 +38,7 @@ from .clickhouse_family_variants import (
     _fetch_small_variant_rows,
     _hydrate_small_variant_outs,
     _small_variant_outs,
+    CarrierCallRows,
     CfdnaRecurrence,
     CfdnaRecurrenceRules,
     count_cfdna_recurrence,
@@ -146,6 +147,7 @@ from .nipt_triage import (
     RecessiveGeneRisk,
     de_novo_window,
     is_de_novo_candidate,
+    mother_carries,
     recessive_gene_risks,
     repeat_units,
     triage_de_novo,
@@ -164,6 +166,11 @@ PATERNAL_INHERITED = "paternal_dominant"
 MATERNAL_INHERITED = "maternal_dominant"
 RECESSIVE_AT_RISK = "recessive_at_risk"
 _INHERITANCE_VIEWS = (DE_NOVO, PATERNAL_INHERITED, MATERNAL_INHERITED, RECESSIVE_AT_RISK)
+# The views that read only the mother's alleles (``mother_carries``) or the parents' alleles:
+# their variant load keeps only the rows such an allele can be read from (``CarrierCallRows``).
+# The plasma's low-level calls, most of a cfDNA callset, would otherwise fill the load's limit
+# before the rest of the genome.
+_CARRIER_ROW_VIEWS = frozenset({MATERNAL_INHERITED, RECESSIVE_AT_RISK})
 # The de novo labels each minimum priority keeps.
 _DE_NOVO_PRIORITY_LABELS: dict[str, frozenset[str]] = {
     "high": frozenset({"high"}),
@@ -1297,12 +1304,13 @@ def _paternal_view(
 def _maternal_view(
     classified: list[NiptClassifiedVariant], *, include_not_inherited: bool
 ) -> list[NiptClassifiedVariant]:
-    """The mother's alleles (categories 2-6), with whether the fetus inherited each: by
-    default only those it did (probability 0.5 or more)."""
+    """The mother's alleles (categories 2-6 on a plasma call of 25% or more, ``mother_carries``),
+    with whether the fetus inherited each: by default only those it did (probability 0.5 or
+    more)."""
     kept: list[NiptClassifiedVariant] = []
     for item in classified:
         classification = item.classification
-        if classification.maternal_state not in ("het", "hom"):
+        if not mother_carries(classification):
             continue
         probability = classification.maternal_allele_probability
         if include_not_inherited or (probability is not None and probability >= 0.5):
@@ -1327,17 +1335,18 @@ def _recessive_view(
     every carrier variant in them, most likely affected gene first.
 
     A variant marks the mother a carrier when her inferred genotype is het or hom (categories
-    2-6), and the father when his genotype is het or hom-alt (a homozygous or hemizygous
-    parent always passes the allele). Run the gene, consequence and frequency filters first
-    so the carriers are plausibly causal. ``technical`` applies the technical filter
-    (``_technically_retained``), as the locked diagnostic candidates do.
+    2-6) on a plasma call of 25% or more (``nipt_triage.mother_carries``), and the father when
+    his genotype is het or hom-alt (a homozygous or hemizygous parent always passes the
+    allele). Run the gene, consequence and frequency filters first so the carriers are
+    plausibly causal. ``technical`` applies the technical filter (``_technically_retained``),
+    as the locked diagnostic candidates do.
     """
     candidates: list[RecessiveCandidate] = []
     by_variant: dict[str, NiptClassifiedVariant] = {}
     for item in classified:
         # A het call of a man's X is an artefact, read as no call (classify_site).
         father = "missing" if FATHER_X_HET_FLAG in item.classification.flags else _trusted_father(item, qc)
-        if item.classification.maternal_state not in ("het", "hom") and father not in ("het", "hom_alt"):
+        if not mother_carries(item.classification) and father not in ("het", "hom_alt"):
             continue
         candidates.append(
             RecessiveCandidate(
@@ -1610,6 +1619,15 @@ async def get_family_nipt_variants(
     # limit with a total that looked exact would have the page and the report read as
     # complete while the rest of the genome was never classified.
     fetch_limit = NIPT_VARIANT_FETCH_LIMIT
+    carrier_calls = (
+        CarrierCallRows(
+            plasma_sample_id=trio.cfdna_sample_id,
+            father_sample_id=trio.father_sample_id,
+            maternal_vaf=MATERNAL_ALLELE_VAF_BOUNDARY,
+        )
+        if inheritance in _CARRIER_ROW_VIEWS
+        else None
+    )
     records = await _fetch_small_variant_rows(
         context,
         filters,
@@ -1621,6 +1639,7 @@ async def get_family_nipt_variants(
         exclude_gene_regions=exclude_gene_regions,
         exclude_gene_terms=_split_gene_terms(filters.exclude_gene),
         limit=fetch_limit + 1,
+        carrier_calls=carrier_calls,
     )
     capped = len(records) > fetch_limit
     if capped:

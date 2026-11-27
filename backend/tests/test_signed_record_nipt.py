@@ -655,6 +655,8 @@ def test_the_model_the_analysis_ran_with() -> None:
     assert model["reference"] == NIPT_MODEL_REFERENCE
     assert model["quality_filter"] == dict(sorted(dataclasses.asdict(NiptQualityThresholds()).items()))
     assert model["fetal_fraction"] == {"hard_floor": 5, "min_sites": 30, "max_ci_halfwidth": 0.03}
+    # The plasma call from which the recessive pairing reads the mother as a carrier.
+    assert model["maternal_allele_vaf_boundary"] == 0.25
 
 
 # --- A section a record can hold, and check ----------------------------------------------

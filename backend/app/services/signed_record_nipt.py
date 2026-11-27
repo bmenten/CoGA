@@ -71,6 +71,7 @@ from .nipt_analysis import (
     FF_HARD_FLOOR,
     FF_MAX_CI_HALFWIDTH,
     FF_MIN_SITES,
+    MATERNAL_ALLELE_VAF_BOUNDARY,
     MATERNAL_HET_BIAS,
     NIPT_MODEL_REFERENCE,
     OVERDISPERSION,
@@ -577,13 +578,15 @@ def _recessive_gene(gene: RecessiveGeneRisk) -> dict[str, Any]:
 
 
 def _model(qc: NiptQualityThresholds) -> dict[str, Any]:
-    """The model the analysis ran with: its validation, its constants, the cfDNA quality
-    filter and the paternal genotype classes, and the fetal-fraction rules."""
+    """The model the analysis ran with: its validation, its constants, the plasma call from
+    which the mother carries an allele in the recessive pairing (``nipt_triage.mother_carries``),
+    the cfDNA quality filter and the paternal genotype classes, and the fetal-fraction rules."""
     return {
         "reference": NIPT_MODEL_REFERENCE,
         "overdispersion": OVERDISPERSION,
         "maternal_het_bias": MATERNAL_HET_BIAS,
         "background_error_rate": BACKGROUND_ERROR_RATE,
+        "maternal_allele_vaf_boundary": MATERNAL_ALLELE_VAF_BOUNDARY,
         "quality_filter": {key: _number(value) for key, value in sorted(dataclasses.asdict(qc).items())},
         "fetal_fraction": {
             "hard_floor": FF_HARD_FLOOR,

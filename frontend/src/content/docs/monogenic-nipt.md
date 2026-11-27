@@ -393,8 +393,9 @@ calls in part in another representation is always listed.
 
 ### Maternal, inherited by the fetus
 
-The mother's alleles (categories 2 to 6), with the probability that the fetus inherited each. By default
-those inherited with a probability of 50% or more; the same check box adds the rest.
+The mother's alleles (categories 2 to 6, on a plasma call of 25% or more), with the probability that the
+fetus inherited each. By default those inherited with a probability of 50% or more; the same check box adds
+the rest. A lower plasma call is no allele of the mother's (see *Recessive: both parents carriers*).
 
 ### Recessive: both parents carriers
 
@@ -403,6 +404,12 @@ a son, the X-linked genes in which his mother carries one. A parent may be heter
 a homozygous parent (or a father with the allele on his one X) always passes it on. A son inherits his
 X from his mother alone: her allele makes him affected, and his father's X never reaches him. A
 daughter's X-linked gene is paired as an autosome: her father's X always reaches her.
+
+The mother carries an allele only where the plasma calls it in her band (categories 2 to 6) at an
+allele fraction of 25% or more. Her heterozygous allele sits near 50% in the plasma; a lower call that
+the model places in her band is a low-level artefact or the fetus's allele, never hers, and makes no
+gene one both parents carry. The maternal and recessive views therefore read only the variants a
+parent's allele can come from: a plasma call of 25% or more, or a call of the father's.
 
 The table **Recessive fetal status by gene** gives, per gene, every maternal and paternal allele with the
 probability that the fetus inherited it. For the pair most likely to make the fetus affected it gives
@@ -588,8 +595,8 @@ adjustable, for exploring; the report and the sign-out use these.
 | --- | --- |
 | De novo in the fetus | A de novo candidate in the fetal window, at most 25%, that no other cfDNA sample of the assay carries (unless ClinVar calls it pathogenic), rare and protein-altering |
 | Paternal, inherited | The father's allele the fetus inherited (probability 50% or more), rare and protein-altering |
-| Maternal | Each of the mother's alleles, rare and protein-altering, with the probability that the fetus inherited it: the maternal inference is the least certain, so it does not narrow the list |
-| Recessive | A gene in which both parents carry an allele that is rare at 1% and protein-altering (for a son, an X-linked gene in which his mother carries one), with the fetal status and its probabilities |
+| Maternal | Each of the mother's alleles (a plasma call of 25% or more), rare and protein-altering, with the probability that the fetus inherited it: the maternal inference is the least certain, so it does not narrow the list |
+| Recessive | A gene in which both parents carry an allele that is rare at 1% and protein-altering (for a son, an X-linked gene in which his mother carries one), the mother's from a plasma call of 25% or more, with the fetal status and its probabilities |
 
 - **Technical filter**, as in the R validation: the de novo, paternal and maternal lists, and the
   mother's alleles of the recessive pairing, hold only plasma calls that pass the cfDNA quality filter

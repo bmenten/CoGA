@@ -423,6 +423,24 @@ async def test_the_maternal_view_lists_what_the_fetus_inherited(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
+async def test_the_maternal_view_leaves_out_a_low_level_call_the_model_places_in_her_band(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # At FF 0.20 the model places a 24% call in the mother's het band (category 2). Below 25% it
+    # is a low-level artefact or the fetus's allele, never hers (the owner's decision of
+    # 2026-11-27): neither the maternal view nor the recessive pairing reads it as her allele.
+    low = _record("7-600-A-G", [_call(PLASMA, [1520, 480])], genes=["GENEA"])
+    _wire(monkeypatch, filtered=[*_gene_sites(), low])
+    classified = {item.record.variant_id: item for item in (await _variants()).variants}
+    assert classified["7-600-A-G"].classification.maternal_state == "het"
+    everything = await _variants(inheritance="maternal_dominant", include_not_inherited=True)
+    assert [item.record.variant_id for item in everything.variants] == ["7-100-A-G", "7-300-A-G"]
+    recessive = await _variants(inheritance="recessive_at_risk")
+    [gene_a] = [gene for gene in recessive.recessive_genes if gene.gene == "GENEA"]
+    assert [allele.variant_id for allele in gene_a.maternal] == ["7-100-A-G"]
+
+
+@pytest.mark.asyncio
 async def test_the_recessive_view_gives_each_genes_fetal_risk(monkeypatch: pytest.MonkeyPatch) -> None:
     _wire(monkeypatch, filtered=_gene_sites())
     result = await _variants(inheritance="recessive_at_risk")

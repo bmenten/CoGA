@@ -540,7 +540,7 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
     value: 'nipt_recessive',
     label: 'Recessive (both parents carrier)',
     description:
-      'Genes where both parents carry a rare, high/moderate variant (ClinVar P/LP overrides frequency and impact), with the probability that the fetus inherited each allele and both.',
+      "Genes where both parents carry a rare, high/moderate variant (ClinVar P/LP overrides frequency and impact), the mother's from a plasma call of 25% or more, with the probability that the fetus inherited each allele and both.",
   },
 ];
 
