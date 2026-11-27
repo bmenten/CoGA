@@ -16,6 +16,7 @@ from backend.app.services.nipt_triage import (
     RecessiveCandidate,
     de_novo_window,
     is_de_novo_candidate,
+    mother_carries,
     recessive_gene_risks,
     triage_de_novo,
 )
@@ -171,10 +172,17 @@ def test_no_window_no_triage() -> None:
     assert triage_de_novo(_site(0.11), None, DeNovoAnnotation()) is None
 
 
+# A plasma call's allele fraction by the mother's genotype: her het allele near 50%, her hom
+# allele near 100%, else a fetal allele.
+_PLASMA_VAF = {"het": 0.47, "hom": 0.97}
+
+
 def _classification(category: int | None, **kwargs) -> NiptClassification:
+    maternal_state = kwargs.get("maternal_state", "hom_ref")
     defaults = dict(
-        variant_id="v", category=category, category_label="", maternal_state="hom_ref",
-        fetal_inheritance="", expected_vaf=0.1, observed_vaf=0.1, confidence=0.99,
+        variant_id="v", category=category, category_label="", maternal_state=maternal_state,
+        fetal_inheritance="", expected_vaf=0.1, observed_vaf=_PLASMA_VAF.get(maternal_state, 0.1),
+        confidence=0.99,
     )
     defaults.update(kwargs)
     return NiptClassification(**defaults)  # type: ignore[arg-type]
@@ -244,6 +252,43 @@ def test_the_recessive_risk_of_a_compound_pair() -> None:
     assert not risk.risk_uses_prior
     assert [allele.variant_id for allele in risk.maternal] == ["mat"]
     assert [allele.variant_id for allele in risk.paternal] == ["pat"]
+
+
+@pytest.mark.parametrize(("plasma_vaf", "at_risk"), [(0.12, False), (0.249, False), (0.25, True), (0.47, True)])
+def test_the_mother_carries_an_allele_only_on_a_plasma_call_of_25_percent_or_more(
+    plasma_vaf: float, at_risk: bool
+) -> None:
+    # A low-level plasma call the model places in her het band (a cfDNA artefact, or the
+    # fetus's allele) is no allele of hers: it makes no gene one both parents carry.
+    maternal = _candidate(
+        "mat", "absent", _classification(2, maternal_state="het", maternal_allele_probability=0.1, observed_vaf=plasma_vaf)
+    )
+    paternal = _candidate("pat", "het", _classification(7, paternal_transmission_probability=1.0))
+    assert mother_carries(maternal.classification) is at_risk
+    risks = recessive_gene_risks([maternal, paternal])
+    assert [risk.gene for risk in risks] == (["GENEA"] if at_risk else [])
+    # Nor a son's X-linked gene, which her allele alone would put at risk.
+    son = _candidate(
+        "x1", "absent",
+        _classification(2, maternal_state="het", maternal_allele_probability=0.1, observed_vaf=plasma_vaf,
+                        flags=["x_nonpar_male_fetus"]),
+        genes=("GENEX",),
+    )
+    assert [risk.gene for risk in recessive_gene_risks([son])] == (["GENEX"] if at_risk else [])
+
+
+def test_the_fathers_allele_under_a_low_plasma_call_is_not_one_the_mother_carries_too() -> None:
+    # The father's het allele, its plasma call low but placed in the mother's band: she does not
+    # carry it, so his allele is not the "mother carries it too" case, and the site pairs as his
+    # allele alone.
+    shared_low = _candidate(
+        "pat", "het", _classification(2, maternal_state="het", observed_vaf=0.18, paternal_transmission_probability=None)
+    )
+    maternal = _candidate("mat", "absent", _classification(3, maternal_state="het", maternal_allele_probability=0.97))
+    [risk] = recessive_gene_risks([maternal, shared_low])
+    assert [allele.variant_id for allele in risk.maternal] == ["mat"]
+    assert [allele.variant_id for allele in risk.paternal] == ["pat"]
+    assert risk.paternal[0].note is None
 
 
 def test_a_paternal_allele_not_transmitted_makes_the_risk_low() -> None:

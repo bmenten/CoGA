@@ -741,6 +741,49 @@ def _cfdna_sample_calls(
     """
 
 
+@dataclass(slots=True, frozen=True)
+class CarrierCallRows:
+    """The rows of a monogenic NIPT that a parent's allele can be read from
+    (``_carrier_call_condition``): the plasma's call at ``maternal_vaf`` or more, where the
+    mother may carry the allele, or an alt call of the father's. The maternal and recessive views
+    read their alleles from these alone."""
+
+    plasma_sample_id: str
+    father_sample_id: str
+    maternal_vaf: float
+
+
+def _carrier_call_condition(rows: CarrierCallRows, params: dict[str, Any]) -> str:
+    """The entry row (alias ``e``) holds a call of ``rows`` (``CarrierCallRows``): the plasma's
+    with an alt fraction of ``rows.maternal_vaf`` or more over its own allele depths, or
+    without allele depths; or the father's with an alt read or an alt genotype. Of a plasma
+    full of low-level calls it leaves out the calls of neither parent, which the maternal list
+    and the recessive pairing never read (``nipt_triage.mother_carries``).
+
+    It keeps every row they can read a parent's allele from: the analysis reads the
+    plasma's fraction over a split record's restored site depth, never less than its own
+    allele depths (``nipt_service.restored_site_depths``), and a father's het or hom-alt class
+    needs an alt read or an alt genotype (``nipt_service.derive_father_state``). A row whose
+    father's call is read off another record (an MNV over SNVs) is read through that record,
+    which holds his call."""
+    params.update(
+        {
+            "carrier_plasma": rows.plasma_sample_id,
+            "carrier_father": rows.father_sample_id,
+            "carrier_maternal_vaf": float(rows.maternal_vaf),
+        }
+    )
+    father_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="carrier_father_gt_alt", params=params)
+    reads = _READS.format("ad")
+    return (
+        "arrayExists((s, gt, ad) -> "
+        "(s = %(carrier_plasma)s AND (length(ad) < 2 OR isNull(ad[2]) "
+        f"OR ad[2] >= %(carrier_maternal_vaf)s * {reads})) "
+        f"OR (s = %(carrier_father)s AND (ifNull(ad[2], 0) > 0 OR {father_alt})), "
+        "e.calls.sampleId, e.calls.gt, e.calls.ad)"
+    )
+
+
 async def count_cfdna_recurrence(
     assembly_name: str,
     variant_ids: Sequence[str],
@@ -1542,13 +1585,15 @@ async def _fetch_small_variant_rows(
     exclude_gene_regions: Sequence[Region] = (),
     exclude_gene_terms: Sequence[str] = (),
     segregation_flags: bool = False,
+    carrier_calls: CarrierCallRows | None = None,
 ) -> list[SmallVariantRecord]:
     """The family's small-variant rows the search's ``filters`` and scope keep, one per key.
 
     With ``segregation_flags``, each record also says which single-variant inheritance modes
     it fits (``SmallVariantRecord.segregation``), as the SQL decides them for the inheritance
     filter (``_small_segregation_flag_columns``): what the ranking's segregation and the
-    paired searches read."""
+    paired searches read. With ``carrier_calls``, only the rows a monogenic NIPT's parent's
+    allele can be read from (``_carrier_call_condition``)."""
     if not context.assembly_name:
         return []
     entries_table = _small_table_name(context.assembly_name, "entries")
@@ -1564,6 +1609,9 @@ async def _fetch_small_variant_rows(
         exclude_gene_terms=exclude_gene_terms,
         exclude_imputed=True,
     )
+    if carrier_calls is not None:
+        # First, so the transcript filters run on the rows it keeps alone.
+        where_clauses.insert(0, _carrier_call_condition(carrier_calls, params))
     flag_columns = ""
     flag_names = ""
     if segregation_flags:

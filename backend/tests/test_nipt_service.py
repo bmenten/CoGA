@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import clickhouse_interval_tracks, nipt_service
+from backend.app.services.clickhouse_family_variants import CarrierCallRows
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
     Region,
@@ -637,6 +638,44 @@ async def test_get_family_nipt_variants_recessive_at_risk(
     # GENEA compound pair + GENEC homozygote; GENEB's lone paternal hit is excluded.
     assert kept == {"1-1-A-G", "1-2-A-G", "1-4-A-G"}
     assert result.total == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("inheritance", "carrier_calls"),
+    [
+        ("recessive_at_risk", CarrierCallRows(plasma_sample_id="cfdna-1", father_sample_id="father-1", maternal_vaf=0.25)),
+        ("maternal_dominant", CarrierCallRows(plasma_sample_id="cfdna-1", father_sample_id="father-1", maternal_vaf=0.25)),
+        ("de_novo", None),
+        ("paternal_dominant", None),
+        (None, None),
+    ],
+)
+async def test_the_maternal_and_recessive_views_load_the_rows_of_the_parents_alleles_alone(
+    monkeypatch: pytest.MonkeyPatch, inheritance: str | None, carrier_calls: CarrierCallRows | None
+) -> None:
+    # The maternal and recessive views read the parents' alleles alone: their variant load keeps
+    # only the rows one can be read from (the plasma's calls in the mother's band, the father's
+    # alt calls), so the plasma's low-level calls do not fill the load's limit. The de novo and
+    # paternal views read those calls: a fetal allele sits at FF/2.
+    _wire_variants_mocks(monkeypatch, cohort=_cohort_cat7_records(), filtered=_recessive_filtered_records())
+    loads: list[CarrierCallRows | None] = []
+    inner_fetch = nipt_service._fetch_small_variant_rows
+
+    async def recording_fetch(context, filters, **kwargs):
+        if filters.gene is not None:
+            loads.append(kwargs.get("carrier_calls"))
+        return await inner_fetch(context, filters, **kwargs)
+
+    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", recording_fetch)
+    await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "GENEA GENEB GENEC"},
+        inheritance=inheritance,
+    )
+    assert loads == [carrier_calls]
 
 
 @pytest.mark.asyncio

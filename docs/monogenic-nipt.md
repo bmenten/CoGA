@@ -131,7 +131,7 @@ allele:
 | `min_father_dp`, `min_father_alt_reads` | 20, 5 | the father's classes and a usable call |
 | `min_father_genotyped_qual`, `min_father_gq` | 50, 20 | a genotyped (HaplotypeCaller) father call, read from its GT |
 | `min_father_qual`, `father_het_min_vaf`, `father_hom_alt_min_vaf` | 20, 0.20, 0.80 | any other father call, read from its allele fraction |
-| `MATERNAL_ALLELE_VAF_BOUNDARY` | 0.25 | FF-site ceiling, paternity, the paternal view (midway between FF/2 and 0.5 − FF/2; the R pipeline's 0.35 let shared sites into the FF at a high FF) |
+| `MATERNAL_ALLELE_VAF_BOUNDARY` | 0.25 | FF-site ceiling, paternity, the paternal view, and the plasma call from which the mother carries an allele in the recessive pairing (midway between FF/2 and 0.5 − FF/2; the R pipeline's 0.35 let shared sites into the FF at a high FF) |
 | `min_sites` / `hard_floor` / `max_ci_halfwidth` | 30 / 5 / 0.03 | low-confidence FF / no estimate |
 | `OVERDISPERSION`, `MATERNAL_HET_BIAS` | 0.003684, −0.010627 | beta-binomial likelihood; the maternal-het band (categories 2–4) |
 | `BACKGROUND_ERROR_RATE` | 0.002 | an untransmitted paternal allele's noise level |
@@ -233,7 +233,12 @@ it.
   pregnancies.
 - **Recessive fetal status** — `nipt_triage.recessive_gene_risks` (the R v0.7.3 gene pairing, with
   CoGA's probabilities): heterozygous and homozygous parents (a homozygous one, or a father on his X,
-  always passes the allele); per gene the pair most likely to make the fetus affected, with
+  always passes the allele). The mother carries an allele where the model places it in her band
+  (categories 2–6) on a plasma call of `MATERNAL_ALLELE_VAF_BOUNDARY` or more
+  (`nipt_triage.mother_carries`, the owner's decision of 2026-11-27): her het allele sits near 50%,
+  and a lower call the likelihood places in her band (from about 15% at FF 0.1) is a low-level
+  artefact or the fetus's allele. The maternal and recessive views, the locked diagnostic
+  candidates and the signed record read the mother's alleles by this one rule. Per gene the pair most likely to make the fetus affected, with
   P(affected), P(carrier) and P(unaffected): from the two independent inheritances at two sites
   (`_two_site_pair`), the fetal genotype posterior at a shared site (`_shared_site_pair`), or a son's
   maternal X inheritance alone (`_son_x_pair`, `mode` `x_linked_son`, never a carrier; a daughter's
@@ -284,7 +289,18 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
   8. paging, and each listed variant's recurrence. Without a page size (`page_size=None`) the
      list holds every classified variant: the CSV export.
 
-  The recessive view returns `recessive_genes`. The review tags (`review_tag`, `exclude_review_tag`)
+  The recessive view returns `recessive_genes`. The maternal and recessive views read the parents'
+  alleles alone (`_CARRIER_ROW_VIEWS`), so their load (step 2) keeps only the rows such an allele
+  can be read from (`CarrierCallRows`, `clickhouse_family_variants._carrier_call_condition`): the
+  plasma's call at `MATERNAL_ALLELE_VAF_BOUNDARY` or more over its own allele depths, or without
+  them, or an alt call of the father's. A per-sample cfDNA callset is mostly low-level calls of
+  neither parent; read whole, they would fill the 5,000 limit early in the genome, and the views
+  would never see the rest. The condition keeps every row the views read: a split record's
+  fraction over its restored site depth is never above its own, and a father's call read off
+  another record (an MNV over SNVs) is read through that record, which holds it
+  (`e2e/test_e2e_nipt_carrier_rows.py`). The de novo and paternal views read the low-level calls:
+  a fetal allele sits at FF/2. The
+  review tags (`review_tag`, `exclude_review_tag`)
   select as on the family small-variant list (`clickhouse_family_variants.resolve_review_selection`:
   a variant's own tags or its compound-het pair's). They go into the load as variant ids, so the
   5,000 limit never cuts a tagged variant off. A selected variant the analysis does not classify

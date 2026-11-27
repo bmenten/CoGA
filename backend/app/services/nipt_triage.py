@@ -22,7 +22,9 @@ window. An allele another cfDNA sample carries is excluded as recurrent. In the 
 validation most shortlisted (high and medium) candidates were not true de novo variants:
 the triage ranks; the annotation filters narrow.
 
-**Recessive fetal status** (the R NIPT-M v0.7.3 gene pairing, with CoGA's probabilities). In a
+**Recessive fetal status** (the R NIPT-M v0.7.3 gene pairing, with CoGA's probabilities). The
+mother carries an allele when the plasma calls it in her band at 25% or more (``mother_carries``),
+the father when his genotype is het or hom-alt. In a
 gene where the mother carries an allele and the father one, the fetus is affected when it
 inherited one of each (assuming both are pathogenic and the maternal alleles in trans of the
 paternal ones). A homozygous (or, on a man's X, hemizygous) parent always passes the allele, as
@@ -52,6 +54,7 @@ from typing import Sequence
 from .nipt_analysis import (
     FATHER_CALL_OVERLAPS,
     FATHER_X_HET_FLAG,
+    MATERNAL_ALLELE_VAF_BOUNDARY,
     X_FEMALE_FLAG,
     X_MALE_FLAG,
     FetalFractionEstimate,
@@ -351,11 +354,24 @@ def _notes(*notes: str | None) -> str | None:
 UNDETERMINED_BAND = (0.2, 0.8)
 
 
+def mother_carries(classification: NiptClassification) -> bool:
+    """Whether the plasma shows that the mother carries the allele: a maternal category (2-6)
+    on a call at ``MATERNAL_ALLELE_VAF_BOUNDARY`` (25%) or more. Her heterozygous allele sits
+    near 50% in the plasma; a lower call that the model places in her band is a low-level
+    artefact or the fetus's allele, never hers (the owner's decision of 2026-11-27)."""
+    vaf = classification.observed_vaf
+    return (
+        classification.maternal_state in ("het", "hom")
+        and vaf is not None
+        and vaf >= MATERNAL_ALLELE_VAF_BOUNDARY
+    )
+
+
 def _maternal_allele(candidate: RecessiveCandidate) -> RecessiveAllele | None:
-    """The mother's allele when she carries it: heterozygous (categories 2-4) or homozygous
-    (5-6, always passed)."""
+    """The mother's allele when she carries it (``mother_carries``): heterozygous (categories
+    2-4) or homozygous (5-6, always passed)."""
     classification = candidate.classification
-    if classification.maternal_state not in ("het", "hom") or not candidate.plasma_call_retained:
+    if not mother_carries(classification) or not candidate.plasma_call_retained:
         return None
     if classification.maternal_state == "hom":
         return RecessiveAllele(
@@ -400,7 +416,7 @@ def _paternal_allele(candidate: RecessiveCandidate) -> RecessiveAllele | None:
         )
     probability: float | None = classification.paternal_transmission_probability
     note = None
-    if classification.maternal_state in ("het", "hom"):
+    if mother_carries(classification):
         probability, note = None, "the mother carries it too: its inheritance is not told"
     elif not candidate.plasma_call_retained:
         probability, note = None, "its plasma call fails the technical filter: its inheritance is not told"
