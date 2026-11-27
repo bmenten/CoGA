@@ -98,6 +98,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/mitochondrial_analysis.py": 90.0,  # (93.0, 2026-11-03)
     "backend/app/services/monarch_semsim.py": 97.0,  # (100.0, 2026-11-03)
     "backend/app/services/nipt_analysis.py": 94.0,  # (97.7)
+    # (100.0 measured locally: the NIPT analyses a worker process keeps, served only
+    # from equal inputs)
+    "backend/app/services/nipt_analysis_cache.py": 97.0,
     # (100.0 measured locally: the NIPT quality checks' verdicts, which
     # the NIPT page shows and the signed record freezes)
     "backend/app/services/nipt_quality_checks.py": 97.0,

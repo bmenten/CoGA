@@ -47,6 +47,8 @@ def _no_family_write_lock(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_field_int_tolerates_floats_and_junk() -> None:
     # The one whole-number reader of every file and stored value CoGA reads.
     assert field_int("42") == 42
+    # A whole number as ClickHouse reads one back, a UInt64 key's whole range included.
+    assert (field_int(42), field_int(-7), field_int(2**64 - 1)) == (42, -7, 2**64 - 1)
     assert field_int(42.7) == 42
     assert field_int(b"1.5") == 1
     assert field_int(b"\xff") is None

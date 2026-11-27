@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from functools import partial
 from itertools import batched, zip_longest
-from typing import Any, Collection, Iterable, Literal, Mapping, Sequence
+from typing import Any, Collection, Iterable, Iterator, Literal, Mapping, Sequence
 
 from fastapi import HTTPException
 from clickhouse_connect.driver.exceptions import ClickHouseError
@@ -1611,6 +1611,15 @@ async def _fetch_small_variant_summary(
     return family_variant_summary
 
 
+def _drained(rows: list[tuple[Any, ...]]) -> Iterator[tuple[Any, ...]]:
+    """``rows`` in their order, each taken out of the list as it is read (``rows`` is left
+    empty): the records built from a whole callset's rows (a plasma's every low-level call) are
+    never held beside all of them."""
+    rows.reverse()
+    while rows:
+        yield rows.pop()
+
+
 async def _fetch_small_variant_rows(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -1692,9 +1701,8 @@ async def _fetch_small_variant_rows(
         ORDER BY xpos, key
     """
     query = _append_limit_offset(query, params, limit=limit, offset=offset)
-    rows = await _execute_clickhouse(query, params)
     records: list[SmallVariantRecord] = []
-    for row in rows:
+    for row in _drained(await _execute_clickhouse(query, params)):
         (
             variant_key,
             variant_id,

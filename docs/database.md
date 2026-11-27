@@ -1540,8 +1540,9 @@ writes the rows again. It is handed the rows it deletes, as read under the famil
 family's small variants (an insert, a full or source-scoped delete, and the summary refresh
 that also follows a snapshot restore) appends one row with a random token once the write
 completes. The count and sum of the family's tokens are its small-variant data version, which
-the ranking cache puts in its key. Rows are never collapsed, so the version never returns to an
-earlier value. The family page's search reads it before and after it runs, and runs once more
+the ranking cache puts in its key and a kept monogenic NIPT analysis among its inputs
+(`nipt_analysis_cache`). Rows are never collapsed, so the version never returns to an earlier
+value. The family page's search reads it before and after it runs, and runs once more
 when it moved. Reason: its subqueries (a panel's window join, the annotation and sample
 subqueries) read the family's rows apart from its main read, so a write landing between two of
 them could make the answer miss a row.

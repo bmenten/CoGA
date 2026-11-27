@@ -28,11 +28,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import text
 
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Mapping, Sequence
 
 from ..core.sql import require_uuid
 
 from .clickhouse_family_variants import (
+    _family_small_variant_data_version,
     _fetch_gene_regions,
     _fetch_panel_constraints,
     _fetch_small_variant_rows,
@@ -82,6 +83,7 @@ from .nipt import (
     nipt_assay_key,
     resolve_nipt_trio,
 )
+from .nipt_analysis_cache import NiptAnalysisCache, NiptAnalysisInputs, NiptAnalysisKey
 from .nipt_artifact_pg import assay_cfdna_carrier_samples, load_nipt_artifacts, recurrence_rules
 from .nipt_qc_gate import NiptGateBound, fetal_read_depth, load_nipt_gate_bound
 from .nipt_coverage import (
@@ -106,10 +108,7 @@ from .nipt_analysis import (
     FATHER_X_HET_FLAG,
     PATERNAL_X_IN_SON_FLAG,
     classify_site,
-    combined_fetal_sex,
-    infer_fetal_sex,
     is_genotyped_call,
-    filter_sites_and_estimate_ff,
     model_fetal_sex,
     run_nipt_analysis,
 )
@@ -320,21 +319,34 @@ def restored_site_depths(records: Iterable[SmallVariantRecord], sample_id: str) 
     reads of the other alleles. Siblings share the position, the reference depth and DP
     (the R NIPT-M adapter's rule). Records that are not split are not listed.
     """
-    groups: dict[tuple[str, int, int, int | None], list[tuple[str, int]]] = {}
+    # Each record's site, and the sites of two records or more: a list only for a split site,
+    # as a whole callset is read through here.
+    first: dict[tuple[str, int, int, int | None], tuple[str, int]] = {}
+    split: dict[tuple[str, int, int, int | None], list[tuple[str, int]]] = {}
     for record in records:
-        call = next((item for item in record.calls if item.sample == sample_id), None)
+        call = _sample_call(record, sample_id)
         if call is None or len(call.ad) != 2 or call.ad[0] is None or call.ad[1] is None:
             continue
-        key = (record.chr, record.start, int(call.ad[0]), call.dp)
-        groups.setdefault(key, []).append((record.variant_id, int(call.ad[1])))
+        site = (record.chr, record.start, int(call.ad[0]), call.dp)
+        member = (record.variant_id, int(call.ad[1]))
+        if site not in first:
+            first[site] = member
+        else:
+            split.setdefault(site, [first[site]]).append(member)
     depths: dict[str, int] = {}
-    for (_chrom, _pos, ref_depth, _dp), members in groups.items():
-        if len(members) < 2:
-            continue
+    for (_chrom, _pos, ref_depth, _dp), members in split.items():
         site_depth = ref_depth + sum(alt for _variant, alt in members)
         for variant_id, _alt in members:
             depths[variant_id] = site_depth
     return depths
+
+
+def _sample_call(record: SmallVariantRecord, sample_id: str) -> SmallVariantCall | None:
+    """The record's call of ``sample_id`` (its first), None without one."""
+    for call in record.calls:
+        if call.sample == sample_id:
+            return call
+    return None
 
 
 # The longest REF span the capture-target check walks base by base; a longer deletion is in
@@ -378,17 +390,21 @@ class _BaseCall:
 class _BaseCallIndex:
     """One sample's calls by the single-base substitutions they carry: where its VCF wrote
     an allele in another representation than the other sample's (an MNV for SNVs, or the
-    reverse), the call is found base by base."""
+    reverse), the call is found base by base. Only the calls over ``bases`` are indexed: the
+    bases of the records ``cover`` is asked about."""
 
-    def __init__(self, records: Iterable[SmallVariantRecord], sample_id: str) -> None:
+    def __init__(
+        self, records: Iterable[SmallVariantRecord], sample_id: str, bases: set[tuple[str, int, str, str]]
+    ) -> None:
         self._calls: dict[tuple[str, int, str, str], list[_BaseCall]] = {}
         for record in records:
-            call = next((item for item in record.calls if item.sample == sample_id), None)
+            call = _sample_call(record, sample_id)
             alt_reads = _alt_reads(call) if call is not None else None
             if call is None or not alt_reads:
                 continue
             for base in _allele_bases(record.chr, record.start, record.ref, record.alt):
-                self._calls.setdefault(base, []).append(_BaseCall(record, call, alt_reads))
+                if base in bases:
+                    self._calls.setdefault(base, []).append(_BaseCall(record, call, alt_reads))
 
     def cover(self, record: SmallVariantRecord) -> tuple[_BaseCall | None, bool]:
         """The sample's calls of other records over ``record``'s bases: the call that best
@@ -407,17 +423,84 @@ class _BaseCallIndex:
         return weakest, bool(bases) and covered == len(bases)
 
 
+@dataclass(frozen=True, slots=True)
+class _BorrowedCall:
+    """A sample's call of another record over a record's bases (``_BaseCallIndex.cover``): the
+    call, the record it is read off, and whether it carries every base of the record."""
+
+    call: SmallVariantCall
+    variant_id: str
+    complete: bool
+
+
+@dataclass(frozen=True, slots=True)
+class NiptCounterparts:
+    """What a site's observation reads of the family's other records, kept without them: each
+    sample's site depth of the records split from a multi-allelic one (``restored_site_depths``),
+    and, for each per-sample record without one sample's call, that sample's call of another
+    record over its bases (``_BorrowedCall``), where one carries a base of it. Read from the
+    family's every record (``nipt_counterparts``), they observe any of its records as the whole
+    family would."""
+
+    plasma_depths: Mapping[str, int]
+    father_depths: Mapping[str, int]
+    plasma_covers: Mapping[str, _BorrowedCall]
+    father_covers: Mapping[str, _BorrowedCall]
+
+
+def nipt_counterparts(
+    records: Sequence[SmallVariantRecord], *, father_sample_id: str, cfdna_sample_id: str
+) -> NiptCounterparts:
+    """The counterparts ``records`` give each other (``NiptCounterparts``)."""
+    without_father: list[SmallVariantRecord] = []
+    without_plasma: list[SmallVariantRecord] = []
+    for record in records:
+        if not is_nipt_callset(record.source):
+            continue
+        plasma_call = _sample_call(record, cfdna_sample_id)
+        father_call = _sample_call(record, father_sample_id)
+        if plasma_call is not None and father_call is None:
+            without_father.append(record)
+        elif father_call is not None and plasma_call is None:
+            without_plasma.append(record)
+    return NiptCounterparts(
+        plasma_depths=restored_site_depths(records, cfdna_sample_id),
+        father_depths=restored_site_depths(records, father_sample_id),
+        plasma_covers=_covers(records, cfdna_sample_id, without_plasma),
+        father_covers=_covers(records, father_sample_id, without_father),
+    )
+
+
+def _covers(
+    records: Sequence[SmallVariantRecord], sample_id: str, without: Sequence[SmallVariantRecord]
+) -> dict[str, _BorrowedCall]:
+    """Each of ``without`` (records without ``sample_id``'s call) whose bases a call of
+    ``sample_id``'s in another of ``records`` carries: the call that best carries its weakest
+    base, and whether every base is carried (``_BaseCallIndex.cover``)."""
+    if not without:
+        return {}
+    bases = {base for record in without for base in _allele_bases(record.chr, record.start, record.ref, record.alt)}
+    index = _BaseCallIndex(records, sample_id, bases)
+    covers: dict[str, _BorrowedCall] = {}
+    for record in without:
+        borrowed, complete = index.cover(record)
+        if borrowed is not None:
+            covers[record.variant_id] = _BorrowedCall(borrowed.call, borrowed.record.variant_id, complete)
+    return covers
+
+
 def build_nipt_observations(
-    records: list[SmallVariantRecord],
+    records: Sequence[SmallVariantRecord],
     *,
     father_sample_id: str,
     cfdna_sample_id: str,
     qc: NiptQualityThresholds | None = None,
     plasma_depth: TargetDepthLookup | None = None,
     father_depth: TargetDepthLookup | None = None,
-    counterpart_records: Sequence[SmallVariantRecord] | None = None,
-) -> list[NiptSiteObservation]:
-    """Turn family variant records into per-site NIPT observations.
+    counterparts: NiptCounterparts | None = None,
+) -> Iterator[NiptSiteObservation]:
+    """Each record's per-site NIPT observation, one at a time: the family's whole callset is
+    observed without its observations being held together.
 
     A joint VCF's record without a cfDNA call is skipped. In the per-sample ``nipt``
     callset, a record with only the father's call is a paternal allele the plasma did not
@@ -430,17 +513,15 @@ def build_nipt_observations(
 
     The two per-sample VCFs can write one allele in two representations (an MNV in one,
     its SNVs in the other), so a call missing from a record is first looked up base by
-    base among the sample's other calls (``nipt_analysis.REPRESENTATION_FLAGS``).
-    ``counterpart_records`` are the records to look in, and to restore split records'
-    depths from: the family's every record when ``records`` is a filtered subset.
+    base among the sample's other calls (``nipt_analysis.REPRESENTATION_FLAGS``), and a split
+    record's depth is restored from its siblings: both from ``counterparts``, those ``records``
+    give each other unless given (the family's every record's when ``records`` is a filtered
+    subset).
     """
     qc = qc or NiptQualityThresholds()
-    counterparts = records if counterpart_records is None else counterpart_records
-    plasma_site_depths = restored_site_depths(counterparts, cfdna_sample_id)
-    father_site_depths = restored_site_depths(counterparts, father_sample_id)
-    plasma_bases: _BaseCallIndex | None = None
-    father_bases: _BaseCallIndex | None = None
-    sites: list[NiptSiteObservation] = []
+    counterparts = counterparts or nipt_counterparts(
+        records, father_sample_id=father_sample_id, cfdna_sample_id=cfdna_sample_id
+    )
     for record in records:
         calls = {call.sample: call for call in record.calls}
         cf_call = calls.get(cfdna_sample_id)
@@ -453,24 +534,20 @@ def build_nipt_observations(
         cf_record_id = record.variant_id
         father_record_id = record.variant_id
         if per_sample and father_call is None:
-            if father_bases is None:
-                father_bases = _BaseCallIndex(counterparts, father_sample_id)
-            borrowed, complete = father_bases.cover(record)
-            if borrowed is not None and complete:
-                father_call, father_record_id = borrowed.call, borrowed.record.variant_id
+            borrowed = counterparts.father_covers.get(record.variant_id)
+            if borrowed is not None and borrowed.complete:
+                father_call, father_record_id = borrowed.call, borrowed.variant_id
                 representation, represented_by = FATHER_CALL_OTHER_REPRESENTATION, father_record_id
             elif borrowed is not None:
                 representation = FATHER_CALL_OVERLAPS
         elif per_sample and cf_call is None:
-            if plasma_bases is None:
-                plasma_bases = _BaseCallIndex(counterparts, cfdna_sample_id)
-            borrowed, complete = plasma_bases.cover(record)
-            if borrowed is not None and complete:
-                cf_call, cf_record_id = borrowed.call, borrowed.record.variant_id
+            borrowed = counterparts.plasma_covers.get(record.variant_id)
+            if borrowed is not None and borrowed.complete:
+                cf_call, cf_record_id = borrowed.call, borrowed.variant_id
                 representation, represented_by = PLASMA_CALL_OTHER_REPRESENTATION, cf_record_id
             elif borrowed is not None:
                 representation = PLASMA_CALL_OVERLAPS
-        father_reads = father_site_depths.get(father_record_id)
+        father_reads = counterparts.father_depths.get(father_record_id)
         if father_call is not None:
             father_dp = father_reads if father_reads is not None else _ad_depth(father_call)
         else:
@@ -483,50 +560,17 @@ def build_nipt_observations(
         plasma_coverage = _lookup_depth(plasma_depth, record.chr, record.start) if per_sample else None
         in_target = _in_capture_target(plasma_depth, record) if per_sample and plasma_depth is not None else None
         if cf_call is None:
-            sites.append(
-                NiptSiteObservation(
-                    variant_id=record.variant_id,
-                    chrom=record.chr,
-                    pos=record.start,
-                    is_autosomal=_is_autosomal(record.chr),
-                    cf_present=False,
-                    cf_dp=plasma_coverage,
-                    cf_alt_reads=0,
-                    cf_vaf=None,
-                    cf_qual=None,
-                    cf_coverage_dp=plasma_coverage,
-                    father_state=father_state,
-                    father_dp=father_dp,
-                    father_qual=_call_quality(father_call) if father_call is not None else None,
-                    father_vaf=father_vaf,
-                    father_alt_reads=father_alt,
-                    ref=record.ref,
-                    alt=record.alt,
-                    cf_depth_estimated=True,
-                    representation=representation,
-                    represented_by=represented_by,
-                    in_target=in_target,
-                )
-            )
-            continue
-        alt_reads = _alt_reads(cf_call)
-        depth = plasma_site_depths.get(cf_record_id) or _ad_depth(cf_call)
-        if alt_reads is not None:
-            present = alt_reads > 0
-        else:
-            present = classify_genotype(cf_call.gt) in ("het", "hom_alt")
-        sites.append(
-            NiptSiteObservation(
+            yield NiptSiteObservation(
                 variant_id=record.variant_id,
                 chrom=record.chr,
                 pos=record.start,
                 is_autosomal=_is_autosomal(record.chr),
-                cf_present=present,
-                cf_dp=depth,
-                cf_alt_reads=alt_reads,
-                cf_vaf=_call_vaf(cf_call, depth),
-                cf_qual=record.qual if not per_sample else None,
-                cf_coverage_dp=plasma_coverage if per_sample else depth,
+                cf_present=False,
+                cf_dp=plasma_coverage,
+                cf_alt_reads=0,
+                cf_vaf=None,
+                cf_qual=None,
+                cf_coverage_dp=plasma_coverage,
                 father_state=father_state,
                 father_dp=father_dp,
                 father_qual=_call_quality(father_call) if father_call is not None else None,
@@ -534,15 +578,43 @@ def build_nipt_observations(
                 father_alt_reads=father_alt,
                 ref=record.ref,
                 alt=record.alt,
-                cf_fs=(cf_call.metrics or {}).get("FS"),
-                cf_filters=list(cf_call.filters or []),
-                cf_metrics=dict(cf_call.metrics or {}),
+                cf_depth_estimated=True,
                 representation=representation,
                 represented_by=represented_by,
                 in_target=in_target,
             )
+            continue
+        alt_reads = _alt_reads(cf_call)
+        depth = counterparts.plasma_depths.get(cf_record_id) or _ad_depth(cf_call)
+        if alt_reads is not None:
+            present = alt_reads > 0
+        else:
+            present = classify_genotype(cf_call.gt) in ("het", "hom_alt")
+        yield NiptSiteObservation(
+            variant_id=record.variant_id,
+            chrom=record.chr,
+            pos=record.start,
+            is_autosomal=_is_autosomal(record.chr),
+            cf_present=present,
+            cf_dp=depth,
+            cf_alt_reads=alt_reads,
+            cf_vaf=_call_vaf(cf_call, depth),
+            cf_qual=record.qual if not per_sample else None,
+            cf_coverage_dp=plasma_coverage if per_sample else depth,
+            father_state=father_state,
+            father_dp=father_dp,
+            father_qual=_call_quality(father_call) if father_call is not None else None,
+            father_vaf=father_vaf,
+            father_alt_reads=father_alt,
+            ref=record.ref,
+            alt=record.alt,
+            cf_fs=(cf_call.metrics or {}).get("FS"),
+            cf_filters=list(cf_call.filters or []),
+            cf_metrics=dict(cf_call.metrics or {}),
+            representation=representation,
+            represented_by=represented_by,
+            in_target=in_target,
         )
-    return sites
 
 
 def triage_annotation(record: SmallVariantRecord) -> DeNovoAnnotation:
@@ -845,53 +917,41 @@ async def _load_target_rows(
     return [target_row_from_track(row) for row in rows]
 
 
-@dataclass(slots=True)
-class _FamilyData:
-    """The family's every record, its calls without its annotation (``_load_family_records``),
-    and the plasma's and the father's per-target coverage."""
-
-    records: list[SmallVariantRecord]
-    plasma_targets: list[TargetCoverageRow]
-    father_targets: list[TargetCoverageRow]
-
-
-async def _load_family_data(context: FamilyMetadataContext, trio: NiptTrio) -> _FamilyData:
-    records, plasma_targets, father_targets = await asyncio.gather(
-        _load_family_records(context),
+async def _load_family_inputs(
+    session: AsyncSession, context: FamilyMetadataContext, trio: NiptTrio, assay_key: str
+) -> NiptAnalysisInputs:
+    """What the family's analysis is computed from besides its records (``NiptAnalysisInputs``),
+    read for each request."""
+    # The data version first: a write of the family's variants after it moves it.
+    data_version = await _family_small_variant_data_version(context)
+    listed = await _load_listed_artifacts(session, context, assay_key)
+    gate_bound = await load_nipt_gate_bound(session)
+    plasma_targets, father_targets = await asyncio.gather(
         # With each target's covered share: a target with bases without coverage is weak, in
         # the summary and the record as on the coverage page.
         _load_target_rows(context, trio, trio.cfdna_sample_id, with_metadata=True),
         _load_target_rows(context, trio, trio.father_sample_id, with_metadata=False),
     )
-    return _FamilyData(records=records, plasma_targets=plasma_targets, father_targets=father_targets)
-
-
-async def _family_artifacts(
-    context: FamilyMetadataContext,
-    data: _FamilyData,
-    listed: Mapping[str, int],
-    trio: NiptTrio,
-    qc: NiptQualityThresholds,
-) -> tuple[set[str], dict[str, str]]:
-    """``family_artifact_ids`` over the family's listed records, read with the annotation their
-    protection reads."""
-    listed_records = await annotate_small_variant_records(
-        context, [record for record in data.records if record.variant_id in listed]
-    )
-    return family_artifact_ids(
-        listed_records, listed, father_sample_id=trio.father_sample_id, cfdna_sample_id=trio.cfdna_sample_id, qc=qc
+    return NiptAnalysisInputs(
+        data_version=data_version,
+        scope=context.scope,
+        samples=dict(context.sample_name_to_uuid),
+        listed=listed,
+        gate_bound=gate_bound,
+        plasma_targets=plasma_targets,
+        father_targets=father_targets,
     )
 
 
 def _family_sites(
-    records: list[SmallVariantRecord],
+    records: Sequence[SmallVariantRecord],
     trio: NiptTrio,
+    qc: NiptQualityThresholds,
     *,
-    plasma_targets: list[TargetCoverageRow] | None = None,
-    father_targets: list[TargetCoverageRow] | None = None,
-    qc: NiptQualityThresholds | None = None,
-    counterpart_records: list[SmallVariantRecord] | None = None,
-) -> list[NiptSiteObservation]:
+    plasma_targets: list[TargetCoverageRow],
+    father_targets: list[TargetCoverageRow],
+    counterparts: NiptCounterparts,
+) -> Iterator[NiptSiteObservation]:
     return build_nipt_observations(
         records,
         father_sample_id=trio.father_sample_id,
@@ -899,55 +959,134 @@ def _family_sites(
         qc=qc,
         plasma_depth=TargetDepthLookup(plasma_targets) if plasma_targets else None,
         father_depth=TargetDepthLookup(father_targets) if father_targets else None,
-        counterpart_records=counterpart_records,
+        counterparts=counterparts,
     )
 
 
 @dataclass(slots=True)
 class _FamilyAnalysis:
-    """A family's NIPT callset loaded and analysed: the assay's artifact list (each allele's
-    recurrence on it), the family's data, what the list removed from the analysis and what
-    stayed in (variant id -> reason), and the summary."""
+    """A family's NIPT callset analysed (``_analyse_family``), kept without its records
+    (``nipt_analysis_cache``): the inputs it was computed from (the assay's artifact list, each
+    allele with its recurrence on it, and the per-target coverage among them), what the list
+    removed from the analysis and what stayed in (variant id -> reason), what the family's
+    records give each other's observations, and the summary."""
 
-    listed: dict[str, int]
-    data: _FamilyData
+    inputs: NiptAnalysisInputs
     removed: set[str]
     protected: dict[str, str]
+    counterparts: NiptCounterparts
     summary: NiptFamilySummary
+
+    def classify(
+        self,
+        records: list[SmallVariantRecord],
+        trio: NiptTrio,
+        qc: NiptQualityThresholds,
+        *,
+        fetal_sex: str,
+        min_confidence: float | None = None,
+    ) -> list[NiptClassifiedVariant]:
+        """``records``, some of the family's, classified against the summary's fetal fraction
+        with ``fetal_sex`` (``_classify_candidates``): with the artifact list and the per-target
+        coverage the analysis read, each observed as the family's every record observes it."""
+        return _classify_candidates(
+            records,
+            trio,
+            self.inputs.listed,
+            self.summary.analysis.fetal_fraction,
+            qc,
+            min_confidence,
+            plasma_targets=self.inputs.plasma_targets,
+            father_targets=self.inputs.father_targets,
+            counterparts=self.counterparts,
+            fetal_sex=fetal_sex,
+        )
 
 
 async def _analyse_family(
+    context: FamilyMetadataContext,
+    trio: NiptTrio,
+    qc: NiptQualityThresholds,
+    inputs: NiptAnalysisInputs,
+) -> _FamilyAnalysis:
+    """The family's analysis of its every record, read without its annotation
+    (``_load_family_records``); the listed records' protection reads theirs."""
+    records = await _load_family_records(context)
+    listed_records = await annotate_small_variant_records(
+        context, [record for record in records if record.variant_id in inputs.listed]
+    )
+    removed, protected = family_artifact_ids(
+        listed_records,
+        inputs.listed,
+        father_sample_id=trio.father_sample_id,
+        cfdna_sample_id=trio.cfdna_sample_id,
+        qc=qc,
+    )
+    # The whole family callset goes through the analysis: pure CPU work, so it runs in a
+    # worker thread and other requests are served meanwhile.
+    counterparts, analysis = await asyncio.to_thread(
+        _analyse_family_sites, records, trio, qc, inputs, removed.__contains__
+    )
+    return _FamilyAnalysis(
+        inputs=inputs,
+        removed=removed,
+        protected=protected,
+        counterparts=counterparts,
+        summary=_summarize_family(analysis, trio, inputs),
+    )
+
+
+def _analysis_key(
+    context: FamilyMetadataContext, trio: NiptTrio, assay_key: str, qc: NiptQualityThresholds
+) -> NiptAnalysisKey:
+    return NiptAnalysisKey(
+        family_uuid=context.family_uuid,
+        assembly_name=context.assembly_name,
+        project_ids=tuple(sorted(context.project_ids)),
+        analysis=trio.analysis,
+        father_sample_id=trio.father_sample_id,
+        cfdna_sample_id=trio.cfdna_sample_id,
+        fetus_sample_ids=tuple(trio.fetus_sample_ids),
+        assay_key=assay_key,
+        thresholds=astuple(qc),
+    )
+
+
+# The analyses this worker process keeps (nipt_analysis_cache).
+_KEPT_ANALYSES: NiptAnalysisCache[_FamilyAnalysis] = NiptAnalysisCache()
+
+
+async def _kept_family_analysis(
     session: AsyncSession,
     context: FamilyMetadataContext,
     trio: NiptTrio,
     assay_key: str,
     qc: NiptQualityThresholds,
 ) -> _FamilyAnalysis:
-    listed = await _load_listed_artifacts(session, context, assay_key)
-    gate_bound = await load_nipt_gate_bound(session)
-    data = await _load_family_data(context, trio)
-    removed, protected = await _family_artifacts(context, data, listed, trio, qc)
-    summary = await _summarize_family(data, trio, qc, removed, gate_bound)
-    return _FamilyAnalysis(
-        listed=listed, data=data, removed=removed, protected=protected, summary=summary
+    """The family's analysis, kept by this worker process from equal inputs or computed."""
+    inputs = await _load_family_inputs(session, context, trio, assay_key)
+    return await _KEPT_ANALYSES.analysis(
+        _analysis_key(context, trio, assay_key, qc),
+        inputs,
+        lambda: _analyse_family(context, trio, qc, inputs),
+        lambda: _family_small_variant_data_version(context),
     )
 
 
 class SharedNiptAnalysis:
-    """A family's NIPT analysis computed once for everything one sign-out builds: the Sample
+    """A family's NIPT analysis read once for everything one sign-out builds: the Sample
     QC's NIPT checks and the signed record's NIPT section.
 
-    The analysis reads the family's whole callset. Computed for each, it would run twice per
-    sign-out, and the two could read different inputs: the assay's artifact list is curated
-    apart from the family's data, and a change between the two reads would make the Sample
-    QC and the NIPT section of one record disagree. Shared, they read the same values. An analysis
-    is shared only with a caller asking for the same one (the family's data scope, trio,
-    artifact-list scope and thresholds); one that failed fails for both, so neither reports
-    what the other could not read.
+    Read for each, its inputs would be read twice per sign-out, and the two could read
+    different inputs: the assay's artifact list is curated apart from the family's data, and
+    a change between the two reads would make the Sample QC and the NIPT section of one record
+    disagree. Shared, they read the same values. An analysis is shared only with a caller
+    asking for the same one (``NiptAnalysisKey``); one that failed fails for both, so neither
+    reports what the other could not read.
     """
 
     def __init__(self) -> None:
-        self._outcomes: dict[tuple[Any, ...], _FamilyAnalysis | Exception] = {}
+        self._outcomes: dict[NiptAnalysisKey, _FamilyAnalysis | Exception] = {}
 
     async def analysis(
         self,
@@ -957,22 +1096,11 @@ class SharedNiptAnalysis:
         assay_key: str,
         qc: NiptQualityThresholds,
     ) -> _FamilyAnalysis:
-        # What the analysis reads: the family's data, the father's and the plasma's calls
-        # and targets, the artifact list and the thresholds (not the fetus: no data).
-        key = (
-            context.family_uuid,
-            context.assembly_id,
-            tuple(sorted(context.project_ids)),
-            trio.analysis,
-            trio.father_sample_id,
-            trio.cfdna_sample_id,
-            assay_key,
-            astuple(qc),
-        )
+        key = _analysis_key(context, trio, assay_key, qc)
         outcome = self._outcomes.get(key)
         if outcome is None:
             try:
-                outcome = await _analyse_family(session, context, trio, assay_key, qc)
+                outcome = await _kept_family_analysis(session, context, trio, assay_key, qc)
             except Exception as exc:  # noqa: BLE001 — kept and raised again, to each caller
                 outcome = exc
             self._outcomes[key] = outcome
@@ -990,7 +1118,7 @@ async def _family_analysis(
     shared: SharedNiptAnalysis | None,
 ) -> _FamilyAnalysis:
     if shared is None:
-        return await _analyse_family(session, context, trio, assay_key, qc)
+        return await _kept_family_analysis(session, context, trio, assay_key, qc)
     return await shared.analysis(session, context, trio, assay_key, qc)
 
 
@@ -1064,14 +1192,12 @@ async def get_family_nipt_summary_with_artifacts(
     trio, context, assay_key = await _resolve_trio_and_context(
         session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
-    computed = await _family_analysis(
-        session, context, trio, assay_key, qc or NiptQualityThresholds(), None
-    )
+    computed = await _kept_family_analysis(session, context, trio, assay_key, qc or NiptQualityThresholds())
     protected: dict[str, int] = {}
     for reason in computed.protected.values():
         protected[reason] = protected.get(reason, 0) + 1
     counts = NiptArtifactCounts(
-        listed=len(computed.listed),
+        listed=len(computed.inputs.listed),
         in_family=len(computed.removed) + len(computed.protected),
         removed=len(computed.removed),
         protected=protected,
@@ -1079,91 +1205,59 @@ async def get_family_nipt_summary_with_artifacts(
     return computed.summary, counts
 
 
-async def _summarize_family(
-    data: _FamilyData,
-    trio: NiptTrio,
-    qc: NiptQualityThresholds,
-    removed: set[str],
-    gate_bound: NiptGateBound,
+def _summarize_family(
+    analysis: NiptAnalysisResult, trio: NiptTrio, inputs: NiptAnalysisInputs
 ) -> NiptFamilySummary:
     """The summary of the family's analysis, the NIPT page's and the signed record's. The
     coverage QC counts the targets too thin for the QC gate's fetal reads at the estimated
     fetal fraction."""
-    # The whole family callset goes through the analysis: pure CPU work, so it runs in a
-    # worker thread and other requests are served meanwhile.
-    analysis = await asyncio.to_thread(
-        _analyse_family_sites, data, trio, qc, removed.__contains__
-    )
+    plasma_targets = inputs.plasma_targets
     target_coverage = (
         summarize_target_coverage(
-            data.plasma_targets,
-            fetal_read_depth=fetal_read_depth(analysis.fetal_fraction.ff_computed, gate_bound),
+            plasma_targets,
+            fetal_read_depth=fetal_read_depth(analysis.fetal_fraction.ff_computed, inputs.gate_bound),
         )
-        if data.plasma_targets
+        if plasma_targets
         else None
     )
-    sex_chromosomes = sex_chromosome_coverage(data.plasma_targets) if data.plasma_targets else None
     return NiptFamilySummary(
         analysis=analysis,
         trio=trio,
-        gate_bound=gate_bound,
+        gate_bound=inputs.gate_bound,
         target_coverage=target_coverage,
-        sex_chromosomes=sex_chromosomes,
+        sex_chromosomes=sex_chromosome_coverage(plasma_targets) if plasma_targets else None,
     )
 
 
 def _analyse_family_sites(
-    data: _FamilyData,
+    records: Sequence[SmallVariantRecord],
     trio: NiptTrio,
     qc: NiptQualityThresholds,
-    artifact_lookup: Any,
-) -> NiptAnalysisResult:
-    sites = _family_sites(
-        data.records,
-        trio,
-        plasma_targets=data.plasma_targets,
-        father_targets=data.father_targets,
-        qc=qc,
+    inputs: NiptAnalysisInputs,
+    artifact_lookup: Callable[[str], bool],
+) -> tuple[NiptCounterparts, NiptAnalysisResult]:
+    """What the family's records give each other's observations, and the analysis of their
+    observations, read one at a time."""
+    counterparts = nipt_counterparts(
+        records, father_sample_id=trio.father_sample_id, cfdna_sample_id=trio.cfdna_sample_id
     )
-    return run_nipt_analysis(
-        sites,
-        qc,
-        artifact_lookup=artifact_lookup,
-        chry_profile=_chry_profile(data),
-        fetuses=len(trio.fetus_sample_ids),
-    )
-
-
-def _chry_profile(data: _FamilyData) -> str | None:
-    """The plasma's sex-chromosome profile from its per-target coverage (None without one):
-    with the father's X alleles it reads the fetal sex chrX is classified with."""
-    return sex_chromosome_coverage(data.plasma_targets).profile if data.plasma_targets else None
-
-
-def _estimate_cohort_fetal_fraction(
-    data: _FamilyData,
-    trio: NiptTrio,
-    qc: NiptQualityThresholds,
-    artifact_ids: set[str],
-) -> tuple[FetalFractionEstimate, str]:
-    """The summary's fetal fraction and the fetal sex it classifies chrX with
-    (``combined_fetal_sex``, ``model_fetal_sex``), over the same filtered sites, so the variant
-    list reports -- and classifies against -- what the summary shows."""
-    filtered = filter_sites_and_estimate_ff(
+    plasma_targets = inputs.plasma_targets
+    return counterparts, run_nipt_analysis(
         _family_sites(
-            data.records,
+            records,
             trio,
-            plasma_targets=data.plasma_targets,
-            father_targets=data.father_targets,
-            qc=qc,
+            qc,
+            plasma_targets=plasma_targets,
+            father_targets=inputs.father_targets,
+            counterparts=counterparts,
         ),
         qc,
-        artifact_lookup=artifact_ids.__contains__,
+        artifact_lookup=artifact_lookup,
+        # The plasma's sex-chromosome profile: with the father's X alleles it reads the fetal
+        # sex chrX is classified with.
+        chry_profile=sex_chromosome_coverage(plasma_targets).profile if plasma_targets else None,
+        fetuses=len(trio.fetus_sample_ids),
     )
-    ff_estimate = filtered.fetal_fraction
-    paternal_x = infer_fetal_sex(filtered.passed, ff_estimate, qc)
-    sex_call = combined_fetal_sex(paternal_x.inferred, _chry_profile(data), ff_estimate.ff_computed or 0.0)
-    return ff_estimate, model_fetal_sex(sex_call, len(trio.fetus_sample_ids))
 
 
 def _classify_candidates(
@@ -1174,22 +1268,23 @@ def _classify_candidates(
     qc: NiptQualityThresholds,
     min_confidence: float | None,
     *,
-    plasma_targets: list[TargetCoverageRow] | None = None,
-    father_targets: list[TargetCoverageRow] | None = None,
-    family_records: list[SmallVariantRecord] | None = None,
+    plasma_targets: list[TargetCoverageRow],
+    father_targets: list[TargetCoverageRow],
+    counterparts: NiptCounterparts,
     fetal_sex: str | None = None,
 ) -> list[NiptClassifiedVariant]:
-    # The filtered records' calls are looked up in the family's every record: the other
-    # representation of an allele, or a split record's sibling, need not pass the filter.
+    # The filtered records are observed with the family's every record's ``counterparts``:
+    # the other representation of an allele, or a split record's sibling, need not pass the
+    # filter.
     observations = {
         observation.variant_id: observation
         for observation in _family_sites(
             records,
             trio,
+            qc,
             plasma_targets=plasma_targets,
             father_targets=father_targets,
-            qc=qc,
-            counterpart_records=family_records,
+            counterparts=counterparts,
         )
     }
     classified: list[NiptClassifiedVariant] = []
@@ -1569,7 +1664,6 @@ async def get_family_nipt_variants(
     trio, context, assay_key = await _resolve_trio_and_context(
         session, family_id=family_id, user=user, project_id=project_id, analysis=analysis
     )
-    listed = await _load_listed_artifacts(session, context, assay_key)
 
     # The location filters, as the family search applies them: the interval list, the
     # excluded intervals and the excluded genes. Read before the cohort work, so an
@@ -1588,30 +1682,19 @@ async def get_family_nipt_variants(
         session, context.family_uuid, scope=context.scope, tags=review_tags, exclude_tags=exclude_review_tags
     )
 
-    # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are
-    # rarely inside the clinical filter), exactly as the summary estimates it, then
-    # the filtered subset is classified against that FF. Both steps are CPU work over
-    # many sites, so they run in a worker thread.
-    data = await _load_family_data(context, trio)
-    removed, _protected = await _family_artifacts(context, data, listed, trio, qc)
-    ff_estimate, fetal_sex = await asyncio.to_thread(
-        _estimate_cohort_fetal_fraction, data, trio, qc, removed
-    )
+    # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are rarely inside
+    # the clinical filter): the summary's, and the fetal sex it classifies chrX with in this
+    # pregnancy (``model_fetal_sex``). The filtered subset is classified against them.
+    family = await _kept_family_analysis(session, context, trio, assay_key, qc)
+    ff_estimate = family.summary.analysis.fetal_fraction
+    fetal_sex = model_fetal_sex(family.summary.analysis.fetal_sex_call, len(trio.fetus_sample_ids))
 
     # The selected variants no list can show, whatever the other filters: the analysis
     # does not classify them. Read as the signed record reads the reported ones.
     not_classified: dict[str, str] = {}
     if review.include:
         _selected, not_classified = await _classify_selected(
-            context,
-            review.include - review.exclude,
-            data,
-            trio,
-            listed,
-            removed,
-            ff_estimate,
-            qc,
-            fetal_sex,
+            context, review.include - review.exclude, family, trio, qc, fetal_sex
         )
     if review.matches_nothing:
         return NiptVariantsResult(fetal_fraction=ff_estimate, total=0, variants=[], trio=trio)
@@ -1660,17 +1743,7 @@ async def get_family_nipt_variants(
     if capped:
         records = records[:fetch_limit]
     classified = await asyncio.to_thread(
-        _classify_candidates,
-        records,
-        trio,
-        listed,
-        ff_estimate,
-        qc,
-        min_confidence,
-        plasma_targets=data.plasma_targets,
-        father_targets=data.father_targets,
-        family_records=data.records,
-        fetal_sex=fetal_sex,
+        family.classify, records, trio, qc, fetal_sex=fetal_sex, min_confidence=min_confidence
     )
 
     recurrence_scope = await _recurrence_scope(session, context, assay_key, qc)
@@ -1880,16 +1953,16 @@ async def _scoped_diagnostic_candidates(
     assay_key: str,
     qc: NiptQualityThresholds,
     *,
-    data: _FamilyData,
-    listed: Mapping[str, int],
-    ff_estimate: FetalFractionEstimate,
+    family: _FamilyAnalysis,
     fetal_sex: str,
     panel_id: str | None,
     gene: str | None,
 ) -> tuple[NiptDiagnosticCandidates, SmallVariantQueryFilters]:
     """The diagnostic candidates of the family's variants in a gene panel and/or gene (every
-    variant without either), classified against ``ff_estimate`` as the variant list classifies
-    them. The NIPT report's list and the signed record's both come from here."""
+    variant without either), classified against the family's fetal fraction with ``fetal_sex``
+    as the variant list classifies them. The NIPT report's list and the signed record's both
+    come from here."""
+    ff_estimate = family.summary.analysis.fetal_fraction
     filters = _build_nipt_query_filters({"panel_id": panel_id or None, "gene": gene or None})
     panel_constraints = PanelFilterConstraints()
     if panel_id:
@@ -1902,19 +1975,7 @@ async def _scoped_diagnostic_candidates(
     )
     capped = len(records) > NIPT_VARIANT_FETCH_LIMIT
     records = records[:NIPT_VARIANT_FETCH_LIMIT]
-    classified = await asyncio.to_thread(
-        _classify_candidates,
-        records,
-        trio,
-        listed,
-        ff_estimate,
-        qc,
-        None,
-        plasma_targets=data.plasma_targets,
-        father_targets=data.father_targets,
-        family_records=data.records,
-        fetal_sex=fetal_sex,
-    )
+    classified = await asyncio.to_thread(family.classify, records, trio, qc, fetal_sex=fetal_sex)
     scope = await _recurrence_scope(session, context, assay_key, qc)
     candidates = await diagnostic_candidates(classified, ff_estimate, qc, scope=scope)
     candidates.capped = capped
@@ -1953,19 +2014,15 @@ async def get_family_nipt_diagnostic_candidates(
         await record_family_panel_use(
             session, context=context, panel_id=panel_id, user=user, search="nipt_diagnostic_candidates"
         )
-    listed = await _load_listed_artifacts(session, context, assay_key)
-    data = await _load_family_data(context, trio)
-    removed, _protected = await _family_artifacts(context, data, listed, trio, qc)
-    ff_estimate, fetal_sex = await asyncio.to_thread(_estimate_cohort_fetal_fraction, data, trio, qc, removed)
+    family = await _kept_family_analysis(session, context, trio, assay_key, qc)
+    fetal_sex = model_fetal_sex(family.summary.analysis.fetal_sex_call, len(trio.fetus_sample_ids))
     candidates, filters = await _scoped_diagnostic_candidates(
         session,
         context,
         trio,
         assay_key,
         qc,
-        data=data,
-        listed=listed,
-        ff_estimate=ff_estimate,
+        family=family,
         fetal_sex=fetal_sex,
         panel_id=panel_id,
         gene=gene,
@@ -1975,7 +2032,9 @@ async def get_family_nipt_diagnostic_candidates(
     await _hydrate_small_variant_outs(session, context=context, variants=variant_outs)
     for item, variant_out in zip(items, variant_outs):
         item.variant_out = variant_out
-    return NiptDiagnosticCandidatesResult(candidates=candidates, trio=trio, fetal_fraction=ff_estimate)
+    return NiptDiagnosticCandidatesResult(
+        candidates=candidates, trio=trio, fetal_fraction=family.summary.analysis.fetal_fraction
+    )
 
 
 @dataclass(slots=True)
@@ -2020,42 +2079,29 @@ _FETAL_WINDOWS = frozenset({"strict", "loose"})
 async def _classify_selected(
     context: FamilyMetadataContext,
     wanted: set[str],
-    data: _FamilyData,
+    family: _FamilyAnalysis,
     trio: NiptTrio,
-    listed: Mapping[str, int],
-    removed: set[str],
-    ff_estimate: FetalFractionEstimate,
     qc: NiptQualityThresholds,
-    fetal_sex: str | None = None,
+    fetal_sex: str,
 ) -> tuple[list[NiptClassifiedVariant], dict[str, str]]:
     """``wanted`` among the family's variants, with their annotation, each classified as the
-    variant list classifies it against ``ff_estimate`` (no filter, no minimum confidence), and
+    variant list classifies it (no filter, no minimum confidence), and
     why the analysis classifies none of the others (variant id -> reason): not in the family's
     data, removed by the artifact list, or without a plasma call. The signed record's
     reported variants and the variant list's review-tag selection both come from here."""
-    records = await annotate_small_variant_records(
-        context, [record for record in data.records if record.variant_id in wanted]
+    read = await _fetch_small_variant_rows(
+        context, SmallVariantQueryFilters(page=1, page_size=100), include_variant_ids=sorted(wanted), limit=None
     )
-    classified = await asyncio.to_thread(
-        _classify_candidates,
-        records,
-        trio,
-        listed,
-        ff_estimate,
-        qc,
-        None,
-        plasma_targets=data.plasma_targets,
-        father_targets=data.father_targets,
-        family_records=data.records,
-        fetal_sex=fetal_sex,
-    )
+    # By their exact ids: the query reads an id without its surrounding spaces.
+    records = [record for record in read if record.variant_id in wanted]
+    classified = await asyncio.to_thread(family.classify, records, trio, qc, fetal_sex=fetal_sex)
     found = {record.variant_id for record in records}
     classified_ids = {item.record.variant_id for item in classified}
     unclassified: dict[str, str] = {}
     for variant_id in sorted(wanted - classified_ids):
         if variant_id not in found:
             unclassified[variant_id] = NOT_IN_DATA
-        elif variant_id in removed:
+        elif variant_id in family.removed:
             unclassified[variant_id] = ON_ARTIFACT_LIST
         else:
             unclassified[variant_id] = NO_PLASMA_CALL
@@ -2081,25 +2127,11 @@ async def get_family_nipt_record(
     family's data serves every part: ``shared_nipt``'s, when the sign-out's Sample QC has
     read it."""
     qc = qc or NiptQualityThresholds()
-    analysis = await _family_analysis(session, context, trio, assay_key, qc, shared_nipt)
-    listed, data, removed, protected = (
-        analysis.listed,
-        analysis.data,
-        analysis.removed,
-        analysis.protected,
-    )
-    summary = analysis.summary
+    family = await _family_analysis(session, context, trio, assay_key, qc, shared_nipt)
+    summary = family.summary
     wanted = {str(variant_id) for variant_id in variant_ids if variant_id}
     classified, unclassified = await _classify_selected(
-        context,
-        wanted,
-        data,
-        trio,
-        listed,
-        removed,
-        summary.analysis.fetal_fraction,
-        qc,
-        summary.analysis.fetal_sex_call,
+        context, wanted, family, trio, qc, summary.analysis.fetal_sex_call
     )
     # Each reported variant's recurrence, which the record freezes as the list showed it, in
     # one count that the de novo triage then reads.
@@ -2126,22 +2158,20 @@ async def get_family_nipt_record(
         trio,
         assay_key,
         qc,
-        data=data,
-        listed=listed,
-        ff_estimate=summary.analysis.fetal_fraction,
+        family=family,
         fetal_sex=summary.analysis.fetal_sex_call,
         panel_id=diagnostic_panel_id,
         gene=None,
     )
     return NiptFamilyRecord(
         summary=summary,
-        listed_artifacts=listed,
-        removed_artifacts=removed,
-        protected_artifacts=protected,
+        listed_artifacts=family.inputs.listed,
+        removed_artifacts=family.removed,
+        protected_artifacts=family.protected,
         variants=classified,
         unclassified=unclassified,
         recessive_genes=recessive_genes,
-        plasma_targets=list(data.plasma_targets),
+        plasma_targets=list(family.inputs.plasma_targets),
         diagnostic_candidates=diagnostic,
     )
 

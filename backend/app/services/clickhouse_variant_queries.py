@@ -311,7 +311,7 @@ def _clickhouse_chromosome_match_expr(expr: str) -> str:
 
 
 def _string_list(values: Any) -> list[str]:
-    if values in (None, ""):
+    if not values:
         return []
     if isinstance(values, (list, tuple)):
         source = values

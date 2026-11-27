@@ -93,9 +93,9 @@ def test_nipt_demo_end_to_end() -> None:
     records, expected = _parse_demo_vcf()
     artifact_ids = {vid for vid, cat in expected.items() if cat == "ARTIFACT"}
 
-    sites = build_nipt_observations(
+    sites = list(build_nipt_observations(
         records, father_sample_id=FATHER_SAMPLE, cfdna_sample_id=CFDNA_SAMPLE
-    )
+    ))
     result = run_nipt_analysis(
         sites, NiptQualityThresholds(), artifact_lookup=artifact_ids.__contains__
     )
@@ -133,9 +133,9 @@ def test_nipt_demo_recessive_at_risk() -> None:
     records_by_id = {record.variant_id: record for record in records}
     qc = NiptQualityThresholds()
 
-    sites = build_nipt_observations(
+    sites = list(build_nipt_observations(
         records, father_sample_id=FATHER_SAMPLE, cfdna_sample_id=CFDNA_SAMPLE
-    )
+    ))
     sites_by_id = {site.variant_id: site for site in sites}
     result = run_nipt_analysis(sites, qc, artifact_lookup=artifact_ids.__contains__)
 

@@ -1306,7 +1306,7 @@ def filter_sites_and_estimate_ff(
 
 
 def run_nipt_analysis(
-    sites: Sequence[NiptSiteObservation],
+    sites: Iterable[NiptSiteObservation],
     qc: NiptQualityThresholds,
     *,
     artifact_lookup: Callable[[str], bool] = lambda _variant_id: False,
