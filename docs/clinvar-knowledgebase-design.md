@@ -1,7 +1,7 @@
 # Ontwerp: ClinVar als eigen kennisbron van CoGA
 
-Status: **beslist door de eigenaar op 2026-11-27** (B1–B11, §9), nog niet gebouwd. QA heeft het
-ontwerp nog niet beoordeeld; B12 staat open.
+Status: **beslist door de eigenaar op 2026-11-27** (B1–B12, §9), nog niet gebouwd. QA heeft het
+ontwerp nog niet beoordeeld.
 
 ## 1. Aanleiding
 
@@ -286,7 +286,7 @@ de assembly en het allel in minimale vorm.
 | Fase | Inhoud | Waarde van record voor de andere lezers |
 | --- | --- | --- |
 | 1 | Laden (§5); tonen, nieuw filter, P/LP-override, snapshot, drift, manifest, ondertekend record, concordantie (§6.1–6.6); `allele_keys` (§7) | de annotatie |
-| 2 | Eén regel voor elke andere lezer: **CoGA's release waar het allel erin staat, anders de annotatie**. Dat geldt voor de filters `clinvar` en `exclude_clinvar` en de ranking (met de release in de cache-sleutel; B8), PP5/BP6 en de bescherming van de NIPT-artefactlijst (B9), en de NIPT-triage en de diagnostische NIPT-kandidaten (B11) | CoGA's release, anders de annotatie |
+| 2 | Eén regel voor elke andere lezer: **CoGA's release waar het allel erin staat, anders de annotatie**. Dat geldt voor de filters `clinvar` en `exclude_clinvar` en de ranking (met de release in de cache-sleutel; B8), PP5/BP6 en de bescherming van de NIPT-artefactlijst (B9), de NIPT-triage en de diagnostische NIPT-kandidaten (B11), en de mtDNA-criteria die ClinVar lezen (`evaluateMito.ts`; MITOMAP blijft uit de annotatie komen; B12) | CoGA's release, anders de annotatie |
 | 3 | Heranalysesignaal na de sign-out (§6.7) | — |
 
 De NIPT-triage en de diagnostische kandidaten volgen nu de vastgezette criteria van de R
@@ -364,9 +364,4 @@ overslaan. Dat is een volgende stap, niet dit ontwerp.
 | B9 | Fase 2: wat lezen PP5/BP6 en de bescherming van de NIPT-artefactlijst? | CoGA's release waar het allel erin staat, anders de annotatie |
 | B10 | Fase 3: komt er een heranalysesignaal? | Een lijst per project, alleen lezen, opgevolgd volgens de labo-procedure; geen mail |
 | B11 | Fase 2: wat lezen de NIPT-triage en de diagnostische NIPT-kandidaten? | CoGA's release waar het allel erin staat, anders de annotatie, met een nieuwe validatie (§8.1) |
-
-Open:
-
-| | Vraag |
-| --- | --- |
-| B12 | De mtDNA-criteria (`evaluateMito.ts`) lezen MITOMAP en ClinVar uit de mutserve-annotatie. Lezen die in fase 2 ook CoGA's release (chrM staat in ClinVar's VCF als `MT`)? |
+| B12 | Fase 2: wat lezen de mtDNA-criteria (`evaluateMito.ts`), die MITOMAP en ClinVar uit de mutserve-annotatie lezen? | Voor ClinVar: CoGA's release waar het allel erin staat (chrM staat in ClinVar's VCF als `MT`, §7), anders de annotatie; MITOMAP ongewijzigd |
