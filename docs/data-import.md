@@ -280,14 +280,18 @@ A load (`services/clinvar_load_jobs.py`, a row of `clinvar_load_jobs`):
   release, the file, its SHA-256 and the URL), which makes it the current release, and adds its
   event to the clinical audit chain `system:clinvar-releases`, in one transaction;
 - drops its partition when it fails, is refused or is stopped: nothing of it stays, and the current
-  release stays current;
+  release stays current. The job ends *refused* when one of the checks above refused the file (and
+  when the folder lists no weekly file, or a URL is not HTTPS), and *failed* when the load could not
+  be completed: NCBI did not answer or answered with an error, the download broke off, the load ran
+  past `CLINVAR_LOAD_TIMEOUT_SECONDS`, it was stopped, its requester may no longer run it, or
+  another error;
 - runs and releases, when an administrator started it, only while that account is an active
   administrator.
 
 ClickHouse keeps the current release and the one before it: a release made current drops the
 partition of the release before those two, and each load first drops a partition no recorded
 release keeps (one a stopped load left). The Reference page shows both releases, the load's
-progress, and a failed load with its reason; **Load newest** starts a load. A start loads the
+progress, and a refused or failed load with its reason; **Load newest** starts a load. A start loads the
 newest release for a GRCh37 or GRCh38 assembly that has none (`REFERENCE_BOOTSTRAP_CLINVAR`), and so
 does adding such an assembly from UCSC.
 
@@ -295,17 +299,34 @@ does adding such an assembly from UCSC.
 `CLINVAR_WEEKLY_LOAD`, on by default (the owner's decision; `false` leaves a newer release to an
 administrator). Whether a weekly release may become current within a procedure validated once,
 without each release being a major change, is QA's question V1 of the design. Ten minutes
-after a start and then once a day, it looks, for each GRCh37 or GRCh38 assembly CoGA holds, at the
-newest weekly file NCBI lists. When that release is newer than the current one, it runs a load as
-the requester `clinvar-weekly`, the Reference page's own, whose checks above decide whether the
-release becomes current; a new release so comes in within a day of its publication. When the load
-does not release its file, the current release stays current, the Reference page shows the failed
-load with its reason, and every active administrator is told by mail (`SMTP_HOST`; without it the
-log says so): the assembly, the release, why, and the release that stays current. The check does
-not load that release again: an administrator loads it once the reason is known, or the next
-week's release comes in. One assembly's check that fails (NCBI does not answer) leaves the other's;
-while another load runs, the check waits for the next day. The Reference page says whether the
-check is on.
+after a start and then once a day, it looks, for each GRCh37 or GRCh38 assembly CoGA holds that has
+a current release, at the newest weekly file NCBI lists. An assembly without a release is left
+alone, NCBI not even asked: its first release is a start's (`REFERENCE_BOOTSTRAP_CLINVAR`), an
+assembly import's or an administrator's, so with the start's load off (as for the browser
+end-to-end run) the check loads nothing. When NCBI's newest release is newer than the current one,
+the check runs a load as the requester `clinvar-weekly`, the Reference page's own, whose checks
+above decide whether the release becomes current; a new release so comes in within a day of its
+publication. A load that does not release its file ends one of two ways, and the Reference page
+shows either with its reason while the current release stays current:
+
+- **Refused** (`refused`): the load's checks refused the file. Its MD5 is not the one NCBI
+  states, or NCBI's `.md5` states none; it is larger than any ClinVar file; its header names
+  another release or assembly; it holds no record; the partition does not hold the rows stored;
+  or it has more than 5 % fewer records than the current release. Every active administrator is told by mail
+  (`SMTP_HOST`; without it the log says so): the assembly, the release, why, and the release that
+  stays current. The check does not load that release again: an administrator loads it once the
+  reason is known, or the next week's release comes in. A mail that does not go out (no mail
+  server, no active administrator, a mail server or a database that fails) is tried again by each
+  later check until one has (`clinvar_load_jobs.mailed_at`), so the administrators are told once.
+- **Failed** (`failed`): the load could not be completed. NCBI did not answer or answered with an
+  error (a `.md5` it has not published yet, a 5xx while it publishes), the download broke off,
+  the load ran past `CLINVAR_LOAD_TIMEOUT_SECONDS`, a restart stopped it (closed as failed once
+  its worker has been silent for ten minutes), or another error. No mail goes out, and the next
+  day's check loads that release again.
+
+One assembly's check that fails (NCBI does not answer), or its mail, leaves the other's; while
+another load runs, the check waits for the next day. The Reference page says whether the check is
+on.
 
 #### Concordance at each import
 
@@ -313,10 +334,13 @@ Each callset annotated with ClinVar's VCF checks CoGA's allele matching against 
 (`services/clinvar_concordance.py`). The import writes, on each `entries` row, the allele key of
 each ALT in its minimal form (`allele_keys`), and notes, per allele it stores, the classification,
 review status and VariationID of the ClinVar file the pipeline annotated it with (VEP's cache's
-classification is ClinVar at rsID level, and is not compared). Once the callset is stored, and when
-CoGA keeps the release of that ClinVar file (the date in its name, as the annotation manifest's
+classification is ClinVar at rsID level, and is not compared). Once a load has stored its file, and
+when CoGA keeps the release of that ClinVar file (the date in its name, as the annotation manifest's
 `clinvar` module states it; the current release or the one before it), the import reads that
-release for the callset's own allele keys and compares:
+release for the allele keys of the rows the load stored, those that hold a call of a sample of its
+file, and compares. Both sides are the load's own alleles: a callset loaded one sample's file at a
+time (a monogenic NIPT's plasma and parents, the mtDNA calls of each member) is compared per
+sample, on that sample's alleles, never on another sample's that its file does not hold:
 
 - an allele **agrees** when both sides name the same classification terms (as `_status_terms` reads
   them), the same review status and the same VariationID;
@@ -326,11 +350,13 @@ release for the callset's own allele keys and compares:
   annotation* (CoGA's release classifies an allele the pipeline did not match), *classification*,
   *review status* or *VariationID*.
 
-The import keeps the counts and the first 100 differences with the dataset
-(`clinvar_concordance`), and the import page shows them under **ClinVar concordance**. A callset
-whose ClinVar release CoGA does not keep is recorded *not compared*, with its release, and one that
-names none says so. A comparison that fails is recorded as not compared, by the error's kind; it
-never fails the import.
+The import keeps, with the dataset, the counts and the first 100 differences of each load, named by
+its samples (`clinvar_concordances`: one for a dataset loaded whole, one per sample for one loaded a
+sample at a time), and the import page shows each under **ClinVar concordance**. A callset whose
+ClinVar release CoGA does not keep is recorded *not compared*, with its release, and one that names
+none says so. A comparison that fails is recorded as not compared, by the error's kind; it never
+fails the import. Its read of Postgres runs in a savepoint of the import's transaction, so one that
+fails leaves that transaction usable for the import's next statement.
 
 ### Updating the HPO ontology
 

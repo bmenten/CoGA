@@ -10,11 +10,13 @@ synthetic ClinVar file (``fixtures/clinvar``), this checks that
   ``system:clinvar-releases``, and ends ``completed`` with the records read, stored and
   skipped;
 * a load of the release that is current already ends ``unchanged``;
-* a newer release with more than 5 % fewer records is refused: its partition is dropped and
-  the current release stays;
+* a newer release with more than 5 % fewer records is refused (``refused``): its partition is
+  dropped and the current release stays;
 * ClickHouse keeps the current release and the one before it;
-* the daily check (``CLINVAR_WEEKLY_LOAD``) loads a newer release as ``clinvar-weekly``, tells the
-  administrators once of one it refused, and does not load that one again.
+* the daily check (``CLINVAR_WEEKLY_LOAD``) leaves an assembly without a release to a start,
+  loads a newer release as ``clinvar-weekly``, loads again a release whose load could not be
+  completed (a ``.md5`` NCBI has not published yet, a load a restart stopped), tells the
+  administrators once of one its checks refused, and does not load that one again.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -157,7 +159,7 @@ def test_a_refused_release_leaves_nothing_and_two_releases_are_kept(clinvar: tup
         # 7 of 8 records is 12.5 % fewer: refused, its partition dropped, the current kept.
         ncbi.put(refused, clinvar_file(assembly, refused, records=8))
         job = await load_clinvar_release(jobs, assembly)
-        assert job["status"] == "failed" and "more than 5% fewer" in job["error"]
+        assert job["status"] == "refused" and "more than 5% fewer" in job["error"]
         assert await stored_clinvar_releases(assembly) == {first, second}
 
         # A complete newer release becomes current; the one before the previous is dropped.
@@ -175,7 +177,7 @@ def test_the_daily_check_loads_a_newer_release_and_mails_a_refused_one_once(
     from backend.app.services import clinvar_weekly_load as weekly
 
     jobs, assembly, ncbi = clinvar
-    first, refused = date(2026, 11, 22), date(2026, 11, 29)
+    first, second, third, refused = date(2026, 11, 8), date(2026, 11, 15), date(2026, 11, 22), date(2026, 11, 29)
     mails: list[Any] = []
 
     async def administrators(_session: Any) -> list[str]:
@@ -192,27 +194,82 @@ def test_the_daily_check_loads_a_newer_release_and_mails_a_refused_one_once(
     async def test(sm: Any) -> None:
         from backend.app.services.clinvar_releases import current_clinvar_release
 
-        # A newer release (none yet) is loaded, as the weekly requester, and released.
+        async def weekly_jobs() -> list[tuple[Any, str]]:
+            async with sm() as s:
+                rows = await s.execute(
+                    text(
+                        "SELECT release, status FROM clinvar_load_jobs "
+                        "WHERE assembly_name = :a AND requested_by = 'clinvar-weekly' ORDER BY release, status"
+                    ),
+                    {"a": assembly},
+                )
+                return [tuple(row) for row in rows]
+
+        # An assembly without a release: its first is a start's or an administrator's, not the
+        # check's, which neither loads nor asks NCBI.
         ncbi.put(first, clinvar_file(assembly, first))
-        [loaded] = await checked()
-        assert (loaded.status, loaded.requested_by, loaded.release) == ("completed", "clinvar-weekly", first)
+        assert await checked() == [] and await weekly_jobs() == []
+        assert (await load_clinvar_release(jobs, assembly))["status"] == "completed"
         # Nothing newer: no load, no job.
-        assert await checked() == []
+        assert await checked() == [] and await weekly_jobs() == []
+
+        # A newer release whose .md5 NCBI has not published yet: the load is not completed, no
+        # mail goes out, and the next check loads the release again.
+        ncbi.put(second, clinvar_file(assembly, second))
+        ncbi.md5_withheld.add(second)
+        [failed] = await checked()
+        assert (failed.status, failed.requested_by, failed.release) == ("failed", "clinvar-weekly", second)
+        assert (failed.error or "").startswith("The ClinVar file could not be downloaded (HTTPStatusError)")
+        ncbi.md5_withheld.clear()
+        [loaded] = await checked()
+        assert (loaded.status, loaded.release) == ("completed", second)
+
+        # A weekly load a restart stopped (its worker silent past the stale window) is closed as
+        # failed, and the check loads its release again.
+        ncbi.put(third, clinvar_file(assembly, third))
+        async with sm() as s:
+            await s.execute(
+                text(
+                    "INSERT INTO clinvar_load_jobs (assembly_id, assembly_name, release, status, requested_by, "
+                    "worker_id, requested_at, started_at, heartbeat_at) "
+                    "SELECT id, assembly_name, :release, 'running', 'clinvar-weekly', 'gone', "
+                    "now() - interval '1 hour', now() - interval '1 hour', now() - interval '11 minutes' "
+                    "FROM assemblies WHERE assembly_name = :a"
+                ),
+                {"a": assembly, "release": third},
+            )
+            await s.commit()
+        [loaded] = await checked()
+        assert (loaded.status, loaded.release) == ("completed", third)
+        assert mails == []
 
         # A newer release with 7 of 8 records is refused: the current release stays, and every
         # active administrator is told once.
         ncbi.put(refused, clinvar_file(assembly, refused, records=7))
         [failed] = await checked()
-        assert (failed.status, failed.release) == ("failed", refused) and "more than 5% fewer" in (failed.error or "")
+        assert (failed.status, failed.release) == ("refused", refused) and "more than 5% fewer" in (failed.error or "")
         [mail] = mails
         body = mail.get_content()
         assert mail["To"] == "admin@example.org" and mail["Subject"] == weekly.SUBJECT
         assert f"did not release ClinVar {refused.isoformat()}" in body and assembly in body
-        assert f"The current release stays ClinVar {first.isoformat()}." in body
-        # The check does not load the refused release again.
+        assert f"The current release stays ClinVar {third.isoformat()}." in body
+        # The check does not load the refused release again, and tells no one twice.
         assert await checked() == [] and len(mails) == 1
+        assert await weekly_jobs() == [
+            (second, "completed"),
+            (second, "failed"),
+            (third, "completed"),
+            (third, "failed"),
+            (refused, "refused"),
+        ]
         async with sm() as s:
             current = await current_clinvar_release(s, assembly)
-        assert current is not None and current.release == first
+            mailed = (
+                await s.execute(
+                    text("SELECT mailed_at IS NOT NULL FROM clinvar_load_jobs WHERE assembly_name = :a AND status = 'refused'"),
+                    {"a": assembly},
+                )
+            ).scalar_one()
+        assert current is not None and current.release == third and mailed
 
     run_closing_stores(lambda: _with_assembly(assembly, test), init_schema=True)

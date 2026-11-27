@@ -37,7 +37,7 @@ from .hpo_service import PACKAGE_IMPORT, PhenotypeImport
 from .metadata_service import get_current_user_by_id
 from .access_control import CurrentUser, has_superuser_rights, is_admin_user
 from .bed_service import precompute_family_haplotype_lineage
-from .clinvar_concordance import with_clinvar_concordance
+from .clinvar_concordance import with_clinvar_concordances
 from .clickhouse_family_snapshot import (
     FamilyRestoreRefused,
     discard_family_clickhouse_snapshot,
@@ -863,7 +863,7 @@ async def _import_family_datasets(
                 scope=mark_scopes.get(summary.dataset_type),
                 phenotype_import=phenotype_import,
             )
-            datasets[index] = with_clinvar_concordance(imported.model_copy(update={"progress": timer.finish()}))
+            datasets[index] = with_clinvar_concordances(imported.model_copy(update={"progress": timer.finish()}))
             logs.append(f"Dataset {summary.dataset_type}: {datasets[index].status}.")
         except Exception as exc:  # the dataset is recorded as failed and fails the import
             await session.rollback()

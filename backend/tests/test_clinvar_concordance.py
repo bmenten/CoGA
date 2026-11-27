@@ -4,12 +4,13 @@ The import writes, on each ``entries`` row, the allele key of each of the record
 (``record_allele_keys``): a multi-allelic record stays one row with one key per ALT. It notes
 the ClinVar file's values of each allele it stores (the classification, review status and
 VariationID of the allele's first annotation; never VEP's cache's), and once the callset is
-stored compares them with CoGA's release of the same ClinVar release, when CoGA keeps it: an
-allele agrees when both name the same classification terms, review status and VariationID;
-every other allele either side classifies is a difference, with its reason. A callset whose
-release CoGA does not keep, or that names none, is not compared, and says why; a comparison
-that fails never fails the import. The package import lifts the loader's report into the
-dataset's own field.
+stored compares them with CoGA's release of the same ClinVar release, when CoGA keeps it, on the
+load's own alleles (a load of one sample's file, its sample's): an allele agrees when both name
+the same classification terms, review status and VariationID; every other allele either side
+classifies is a difference, with its reason. A callset whose release CoGA does not keep, or that
+names none, is not compared, and says why; a comparison that fails never fails the import, and
+leaves its transaction usable. The package import lifts each load's report into the dataset's
+own field, each sample's of a dataset loaded one sample at a time.
 
 Synthetic alleles only; ``integration/test_clinvar_concordance_clickhouse.py`` reads the
 release and the stored keys on real ClickHouse.
@@ -169,9 +170,10 @@ def test_alleles_agree_and_each_difference_names_its_reason() -> None:
         _key("1-700-C-T"): _stored("1-700-C-T", ""),
     }
 
-    result = cc.concordance(RELEASE, annotated, stored)
+    result = cc.concordance(RELEASE, annotated, stored, samples=["PROBAND"])
 
     assert (result.compared, result.annotated_release, result.agree, result.differ) == (True, RELEASE, 1, 5)
+    assert result.samples == ["PROBAND"]
     assert [(d.variant_id, d.allele, d.reason) for d in result.differences] == [
         (None, "1-600-C-T", "not in the annotation"),
         ("1-200-G-A", "1-200-G-A", "classification"),
@@ -187,7 +189,7 @@ def test_alleles_agree_and_each_difference_names_its_reason() -> None:
 def test_the_differences_kept_are_capped_and_counted_whole() -> None:
     annotated = _annotated(*(_record(f"1-{1000 + index}-G-A", [_clinvar("Benign")]) for index in range(150)))
 
-    result = cc.concordance(RELEASE, annotated, {})
+    result = cc.concordance(RELEASE, annotated, {}, samples=["PROBAND"])
 
     assert result.differ == 150 and len(result.differences) == cc.MAX_DIFFERENCES
 
@@ -210,25 +212,40 @@ def test_a_release_coga_does_not_keep_is_not_compared() -> None:
     concordance = cc.ClinvarConcordance("GRCh38")
 
     result = asyncio.run(
-        concordance.compare(modules=MODULES, kept=_kept(date(2026, 11, 22), date(2026, 11, 15)), family_uuid="f", source="s")
+        concordance.compare(
+            modules=MODULES,
+            kept=_kept(date(2026, 11, 22), date(2026, 11, 15)),
+            family_uuid="f",
+            source="s",
+            samples=["PROBAND"],
+        )
     )
 
-    assert not result.compared and result.annotated_release == RELEASE
+    assert not result.compared and result.annotated_release == RELEASE and result.samples == ["PROBAND"]
     assert result.reason == "Not compared: ClinVar 2026-11-01, the annotation's release, is not loaded in CoGA."
 
 
 def test_an_annotation_without_a_clinvar_release_is_not_compared() -> None:
-    result = asyncio.run(cc.ClinvarConcordance("GRCh38").compare(modules={}, kept=_kept(RELEASE), family_uuid="f", source="s"))
+    result = asyncio.run(
+        cc.ClinvarConcordance("GRCh38").compare(
+            modules={}, kept=_kept(RELEASE), family_uuid="f", source="s", samples=["PROBAND"]
+        )
+    )
 
     assert not result.compared and result.annotated_release is None
     assert result.reason == "Not compared: the annotation names no release of a ClinVar file."
 
 
-def test_the_kept_release_of_the_annotation_is_compared_on_the_callsets_alleles(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_kept_release_of_the_annotation_is_compared_on_the_loads_own_alleles(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The release is read for the alleles the load stored: those of the callset's rows that
+    hold a call of a sample of its file (``integration/test_clinvar_concordance_clickhouse.py``
+    reads them on real ClickHouse), so a load of the father's file alone is compared on his."""
     asked: list[tuple[Any, ...]] = []
 
-    async def alleles(assembly: str, release: date, family_uuid: str, source: str) -> dict[int, ClinvarStoredAllele]:
-        asked.append((assembly, release, family_uuid, source))
+    async def alleles(
+        assembly: str, release: date, family_uuid: str, source: str, samples: list[str]
+    ) -> dict[int, ClinvarStoredAllele]:
+        asked.append((assembly, release, family_uuid, source, samples))
         return {_key("1-100-G-A"): _stored("1-100-G-A", "Pathogenic")}
 
     monkeypatch.setattr(cc, "clinvar_alleles_of_callset", alleles)
@@ -236,35 +253,107 @@ def test_the_kept_release_of_the_annotation_is_compared_on_the_callsets_alleles(
     concordance.observe([_record("1-100-G-A", [_clinvar("Pathogenic")])])
 
     result = asyncio.run(
-        concordance.compare(modules=MODULES, kept=_kept(date(2026, 11, 8), RELEASE), family_uuid="f", source="haplotypecaller")
+        concordance.compare(
+            modules=MODULES,
+            kept=_kept(date(2026, 11, 8), RELEASE),
+            family_uuid="f",
+            source="nipt",
+            samples=["FATHER1"],
+        )
     )
 
-    assert asked == [("GRCh38", RELEASE, "f", "haplotypecaller")]
-    assert (result.compared, result.agree, result.differ) == (True, 1, 0)
+    assert asked == [("GRCh38", RELEASE, "f", "nipt", ["FATHER1"])]
+    assert (result.compared, result.agree, result.differ, result.samples) == (True, 1, 0, ["FATHER1"])
+
+
+class _ImportSession:
+    """The import's session as the comparison uses it: each savepoint it opens, and how it
+    ended."""
+
+    def __init__(self) -> None:
+        self.savepoints: list[str] = []
+
+    def begin_nested(self) -> "_Savepoint":
+        return _Savepoint(self)
+
+
+class _Savepoint:
+    def __init__(self, session: _ImportSession) -> None:
+        self._session = session
+
+    async def __aenter__(self) -> "_Savepoint":
+        self._session.savepoints.append("open")
+        return self
+
+    async def __aexit__(self, exc_type: Any, *_exc: Any) -> bool:
+        self._session.savepoints[-1] = "rolled back" if exc_type else "released"
+        return False
 
 
 def test_a_comparison_that_fails_never_fails_the_import(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Its read of Postgres runs in a savepoint, rolled back when it fails: the import's
+    transaction is left usable (``integration/test_clinvar_concordance_clickhouse.py`` shows it
+    on real Postgres)."""
+
     async def failing(_session: Any, _assembly: str) -> list[ClinvarRelease]:
         raise ConnectionError("SECRET-VALUE")
 
     monkeypatch.setattr(cc, "recorded_clinvar_releases", failing)
+    session = _ImportSession()
     reported = asyncio.run(
-        cc.ClinvarConcordance("GRCh38").report(object(), modules=MODULES, family_uuid="f", source="s")  # type: ignore[arg-type]
+        cc.ClinvarConcordance("GRCh38").report(
+            session,  # type: ignore[arg-type]
+            modules=MODULES,
+            family_uuid="f",
+            source="s",
+            samples=["PROBAND"],
+        )
     )
 
-    assert reported["compared"] is False
+    assert reported["compared"] is False and reported["samples"] == ["PROBAND"]
     assert reported["reason"] == "Not compared: the comparison failed (ConnectionError)."
+    assert session.savepoints == ["rolled back"]
 
 
 def test_the_package_import_keeps_the_loaders_report_as_the_datasets_field() -> None:
-    reported = cc.concordance(RELEASE, {}, {}).model_dump(mode="json")
+    reported = cc.concordance(RELEASE, {}, {}, samples=["PROBAND", "MOTHER"]).model_dump(mode="json")
     summary = FamilyImportDatasetSummary(
-        dataset_type="snv", status="imported", summary={"inserted": 3, cc.CONCORDANCE_KEY: reported}
+        dataset_type="snv",
+        status="imported",
+        summary={"inserted": 3, "annotation_provenance": {"clinvar": {"version": "20261101"}}, cc.CONCORDANCE_KEY: reported},
     )
 
-    lifted = cc.with_clinvar_concordance(summary)
+    lifted = cc.with_clinvar_concordances(summary)
 
-    assert lifted.summary == {"inserted": 3}
-    assert lifted.clinvar_concordance is not None and lifted.clinvar_concordance.compared
+    assert lifted.summary == {"inserted": 3, "annotation_provenance": {"clinvar": {"version": "20261101"}}}
+    [concordance] = lifted.clinvar_concordances
+    assert concordance.compared and concordance.samples == ["PROBAND", "MOTHER"]
     untouched = FamilyImportDatasetSummary(dataset_type="pedigree", status="imported")
-    assert cc.with_clinvar_concordance(untouched) is untouched
+    assert cc.with_clinvar_concordances(untouched) is untouched
+
+
+def test_a_dataset_loaded_one_sample_at_a_time_keeps_each_samples_report() -> None:
+    """The monogenic NIPT and the mtDNA load each sample's file in turn, and hold each load's
+    result under the sample's ID: each sample's concordance is the dataset's, in load order."""
+
+    def report(sample: str) -> dict[str, Any]:
+        return cc.concordance(RELEASE, {}, {}, samples=[sample]).model_dump(mode="json")
+
+    summary = FamilyImportDatasetSummary(
+        dataset_type="snv",
+        status="imported",
+        summary={
+            "CFDNA1": {"inserted": 2, "role": "cfdna", cc.CONCORDANCE_KEY: report("CFDNA1")},
+            "FATHER1": {"inserted": 3, "role": "paired_sample", cc.CONCORDANCE_KEY: report("FATHER1")},
+            "structural_variants": {"processed": 0},
+        },
+    )
+
+    lifted = cc.with_clinvar_concordances(summary)
+
+    assert [concordance.samples for concordance in lifted.clinvar_concordances] == [["CFDNA1"], ["FATHER1"]]
+    assert lifted.summary == {
+        "CFDNA1": {"inserted": 2, "role": "cfdna"},
+        "FATHER1": {"inserted": 3, "role": "paired_sample"},
+        "structural_variants": {"processed": 0},
+    }

@@ -11,11 +11,15 @@ is written into the release's own partition of ``<assembly>/SNV_INDEL/clinvar``
 the rows stored, and when it has no more than ``MAX_RECORD_DROP`` fewer rows than the current
 release. Its release is an event on the clinical audit chain ``system:clinvar-releases``, in the
 same transaction. A load that fails, is refused or stopped drops its partition: nothing of it
-stays, and the current release stays current. Only a release whose own transaction fails keeps
-its partition, as the commit may have made it current: the next load drops it unless it was. ClickHouse keeps the current release and the one
-before it (``KEPT_RELEASES``): a release made current drops the partition of the one before
-that, and each load first drops a partition no recorded release kept (one an interrupted load
-left).
+stays, and the current release stays current. The job ends ``refused`` when the load's checks
+refused the file (``ClinvarFileRefused``), and ``failed`` when the load could not be completed:
+NCBI did not answer or answered with an error, the download broke off, the load ran past
+``CLINVAR_LOAD_TIMEOUT_SECONDS``, its worker was gone, its requester may no longer run it, or
+another error. Only a release whose own transaction fails keeps its partition, as the commit may
+have made it current: the next load drops it unless it was. ClickHouse keeps the current release
+and the one before it (``KEPT_RELEASES``): a release made current drops the partition of the one
+before that, and each load first drops a partition no recorded release kept (one an interrupted
+load left).
 
 An administrator asks for a load on the Reference page; an assembly import from UCSC, and a
 start (``REFERENCE_BOOTSTRAP_CLINVAR``), queue one for a GRCh37 or GRCh38 assembly with no
@@ -110,6 +114,8 @@ _STALE_ERROR = (
     f"{int(CLINVAR_LOAD_STALE_HEARTBEAT.total_seconds() // 60)} minutes; the server running it "
     f"was probably restarted or redeployed. {_UNCHANGED} Load it again."
 )
+# How a load that released nothing ends: refused by its checks, or not completed.
+_REFUSED = "status = 'refused', worker_id = NULL, completed_at = now(), error = :error"
 _FAILED = "status = 'failed', worker_id = NULL, completed_at = now(), error = :error"
 
 
@@ -427,13 +433,14 @@ async def _update_job(job_id: str, worker_id: str | None, assignments: str, para
     return written
 
 
-async def _record_failure(job_id: str, worker_id: str | None, error: str) -> None:
-    """Mark the job failed; when even that fails, say in the log which job is left active."""
+async def _record_end(job_id: str, worker_id: str | None, ended: str, error: str) -> None:
+    """End the job as ``ended`` says (``_REFUSED`` or ``_FAILED``), with its error; when even
+    that fails, say in the log which job is left active."""
     try:
-        await _update_job(job_id, worker_id, _FAILED, {"error": error})
+        await _update_job(job_id, worker_id, ended, {"error": error})
     except Exception as exc:  # noqa: BLE001 - logged by type; the job is closed as stale later
         logger.error(
-            "ClinVar load %s could not be marked failed (%s); it stays active until it has been "
+            "ClinVar load %s could not be marked ended (%s); it stays active until it has been "
             "silent for the stale window and is closed",
             job_id,
             describe_error(exc),
@@ -720,17 +727,22 @@ async def _run_job(job_id: str) -> None:
         timeout = settings.clinvar_load_timeout_seconds
         try:
             await asyncio.wait_for(_load(job_id, owner, job), timeout=timeout)
-        except asyncio.TimeoutError as exc:
-            raise ClinvarFileRefused(
-                f"The ClinVar load was stopped after {timeout} seconds (CLINVAR_LOAD_TIMEOUT_SECONDS)."
-            ) from exc
+        except asyncio.TimeoutError:
+            # Not the file's fault: a slow NCBI, or a load that hung. Not completed, not refused.
+            logger.error("ClinVar load %s was stopped after %d seconds", job_id, timeout)
+            await _record_end(
+                job_id,
+                owner,
+                _FAILED,
+                f"The ClinVar load was stopped after {timeout} seconds (CLINVAR_LOAD_TIMEOUT_SECONDS). {_UNCHANGED}",
+            )
     except _RequesterRefused as exc:
         logger.warning(
             "ClinVar load %s not run or released: the account that requested it is no longer an "
             "active administrator",
             job_id,
         )
-        await _record_failure(job_id, owner, error_text(exc))
+        await _record_end(job_id, owner, _FAILED, error_text(exc))
     except _JobClosed:
         logger.warning(
             "ClinVar load %s was closed while it ran (its worker was taken for gone); stopped "
@@ -739,12 +751,14 @@ async def _run_job(job_id: str) -> None:
         )
     except ClinvarFileRefused as exc:
         logger.error("ClinVar load %s refused its file", job_id)
-        await _record_failure(job_id, owner, f"{error_text(exc)[:1800]} {_UNCHANGED}")
+        await _record_end(job_id, owner, _REFUSED, f"{error_text(exc)[:1800]} {_UNCHANGED}")
     except httpx.HTTPError as exc:
+        # NCBI did not answer, answered with an error (a .md5 not published yet, a 5xx), or the
+        # download broke off: the load was not completed, and its file not refused.
         logger.error("ClinVar load %s could not download its file (%s)", job_id, describe_error(exc))
-        await _record_failure(
-            job_id, owner, f"The ClinVar file could not be downloaded ({describe_error(exc)}). {_UNCHANGED}"
+        await _record_end(
+            job_id, owner, _FAILED, f"The ClinVar file could not be downloaded ({describe_error(exc)}). {_UNCHANGED}"
         )
     except Exception as exc:  # noqa: BLE001 - the job's error names it by type; nothing is released
         logger.error("ClinVar load %s failed (%s)", job_id, describe_error(exc))
-        await _record_failure(job_id, owner, f"The ClinVar load failed ({describe_error(exc)}). {_UNCHANGED}")
+        await _record_end(job_id, owner, _FAILED, f"The ClinVar load failed ({describe_error(exc)}). {_UNCHANGED}")

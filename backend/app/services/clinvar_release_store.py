@@ -139,11 +139,14 @@ async def clinvar_alleles(assembly_name: str, release: date, keys: Collection[in
 
 
 async def clinvar_alleles_of_callset(
-    assembly_name: str, release: date, family_uuid: str, source: str
+    assembly_name: str, release: date, family_uuid: str, source: str, samples: Sequence[str]
 ) -> dict[int, ClinvarStoredAllele]:
-    """The release's alleles among those of the family's callset ``source``
-    (``entries.allele_keys``), by allele key. The release is read only for the callset's own
-    keys, the callset only for the family's rows."""
+    """The release's alleles among those a load of ``samples``' calls stored in the family's
+    callset ``source``, by allele key: the alleles (``entries.allele_keys``) of the callset's rows
+    that hold a call of one of the samples. A load stores each of its records with the calls of
+    its file's samples, so these are the alleles it stored: the whole callset's for a load of
+    every sample's calls, one sample's own for a load of that sample's file into a callset of
+    several. The release is read only for those keys, the callset only for the family's rows."""
     rows = await execute_clickhouse(
         f"""
         SELECT {_ALLELE_COLUMNS}
@@ -152,9 +155,10 @@ async def clinvar_alleles_of_callset(
           AND allele_key IN (
               SELECT arrayJoin(allele_keys) FROM {_small_table_name(assembly_name, 'entries')}
               WHERE family_guid = %(family_guid)s AND source = %(source)s AND sign = 1
+                AND hasAny(`calls.sampleId`, %(samples)s)
           )
         """,
-        {"release": release, "family_guid": family_uuid, "source": source},
+        {"release": release, "family_guid": family_uuid, "source": source, "samples": list(samples)},
     )
     return _alleles(rows)
 

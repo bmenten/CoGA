@@ -43,10 +43,12 @@ def clinvar_file(
 
 
 class StandInNcbi:
-    """NCBI's ClinVar folder of the test assembly, listing the files put in it; no other."""
+    """NCBI's ClinVar folder of the test assembly, listing the files put in it; no other. The
+    ``.md5`` of a release in ``md5_withheld`` is not there yet, as while NCBI publishes."""
 
     def __init__(self) -> None:
         self.files: dict[str, bytes] = {}
+        self.md5_withheld: set[date] = set()
 
     def put(self, release: date, body: bytes) -> None:
         self.files[f"clinvar_{release:%Y%m%d}.vcf.gz"] = body
@@ -57,7 +59,8 @@ class StandInNcbi:
         name = request.url.path.rsplit("/", 1)[-1]
         if not name:
             return httpx.Response(200, text="".join(f'<a href="{file}">{file}</a>\n' for file in self.files))
-        if name.endswith(".md5") and name[:-4] in self.files:
+        withheld = {f"clinvar_{release:%Y%m%d}.vcf.gz.md5" for release in self.md5_withheld}
+        if name.endswith(".md5") and name[:-4] in self.files and name not in withheld:
             return httpx.Response(200, text=f"{hashlib.md5(self.files[name[:-4]]).hexdigest()}  {name[:-4]}\n")
         if name in self.files:
             return httpx.Response(200, content=self.files[name])

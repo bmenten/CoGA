@@ -2,12 +2,14 @@
 
 A callset annotated with ClinVar's VCF (VEP ``--custom``) carries, per allele, the
 classification, review status and VariationID the pipeline matched in that ClinVar release.
-When CoGA holds the same release (the current one or the one before it), an import looks up the
-callset's stored alleles in it, by the keys ``entries.allele_keys`` holds, and compares them: an
-allele agrees when both sides name the same classification terms (``_status_terms``), review
-status and VariationID. Every other allele that either side classifies is a difference, with its
-reason. The import keeps the counts and the differences with the dataset
-(``FamilyImportDatasetSummary.clinvar_concordance``), and the import page shows them. A callset
+When CoGA holds the same release (the current one or the one before it), a load looks up the
+alleles it stored in it, by the keys ``entries.allele_keys`` holds, and compares them: an allele
+agrees when both sides name the same classification terms (``_status_terms``), review status and
+VariationID. Every other allele that either side classifies is a difference, with its reason.
+Both sides are the load's own alleles: a load of one sample's file into a callset of several (a
+monogenic NIPT's, the mtDNA's) compares that sample's alleles, not the callset's. The import
+keeps the counts and the differences of each load with the dataset
+(``FamilyImportDatasetSummary.clinvar_concordances``), and the import page shows them. A callset
 whose ClinVar release CoGA does not hold, or that names none, is recorded as not compared, with
 the reason.
 
@@ -101,25 +103,27 @@ class ClinvarConcordance:
         kept: Sequence[ClinvarRelease],
         family_uuid: str,
         source: str,
+        samples: Sequence[str],
     ) -> ClinvarConcordanceOut:
-        """The stored callset's concordance with CoGA's release of the ClinVar file its
-        annotation names (``modules``, its manifest), when CoGA keeps it (``kept``: the current
-        release and the one before it)."""
+        """The concordance of the alleles the load of ``samples``' calls stored in the callset
+        with CoGA's release of the ClinVar file its annotation names (``modules``, its manifest),
+        when CoGA keeps it (``kept``: the current release and the one before it)."""
         release = annotated_clinvar_release(modules)
         if release is None:
             return ClinvarConcordanceOut(
+                samples=list(samples),
                 compared=False,
                 reason="Not compared: the annotation names no release of a ClinVar file.",
             )
         if release not in {kept_release.release for kept_release in kept}:
             return ClinvarConcordanceOut(
+                samples=list(samples),
                 annotated_release=release,
                 compared=False,
                 reason=f"Not compared: ClinVar {release.isoformat()}, the annotation's release, is not loaded in CoGA.",
             )
-        stored = await clinvar_alleles_of_callset(self._assembly, release, family_uuid, source)
-        return concordance(release, self._annotated, stored)
-
+        stored = await clinvar_alleles_of_callset(self._assembly, release, family_uuid, source, samples)
+        return concordance(release, self._annotated, stored, samples=samples)
 
     async def report(
         self,
@@ -128,17 +132,24 @@ class ClinvarConcordance:
         modules: Mapping[str, Mapping[str, Any]],
         family_uuid: str,
         source: str,
+        samples: Sequence[str],
     ) -> dict[str, Any]:
         """The concordance as a loader's result reports it (``CONCORDANCE_KEY``), as JSON. Never
         fails the import: a comparison that fails is reported as not compared, by the error's
-        kind."""
+        kind. Its read of Postgres runs in a savepoint of the import's transaction, so a read
+        that fails leaves that transaction as it was, for the import's next statement."""
         try:
-            kept = await recorded_clinvar_releases(session, self._assembly)
-            result = await self.compare(modules=modules, kept=kept, family_uuid=family_uuid, source=source)
+            async with session.begin_nested():
+                kept = await recorded_clinvar_releases(session, self._assembly)
+            result = await self.compare(
+                modules=modules, kept=kept, family_uuid=family_uuid, source=source, samples=samples
+            )
         except Exception as exc:  # noqa: BLE001 - reported by kind; the callset is stored
             logger.error("ClinVar concordance of an import not compared (%s)", describe_error(exc))
             result = ClinvarConcordanceOut(
-                compared=False, reason=f"Not compared: the comparison failed ({describe_error(exc)})."
+                samples=list(samples),
+                compared=False,
+                reason=f"Not compared: the comparison failed ({describe_error(exc)}).",
             )
         return result.model_dump(mode="json")
 
@@ -168,9 +179,14 @@ def _reason(annotated: _Annotated | None, coga: ClinvarStoredAllele | None) -> C
 
 
 def concordance(
-    release: date, annotated: Mapping[int, _Annotated], stored: Mapping[int, ClinvarStoredAllele]
+    release: date,
+    annotated: Mapping[int, _Annotated],
+    stored: Mapping[int, ClinvarStoredAllele],
+    *,
+    samples: Sequence[str],
 ) -> ClinvarConcordanceOut:
-    """The comparison of the annotated alleles with the release's, by allele key."""
+    """The comparison of the annotated alleles with the release's, by allele key, of the load of
+    ``samples``' calls."""
     agree = 0
     differences: list[ClinvarConcordanceDifferenceOut] = []
     for key in set(annotated) | set(stored):
@@ -192,6 +208,7 @@ def concordance(
         )
     differences.sort(key=lambda difference: (difference.variant_id or "", difference.allele))
     return ClinvarConcordanceOut(
+        samples=list(samples),
         annotated_release=release,
         compared=True,
         agree=agree,
@@ -200,15 +217,25 @@ def concordance(
     )
 
 
-def with_clinvar_concordance(summary: FamilyImportDatasetSummary) -> FamilyImportDatasetSummary:
-    """A dataset's summary with the concordance its small-variant loader reported
-    (``CONCORDANCE_KEY`` of its result) as a field of its own."""
-    reported = summary.summary.get(CONCORDANCE_KEY)
-    if reported is None:
+def _without_concordance(result: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in result.items() if key != CONCORDANCE_KEY}
+
+
+def with_clinvar_concordances(summary: FamilyImportDatasetSummary) -> FamilyImportDatasetSummary:
+    """A dataset's summary with the concordance each of its small-variant loads reported
+    (``CONCORDANCE_KEY`` of the load's result) as a field of its own: that of the dataset's load,
+    or, of a dataset loaded one sample at a time (a monogenic NIPT's, the mtDNA's), that of each
+    sample's load, whose result the summary holds under the sample's ID."""
+    results = [summary.summary, *(value for value in summary.summary.values() if isinstance(value, dict))]
+    reported = [result[CONCORDANCE_KEY] for result in results if CONCORDANCE_KEY in result]
+    if not reported:
         return summary
     return summary.model_copy(
         update={
-            "summary": {key: value for key, value in summary.summary.items() if key != CONCORDANCE_KEY},
-            "clinvar_concordance": ClinvarConcordanceOut.model_validate(reported),
+            "summary": {
+                key: _without_concordance(value) if isinstance(value, dict) else value
+                for key, value in _without_concordance(summary.summary).items()
+            },
+            "clinvar_concordances": [ClinvarConcordanceOut.model_validate(each) for each in reported],
         }
     )

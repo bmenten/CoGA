@@ -11,6 +11,7 @@ All samples and values here are synthetic.
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 from io import BytesIO
 from pathlib import Path
@@ -20,7 +21,7 @@ from fastapi import UploadFile
 import pytest
 
 from backend.app.schemas import FamilyImportDatasetSummary
-from backend.app.services import family_package_datasets, variant_upload_service
+from backend.app.services import clinvar_concordance, family_package_datasets, variant_upload_service
 from backend.app.services.clickhouse_variant_records import SmallVariantCall
 from backend.app.services.clickhouse_variant_storage import SMALL_VARIANT_ENTRY_COLUMNS
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
@@ -98,6 +99,10 @@ def test_record_filter_values() -> None:
 class _FakeSession:
     async def commit(self) -> None:
         return None
+
+    def begin_nested(self) -> Any:
+        # The savepoint the ClinVar concordance reads Postgres in.
+        return contextlib.nullcontext()
 
 
 def _context() -> FamilyMetadataContext:
@@ -511,6 +516,11 @@ async def test_the_importer_loads_the_plasma_first_and_filters_the_paternal_file
         raise AssertionError("an overwrite import does not count the callset first")
 
     monkeypatch.setattr(family_package_datasets, "count_family_small_variants", no_count)
+
+    async def no_clinvar_release(_session: Any, _assembly: str) -> list[Any]:
+        return []
+
+    monkeypatch.setattr(clinvar_concordance, "recorded_clinvar_releases", no_clinvar_release)
     job = DatasetImportJob(
         session=_FakeSession(),  # type: ignore[arg-type]
         bundle=_bundle(tmp_path, {"CFDNA1": {"assay": "nipt_cfdna"}}),
@@ -527,6 +537,14 @@ async def test_the_importer_loads_the_plasma_first_and_filters_the_paternal_file
     assert summary.summary["FATHER1"]["skipped_by_filter"] == 1
     assert storage["rewrites"] == ["nipt", "nipt"]
     assert {row["pos"] for row in storage["stored"]} == {1000, 2000, 4000}
+    # Each sample's load reports the ClinVar concordance of its own alleles, which the package
+    # import keeps as the dataset's, one per sample.
+    lifted = clinvar_concordance.with_clinvar_concordances(summary)
+    assert [(each.samples, each.compared) for each in lifted.clinvar_concordances] == [
+        (["CFDNA1"], False),
+        (["FATHER1"], False),
+    ]
+    assert lifted.clinvar_concordances[0].reason == "Not compared: the annotation names no release of a ClinVar file."
 
 
 @pytest.mark.asyncio

@@ -1,17 +1,27 @@
 """The daily check for a new ClinVar release, and its load (the owner's decisions B3 and B3b).
 
 With ``CLINVAR_WEEKLY_LOAD`` on, a loop like the ClickHouse integrity monitor's
-(``clickhouse_integrity_monitor.py``) looks once a day whether NCBI holds a newer weekly ClinVar
-VCF, for each assembly CoGA holds that ClinVar publishes one for, than the assembly's current
-release. It loads a newer one as the requester ``clinvar-weekly``, through the Reference page's
-own load (``clinvar_load_jobs``), which releases it only when its checks pass: NCBI's MD5, the
-release and the assembly its header names, every record stored, and no more than 5 % fewer
-records than the current release. A new release so comes in within a day of its publication.
+(``clickhouse_integrity_monitor.py``) looks once a day, for each assembly CoGA holds that ClinVar
+publishes a weekly VCF for and that has a current release, whether NCBI holds a newer one. An
+assembly's first release is a start's (``REFERENCE_BOOTSTRAP_CLINVAR``), an assembly import's or
+an administrator's, never the check's. It loads a newer one as the requester ``clinvar-weekly``,
+through the Reference page's own load (``clinvar_load_jobs``), which releases it only when its
+checks pass: NCBI's MD5, the release and the assembly its header names, every record stored, and
+no more than 5 % fewer records than the current release. A new release so comes in within a day
+of its publication.
 
-When a weekly load does not release its file, the current release stays current, the Reference
-page shows the failed load with its reason, and every active administrator is told by mail
+A load whose checks refuse the file ends ``refused``: the current release stays current, the
+Reference page shows the load with its reason, and every active administrator is told by mail
 (``SMTP_HOST``; without it the log says so). The check does not load that release again: an
-administrator loads it, once the reason is known, or the next week's release comes in.
+administrator loads it, once the reason is known, or the next week's release comes in. A mail
+that does not go out (no mail server, no active administrator, a mail server or a database that
+fails) is tried again by the next check, until one has (``clinvar_load_jobs.mailed_at``), so the
+administrators are told once.
+
+A load that could not be completed ends ``failed`` (NCBI did not answer or answered with an
+error, the download broke off, the load ran past ``CLINVAR_LOAD_TIMEOUT_SECONDS``, a restart
+stopped it, another error): nothing of it is released, the Reference page shows it with its
+reason, no mail goes out, and the next check loads that release again.
 
 On by default (the owner's decision); ``CLINVAR_WEEKLY_LOAD=false`` leaves a newer release to an
 administrator. Whether a weekly release may become current within a procedure validated once,
@@ -23,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from dataclasses import dataclass
 from datetime import date, timedelta
 from email.message import EmailMessage
 
@@ -50,36 +61,63 @@ SUBJECT = "CoGA: a ClinVar release was not released"
 _worker_task: asyncio.Task[None] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class WeeklyRefusal:
+    """A weekly load of an assembly whose checks refused its release, and whether the
+    administrators have been told of it."""
+
+    job_id: str
+    assembly_name: str
+    release: date | None
+    error: str | None
+    mailed: bool
+
+
 async def _held_assemblies(session: AsyncSession) -> list[str]:
     """The assemblies CoGA holds that ClinVar publishes a weekly VCF for."""
     names = set((await session.execute(text("SELECT assembly_name FROM assemblies"))).scalars())
     return [name for name in CLINVAR_ASSEMBLY_FOLDERS if name in names]
 
 
-async def _refused_weekly(session: AsyncSession, assembly: str) -> set[date]:
-    """The releases of the assembly a weekly load did not release."""
+async def _weekly_refusals(session: AsyncSession, assembly: str) -> list[WeeklyRefusal]:
+    """The weekly loads of the assembly whose checks refused their release, oldest first. A
+    weekly load that failed otherwise is not one: the next check loads its release again."""
     rows = await session.execute(
         text(
-            "SELECT DISTINCT release FROM clinvar_load_jobs "
-            "WHERE assembly_name = :assembly AND requested_by = :weekly AND status = 'failed' "
-            "AND release IS NOT NULL"
+            "SELECT id::text AS id, release, error, mailed_at IS NOT NULL AS mailed "
+            "FROM clinvar_load_jobs "
+            "WHERE assembly_name = :assembly AND requested_by = :weekly AND status = 'refused' "
+            "ORDER BY requested_at"
         ),
         {"assembly": assembly, "weekly": WEEKLY_REQUESTER},
     )
-    return set(rows.scalars())
+    return [
+        WeeklyRefusal(
+            job_id=row["id"], assembly_name=assembly, release=row["release"], error=row["error"], mailed=row["mailed"]
+        )
+        for row in rows.mappings()
+    ]
 
 
-def refusal_message(job: ClinvarLoadJobOut, current: date | None, recipients: list[str]) -> EmailMessage:
-    """The mail that tells the administrators a weekly load did not release its file."""
+async def _mark_mailed(session: AsyncSession, job_id: str) -> None:
+    await session.execute(
+        text("UPDATE clinvar_load_jobs SET mailed_at = now() WHERE id = CAST(:job AS uuid)"),
+        {"job": job_id},
+    )
+    await session.commit()
+
+
+def refusal_message(refusal: WeeklyRefusal, current: date | None, recipients: list[str]) -> EmailMessage:
+    """The mail that tells the administrators a weekly load's checks refused its release."""
     url = app_url(REFERENCE_PAGE_PATH)
     return new_message(
         SUBJECT,
         recipients,
         [
-            f"CoGA's weekly ClinVar load for {job.assembly_name} did not release ClinVar "
-            f"{job.release.isoformat() if job.release else '(its release could not be read)'}.",
+            f"CoGA's weekly ClinVar load for {refusal.assembly_name} did not release ClinVar "
+            f"{refusal.release.isoformat() if refusal.release else '(its release could not be read)'}.",
             "",
-            f"Why: {job.error or 'no reason was recorded'}",
+            f"Why: {refusal.error or 'no reason was recorded'}",
             "",
             (
                 f"The current release stays ClinVar {current.isoformat()}."
@@ -95,50 +133,79 @@ def refusal_message(job: ClinvarLoadJobOut, current: date | None, recipients: li
     )
 
 
-async def _tell_administrators(job: ClinvarLoadJobOut) -> None:
-    """Tell every active administrator that a weekly load did not release its file. Best-effort:
-    a mail that cannot go out is logged, never raised."""
-    if not mail_enabled():
-        logger.warning("SMTP_HOST not set: no mail about the ClinVar release that was not released")
-        return
-    async with get_postgres_sessionmaker()() as session:
-        recipients = await administrator_addresses(session)
-        current = await current_clinvar_release(session, job.assembly_name)
-    if not recipients:
-        logger.warning("no active administrator to tell about the ClinVar release that was not released")
-        return
+async def _tell_administrators(assembly: str) -> None:
+    """Tell every active administrator of each release of the assembly a weekly load's checks
+    refused that no mail has gone out about yet, and mark it mailed. Best-effort: a mail that
+    cannot go out, or a database that fails, is logged, never raised; the next check tries
+    again."""
     try:
-        await asyncio.to_thread(
-            send_mail, refusal_message(job, current.release if current else None, recipients)
-        )
+        async with get_postgres_sessionmaker()() as session:
+            untold = [refusal for refusal in await _weekly_refusals(session, assembly) if not refusal.mailed]
+            if not untold:
+                return
+            if not mail_enabled():
+                logger.warning("SMTP_HOST not set: no mail about the ClinVar release that was not released")
+                return
+            recipients = await administrator_addresses(session)
+            if not recipients:
+                logger.warning("no active administrator to tell about the ClinVar release that was not released")
+                return
+            current = await current_clinvar_release(session, assembly)
+            for refusal in untold:
+                await asyncio.to_thread(
+                    send_mail, refusal_message(refusal, current.release if current else None, recipients)
+                )
+                await _mark_mailed(session, refusal.job_id)
     except MailNotSent as exc:
-        logger.error("the mail about the ClinVar release that was not released was not sent: %s", error_text(exc))
+        logger.error(
+            "the mail about the ClinVar release that was not released was not sent: %s; the next check "
+            "tries again",
+            error_text(exc),
+        )
+    except Exception as exc:  # noqa: BLE001 - one assembly's mail never stops the check
+        logger.error(
+            "the administrators could not be told of the ClinVar release that was not released (%s); "
+            "the next check tries again",
+            describe_error(exc),
+        )
+
+
+async def _load_newer_release(assembly: str) -> ClinvarLoadJobOut | None:
+    """The load of NCBI's newest release of the assembly, run to its end, when the assembly has a
+    current release, NCBI's newest is newer, and no weekly load's checks refused it; None when
+    there is none to run, or another load is active."""
+    async with get_postgres_sessionmaker()() as session:
+        current = await current_clinvar_release(session, assembly)
+        refused = {refusal.release for refusal in await _weekly_refusals(session, assembly)}
+    if current is None:
+        # The first release is a start's, an assembly import's or an administrator's.
+        return None
+    newest = await newest_clinvar_release(assembly)
+    if newest <= current.release or newest in refused:
+        return None
+    job = await run_clinvar_load(assembly, requested_by=WEEKLY_REQUESTER)
+    if job is None:
+        logger.info("The weekly ClinVar load of %s waits: another ClinVar load is active", assembly)
+    return job
 
 
 async def check_for_new_clinvar_releases() -> list[ClinvarLoadJobOut]:
-    """One check: each held assembly's newest NCBI release loaded, when it is newer than the
-    current one and no weekly load refused it; each load run to its end. The loads, as ended."""
+    """One check: each held assembly's newer NCBI release loaded (``_load_newer_release``), each
+    load run to its end, and the administrators told of each release a weekly load refused that
+    they were not told of yet. One assembly's check that fails is logged and leaves the
+    other's. The loads, as ended."""
     async with get_postgres_sessionmaker()() as session:
         assemblies = await _held_assemblies(session)
     ended: list[ClinvarLoadJobOut] = []
     for assembly in assemblies:
         try:
-            newest = await newest_clinvar_release(assembly)
-            async with get_postgres_sessionmaker()() as session:
-                current = await current_clinvar_release(session, assembly)
-                refused = await _refused_weekly(session, assembly)
-            if (current is not None and newest <= current.release) or newest in refused:
-                continue
-            job = await run_clinvar_load(assembly, requested_by=WEEKLY_REQUESTER)
+            job = await _load_newer_release(assembly)
         except Exception as exc:  # noqa: BLE001 - one assembly's check never stops another's
             logger.error("The weekly ClinVar check of %s could not run (%s)", assembly, describe_error(exc))
-            continue
-        if job is None:
-            logger.info("The weekly ClinVar load of %s waits: another ClinVar load is active", assembly)
-            continue
-        if job.status == "failed":
-            await _tell_administrators(job)
-        ended.append(job)
+        else:
+            if job is not None:
+                ended.append(job)
+        await _tell_administrators(assembly)
     return ended
 
 
@@ -161,7 +228,8 @@ async def start_clinvar_weekly_load() -> None:
 
 async def stop_clinvar_weekly_load() -> None:
     """Stop the daily check. A load it runs stops with it: its job is closed as stale by a later
-    status read, and its partition dropped by the next load."""
+    status read, and its partition dropped by the next load; the next check loads its release
+    again."""
     global _worker_task
     task, _worker_task = _worker_task, None
     if task is None:

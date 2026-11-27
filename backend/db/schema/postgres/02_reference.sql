@@ -255,14 +255,16 @@ CREATE INDEX IF NOT EXISTS idx_dgv_load_jobs_requested_at ON dgv_load_jobs USING
 -- ---------------------------------------------------------------------------
 -- Loads of ClinVar's newest weekly VCF for an assembly into ClickHouse
 -- (<assembly>/SNV_INDEL/clinvar, one partition per release), asked for on the Reference page or
--- queued by a start (requested_by startup-bootstrap, no account). release and source_url are
--- the file the job found NCBI's newest; source_md5 is NCBI's MD5 of it, which the download
--- matched, and source_sha256 the SHA-256 CoGA computed. records_skipped counts the records not
--- stored by their reason. completed: the release became the current one, recorded in
--- reference_dataset_imports (dataset_type clinvar); unchanged: NCBI's newest release was the
--- current one already. As for dgv_load_jobs: one job queued or running at a time, a worker with
--- a heartbeat, and an administrator's load run and released only while that account is an
--- active administrator.
+-- queued by a start (requested_by startup-bootstrap, no account) or the daily check
+-- (clinvar-weekly). release and source_url are the file the job found NCBI's newest; source_md5
+-- is NCBI's MD5 of it, which the download matched, and source_sha256 the SHA-256 CoGA computed.
+-- records_skipped counts the records not stored by their reason. completed: the release became
+-- the current one, recorded in reference_dataset_imports (dataset_type clinvar); unchanged:
+-- NCBI's newest release was the current one already; refused: the load's checks refused the
+-- file; failed: the load could not be completed. mailed_at: when the mail about a release the
+-- daily check's load refused went out to the administrators. As for dgv_load_jobs: one job
+-- queued or running at a time, a worker with a heartbeat, and an administrator's load run and
+-- released only while that account is an active administrator.
 CREATE TABLE IF NOT EXISTS clinvar_load_jobs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     assembly_id uuid NOT NULL,
@@ -285,8 +287,9 @@ CREATE TABLE IF NOT EXISTS clinvar_load_jobs (
     error text,
     worker_id text,
     heartbeat_at timestamp with time zone,
+    mailed_at timestamp with time zone,
     CONSTRAINT clinvar_load_jobs_pkey PRIMARY KEY (id),
-    CONSTRAINT clinvar_load_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'unchanged'::text, 'failed'::text]))),
+    CONSTRAINT clinvar_load_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'unchanged'::text, 'refused'::text, 'failed'::text]))),
     CONSTRAINT clinvar_load_jobs_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE,
     CONSTRAINT clinvar_load_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL
 );
