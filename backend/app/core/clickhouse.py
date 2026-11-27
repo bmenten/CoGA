@@ -295,7 +295,10 @@ async def execute_clickhouse(query: str, parameters: Any = None, *, retry: bool 
         try:
             if returns_rows:
                 result = await client.query(query, parameters=parameters or {})
-                return list(result.result_rows)
+                # The result's own list, not a copy: the result outlives this call a while (the
+                # client's executor future holds it), so only a reader that takes each row out of
+                # this list frees the rows as it reads them.
+                return result.result_rows
             return await client.command(query, parameters=parameters or {})
         except Exception as exc:
             if retry and attempt == 0 and _is_retryable_error(exc, _QUERY_RETRY_ERROR_MARKERS):

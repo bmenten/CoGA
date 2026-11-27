@@ -19,6 +19,7 @@ from backend.app.services.nipt_service import (
     derive_father_state,
     family_artifact_ids,
     listed_artifact_protection,
+    nipt_counterparts,
     get_family_nipt_coverage,
     get_family_nipt_diagnostic_candidates,
     get_family_nipt_gene_targets,
@@ -153,7 +154,7 @@ def test_per_sample_observations() -> None:
     assert both.cf_dp == 1500 and both.cf_coverage_dp is None  # outside every target
     assert sites["7-9000-G-A"].cf_coverage_dp is None
     inside = _record("7-3050-A-G", [_call(PLASMA, [1100, 100]), _call(FATHER, [150, 150])])
-    called = build_nipt_observations([inside], father_sample_id=FATHER, cfdna_sample_id=PLASMA, plasma_depth=plasma_lookup)
+    called = list(build_nipt_observations([inside], father_sample_id=FATHER, cfdna_sample_id=PLASMA, plasma_depth=plasma_lookup))
     assert (called[0].cf_dp, called[0].cf_coverage_dp) == (1200, 1500)
 
 
@@ -216,8 +217,53 @@ def test_the_other_representation_is_looked_up_in_the_family_records() -> None:
     # A filter kept the plasma's SNV, not the father's MNV.
     alone = _sites([plasma_snv])
     assert alone["7-1000-A-G"].father_state == "absent"
-    looked_up = _sites([plasma_snv], counterpart_records=[plasma_snv, fathers_mnv])
+    family = nipt_counterparts([plasma_snv, fathers_mnv], father_sample_id=FATHER, cfdna_sample_id=PLASMA)
+    looked_up = _sites([plasma_snv], counterparts=family)
     assert looked_up["7-1000-A-G"].father_state == "het"
+
+
+def _counterpart_family() -> list[SmallVariantRecord]:
+    """A family whose records give each other's observations what they lack: each allele in
+    both representations, a partial overlap, split multi-allelic sites, an indel."""
+    return [
+        # The father's MNV carries the plasma's two SNVs.
+        _record("7-1000-A-G", [_call(PLASMA, [1380, 120])]),
+        _record("7-1000-AC-GT", [_call(FATHER, [150, 150])]),
+        _record("7-1001-C-T", [_call(PLASMA, [1370, 130])]),
+        # The plasma's MNV carries the father's two SNVs.
+        _record("7-2000-AC-GT", [_call(PLASMA, [1350, 150])]),
+        _record("7-2000-A-G", [_call(FATHER, [140, 160])]),
+        _record("7-2001-C-T", [_call(FATHER, [150, 150])]),
+        # Only one base of the plasma's MNV is the father's, and one of the father's the plasma's.
+        _record("7-3000-ACG-GTA", [_call(PLASMA, [1400, 100])]),
+        _record("7-3001-C-T", [_call(FATHER, [150, 150])]),
+        _record("7-7000-AC-GT", [_call(FATHER, [150, 150])]),
+        _record("7-7000-A-G", [_call(PLASMA, [1390, 110])]),
+        # Split multi-allelic sites, the plasma's and the father's.
+        _record("7-4000-A-G", [_call(PLASMA, [500, 400], dp=1000)]),
+        _record("7-4000-A-T", [_call(PLASMA, [500, 100], dp=1000)]),
+        _record("7-5000-C-A", [_call(FATHER, [100, 100], dp=300), _call(PLASMA, [1450, 50], dp=1500)]),
+        _record("7-5000-C-G", [_call(FATHER, [100, 100], dp=300)]),
+        _record("7-6000-AT-A", [_call(PLASMA, [1380, 120])]),
+        _record("7-6000-A-G", [_call(FATHER, [150, 150])]),
+    ]
+
+
+@pytest.mark.parametrize("kept", [*([record.variant_id] for record in _counterpart_family()),
+                                  ["7-1000-A-G", "7-2000-A-G", "7-4000-A-T", "7-5000-C-G"]])
+def test_a_filtered_record_is_observed_with_the_familys_counterparts_as_the_whole_family_observes_it(
+    kept: list[str],
+) -> None:
+    family = _counterpart_family()
+    counterparts = nipt_counterparts(family, father_sample_id=FATHER, cfdna_sample_id=PLASMA)
+    whole = _sites(family)
+    filtered = _sites([record for record in family if record.variant_id in kept], counterparts=counterparts)
+    assert filtered == {variant_id: whole[variant_id] for variant_id in kept if variant_id in whole}
+    # The family reads every representation the counterparts give.
+    assert {site.representation for site in whole.values()} == {
+        "father_call_other_representation", "father_call_overlaps",
+        "plasma_call_other_representation", "plasma_call_overlaps", None,
+    }
 
 
 def test_an_indel_has_no_other_representation() -> None:

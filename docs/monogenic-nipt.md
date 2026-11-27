@@ -83,17 +83,31 @@ Two inputs, one model:
   `source_format` names it; [data-import.md](data-import.md#small-variant-callsets)). Its quality is
   the site's QUAL (`entries.qual`).
 
-Every NIPT view reads the fetal fraction off the family's every record (`_load_family_records`),
-and the plasma's Mutect2 callset holds every low-level call, a million rows or more. That load reads
-the records' calls without their annotation (`_fetch_small_variant_rows(annotated=False)`). A
-record whose annotation the analysis reads is annotated apart (`annotate_small_variant_records`):
-the family's alleles on the artifact list, whose protection reads it (`_family_artifacts`), and the
-selected and reported variants (`_classify_selected`). The variant list and the report read their
-own variants with it. The stored details are read 2,000 annotation sets per query
-(`_ANNOTATION_SET_CHUNK`), so no query passes ClickHouse's `max_query_size`.
+Every NIPT view reads the family's analysis (`nipt_service._FamilyAnalysis`): the fetal fraction
+off the family's every record (`_load_family_records`), what the artifact list removed and what
+stayed in, and what the records give each other's observations (`NiptCounterparts`). The plasma's
+Mutect2 callset holds every low-level call, a million rows or more, so:
+
+- The load reads the records' calls without their annotation
+  (`_fetch_small_variant_rows(annotated=False)`). The family's alleles on the artifact list, whose
+  protection reads their annotation, are annotated apart (`annotate_small_variant_records`). The
+  stored details are read 2,000 annotation sets per query (`_ANNOTATION_SET_CHUNK`), so no query
+  passes ClickHouse's `max_query_size`.
+- The records are observed one at a time (`build_nipt_observations`), and the analysis is kept
+  without them. Each worker process keeps its last 8 analyses (`nipt_analysis_cache`), each served
+  only for the same analysis (`NiptAnalysisKey`: the family, assembly, projects, trio, fetuses,
+  assay and thresholds) from inputs equal to those it was computed from (`NiptAnalysisInputs`): the
+  family's small-variant data version, which every write of its variants moves
+  (`get_family_small_variant_data_version`), the analysis's scope and samples, the artifact list,
+  the QC gate's bound and the per-target coverage, all read again for each request. Concurrent
+  requests share one computation; one during which the data version moved is answered but not
+  kept.
+- The variant list, the report's candidates and the signed record classify their own variants,
+  read with their annotation, against the summary's fetal fraction, each observed with the family's
+  counterparts. The selected and reported variants are read by their ids (`_classify_selected`).
 
 `build_nipt_observations` (`nipt_service.py`) turns the records into one `NiptSiteObservation` per
-allele:
+allele, one at a time:
 
 - Reads: alt reads = `AD[1]`; depth = the sum of the AD (DP without it), restored over the siblings
   of a record split from a multi-allelic one (`restored_site_depths`); VAF = alt reads ÷ depth, AF
@@ -115,8 +129,9 @@ allele:
   the plasma's call takes the father's depth from his table.
 - **Representations.** Mutect2 writes adjacent phased SNVs as one MNV, so the two VCFs can hold one
   allele differently. A per-sample record missing the other sample's call looks it up base by base
-  (`_BaseCallIndex`) among that sample's calls of every record of the family (`counterpart_records`;
-  the variant list passes its unfiltered records, so a counterpart that fails the filters is found):
+  (`_BaseCallIndex`) among that sample's calls of every record of the family (`NiptCounterparts`,
+  read from the family's every record by `nipt_counterparts`, so a counterpart that fails the
+  variant list's filters is found):
   - every base carried → the other call is read off the call that best carries the weakest base
     (`*_call_other_representation`);
   - some bases carried → `*_call_overlaps`.
@@ -372,9 +387,9 @@ target depth. The category counts and the funnel still count off-target sites.
 
 `run_nipt_analysis` reads the fetal sex before it classifies (`combined_fetal_sex` of
 `infer_fetal_sex` and the plasma's chrY profile, `chry_profile`; `NiptAnalysisResult.fetal_sex_call`),
-and the variant list reads the same (`nipt_service._estimate_cohort_fetal_fraction` returns it beside
-the FF). `chromosome_model` picks the model: autosomal for an autosome and for chrX's
-pseudo-autosomal regions (`_is_nonpar_x`, the conservative bounds of the fetal-sex check); `x_female`
+and the variant list reads the same, beside the summary's FF (`model_fetal_sex` of
+`NiptAnalysisResult.fetal_sex_call`). `chromosome_model` picks the model: autosomal for an
+autosome and for chrX's pseudo-autosomal regions (`_is_nonpar_x`, the conservative bounds of the fetal-sex check); `x_female`
 and `x_male` for chrX outside them; none for chrX of a fetus whose sex is not known, chrY and the
 mitochondrion; `model_fetal_sex` leaves chrX outside the PARs unclassified in a multiple pregnancy
 (the trio's `fetus_sample_ids`), whatever the call. A daughter's chrX is classified as an autosome, a het call of the father there read as

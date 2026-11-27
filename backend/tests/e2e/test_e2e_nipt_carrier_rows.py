@@ -111,7 +111,12 @@ def _view(records, family_records) -> dict[str, Any]:
     ``records``, as ``get_family_nipt_variants`` computes them."""
     from backend.app.services.nipt import NiptTrio
     from backend.app.services.nipt_analysis import FetalFractionEstimate, NiptQualityThresholds
-    from backend.app.services.nipt_service import _classify_candidates, _maternal_view, _recessive_view
+    from backend.app.services.nipt_service import (
+        _classify_candidates,
+        _maternal_view,
+        _recessive_view,
+        nipt_counterparts,
+    )
 
     qc = NiptQualityThresholds()
     ff = FetalFractionEstimate(
@@ -119,7 +124,10 @@ def _view(records, family_records) -> dict[str, Any]:
         method="category7_pooled", low_confidence=False,
     )
     trio = NiptTrio(father_sample_id=_FATHER, cfdna_sample_id=_PLASMA)
-    classified = _classify_candidates(records, trio, {}, ff, qc, None, family_records=family_records)
+    counterparts = nipt_counterparts(family_records, father_sample_id=_FATHER, cfdna_sample_id=_PLASMA)
+    classified = _classify_candidates(
+        records, trio, {}, ff, qc, None, plasma_targets=[], father_targets=[], counterparts=counterparts
+    )
     kept, genes = _recessive_view(classified, qc)
     return {
         "maternal": [

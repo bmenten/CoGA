@@ -29,8 +29,9 @@ def _reset_process_memoization_caches():
     """Reset per-process schema/probe memoization caches between tests so their
     module-level state does not leak. These caches make DDL/probes run once per
     process in production, but several tests assert the first-call behaviour."""
-    from backend.app.services import clickhouse_interval_tracks, hpo_service
+    from backend.app.services import clickhouse_interval_tracks, hpo_service, nipt_service
 
     hpo_service._pg_tables_confirmed_available.clear()
     clickhouse_interval_tracks._ensured_interval_table_assemblies.clear()
+    nipt_service._KEPT_ANALYSES.clear()
     yield

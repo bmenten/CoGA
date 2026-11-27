@@ -337,6 +337,8 @@ def _status_filter_terms(values: Sequence[str]) -> tuple[str, ...]:
 
 
 def _coerce_float(value: Any) -> float | None:
+    if type(value) is float:
+        return value
     if value in (None, "", "."):
         return None
     try:

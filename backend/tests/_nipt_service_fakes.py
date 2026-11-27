@@ -3,10 +3,10 @@ and ``test_nipt_pair_service.py`` (one VCF per parent).
 
 ``wire_nipt_reads`` answers the family record, its metadata context, the two variant loads
 (the cohort the fetal fraction is read from, without a gene filter, and the filtered variant
-list, with one), the assay's artifact list, the QC gate's bound (provisional: QA has set none)
-and the other cfDNA samples of the assay; the
-review and internal-cohort hydration of the listed rows is a database concern exercised
-elsewhere, and is a no-op here. Synthetic families only.
+list, with one), the family's data version, the assay's artifact list, the QC gate's bound
+(provisional: QA has set none) and the other cfDNA samples of the assay; the review and
+internal-cohort hydration of the listed rows is a database concern exercised elsewhere, and
+is a no-op here. Synthetic families only.
 
 A load without annotation (``annotated=False``, the cohort's) answers its records without it,
 as ClickHouse does, and ``annotate_small_variant_records`` gives a record back its own
@@ -73,6 +73,16 @@ def wire_annotation(monkeypatch: pytest.MonkeyPatch, records: list[SmallVariantR
     monkeypatch.setattr(nipt_service, "annotate_small_variant_records", annotate)
 
 
+def wire_data_version(monkeypatch: pytest.MonkeyPatch, version: str = "1:1") -> None:
+    """The family's small-variant data version (``get_family_small_variant_data_version``), as
+    ClickHouse answers it while nothing writes the family's variants."""
+
+    async def data_version(_context: Any) -> str:
+        return version
+
+    monkeypatch.setattr(nipt_service, "_family_small_variant_data_version", data_version)
+
+
 def nipt_family(
     *, family_id: str, father: str, plasma: str, roi: FamilyRegionOfInterestOut | None = None
 ) -> FamilyOut:
@@ -117,6 +127,7 @@ def wire_nipt_reads(
             assembly_id="assembly-uuid",
             assembly_name="GRCh38",
             family_uuid="family-uuid",
+            project_ids=["project-uuid"],
             sample_name_to_uuid=dict(sample_name_to_uuid or {}),
             # A family that holds no analysis: its reviews are stored under none.
             scope=AnalysisScope(),
@@ -143,6 +154,7 @@ def wire_nipt_reads(
     monkeypatch.setattr(nipt_service, "get_family_record", family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", metadata_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fetch)
+    wire_data_version(monkeypatch)
     wire_annotation(monkeypatch, [*cohort, *filtered])
     monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
     monkeypatch.setattr(nipt_service, "load_nipt_gate_bound", gate_bound_loader())

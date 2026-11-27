@@ -243,8 +243,10 @@ loop, each giving the result it would give on the loop:
   upload holds one batch. A cancelled upload waits for its reader's batch before it
   cleans up. The family's write lock, the check of a file before it replaces stored rows and the
   upload's mark work as for any other write.
-- **NIPT sign-out**: the family's NIPT analysis, read by both the Sample QC's NIPT checks and
-  the record's NIPT section, runs once per snapshot (`nipt_service.SharedNiptAnalysis`).
+- **NIPT analysis**: the analysis of the family's whole callset (`nipt_service._analyse_family`).
+  A sign-out's Sample QC and NIPT section read it once per snapshot
+  (`nipt_service.SharedNiptAnalysis`), and each worker process keeps it between requests
+  ([below](#monogenic-nipt-analysis)).
 
 Measured on synthetic data with Postgres and ClickHouse faked (each ClickHouse write awaits
 2 ms), with the work on the loop and in a worker thread in turn, on a shared 10-core machine (Python 3.13), median of 6
@@ -268,6 +270,29 @@ done:
 - the ranked view's limit of 5,000 SVs, which a family with more than 50,000 SVs can reach: a
   gene panel on the SV page keeps every SV it matches, not only those among the
   first 50,000.
+
+### Monogenic NIPT analysis
+
+Every NIPT view reads the family's analysis of its whole callset, and a plasma's per-sample
+Mutect2 callset holds every low-level call. Each worker process keeps its last 8 analyses
+without their records (`nipt_analysis_cache`, [monogenic-nipt.md](monogenic-nipt.md)): a view
+whose inputs are unchanged reads the kept analysis, and views that ask at once (the NIPT page's
+summary and variant list) share one computation. The computation reads the records without their
+annotation, takes each stored row out of the query's result as its record is built
+(`clickhouse_family_variants._drained`), and observes the records one at a time.
+
+Measured on the synthetic demo NIPT family with 1.55 million low-level plasma rows added
+(plasma-only calls, 2 to 10 alt reads of 1,000), against Postgres 16 and ClickHouse 26.8
+containers on a shared 10-core machine; the memory is the Python process's peak:
+
+| View | Computing the analysis | Reading the kept analysis |
+| --- | --- | --- |
+| Summary | 50 to 53 s, 3.9 GB | 0.0 s |
+| Variant list, first page | 54 s, 3.8 GB | 1.6 to 1.8 s |
+| Summary and variant list at once | 54 s, 3.9 GB: one computation | |
+
+Of a computation, the read of the records takes 26 to 28 s (ClickHouse 17 to 20 s of it), and
+their observation and analysis 10 to 20 s.
 
 ### Small-variant import
 

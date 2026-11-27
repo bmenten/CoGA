@@ -43,7 +43,13 @@ from backend.app.services.nipt_analysis import NIPT_MODEL_REFERENCE, NiptQuality
 from backend.app.services.nipt_quality_checks import nipt_quality_checks
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
 from backend.app.services.sample_integrity_qc import evaluate_nipt_category_qc
-from backend.tests._nipt_service_fakes import as_loaded, gate_bound_loader, listed_artifact_recurrence, wire_annotation
+from backend.tests._nipt_service_fakes import (
+    as_loaded,
+    gate_bound_loader,
+    listed_artifact_recurrence,
+    wire_annotation,
+    wire_data_version,
+)
 from backend.tests._query_results import MappingRows as _Result
 
 FATHER = "FATHER1"
@@ -138,6 +144,7 @@ def _context(rows: list[dict[str, Any]] | None = None) -> SimpleNamespace:
     return SimpleNamespace(
         family_uuid=FAMILY_UUID,
         family_id="NIPTFAM1",
+        project_ids=["project-uuid"],
         assembly_id="assembly-uuid",
         assembly_name="GRCh38",
         sample_name_to_uuid={FATHER: "father-uuid", PLASMA: "cfdna-uuid"},
@@ -162,6 +169,8 @@ def _family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
                 sample_id=PLASMA, role="mother", affected=False,
                 sample_metadata={"assays": ["nipt_cfdna"], "assay_panels": {"monogenic_nipt": "panel-v2"}},
             ),
+            # The fetus, as the family's sample rows hold it (_sample_rows).
+            FamilyMemberOut(sample_id="FETUS1", role="fetus", affected=False),
         ],
         metadata={"analyses": ["monogenic_nipt"]},
         roi=roi,
@@ -320,6 +329,7 @@ def _wire(
     monkeypatch.setattr(nipt_service, "get_family_record", fake_family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
+    wire_data_version(monkeypatch)
     wire_annotation(monkeypatch, cohort)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_tracks)
     monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
@@ -1267,9 +1277,9 @@ async def test_a_sign_out_reads_one_nipt_analysis_for_its_sample_qc_and_its_reco
     analyses: list[str] = []
     analyse = nipt_service._analyse_family_sites
 
-    def counted(data, trio, qc, artifact_lookup):
+    def counted(records, trio, qc, inputs, artifact_lookup):
         analyses.append(trio.father_sample_id)
-        return analyse(data, trio, qc, artifact_lookup)
+        return analyse(records, trio, qc, inputs, artifact_lookup)
 
     monkeypatch.setattr(nipt_service, "load_nipt_artifacts", curated_meanwhile)
     monkeypatch.setattr(nipt_service, "_analyse_family_sites", counted)

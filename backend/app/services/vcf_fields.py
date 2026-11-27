@@ -20,6 +20,9 @@ def field_int(value: Any) -> int | None:
     missing value (``None``, ``""``, ``"."``), for a bool (a flag is no number), and for one
     that reads as no finite number (``"junk"``, ``"inf"``, ``"nan"``), so that a malformed record
     is skipped rather than ending the whole read."""
+    if type(value) is int:
+        # A whole number already (a bool's type is bool): its own reading.
+        return value
     if isinstance(value, bool):
         return None
     if isinstance(value, (bytes, bytearray)):

@@ -129,7 +129,7 @@ def test_a_haploid_paternal_x_call_sexes_the_fetus(cf_alt: int, expected: str, f
     # The paternal-X alleles show at FF/2 for a daughter and are absent for a son. A haploid
     # "1" is read as hom-alt, so the fetal sex is determined.
     records = _cohort_cat7_records() + _x_records(father_gt=father_gt, cf_alt=cf_alt)
-    sites = build_nipt_observations(records, father_sample_id="father-1", cfdna_sample_id="cfdna-1")
+    sites = list(build_nipt_observations(records, father_sample_id="father-1", cfdna_sample_id="cfdna-1"))
 
     result = run_nipt_analysis(sites, NiptQualityThresholds())
 
@@ -150,9 +150,9 @@ def test_build_observation_paternal_transmitted_site() -> None:
         ],
         qual=42.0,
     )
-    sites = build_nipt_observations(
+    sites = list(build_nipt_observations(
         [record], father_sample_id="father-1", cfdna_sample_id="cfdna-1"
-    )
+    ))
     assert len(sites) == 1
     site = sites[0]
     assert site.variant_id == "1-100-A-G"
@@ -177,9 +177,9 @@ def test_build_observation_false_negative_site_is_absent() -> None:
             _call("cfdna-1", "0/0", dp=100, ad=[100, 0]),
         ],
     )
-    site = build_nipt_observations(
+    site = list(build_nipt_observations(
         [record], father_sample_id="father-1", cfdna_sample_id="cfdna-1"
-    )[0]
+    ))[0]
     assert site.father_state == "hom_alt"
     assert site.cf_alt_reads == 0
     assert not site.cf_present
@@ -191,9 +191,9 @@ def test_build_observation_missing_father_and_sex_chromosome() -> None:
         chrom="X",
         calls=[_call("cfdna-1", "0/1", dp=120, af=[0.05], ad=[114, 6])],
     )
-    site = build_nipt_observations(
+    site = list(build_nipt_observations(
         [record], father_sample_id="father-1", cfdna_sample_id="cfdna-1"
-    )[0]
+    ))[0]
     assert site.father_state == "missing"
     assert site.father_dp is None
     assert not site.is_autosomal
@@ -203,17 +203,17 @@ def test_build_observation_reads_a_call_without_allele_depths_off_its_gt_and_af(
     # No AD: the plasma's allele is present by its GT, at the caller's AF, with no alt-read
     # count to classify on.
     record = _record("1-500-A-G", calls=[_call("father-1", "0/0", dp=50, ad=[50, 0]), _call("cfdna-1", "0/1", dp=300, af=[0.05])])
-    site = build_nipt_observations([record], father_sample_id="father-1", cfdna_sample_id="cfdna-1")[0]
+    site = list(build_nipt_observations([record], father_sample_id="father-1", cfdna_sample_id="cfdna-1"))[0]
     assert (site.cf_present, site.cf_vaf, site.cf_alt_reads, site.cf_dp) == (True, 0.05, None, 300)
     absent = _record("1-600-A-G", calls=[_call("cfdna-1", "0/0", dp=300, af=[0.0])])
-    assert not build_nipt_observations([absent], father_sample_id="father-1", cfdna_sample_id="cfdna-1")[0].cf_present
+    assert not list(build_nipt_observations([absent], father_sample_id="father-1", cfdna_sample_id="cfdna-1"))[0].cf_present
 
 
 def test_build_observation_skips_sites_without_cfdna_call() -> None:
     record = _record("1-300-A-G", calls=[_call("father-1", "0/1", dp=50, ad=[25, 25])])
-    assert build_nipt_observations(
+    assert list(build_nipt_observations(
         [record], father_sample_id="father-1", cfdna_sample_id="cfdna-1"
-    ) == []
+    )) == []
 
 
 # --------------------------------------------------------------------------- #
