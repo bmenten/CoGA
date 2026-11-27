@@ -748,12 +748,18 @@ describe('FamilySmallVariantsPage', () => {
     // A compound-het or carrier gene is one result: the variants and the genes are counted
     // besides.
     it('counts the variants the filters keep and their genes beside the results', async () => {
-      renderWithPage({ total: 2, total_is_estimated: false, variant_total: 3, gene_total: 2 });
-      expect(await screen.findByText(factText('Showing 2'))).toBeInTheDocument();
-      expect(screen.getByText(factText('Variants 3'))).toBeInTheDocument();
+      renderWithPage({ total: 3, total_is_estimated: false, variant_total: 4, gene_total: 2 });
+      expect(await screen.findByText(factText('Showing 3'))).toBeInTheDocument();
+      expect(screen.getByText(factText('Variants 4'))).toBeInTheDocument();
       expect(screen.getByText(factText('Genes 2'))).toBeInTheDocument();
-      // The heading above the list counts the variants beside the results.
-      expect(resultsCount()).toHaveTextContent(/^2 · 3 variants$/);
+      // The heading above the list counts the genes and the variants.
+      expect(resultsCount()).toHaveTextContent(/^2 genes · 4 variants$/);
+    });
+
+    it('names a single gene in the singular above the list', async () => {
+      renderWithPage({ total: 1, total_is_estimated: false, variant_total: 2, gene_total: 1 });
+      expect(await screen.findByText(factText('Showing 1'))).toBeInTheDocument();
+      expect(resultsCount()).toHaveTextContent(/^1 gene · 2 variants$/);
     });
 
     it('counts only the results above a list whose results are its variants', async () => {
@@ -774,7 +780,7 @@ describe('FamilySmallVariantsPage', () => {
       });
       expect(await screen.findByText(factText('Variants 120+'))).toBeInTheDocument();
       expect(screen.getByText(factText('Genes 35+'))).toBeInTheDocument();
-      expect(resultsCount()).toHaveTextContent(/^40\+ · 120\+ variants$/);
+      expect(resultsCount()).toHaveTextContent(/^35\+ genes · 120\+ variants$/);
     });
   });
 

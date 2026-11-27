@@ -45,6 +45,18 @@ const formatRelativeTime = (iso: string): string => {
   return `${Math.round(hours / 24)} d ago`;
 };
 
+// The count beside the Results heading. A compound-het or carrier gene is one result, so where the
+// variants are not the results it counts the genes and the variants, as the top of the page does.
+const describeResultsCount = (data: SmallVariantPage): string => {
+  const format = (count: number) => formatVariantTotal(count, data.total_is_estimated, data.count_limit);
+  const results = format(data.total);
+  if (typeof data.variant_total !== 'number' || typeof data.gene_total !== 'number') return results;
+  const variants = format(data.variant_total);
+  if (variants === results) return results;
+  const genes = format(data.gene_total);
+  return `${genes} gene${genes === '1' ? '' : 's'} · ${variants} variant${variants === '1' ? '' : 's'}`;
+};
+
 type SmallVariantResultsProps = {
   assemblyName?: string;
   assemblyVersion?: string;
@@ -114,13 +126,7 @@ export default function SmallVariantResults({
   const hasResults = hasFlatVariants || hasCompoundHetGenes || hasCarrierGenes;
   // A maximum gnomAD count filter cannot exclude a variant without that count.
   const countNote = gnomadCountNote(requestQueryString, data);
-  // A compound-het or carrier gene is one result, so the heading also counts the variants
-  // where their number is not the results'.
-  const resultCount = data ? formatVariantTotal(data.total, data.total_is_estimated, data.count_limit) : null;
-  const variantCount =
-    typeof data?.variant_total === 'number'
-      ? formatVariantTotal(data.variant_total, data.total_is_estimated, data.count_limit)
-      : null;
+  const resultsCount = data ? describeResultsCount(data) : null;
 
   const handleDownloadCsv = async () => {
     const target =
@@ -183,12 +189,7 @@ export default function SmallVariantResults({
           <div className="space-y-1">
             <h2 className="section-title">
               Results
-              {resultCount ? (
-                <span className="variant-results-count">
-                  {resultCount}
-                  {variantCount && variantCount !== resultCount ? ` · ${variantCount} variants` : null}
-                </span>
-              ) : null}
+              {resultsCount ? <span className="variant-results-count">{resultsCount}</span> : null}
             </h2>
             <p className="table-subtle">
               Up to {CARD_VIEW_THRESHOLD} results show as cards, more as a paginated table, until
