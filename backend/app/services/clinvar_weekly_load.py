@@ -13,8 +13,9 @@ page shows the failed load with its reason, and every active administrator is to
 (``SMTP_HOST``; without it the log says so). The check does not load that release again: an
 administrator loads it, once the reason is known, or the next week's release comes in.
 
-Off by default: QA has not yet said whether a weekly release may become current within a
-procedure validated once, without each release being a major change (the design's V1).
+On by default (the owner's decision); ``CLINVAR_WEEKLY_LOAD=false`` leaves a newer release to an
+administrator. Whether a weekly release may become current within a procedure validated once,
+without each release being a major change, is QA's question V1 of the design.
 """
 
 from __future__ import annotations

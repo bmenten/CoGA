@@ -650,9 +650,9 @@ class Settings(BaseSettings):
     )
     # Whether CoGA looks each day for a newer weekly ClinVar release of each GRCh37 or GRCh38
     # assembly it holds and loads it, released only when the load's checks pass; a refused one
-    # is mailed to the administrators (services/clinvar_weekly_load.py). Off until QA has said a
-    # weekly release may become current without each being a major change (the design's V1).
-    clinvar_weekly_load: bool = Field(default=False, alias="CLINVAR_WEEKLY_LOAD")
+    # is mailed to the administrators (services/clinvar_weekly_load.py). On by default (the
+    # owner's decision); false leaves a newer release to an administrator.
+    clinvar_weekly_load: bool = Field(default=True, alias="CLINVAR_WEEKLY_LOAD")
     # A ClinVar load longer than this is stopped and its job marked failed, with nothing of the
     # release kept; a normal one takes minutes, so the bound only catches a load that hangs.
     clinvar_load_timeout_seconds: int = Field(

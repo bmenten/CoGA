@@ -1,5 +1,5 @@
 """The daily check for a new ClinVar release (the owner's decisions B3 and B3b), behind
-``CLINVAR_WEEKLY_LOAD``, off by default until QA answers the design's V1.
+``CLINVAR_WEEKLY_LOAD``, on by default (the owner's decision).
 
 Each day the check loads, for each assembly CoGA holds that ClinVar publishes a VCF for, NCBI's
 newest weekly release when it is newer than the current one, as the requester ``clinvar-weekly``,
@@ -97,8 +97,8 @@ class _Ncbi:
         monkeypatch.setattr(weekly, "send_mail", self.mails.append)
 
 
-def test_the_weekly_load_is_off_by_default() -> None:
-    assert Settings.model_fields["clinvar_weekly_load"].default is False
+def test_the_weekly_load_is_on_by_default() -> None:
+    assert Settings.model_fields["clinvar_weekly_load"].default is True
 
 
 def test_a_newer_release_is_loaded_as_the_weekly_requester(monkeypatch: pytest.MonkeyPatch) -> None:

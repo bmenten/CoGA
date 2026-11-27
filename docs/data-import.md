@@ -292,8 +292,9 @@ newest release for a GRCh37 or GRCh38 assembly that has none (`REFERENCE_BOOTSTR
 does adding such an assembly from UCSC.
 
 **The daily check** (`services/clinvar_weekly_load.py`, the owner's decisions B3 and B3b), with
-`CLINVAR_WEEKLY_LOAD` on. Off by default: QA has not yet said whether a weekly release may become
-current within a procedure validated once, without each release being a major change. Ten minutes
+`CLINVAR_WEEKLY_LOAD`, on by default (the owner's decision; `false` leaves a newer release to an
+administrator). Whether a weekly release may become current within a procedure validated once,
+without each release being a major change, is QA's question V1 of the design. Ten minutes
 after a start and then once a day, it looks, for each GRCh37 or GRCh38 assembly CoGA holds, at the
 newest weekly file NCBI lists. When that release is newer than the current one, it runs a load as
 the requester `clinvar-weekly`, the Reference page's own, whose checks above decide whether the
