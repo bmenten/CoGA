@@ -629,6 +629,32 @@ export interface ClinvarAssemblyReleasesOut {
 }
 
 /**
+ * One allele whose ClinVar the annotation and CoGA's release of the same ClinVar release
+ * give otherwise.
+ */
+export interface ClinvarConcordanceDifferenceOut {
+  variant_id: string | null;
+  allele: string;
+  reason: "not in CoGA's release" | "not in the annotation" | "classification" | "review status" | "VariationID";
+  annotated: string | null;
+  coga: string | null;
+}
+
+/**
+ * An import's check of CoGA's ClinVar matching against the pipeline's: the alleles whose
+ * ClinVar file values (classification, review status, VariationID) CoGA's release of the same
+ * ClinVar release gives alike, and those it gives otherwise, with the reason.
+ */
+export interface ClinvarConcordanceOut {
+  annotated_release: string | null;
+  compared: boolean;
+  reason: string | null;
+  agree: number;
+  differ: number;
+  differences: ClinvarConcordanceDifferenceOut[];
+}
+
+/**
  * A load of ClinVar's newest weekly VCF for an assembly (clinvar_load_jobs). The release
  * and the file are known once the job has found the newest file NCBI lists.
  */
@@ -1071,6 +1097,7 @@ export interface FamilyImportDatasetSummary {
   message: string | null;
   summary: Record<string, unknown>;
   progress: FamilyImportDatasetProgress | null;
+  clinvar_concordance: ClinvarConcordanceOut | null;
 }
 
 export interface FamilyImportValidationIssue {

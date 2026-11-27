@@ -219,6 +219,17 @@ def small_allele_key(assembly_name: str, allele_id: str) -> int:
     return _stable_uint64("allele", assembly_name, allele_id)
 
 
+def record_allele_keys(assembly_name: str, chrom: str, pos: int, ref: str, alt: str) -> list[int]:
+    """The allele key of each ALT of a record as CoGA stores it (``G,T`` for a multi-allelic
+    one), in the order of its ALTs; an ALT that names no allele has none. What
+    ``entries.allele_keys`` holds, and what a reader of a ClinVar release looks a record up by."""
+    return [
+        small_allele_key(assembly_name, allele)
+        for each in alt.split(",")
+        if (allele := minimal_allele_id(chrom, pos, ref, each)) is not None
+    ]
+
+
 def structural_variant_key(
     assembly_name: str, family_uuid: str, variant_id: str, *, source: str
 ) -> int:

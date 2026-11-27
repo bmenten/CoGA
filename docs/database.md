@@ -1157,7 +1157,7 @@ names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SNV_INDEL/variants/annotations` | per variant and transcript: gene, consequence, HGVS, population frequencies, scores. The Variant Explorer tests its per-transcript filters here, all on one row (one transcript), and each row against its own annotation (its key and annotation set, under any version), here and in the two indexes below. The family search tests the same filters, with the same text, on each `entries` row's own transcripts (`transcripts`, below); it reads this table only for a transcript or HGVS text, which those do not hold, and then only the rows of variants the family carries |
 | `SNV_INDEL/variants/annotation_index` | per variant and annotation set: its genes and the fields the filters use, pooled over its transcripts, for what holds for the variant as a whole (the rsID filter reads it). The Variant Explorer shows a row's annotation from it, and reads each variant's position here to apply a gene panel's regions to every family at once. The NIPT artifact list's protections pool every annotation of a variant on the assembly here, read by the sort key at the variant's chromosome and position (`clickhouse_variant_ids.small_variant_loci`) |
 | `SNV_INDEL/variants/gene_index` | per gene term (symbol or gene id) and variant, for gene searches and the gene panel filter of the family page and the Variant Explorer |
-| `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`), and `transcripts`: the values of the row's own annotation (its annotation set) that the per-transcript filters test, as its `variants/annotations` rows hold them under the same names and types, each distinct tuple once, without the transcript and HGVS text (`ENTRY_TRANSCRIPT_FIELDS`). The writer builds them from the annotations it writes those rows from; a rewrite keeps them with the row's annotation set. The family search tests its per-transcript filters, the excluded ClinVar terms and the salient variants there (`arrayExists`), so it reads the family's own rows alone, whatever the cohort's size. The variant summary's small-variant statistics read each row's most severe consequence from its transcripts' `effects`, whose terms together are its annotation set's `annotation_index.effects`, so they too read the family's rows alone. The family page also reads a family's own rows here: by position, to apply a gene panel's regions (a join on 64-kb windows); and by key, so that a panel's genes, the rsID filter and a transcript or HGVS text gather the family's own variants into their set, not every family's (`_small_family_key_condition`) |
+| `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`), and `transcripts`: the values of the row's own annotation (its annotation set) that the per-transcript filters test, as its `variants/annotations` rows hold them under the same names and types, each distinct tuple once, without the transcript and HGVS text (`ENTRY_TRANSCRIPT_FIELDS`). The writer builds them from the annotations it writes those rows from; a rewrite keeps them with the row's annotation set. `allele_keys` holds the allele key of each of the row's ALTs, its minimal form hashed with the assembly (`clickhouse_variant_ids.record_allele_keys`; a multi-allelic row one per ALT, an ALT that names no allele none): it joins the row to a ClinVar release (`SNV_INDEL/clinvar`), which an import reads for its concordance ([data-import.md](data-import.md#clinvar)). The family search tests its per-transcript filters, the excluded ClinVar terms and the salient variants there (`arrayExists`), so it reads the family's own rows alone, whatever the cohort's size. The variant summary's small-variant statistics read each row's most severe consequence from its transcripts' `effects`, whose terms together are its annotation set's `annotation_index.effects`, so they too read the family's rows alone. The family page also reads a family's own rows here: by position, to apply a gene panel's regions (a join on 64-kb windows); and by key, so that a panel's genes, the rsID filter and a transcript or HGVS text gather the family's own variants into their set, not every family's (`_small_family_key_condition`) |
 | `SNV_INDEL/family_variant_summary`, `SNV_INDEL/family_sample_variant_summary` | variant counts per family and per sample |
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
 | `SNV_INDEL/carriers` | the Variant Explorer's carrier summary: per variant, the carriers each family adds, kept as the families' rows are written (below, "The variant carrier summary") |
@@ -1203,6 +1203,7 @@ erDiagram
     SNV_entries }o..o| SNV_family_summary : "counted per family_guid and project_guid"
     SNV_entries }o..o{ SNV_sample_summary : "counted per family_guid, project_guid and sample"
     SNV_entries }o..o{ SNV_data_version : "family_guid: one token per write"
+    SNV_entries }o..o{ SNV_clinvar : "allele_keys: one per ALT, read in one release's partition"
 
     SNV_details["SNV_INDEL/variants/details"] {
         UInt64 key PK "hash of the assembly and the variant ID"
@@ -1248,9 +1249,18 @@ erDiagram
         String variantId
         String annotation_version
         UInt64 annotationSetHash
+        Array allele_keys "the key of each ALT in its minimal form"
         Array transcripts "the filtered values of its annotation's transcripts"
         Nested calls "calls.sampleId, calls.gt and the other call fields, one per sample"
         Int8 sign "always 1"
+    }
+    SNV_clinvar["SNV_INDEL/clinvar"] {
+        Date release "the partition"
+        UInt64 allele_key PK
+        String variantId "the allele in its minimal form"
+        String classification "CLNSIG as published"
+        Array classification_terms "as clinvar_terms holds them"
+        UInt32 variation_id
     }
     SNV_family_summary["SNV_INDEL/family_variant_summary"] {
         String family_guid PK

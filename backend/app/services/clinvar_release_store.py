@@ -12,6 +12,7 @@ The table is created by the first load of its assembly.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 
 from ..core.clickhouse import execute_clickhouse, insert_clickhouse
@@ -78,6 +79,50 @@ async def stored_clinvar_releases(assembly_name: str) -> set[date]:
         },
     )
     return {date.fromisoformat(str(row[0])) for row in rows or []}
+
+
+@dataclass(frozen=True, slots=True)
+class ClinvarStoredAllele:
+    """An allele as a stored release holds it: ClinVar's values a reader compares or shows."""
+
+    variant_id: str
+    classification: str
+    classification_terms: tuple[str, ...]
+    review_status: str
+    variation_id: int
+    included_only: bool
+
+
+async def clinvar_alleles_of_callset(
+    assembly_name: str, release: date, family_uuid: str, source: str
+) -> dict[int, ClinvarStoredAllele]:
+    """The release's alleles among those of the family's callset ``source``
+    (``entries.allele_keys``), by allele key. The release is read only for the callset's own
+    keys, the callset only for the family's rows."""
+    rows = await execute_clickhouse(
+        f"""
+        SELECT allele_key, variantId, classification, classification_terms, review_status,
+               variation_id, included_only
+        FROM {clinvar_table(assembly_name)}
+        WHERE release = %(release)s
+          AND allele_key IN (
+              SELECT arrayJoin(allele_keys) FROM {_small_table_name(assembly_name, 'entries')}
+              WHERE family_guid = %(family_guid)s AND source = %(source)s AND sign = 1
+          )
+        """,
+        {"release": release, "family_guid": family_uuid, "source": source},
+    )
+    return {
+        int(key): ClinvarStoredAllele(
+            variant_id=str(variant_id),
+            classification=str(classification),
+            classification_terms=tuple(terms),
+            review_status=str(review_status),
+            variation_id=int(variation_id),
+            included_only=bool(included_only),
+        )
+        for key, variant_id, classification, terms, review_status, variation_id, included_only in rows or []
+    }
 
 
 async def drop_clinvar_release(assembly_name: str, release: date) -> None:

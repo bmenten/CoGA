@@ -742,12 +742,14 @@ def entries_insert(table: str, model: CohortModel, family: Family) -> str:
     )
     return (
         f"INSERT INTO {table} (key, variantId, annotation_version, annotationSetHash, project_guid, "
-        "family_guid, xpos, chrom, pos, ref, alt, source, rsid, is_gnomad_gt_5_percent, "
+        "family_guid, xpos, chrom, pos, ref, alt, allele_keys, source, rsid, is_gnomad_gt_5_percent, "
         "is_annotated_in_any_gene, gene_symbols, transcripts, filters, qual, `calls.sampleId`, `calls.gt`, "
         "`calls.gq`, `calls.dp`, `calls.ab`, `calls.af`, `calls.ad`, `calls.ps`, `calls.filters`, `calls.metrics`, "
         "sign) "
         f"SELECT key, variant_id, 'current', aset_hash, '{family.project_uuid}', '{family.family_uuid}', "
-        f"xpos, chrom, pos, ref, alt, '{SOURCE}', rsid, gt5, genic, "
+        # One allele key per ALT (the generated variants have one), the size the import writes;
+        # a stand-in for ``small_allele_key``'s blake2b, which ClickHouse does not compute.
+        f"xpos, chrom, pos, ref, alt, [cityHash64('allele', variant_id)], '{SOURCE}', rsid, gt5, genic, "
         f"if(genic, [gene], CAST([] AS Array(String))), {transcripts}, CAST([] AS Array(String)), "
         f"toFloat32(round(30 + 40 * {u('i', family.index, 43)}, 2)), {sample_ids}, "
         "arrayMap(d -> ['0/0', '0/1', '1/1'][d + 1], dos), "

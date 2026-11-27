@@ -1,6 +1,6 @@
 """Family-package and PED imports, raw import files."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -46,6 +46,43 @@ class FamilyImportDatasetProgress(BaseModel):
     seconds_left: Optional[float] = None
 
 
+# Why an allele's ClinVar differs between the annotation and CoGA's release.
+ClinvarConcordanceReason = Literal[
+    "not in CoGA's release", "not in the annotation", "classification", "review status", "VariationID"
+]
+
+
+class ClinvarConcordanceDifferenceOut(BaseModel):
+    """One allele whose ClinVar the annotation and CoGA's release of the same ClinVar release
+    give otherwise."""
+
+    # The record as stored (``chrom-pos-ref-alt``), when the annotation names the allele.
+    variant_id: Optional[str] = None
+    # The allele in its minimal form, the key both sides are matched by.
+    allele: str
+    reason: ClinvarConcordanceReason
+    # Each side's classification, review status and VariationID, as words; None for the side
+    # without the allele.
+    annotated: Optional[str] = None
+    coga: Optional[str] = None
+
+
+class ClinvarConcordanceOut(BaseModel):
+    """An import's check of CoGA's ClinVar matching against the pipeline's: the alleles whose
+    ClinVar file values (classification, review status, VariationID) CoGA's release of the same
+    ClinVar release gives alike, and those it gives otherwise, with the reason."""
+
+    # The release of the ClinVar file the callset was annotated with; None when it names none.
+    annotated_release: Optional[date] = None
+    compared: bool
+    # Why it was not compared.
+    reason: Optional[str] = None
+    agree: int = 0
+    differ: int = 0
+    # The differences, the first ``MAX_DIFFERENCES`` by variant; ``differ`` counts them all.
+    differences: List[ClinvarConcordanceDifferenceOut] = Field(default_factory=list)
+
+
 class FamilyImportDatasetSummary(BaseModel):
     dataset_type: str
     enabled: bool = True
@@ -66,6 +103,8 @@ class FamilyImportDatasetSummary(BaseModel):
     message: Optional[str] = None
     summary: Dict[str, Any] = Field(default_factory=dict)
     progress: Optional[FamilyImportDatasetProgress] = None
+    # A small-variant dataset's ClinVar concordance with CoGA's release (clinvar_concordance).
+    clinvar_concordance: Optional[ClinvarConcordanceOut] = None
 
 
 class FamilyPackageValidationOut(BaseModel):

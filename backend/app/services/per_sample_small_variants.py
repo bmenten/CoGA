@@ -50,6 +50,7 @@ from .bounded_download import TruncatedBgzfError, require_bgzf_file_end
 from .clickhouse_column_bounds import UINT32, column_int
 from .clickhouse_variant_ids import build_small_variant_id
 from .clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
+from .clinvar_concordance import CONCORDANCE_KEY, ClinvarConcordance
 from .clickhouse_variant_storage import (
     count_family_small_variants,
     delete_family_small_variants,
@@ -474,6 +475,7 @@ async def upload_family_per_sample_small_variant_files(
         mutation_started = True
 
         counts = _MergeCounts(per_sample_calls={sample_id: 0 for sample_id in file_samples})
+        concordance = ClinvarConcordance(assembly_name)
         batch: list[SmallVariantRecord] = []
         bytes_total = sum(file_size(file.path) for file in files)
         last_reported = 0
@@ -497,6 +499,7 @@ async def upload_family_per_sample_small_variant_files(
         async def flush() -> None:
             if not batch:
                 return
+            concordance.observe(batch)
             await insert_small_variant_records(
                 assembly_name,
                 context.family_uuid,
@@ -554,6 +557,9 @@ async def upload_family_per_sample_small_variant_files(
             modality="snv",
         )
         await session.commit()
+        clinvar_concordance = await concordance.report(
+            session, modules=annotation_provenance, family_uuid=context.family_uuid, source=source
+        )
         skipped_malformed = sum(reader.skipped_malformed for reader in readers)
         if skipped_malformed:
             logger.warning(
@@ -572,6 +578,7 @@ async def upload_family_per_sample_small_variant_files(
             "source_format": source,
             "annotation_version": "vcf_info",
             "annotation_provenance": annotation_provenance,
+            CONCORDANCE_KEY: clinvar_concordance,
             "insert_batch_size": SMALL_VARIANT_UPLOAD_BATCH_SIZE,
         }
         if progress is not None:

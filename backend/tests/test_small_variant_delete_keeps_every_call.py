@@ -54,6 +54,7 @@ def _entry(calls: list[tuple[Any, ...]], **overrides: Any) -> dict[str, Any]:
         "pos": 1000,
         "ref": "A",
         "alt": "G",
+        "allele_keys": [1234567],
         "source": "clair3",
         "rsid": "rs1",
         "is_gnomad_gt_5_percent": False,

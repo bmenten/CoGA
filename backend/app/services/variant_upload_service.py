@@ -32,6 +32,7 @@ from .clickhouse_variant_records import (
 )
 from .clickhouse_variant_ids import build_small_variant_id, build_structural_variant_id, event_discriminators
 from .clickhouse_variant_rows import _normalized_project_ids
+from .clinvar_concordance import CONCORDANCE_KEY, ClinvarConcordance
 from .clickhouse_variant_storage import (
     StructuralVariantsNotRestored,
     count_family_small_variants,
@@ -937,6 +938,7 @@ async def upload_family_small_variant_file(
             await _fetch_chromosome_sizes(session, context.assembly_id) if loads_haplotype_blocks else {}
         )
         bytes_total = _upload_size(file) if progress is not None else None
+        concordance = ClinvarConcordance(context.assembly_name or "")
 
         def read_records(*, write: bool) -> Generator[_LoopStep, None, _SmallVariantFileRead]:
             """Read the whole file, record by record, and build each record as it is stored.
@@ -986,6 +988,7 @@ async def upload_family_small_variant_file(
                 if not variant_batch:
                     return
                 if write:
+                    concordance.observe(variant_batch)
                     await insert_small_variant_records(
                         context.assembly_name or "",
                         context.family_uuid,
@@ -1325,6 +1328,9 @@ async def upload_family_small_variant_file(
             modality="snv",
         )
         await session.commit()
+        clinvar_concordance = await concordance.report(
+            session, modules=annotation_provenance, family_uuid=context.family_uuid, source=resolved_format
+        )
         if read.skipped_malformed:
             logger.warning(
                 "Skipped %d malformed small-variant row(s) (unparseable or out-of-range POS) "
@@ -1345,6 +1351,7 @@ async def upload_family_small_variant_file(
             "annotation_source": "vep_tsv" if vep_annotations else None,
             "annotation_version": annotation_version,
             "annotation_provenance": annotation_provenance,
+            CONCORDANCE_KEY: clinvar_concordance,
             "insert_batch_size": SMALL_VARIANT_UPLOAD_BATCH_SIZE,
         }
         if progress is not None:
