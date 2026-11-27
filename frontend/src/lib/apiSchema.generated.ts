@@ -3406,6 +3406,8 @@ export interface NiptVariantPage {
   gene_total: number | null;
   variant_total: number | null;
   not_classified: NiptNotClassifiedOut[];
+  clinvar_annotation_release: string | null;
+  clinvar_coga_release: string | null;
 }
 
 /**

@@ -28,7 +28,7 @@ from ..services.clickhouse_family_variants import (
     family_members_without_calls,
     get_family_small_variants_page as get_family_small_variants_clickhouse,
 )
-from ..services.clinvar_coga import clinvar_coga_read, clinvar_coga_values, serve_clinvar_coga
+from ..services.clinvar_coga import attach_clinvar_coga, clinvar_coga_read, serve_clinvar_coga
 from ..services.family_metadata_context import build_family_metadata_context, family_sample_contexts
 from ..services.family_variant_statistics import get_family_small_variant_statistics
 from ..services.family_analysis_types import analysis_type_of
@@ -484,9 +484,7 @@ async def export_family_small_variants_csv(
         clinvar_coga_release=clinvar_coga.release,
         **filters,
     )
-    values = await clinvar_coga_values(clinvar_coga, [(row.chr, row.start, row.ref, row.alt) for row in export.rows])
-    for row, value in zip(export.rows, values):
-        row.clinvar_coga = value
+    await attach_clinvar_coga(clinvar_coga, export.rows)
     # The members without calls in the callsets the file is read from, named on every row.
     without_calls = "; ".join(
         member.sample_id

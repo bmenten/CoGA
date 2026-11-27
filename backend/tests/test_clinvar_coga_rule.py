@@ -4,7 +4,9 @@ ranking.
 
 A row CoGA's release of the request holds whole is kept, or left out, by the statuses there
 alone; any other row by its annotation, as without a release. A multi-allelic row the release
-holds in part is read both ways. The ranking scores each variant's ClinVar by the same rule, for
+holds in part is read both ways, but its annotation leaves it out only when the release holds
+none of its alleles (likely) pathogenic: the annotation does not say which allele an excluded
+status is of. The ranking scores each variant's ClinVar by the same rule, for
 the ALT the variant is shown with. Without a release nothing changes.
 
 ClickHouse and the release are stood in for; ``integration/test_clinvar_coga_filter_clickhouse.py``
@@ -112,10 +114,17 @@ def test_the_clinvar_filter_alone_asks_nothing_else_of_a_held_row() -> None:
 def test_the_excluded_statuses_read_the_release_for_a_row_it_holds_else_the_annotation() -> None:
     [clause], params = _clauses(exclude_clinvar=["Benign"], clinvar_coga_release=RELEASE)
 
-    assert clause.startswith("(NOT arrayExists(k -> k IN (SELECT allele_key FROM ")
-    assert " AND ((notEmpty(e.allele_keys) AND arrayAll(" in clause
-    assert clause.endswith(")))") and "NOT arrayExists(a -> (hasAny(a.clinvar_terms" in clause
+    # No allele the release excludes; and the row held whole, or one of its alleles (likely)
+    # pathogenic there, or no transcript of its annotation excluded.
+    excluded, kept = clause.split(" AND ((notEmpty(e.allele_keys) AND arrayAll(", 1)
+    assert excluded.startswith("(NOT arrayExists(k -> k IN (SELECT allele_key FROM ")
+    assert "%(coga_exclude_terms)s" in excluded
+    held, pathogenic, annotated = kept.split(" OR ", 2)
+    assert "%(coga_held_release)s" in held
+    assert "%(coga_exclude_kept_terms)s" in pathogenic and pathogenic.startswith("arrayExists(k -> k IN")
+    assert annotated.startswith("NOT arrayExists(a -> (hasAny(a.clinvar_terms") and clause.endswith(")))")
     assert params["coga_exclude_terms"] == ["benign"]
+    assert params["coga_exclude_kept_terms"] == ["pathogenic", "likely pathogenic"]
 
 
 @pytest.mark.parametrize("values", [{"clinvar": ["Pathogenic"]}, {"exclude_clinvar": ["Benign"]}])

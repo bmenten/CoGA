@@ -1,6 +1,6 @@
 """Monogenic NIPT: fetal fraction, classifications, coverage, artifacts."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -446,6 +446,11 @@ class NiptVariantPage(BaseModel):
     # The variants the review-tag filter selects that the analysis does not classify,
     # whatever the other filters, by variant id; [] without a review-tag filter.
     not_classified: List[NiptNotClassifiedOut] = Field(default_factory=list)
+    # The two ClinVar releases the list names (design B7), as the family page's VariantPage: the
+    # release of the ClinVar file the analysis's annotation names, and CoGA's own release the
+    # analysis read, of each variant's ``clinvar_coga``.
+    clinvar_annotation_release: Optional[date] = None
+    clinvar_coga_release: Optional[date] = None
 
 
 class NiptCoverageRegionOut(BaseModel):

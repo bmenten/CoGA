@@ -11,7 +11,9 @@ filter the override does not lift fails it; the *ClinVar (CoGA)* filter keeps th
 release classifies so. An untrimmed record matches ClinVar's anchored one, in the filter and in
 the values the page serves, which one lookup of the release reads. The *ClinVar status* filter
 and its exclusion read the release where it holds the allele, else the annotation (the design's
-one rule, B8): an annotation the release contradicts is not read.
+one rule, B8): an annotation the release contradicts is not read. A multi-allelic row the release
+holds in part, one of its alleles (likely) pathogenic there, is not left out by an excluded status
+of its annotation, which may be that allele's.
 
 On an assembly of its own, whose tables the test drops. Synthetic data only. Skipped unless
 ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -79,6 +81,12 @@ _RECORDS = [
     ("2-2000100-C-T", {"impact": "HIGH", "frequency": 0.0001, "clinvar": "Pathogenic"}),
     # Neither.
     ("3-4000300-CTT-CT", {"impact": "LOW", "frequency": 0.2}),
+    # Multi-allelic, held in part: the release holds the first ALT, not the second, and the
+    # annotation, which does not say which ALT it is of, calls the row benign. Here the release
+    # holds that ALT pathogenic/likely pathogenic...
+    ("X-3000100-G-C,T", {"impact": "LOW", "frequency": 0.2, "clinvar": "Benign"}),
+    # ...and here of uncertain significance.
+    ("3-4000300-CTT-CT,C", {"impact": "LOW", "frequency": 0.2, "clinvar": "Benign"}),
 ]
 
 
@@ -156,23 +164,30 @@ def test_the_filter_and_the_override_read_cogas_release_on_both_search_paths() -
                     "1-1000200-AGG-AG",
                     "1-1000400-G-A",
                     "2-2000100-C-T",
+                    "X-3000100-G-C,T",
                 ]
                 # A filter the override does not lift still holds on a transcript.
                 assert await kept(context, **rare, clinvar_pathogenic_override=True, canonical_only=True) == [
                     "1-1000100-G-A",
                     "1-1000400-G-A",
                     "2-2000100-C-T",
+                    "X-3000100-G-C,T",
                 ]
                 assert await kept(context, clinvar_coga=["Pathogenic", "Likely pathogenic"]) == [
                     "1-1000100-G-A",
                     "1-1000200-AGG-AG",
+                    "X-3000100-G-C,T",
                 ]
                 assert await kept(context, clinvar_coga=["Benign"]) == ["2-2000100-C-T"]
 
                 # The ClinVar status filter by the one rule: the release for the alleles it
                 # holds, the annotation for 1-1000400 it does not; without a release, the
                 # annotation alone.
-                assert await kept(context, clinvar=["Pathogenic"]) == ["1-1000100-G-A", "1-1000400-G-A"]
+                assert await kept(context, clinvar=["Pathogenic"]) == [
+                    "1-1000100-G-A",
+                    "1-1000400-G-A",
+                    "X-3000100-G-C,T",
+                ]
                 assert await kept(context, release=None, clinvar=["Pathogenic"]) == [
                     "1-1000400-G-A",
                     "2-2000100-C-T",
@@ -183,11 +198,24 @@ def test_the_filter_and_the_override_read_cogas_release_on_both_search_paths() -
                     "1-1000200-AGG-AG",
                     "2-2000100-C-T",
                     "3-4000300-CTT-CT",
+                    "3-4000300-CTT-CT,C",
                 ]
+                # The rows held in part: the annotation's benign does not hide the one whose
+                # allele the release holds pathogenic, as it may be that allele's; it leaves out
+                # the other, whose held allele the release does not hold (likely) pathogenic.
                 assert await kept(context, exclude_clinvar=["Benign"]) == [
                     "1-1000100-G-A",
                     "1-1000200-AGG-AG",
                     "1-1000400-G-A",
+                    "3-4000300-CTT-CT",
+                    "X-3000100-G-C,T",
+                ]
+                # Without a release, the annotation leaves out both.
+                assert await kept(context, release=None, exclude_clinvar=["Benign"]) == [
+                    "1-1000100-G-A",
+                    "1-1000200-AGG-AG",
+                    "1-1000400-G-A",
+                    "2-2000100-C-T",
                     "3-4000300-CTT-CT",
                 ]
         finally:
