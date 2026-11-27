@@ -380,6 +380,19 @@ The characters are Crockford's base 32 (digits and capital letters without I, L,
 
 **Where in the code:** `report_code.py`; `find_report_signout_by_code` and the uniqueness in `sign_out_report` (`report_signout_service.py`); `backend/app/routers/report_codes.py`; `frontend/src/pages/reports/ReportCodeLookupPage.tsx`.
 
+### ClinVar reclassifications after sign-out
+
+A signed version never changes; CoGA's ClinVar release does (chapter 15). `GET /api/projects/{project_id}/clinvar-reanalysis` gives per project the signed analyses with a small variant that the current release classifies otherwise than the signed version saw (the owner's decision B10). Each analysis of a family of the project is read in its latest signed version (the newest version of each `analysis_type`), and in it:
+
+- each reported variant, with the *ClinVar (CoGA)* value the signed version saw: the one its drift section names if the classification had drifted or been noted at sign-out (`clinvar_coga_to`), else the one frozen with its classification. A reported variant without frozen evidence has nothing to compare and drops out;
+- each variant the analysis's review classifies and the record does not report, with the value frozen with that classification. The review is the one the analysis reads: its own, else the shared one (`effective_reviews`).
+
+A variant is on the list if the assembly's current release gives an ALT another classification, read on its terms as the drift check reads them (`clinvar_coga_move`). Another review status or other stars of the same classification is not on it (B5). An assembly without a release gives nothing; the answer names the release of each assembly. Each item names the family, the analysis, the signed version with its time and report code, the variant, whether the record reports it, its class, and per ALT the value frozen and now.
+
+The list only reads: CoGA changes nothing of the analysis, and a re-analysis is a new sign-out. Who follows up the list and how is decided by the laboratory procedure; no mail goes out. A project outside the user's gets the same `404` as an unknown project. In the app the list is under **ClinVar reclassifications** in the main menu (`/clinvar-reanalysis?project=<id>`), each item with a link to its signed version.
+
+**Where in the code:** `backend/app/services/clinvar_reanalysis.py`; `clinvar_coga_move` (`classification_drift_service.py`); `backend/app/routers/projects.py`; `frontend/src/pages/reports/ClinvarReanalysisPage.tsx`.
+
 ### Does the report page show the signed report?
 
 Only the signed version is the signed report. The report page has two views:
@@ -514,6 +527,7 @@ This chain is the technical implementation of the traceability requirement under
 | `backend/app/services/family_structure_audit.py` | The pedigree's structure versions, their chain and the `pedigree` entries |
 | `backend/app/services/integrity_anchor_service.py` | Signed anchors and their check |
 | `backend/app/services/classification_drift_service.py` | Drift |
+| `backend/app/services/clinvar_reanalysis.py` | The ClinVar reclassifications after sign-out |
 | `backend/app/services/structural_variant_evidence.py` | The evidence of a CNV classification and its drift |
 | `backend/app/services/annotation_manifest_service.py` | The annotation and reference manifest |
 | `backend/app/services/clickhouse_integrity_monitor.py` | Monitoring of the variant store |

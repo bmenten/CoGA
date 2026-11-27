@@ -711,6 +711,36 @@ export interface ClinvarLoadStatusOut {
   assemblies: ClinvarAssemblyReleasesOut[];
 }
 
+/**
+ * A variant of a signed analysis that CoGA's current ClinVar release classifies otherwise
+ * than it was frozen (the ClinVar design's phase 3, B10): the family analysis's latest signed
+ * version, the variant, whether the record reports it, its class, and its ClinVar (CoGA) per
+ * ALT as frozen and as the current release has it.
+ */
+export interface ClinvarReanalysisItemOut {
+  family_id: string;
+  analysis: string | null;
+  version: number;
+  signed_out_at: string;
+  report_code: string;
+  variant_id: string;
+  reported: boolean;
+  classification: string | null;
+  clinvar_coga_frozen: ClinvarCogaOut[];
+  clinvar_coga_now: ClinvarCogaOut[];
+}
+
+/**
+ * A project's signed analyses with a variant CoGA's current ClinVar release classifies
+ * otherwise; read only. ``releases``: the current release of each assembly read (None: none
+ * loaded).
+ */
+export interface ClinvarReanalysisOut {
+  project_id: string;
+  releases: Record<string, string | null>;
+  items: ClinvarReanalysisItemOut[];
+}
+
 /** A ClinVar release CoGA loaded for an assembly (reference_dataset_imports). */
 export interface ClinvarReleaseOut {
   release: string;

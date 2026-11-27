@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.postgres import get_postgres_session
 from ..core.sql import require_uuid
 from ..dependencies import get_current_admin_user, get_current_user
-from ..schemas import ProjectCreate, ProjectDashboardOut, ProjectOut, ProjectUpdate
+from ..schemas import ClinvarReanalysisOut, ProjectCreate, ProjectDashboardOut, ProjectOut, ProjectUpdate
 from ..services.metadata_service import (
     create_project_record,
     delete_project_record,
@@ -14,6 +14,7 @@ from ..services.metadata_service import (
     update_project_record,
 )
 from ..services.access_control import CurrentUser
+from ..services.clinvar_reanalysis import clinvar_reanalysis_list
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -81,6 +82,17 @@ async def list_projects(
     user: CurrentUser = Depends(get_current_user),
 ) -> List[ProjectDashboardOut]:
     return await list_project_dashboards(session, user)
+
+
+@router.get("/{project_id}/clinvar-reanalysis", response_model=ClinvarReanalysisOut)
+async def get_project_clinvar_reanalysis(
+    project_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ClinvarReanalysisOut:
+    """The project's signed analyses with a variant CoGA's current ClinVar release classifies
+    otherwise than it was frozen; read only (the ClinVar design's phase 3, B10)."""
+    return await clinvar_reanalysis_list(session, project_id=project_id, user=user)
 
 
 @router.delete("/{project_id}", status_code=204)

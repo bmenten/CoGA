@@ -12,7 +12,10 @@ through the import's write path. Then:
   holds the frozen value, the noted entry and the release it was signed with, and the sign-out
   check finds the live report still matching it;
 - a newer release that classifies the variant otherwise is drift naming ``clinvar_coga``, and
-  the sign-out is refused until it is acknowledged.
+  the sign-out is refused until it is acknowledged;
+- the project's re-analysis list (the design's phase 3) holds no variant while the release says
+  what the signed version saw, and the reclassified variant once it does not, with its ClinVar
+  (CoGA) as signed and as now.
 
 The family context, the Sample QC and the sequencing QC are stubbed, and the variant list's
 hydration (reviews, gene metrics, cohort) is left out. Skipped unless
@@ -85,6 +88,7 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
     from backend.app.services import classification_drift_service as cds
     from backend.app.services import clickhouse_family_variants as family_variants
     from backend.app.services import report_signout_service as rss
+    from backend.app.services.clinvar_reanalysis import clinvar_reanalysis_list
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         insert_small_variant_records,
@@ -127,6 +131,7 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
 
     user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None, role="supervisor")
+    admin = SimpleNamespace(role="admin", metadata_project_ids=[])
     classification = SmallVariantReviewUpdate(
         classification="Pathogenic - class 5",
         tags=["acmg_class_5", "report"],
@@ -157,6 +162,17 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
                     text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
                 )
             ).scalar_one()
+            await s.execute(
+                text(
+                    "INSERT INTO projects (id, name, species_id, assembly_id) "
+                    "VALUES (CAST(:p AS uuid), :name, CAST(:s AS uuid), CAST(:a AS uuid))"
+                ),
+                {"p": project, "name": label, "s": species, "a": held["assembly"]},
+            )
+            await s.execute(
+                text("INSERT INTO family_projects (family_id, project_id) VALUES (CAST(:f AS uuid), CAST(:p AS uuid))"),
+                {"f": held["family"], "p": project},
+            )
             # One active load at a time, across the shared integration database.
             await s.execute(text("DELETE FROM clinvar_load_jobs WHERE status IN ('queued', 'running')"))
             await s.commit()
@@ -216,6 +232,9 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
             release = signed["reference_data"]["clinvar_coga"]
             assert (release["release"], release["records"]) == ("2026-11-29", 8)
             assert release["source_version"].startswith("2026-11-29 (clinvar_20261129.vcf.gz, SHA-256 ")
+            # The release says what the signed version saw: nothing to re-analyse.
+            async with sm() as s:
+                assert (await clinvar_reanalysis_list(s, project_id=project, user=admin)).items == []
 
             # (c) Classified otherwise: drift, and the sign-out refused until acknowledged.
             await _load(_RECLASSIFIED, _likely_pathogenic)
@@ -233,6 +252,23 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
             assert "1 classification(s) have evidence" in refusal["message"]
             [listed] = refusal["drifted"]
             assert (listed["variant_id"], listed["changed"]) == (_VARIANT, ["clinvar_coga"])
+
+            # The signed analysis is listed for re-analysis: its variant as signed (the noted
+            # value of 2026-11-29) and as the current release classifies it.
+            async with sm() as s:
+                reanalysis = await clinvar_reanalysis_list(s, project_id=project, user=admin)
+            [item] = reanalysis.items
+            assert (item.family_id, item.version, item.variant_id, item.reported) == (
+                label,
+                signed_out["version"],
+                _VARIANT,
+                True,
+            )
+            assert [(value.release.isoformat(), value.classification) for value in item.clinvar_coga_frozen] == [
+                ("2026-11-29", "Pathogenic")
+            ]
+            assert [value.classification for value in item.clinvar_coga_now] == ["Likely_pathogenic"]
+            assert reanalysis.releases == {assembly: _RECLASSIFIED}
         finally:
             tables = await execute_clickhouse(
                 "SELECT name FROM system.tables WHERE database = %(database)s AND startsWith(name, %(prefix)s)",
@@ -241,6 +277,7 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
             for (name,) in tables or []:
                 await execute_clickhouse(f"DROP TABLE IF EXISTS {settings.clickhouse_database}.`{name}`")
             async with sm() as s:
+                await s.execute(text("DELETE FROM projects WHERE id = CAST(:p AS uuid)"), {"p": project})
                 await s.execute(text("DELETE FROM species WHERE id = CAST(:s AS uuid)"), {"s": species})
                 await s.commit()
 

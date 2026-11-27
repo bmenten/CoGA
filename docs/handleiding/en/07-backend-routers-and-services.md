@@ -117,7 +117,7 @@ All routers are listed in `backend/app/routers/__init__.py` and hang under `/api
 | `chromosomes.py` | `/chromosomes` | Chromosome sizes and cytobands |
 | `blacklist.py` · `segmental_duplications.py` · `dgv.py` | `/blacklist` · `/segmental-duplications` · `/dgv` | Reference tracks |
 | `repeat_expansions.py` | `/repeat-expansions` | Upload the TRGT repeats of one sample (administrators only); the backend loads the repeat catalogue itself at start-up |
-| `projects.py` | `/projects` | Projects, the unit of access |
+| `projects.py` | `/projects` | Projects, the unit of access; the ClinVar reclassifications after sign-out (chapter 11) |
 | `species.py` · `assemblies.py` | `/species` · `/assemblies` | Species and assemblies, with their reference status |
 | `cram.py` | `/cram` | CRAM/BAM for the genome browser, with access control |
 | `signal_tracks.py` | `/signal-tracks` | The signal files of the CNV caller (bigWig, bedGraph) for IGV |

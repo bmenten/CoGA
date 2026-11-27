@@ -129,6 +129,12 @@ signed version and its report code: quote that code in the EPD report. A mistype
 typo, never taken for another record's. **Report codes** in the main menu finds the signed version a
 code names.
 
+**ClinVar reclassifications** in the main menu lists, for a project, the signed analyses with a small
+variant that CoGA's current ClinVar release classifies otherwise than the signed version saw: a
+reported variant, or one the analysis classified and did not report. Another review status or other
+stars of the same classification is not listed. Each line links to its signed version. The list
+changes nothing of the analysis; follow it up as the laboratory's procedure says.
+
 **A family of several analyses.** A family that holds more than one analysis (the monogenic and the
 conventional NIPT of each pregnancy of one woman, or short-read and then long-read WGS) signs each out
 on its own.

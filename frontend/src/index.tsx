@@ -79,6 +79,7 @@ const FamilyNiptCoveragePage = lazyPage(
 );
 const GeneInfoPage = lazyPage(() => import('./pages/genes/GeneInfoPage'));
 const ReportCodeLookupPage = lazyPage(() => import('./pages/reports/ReportCodeLookupPage'));
+const ClinvarReanalysisPage = lazyPage(() => import('./pages/reports/ClinvarReanalysisPage'));
 const GlobalSmallVariantExplorerPage = lazyPage(
   () => import('./pages/variant-explorer/GlobalSmallVariantExplorerPage'),
 );
@@ -251,6 +252,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               />
               <Route path="/genes" element={routeElement(<GeneInfoPage />)} />
               <Route path="/report-codes" element={routeElement(<ReportCodeLookupPage />)} />
+              <Route path="/clinvar-reanalysis" element={routeElement(<ClinvarReanalysisPage />)} />
               <Route
                 path="/report-codes/:code"
                 element={routeElement(<ReportCodeLookupPage />)}

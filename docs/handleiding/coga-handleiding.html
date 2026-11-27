@@ -2273,7 +2273,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <tr>
 <td><code>projects.py</code></td>
 <td><code>/projects</code></td>
-<td>Projecten, de eenheid van toegang</td>
+<td>Projecten, de eenheid van toegang; de ClinVar-herclassificaties na de sign-out (hoofdstuk 11)</td>
 </tr>
 <tr>
 <td><code>species.py</code> · <code>assemblies.py</code></td>
@@ -4172,6 +4172,15 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <p>De tekens zijn Crockfords base 32 (cijfers en hoofdletters zonder I, L, O en U). Hoofd- of kleine letters, koppeltekens en spaties maken niet uit; een I of L leest als 1, een O als 0. Een code telt 13 tekens voor de versies 1 tot 9, en hoogstens 16 tot versie 9999.</p>
 <p><strong>Opzoeken.</strong> <code>GET /api/report-codes/{code}</code> geeft de familie, de versie, de ondertekenaar, het tijdstip en de inhoudshash van het record. Een tekst die geen rapportcode is, krijgt <code>422</code> (<code>report_code_invalid</code>) met de reden; dat volgt uit de tekst alleen. Een geldige code zonder record, een code van een familie buiten de projecten van de gebruiker en een code van een verwijderde familie krijgen allemaal dezelfde <code>404</code>; alleen de auditrij noemt de verborgen familie (REQ-SEC-001). In de app staat het opzoeken onder <strong>Report codes</strong> in het hoofdmenu (<code>/report-codes</code>, en <code>/report-codes/&lt;code&gt;</code> als link vanuit het EPD).</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>report_code.py</code>; <code>find_report_signout_by_code</code> en de uniciteit in <code>sign_out_report</code> (<code>report_signout_service.py</code>); <code>backend/app/routers/report_codes.py</code>; <code>frontend/src/pages/reports/ReportCodeLookupPage.tsx</code>.</p>
+<h3>ClinVar-herclassificaties na de sign-out</h3>
+<p>Een ondertekende versie verandert nooit; CoGA's ClinVar-release wel (hoofdstuk 15). <code>GET /api/projects/{project_id}/clinvar-reanalysis</code> geeft per project de ondertekende analyses met een small variant die de huidige release anders classificeert dan de ondertekende versie zag (beslissing B10 van de eigenaar). Elke analyse van een familie van het project wordt gelezen in haar laatste ondertekende versie (de nieuwste versie van elke <code>analysis_type</code>), en daarin:</p>
+<ul>
+<li>elke gerapporteerde variant, met de <em>ClinVar (CoGA)</em>-waarde die de ondertekende versie zag: die welke haar driftsectie noemt als de classificatie bij de sign-out gedrift of genoteerd was (<code>clinvar_coga_to</code>), anders die bevroren met haar classificatie. Een gerapporteerde variant zonder bevroren bewijs heeft niets om te vergelijken en valt weg;</li>
+<li>elke variant die de review van de analyse classificeert en het record niet rapporteert, met de waarde bevroren met die classificatie. De review is die welke de analyse leest: haar eigen, anders de gedeelde (<code>effective_reviews</code>).</li>
+</ul>
+<p>Een variant staat op de lijst als de huidige release van de assembly een ALT een andere classificatie geeft, gelezen op haar termen zoals de driftcontrole ze leest (<code>clinvar_coga_move</code>). Een andere reviewstatus of andere sterren van dezelfde classificatie staat er niet op (B5). Een assembly zonder release geeft niets; het antwoord noemt de release van elke assembly. Elk item noemt de familie, de analyse, de ondertekende versie met haar tijdstip en rapportcode, de variant, of het record ze rapporteert, haar klasse, en per ALT de waarde bevroren en nu.</p>
+<p>De lijst leest alleen: CoGA verandert niets aan de analyse, en een heranalyse is een nieuwe sign-out. Wie de lijst opvolgt en hoe, bepaalt de labo-procedure; er gaat geen mail uit. Een project buiten die van de gebruiker krijgt dezelfde <code>404</code> als een onbekend project. In de app staat de lijst onder <strong>ClinVar reclassifications</strong> in het hoofdmenu (<code>/clinvar-reanalysis?project=&lt;id&gt;</code>), elk item met een link naar zijn ondertekende versie.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/clinvar_reanalysis.py</code>; <code>clinvar_coga_move</code> (<code>classification_drift_service.py</code>); <code>backend/app/routers/projects.py</code>; <code>frontend/src/pages/reports/ClinvarReanalysisPage.tsx</code>.</p>
 <h3>Toont de rapportpagina het ondertekende rapport?</h3>
 <p>Alleen de ondertekende versie is het ondertekende rapport. De rapportpagina heeft twee weergaven:</p>
 <ul>
@@ -4330,6 +4339,10 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <tr>
 <td><code>backend/app/services/classification_drift_service.py</code></td>
 <td>Drift</td>
+</tr>
+<tr>
+<td><code>backend/app/services/clinvar_reanalysis.py</code></td>
+<td>De ClinVar-herclassificaties na de sign-out</td>
 </tr>
 <tr>
 <td><code>backend/app/services/structural_variant_evidence.py</code></td>
@@ -7286,7 +7299,7 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <tr>
 <td><code>projects.py</code></td>
 <td><code>/projects</code></td>
-<td>Projects, the unit of access</td>
+<td>Projects, the unit of access; the ClinVar reclassifications after sign-out (chapter 11)</td>
 </tr>
 <tr>
 <td><code>species.py</code> · <code>assemblies.py</code></td>
@@ -9185,6 +9198,15 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <p>The characters are Crockford's base 32 (digits and capital letters without I, L, O and U). Upper or lower case, hyphens and spaces do not matter; an I or L reads as 1, an O as 0. A code has 13 characters for versions 1 to 9, and at most 16 up to version 9999.</p>
 <p><strong>Lookup.</strong> <code>GET /api/report-codes/{code}</code> returns the family, the version, the signer, the time and the content hash of the record. A text that is not a report code gets <code>422</code> (<code>report_code_invalid</code>) with the reason; that follows from the text alone. A valid code without a record, a code of a family outside the user's projects and a code of a deleted family all get the same <code>404</code>; only the audit row names the hidden family (REQ-SEC-001). In the app, the lookup is under <strong>Report codes</strong> in the main menu (<code>/report-codes</code>, and <code>/report-codes/&lt;code&gt;</code> as a link from the EPD).</p>
 <p class="waar"><strong>Where in the code:</strong> <code>report_code.py</code>; <code>find_report_signout_by_code</code> and the uniqueness in <code>sign_out_report</code> (<code>report_signout_service.py</code>); <code>backend/app/routers/report_codes.py</code>; <code>frontend/src/pages/reports/ReportCodeLookupPage.tsx</code>.</p>
+<h3>ClinVar reclassifications after sign-out</h3>
+<p>A signed version never changes; CoGA's ClinVar release does (chapter 15). <code>GET /api/projects/{project_id}/clinvar-reanalysis</code> gives per project the signed analyses with a small variant that the current release classifies otherwise than the signed version saw (the owner's decision B10). Each analysis of a family of the project is read in its latest signed version (the newest version of each <code>analysis_type</code>), and in it:</p>
+<ul>
+<li>each reported variant, with the <em>ClinVar (CoGA)</em> value the signed version saw: the one its drift section names if the classification had drifted or been noted at sign-out (<code>clinvar_coga_to</code>), else the one frozen with its classification. A reported variant without frozen evidence has nothing to compare and drops out;</li>
+<li>each variant the analysis's review classifies and the record does not report, with the value frozen with that classification. The review is the one the analysis reads: its own, else the shared one (<code>effective_reviews</code>).</li>
+</ul>
+<p>A variant is on the list if the assembly's current release gives an ALT another classification, read on its terms as the drift check reads them (<code>clinvar_coga_move</code>). Another review status or other stars of the same classification is not on it (B5). An assembly without a release gives nothing; the answer names the release of each assembly. Each item names the family, the analysis, the signed version with its time and report code, the variant, whether the record reports it, its class, and per ALT the value frozen and now.</p>
+<p>The list only reads: CoGA changes nothing of the analysis, and a re-analysis is a new sign-out. Who follows up the list and how is decided by the laboratory procedure; no mail goes out. A project outside the user's gets the same <code>404</code> as an unknown project. In the app the list is under <strong>ClinVar reclassifications</strong> in the main menu (<code>/clinvar-reanalysis?project=&lt;id&gt;</code>), each item with a link to its signed version.</p>
+<p class="waar"><strong>Where in the code:</strong> <code>backend/app/services/clinvar_reanalysis.py</code>; <code>clinvar_coga_move</code> (<code>classification_drift_service.py</code>); <code>backend/app/routers/projects.py</code>; <code>frontend/src/pages/reports/ClinvarReanalysisPage.tsx</code>.</p>
 <h3>Does the report page show the signed report?</h3>
 <p>Only the signed version is the signed report. The report page has two views:</p>
 <ul>
@@ -9343,6 +9365,10 @@ FAM001  EMB2     FATHER1  MOTHER1  0  -9  role=embryo
 <tr>
 <td><code>backend/app/services/classification_drift_service.py</code></td>
 <td>Drift</td>
+</tr>
+<tr>
+<td><code>backend/app/services/clinvar_reanalysis.py</code></td>
+<td>The ClinVar reclassifications after sign-out</td>
 </tr>
 <tr>
 <td><code>backend/app/services/structural_variant_evidence.py</code></td>

@@ -344,6 +344,26 @@ the header), enter the code, and open the signed version it names. The EPD can l
 `/report-codes/<code>` directly. A code that no record you can open has gets the same answer whether no
 record has it or it belongs to a family outside your projects.
 
+### ClinVar reclassifications since sign-out
+
+A signed version never changes, but ClinVar does: CoGA loads a new ClinVar release every week.
+**ClinVar reclassifications** in the main menu lists, for the project you choose, the signed analyses
+with a small variant that CoGA's current release classifies otherwise than the signed version saw:
+
+- a variant the signed version reports, compared with the *ClinVar (CoGA)* value the signed version
+  showed;
+- a variant the analysis classified and did not report, compared with the value frozen with its
+  classification.
+
+Each analysis is read in its latest signed version. Another classification of an ALT is listed;
+another review status or other stars of the same classification is not. Each line names the family
+and analysis, the signed version with its date and report code (linked to the signed version), the
+variant, whether it was reported, its class, and the ClinVar value as signed and now. The page names
+the release it read; with no release loaded, nothing is listed.
+
+The list changes nothing: a signed version stays as it was signed, and a re-analysis is a new
+sign-out. Who follows the list up, and how, is the laboratory's procedure; CoGA sends no mail.
+
 ### The sign-out checks
 
 Sign-out stops at each of these, in this order:
