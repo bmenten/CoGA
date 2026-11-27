@@ -254,7 +254,10 @@ it.
   1% of the reads, so crossed-over reads do not count. Unlike the R
   pipeline, a candidate a ClinVar record may call pathogenic (`triage_annotation`,
   `clinvar_may_assert_pathogenic`) is never `excluded_recurrent`: a de novo hotspot recurs between
-  pregnancies.
+  pregnancies. ClinVar is read by the ClinVar design's one rule (B9, B11; `nipt_service.clinvar_read`):
+  the classification in CoGA's own release where it holds the allele, else the annotation's. The
+  release is the one the analysis reads (`NiptAnalysisInputs.clinvar_coga`), so a new release
+  recomputes the kept analysis; each classified variant carries its value (`clinvar_coga`).
 - **Recessive fetal status** — `nipt_triage.recessive_gene_risks` (the R v0.7.3 gene pairing, with
   CoGA's probabilities): heterozygous and homozygous parents (a homozygous one, or a father on his X,
   always passes the allele). The mother carries an allele where the model places it in her band
@@ -440,7 +443,10 @@ frozen with their version (`NiptDiagnosticCriteria`, `NIPT_DIAGNOSTIC_CRITERIA_R
 rarity ceilings (0.1 % dominant, 1 % recessive; an allele without a frequency in 3 cfDNA samples
 or more is not rare), the protein effect, ClinVar read strictly (`clinvar_strictly_pathogenic`:
 P/LP with no benign or conflicting assertion, stricter than `clinvar_may_assert_pathogenic`) with
-its 5 % override for the recessive pairing alone, and the repeat-context indel.
+its 5 % override for the recessive pairing alone, and the repeat-context indel. ClinVar is read by
+the one rule (CoGA's release where it holds the allele, else the annotation; B11): R reads the
+annotation, so the candidates differ from R's where the newer release does, and are validated again
+against the R pipeline with it ([TF-10 §8](regulatory/TF-10-performance-evaluation-plan.md)).
 `nipt_service.diagnostic_candidates` applies them to classified variants (`diagnostic_annotation`
 reads `triage_annotation`, the strict ClinVar call and the recurrence's `carriers`): de novo
 candidates in the strict or loose window and at most `MATERNAL_ALLELE_VAF_BOUNDARY`, in no other
@@ -497,9 +503,11 @@ the samples tagged `assay: nipt_cfdna` whose monogenic NIPT panel resolves to th
 It drops:
 
 - variants with `is_gnomad_gt_5_percent`;
-- variants whose pooled `annotation_index.clinvar_terms` pass `clinvar_may_assert_pathogenic`
-  (`variant_prioritization.py`: a whole-word "pathogenic", or any conflicting record, because the
-  per-submission `CLNSIGCONF` breakdown is not imported).
+- variants whose ClinVar passes `clinvar_may_assert_pathogenic` (`variant_prioritization.py`: a
+  whole-word "pathogenic", or any conflicting record, because the per-submission `CLNSIGCONF`
+  breakdown is not imported), read by the one rule (`_clinvar_protected`, B9): the classification
+  in CoGA's current release where it holds the allele, else the pooled
+  `annotation_index.clinvar_terms`.
 
 The preview (`preview_auto_seed_nipt_artifacts`) reads what the seed would write now, by the same
 reading (`_auto_seed_candidates`: the same samples, rules, threshold and protections), and writes
@@ -576,8 +584,8 @@ reported variant once; the de novo triage reads that count.
   matched base by base.
 - The frequency filters let a variant without a population frequency through (CoGA-wide); an MNV
   never has one. The recessive gene card notes it.
-- The artifact-list protections need annotation: a site with no population frequency or ClinVar
-  record is not protected.
+- The artifact-list protections need annotation or CoGA's release: a site with no population
+  frequency and no ClinVar record in either is not protected.
 - The R recurrent table counts the cfDNA families of the R cohort, the index family included.
 - The recurrence count does not look up a father's call in another representation of the allele (an
   MNV over it, or its SNVs), so such a paternal allele counts as unexplained. `other_samples` counts

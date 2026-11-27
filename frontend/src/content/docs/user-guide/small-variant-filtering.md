@@ -124,11 +124,10 @@ its MANE transcript is left out.
   (*ClinVar (CoGA)*) for a variant whose alleles it holds, and the annotation for any other: a
   classification in the annotation that the newer release contradicts is not read. A multi-allelic
   variant the release holds only in part is read both ways. Without a loaded release they read the
-  annotation. The monogenic NIPT page reads the annotation.
+  annotation. The monogenic NIPT page reads them the same way, with the ClinVar P/LP override.
 - **Pathogenicity** also offers *ClinVar (CoGA) status*: the classifications of CoGA's own ClinVar
   release, with the same choices. It keeps a variant one of whose alleles that release classifies so;
-  without a loaded release it keeps none. The monogenic NIPT page does not offer it: NIPT reads the
-  annotation's ClinVar.
+  without a loaded release it keeps none. The monogenic NIPT page does not offer it.
 
 A card, a table row and a CSV row describe one transcript of the variant: MANE Select, else the
 canonical one, else the most severe. The filters may have held on another. For example, *deleterious*

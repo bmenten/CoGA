@@ -120,6 +120,7 @@ def _classified(variant_id: str, *, gene: str = "GENEA", de_novo: bool = False) 
     chrom, pos, ref, alt = variant_id.split("-")
     return NiptClassifiedVariant(
         record=SimpleNamespace(variant_id=variant_id),  # type: ignore[arg-type]
+        clinvar_coga=None,
         classification=NiptClassification(
             variant_id=variant_id,
             category=4,

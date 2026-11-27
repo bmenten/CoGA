@@ -175,6 +175,7 @@ async def _with_every_record(family_id: str, project_id: str, admin: Any) -> dic
     removed, _protected = nipt_service.family_artifact_ids(
         [record for record in records if record.variant_id in listed],
         listed,
+        clinvar_coga={},
         father_sample_id=trio.father_sample_id,
         cfdna_sample_id=trio.cfdna_sample_id,
         qc=qc,

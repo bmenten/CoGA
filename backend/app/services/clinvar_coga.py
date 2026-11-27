@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..schemas import ClinvarCogaOut, VariantPage
 from .annotation_manifest_service import analysis_clinvar_release
 from .clickhouse_small_variants import SmallVariantFamilyRecord
+from .clickhouse_variant_records import SmallVariantRecord
 from .clickhouse_variant_ids import minimal_allele_id, small_allele_key
 from .clinvar_release_store import ClinvarStoredAllele, clinvar_alleles
 from .clinvar_releases import CLINVAR_ASSEMBLY_FOLDERS, current_clinvar_release
@@ -101,11 +102,45 @@ def clinvar_coga_of(alt: str | None, alt_allele: str | None, values: Sequence[Cl
     return next((value for value in values if value.alt == shown), values[0] if len(values) == 1 else None)
 
 
+def clinvar_coga_held(coga: ClinvarCogaOut | None) -> bool:
+    """Whether CoGA's release holds the allele: where the design's one rule reads it."""
+    return coga is not None and coga.status == "in_release"
+
+
 def clinvar_by_the_rule(annotated: str | None, coga: ClinvarCogaOut | None) -> str | None:
     """The design's one rule for the readers of phase 2 (B8, B12): the classification in CoGA's
     ClinVar release where it holds the allele, else the annotation's. An allele the release
     holds only as part of a combination has no classification there."""
-    return coga.classification if coga is not None and coga.status == "in_release" else annotated
+    return coga.classification if coga is not None and clinvar_coga_held(coga) else annotated
+
+
+def locus_of_variant_id(variant_id: str) -> Locus | None:
+    """The locus a stored small-variant id names (``build_small_variant_id``'s
+    ``chrom-pos-ref-alt``), or None for one a contig or an ALT with a ``-`` makes ambiguous:
+    ClinVar holds no allele there."""
+    parts = str(variant_id).split("-")
+    if len(parts) != 4 or not parts[1].isdigit():
+        return None
+    chrom, pos, ref, alt = parts
+    return (chrom, int(pos), ref, alt)
+
+
+async def clinvar_coga_by_variant_id(read: ClinvarCogaRead, variant_ids: Sequence[str]) -> dict[str, ClinvarCogaOut]:
+    """Each of ``variant_ids``' value of its ALT in the release ``read`` names, where it has one
+    (an id that names no locus has none): one lookup for them all."""
+    loci = {variant_id: locus for variant_id in variant_ids if (locus := locus_of_variant_id(variant_id)) is not None}
+    values = await clinvar_coga_values(read, list(loci.values()))
+    found = {variant_id: clinvar_coga_of(locus[3], None, value) for (variant_id, locus), value in zip(loci.items(), values)}
+    return {variant_id: value for variant_id, value in found.items() if value is not None}
+
+
+async def clinvar_coga_by_variant(
+    read: ClinvarCogaRead, records: Sequence[SmallVariantRecord]
+) -> dict[str, ClinvarCogaOut | None]:
+    """Each record's value of its ALT in the release ``read`` names, by its variant id: one
+    lookup for them all."""
+    values = await clinvar_coga_values(read, [(r.chr, r.start, r.ref, r.alt) for r in records])
+    return {record.variant_id: clinvar_coga_of(record.alt, None, found) for record, found in zip(records, values)}
 
 
 async def clinvar_coga_by_id(

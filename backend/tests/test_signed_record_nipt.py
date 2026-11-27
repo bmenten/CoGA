@@ -48,6 +48,7 @@ from backend.tests._nipt_service_fakes import (
     gate_bound_loader,
     listed_artifact_recurrence,
     wire_annotation,
+    wire_clinvar_release,
     wire_data_version,
 )
 from backend.tests._query_results import MappingRows as _Result
@@ -333,6 +334,7 @@ def _wire(
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
     wire_data_version(monkeypatch)
     wire_annotation(monkeypatch, cohort)
+    wire_clinvar_release(monkeypatch)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_tracks)
     monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
     monkeypatch.setattr(nipt_service, "load_nipt_gate_bound", gate_bound_loader(gate_bounds))
