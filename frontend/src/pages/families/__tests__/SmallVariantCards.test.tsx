@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SmallVariantCards from '../SmallVariantCards';
 import { ACMG_CLASSIFICATION_LABELS, type SmallVariant, type SmallVariantReview } from '../smallVariantSearch';
 import api from '../../../lib/api';
-import { formatDateTime } from '../../../lib/format';
+import { formatDate } from '../../../lib/format';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import { BUILT_IN_REVIEW_TAGS } from '../../../test/tagDefinitions';
 import { genotype, review, smallVariant, svSecondHit, transcript } from '../../../test/variants';
@@ -1740,12 +1740,12 @@ describe('SmallVariantCards review class', () => {
     // (a tag the family's list does not define, by its key).
     const saves = Array.from(block.querySelectorAll('.variant-card-review-tags')).map((save) => save.textContent);
     expect(saves).toEqual([
-      `VUS — warmSecondary findingsupervisor · ${formatDateTime('2026-11-21T10:00:00Z')}`,
-      `segregatesanalyst · ${formatDateTime('2026-11-20T09:00:00Z')}`,
+      `VUS — warmSecondary findingsupervisor · ${formatDate('2026-11-21T10:00:00Z')}`,
+      `segregatesanalyst · ${formatDate('2026-11-20T09:00:00Z')}`,
     ]);
     // The note, with who wrote it and when.
     expect(within(block).getByText('Confirmed by Sanger.')).toHaveTextContent(
-      `Confirmed by Sanger. analyst · ${formatDateTime('2026-11-22T11:00:00Z')}`,
+      `Confirmed by Sanger. analyst · ${formatDate('2026-11-22T11:00:00Z')}`,
     );
   });
 
@@ -1767,8 +1767,8 @@ describe('SmallVariantCards review class', () => {
     const saves = Array.from(card.querySelectorAll('.variant-card-review-tags')).map((save) => save.textContent);
     // In the catalogue's order: the test's lists Report and not Review, shown by its key after it.
     expect(saves).toEqual([
-      `Reportsupervisor · ${formatDateTime('2026-11-21T10:00:00Z')}`,
-      `reviewanalyst · ${formatDateTime('2026-11-20T09:00:00Z')}`,
+      `Reportsupervisor · ${formatDate('2026-11-21T10:00:00Z')}`,
+      `reviewanalyst · ${formatDate('2026-11-20T09:00:00Z')}`,
     ]);
     expect(within(card).getByRole('button', { name: 'Report' })).toHaveAttribute('aria-pressed', 'true');
   });
@@ -1780,7 +1780,7 @@ describe('SmallVariantCards review class', () => {
     });
     const card = container.querySelector('article') as HTMLElement;
     expect(card.querySelector('.variant-card-excluded-bar')).toHaveTextContent(
-      `Excludedanalyst · ${formatDateTime('2026-11-20T09:00:00Z')}`,
+      `Excludedanalyst · ${formatDate('2026-11-20T09:00:00Z')}`,
     );
     // Not again among the tags under the heading.
     expect(card.querySelector('.variant-card-review')).toBeNull();
