@@ -220,8 +220,10 @@ def _shown(detail: object) -> str | None:
 
 
 def _wrote_nothing(session: _Session, family: _Family) -> bool:
-    """No signed record and no audit event: nothing a refused sign-out may write."""
-    return session.executed == [] and family.audited == []
+    """No signed record and no audit event: nothing a refused sign-out may write. The locks it
+    holds while it reads (the current ClinVar release's) write nothing."""
+    written = [statement for statement in session.executed if "pg_advisory" not in str(statement[0][0])]
+    return written == [] and family.audited == []
 
 
 # --------------------------------------------------------------------------- the refusals

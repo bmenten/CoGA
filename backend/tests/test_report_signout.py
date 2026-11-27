@@ -455,6 +455,8 @@ def test_sign_out_keeps_writers_out_from_before_its_snapshot_until_it_commits(mo
             params = args[1] if len(args) > 1 else {}
             if "pg_advisory_xact_lock" in sql and params.get("k") == "report-code":
                 order.append("report codes locked")
+            elif "pg_advisory_xact_lock_shared" in sql and params.get("k") == "clinvar-current-release":
+                order.append("ClinVar release held")
             elif "pg_advisory_xact_lock" in sql:
                 order.append("sign-out chain locked")
             elif "INSERT INTO report_signouts" in sql:
@@ -476,6 +478,8 @@ def test_sign_out_keeps_writers_out_from_before_its_snapshot_until_it_commits(mo
         "import jobs checked",
         "variant writes shared",
         "snapshot read",
+        # Every read of the current ClinVar release in the record is of one release.
+        "ClinVar release held",
         "import jobs checked",
         "sign-out chain locked",
         # Held to the commit, so no other sign-out takes the same report code meanwhile.
