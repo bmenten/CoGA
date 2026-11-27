@@ -41,6 +41,7 @@ from .clickhouse_family_variants import (
     CarrierCallRows,
     CfdnaRecurrence,
     CfdnaRecurrenceRules,
+    annotate_small_variant_records,
     count_cfdna_recurrence,
     count_other_cfdna_samples,
     resolve_review_selection,
@@ -680,14 +681,6 @@ def listed_artifact_protection(
     return reason
 
 
-def _family_artifacts(
-    records: Iterable[SmallVariantRecord], listed: Mapping[str, int], trio: NiptTrio, qc: NiptQualityThresholds
-) -> tuple[set[str], dict[str, str]]:
-    return family_artifact_ids(
-        records, listed, father_sample_id=trio.father_sample_id, cfdna_sample_id=trio.cfdna_sample_id, qc=qc
-    )
-
-
 # --------------------------------------------------------------------------- #
 # Loading a family
 # --------------------------------------------------------------------------- #
@@ -757,9 +750,11 @@ class NiptFamilySummary:
 
 async def _load_family_records(context: FamilyMetadataContext) -> list[SmallVariantRecord]:
     # No filters: the summary/FF estimation spans the whole family cohort (FF
-    # needs every category-7 site and the category counts are cohort-wide).
+    # needs every category-7 site and the category counts are cohort-wide). Without their
+    # annotation: the analysis reads the calls, and a plasma callset holds every low-level
+    # call, a million rows or more. A record whose annotation is read is annotated apart.
     filters = SmallVariantQueryFilters(page=1, page_size=100)
-    return await _fetch_small_variant_rows(context, filters, limit=None)
+    return await _fetch_small_variant_rows(context, filters, limit=None, annotated=False)
 
 
 async def _resolve_family_trio_context(
@@ -852,6 +847,9 @@ async def _load_target_rows(
 
 @dataclass(slots=True)
 class _FamilyData:
+    """The family's every record, its calls without its annotation (``_load_family_records``),
+    and the plasma's and the father's per-target coverage."""
+
     records: list[SmallVariantRecord]
     plasma_targets: list[TargetCoverageRow]
     father_targets: list[TargetCoverageRow]
@@ -866,6 +864,23 @@ async def _load_family_data(context: FamilyMetadataContext, trio: NiptTrio) -> _
         _load_target_rows(context, trio, trio.father_sample_id, with_metadata=False),
     )
     return _FamilyData(records=records, plasma_targets=plasma_targets, father_targets=father_targets)
+
+
+async def _family_artifacts(
+    context: FamilyMetadataContext,
+    data: _FamilyData,
+    listed: Mapping[str, int],
+    trio: NiptTrio,
+    qc: NiptQualityThresholds,
+) -> tuple[set[str], dict[str, str]]:
+    """``family_artifact_ids`` over the family's listed records, read with the annotation their
+    protection reads."""
+    listed_records = await annotate_small_variant_records(
+        context, [record for record in data.records if record.variant_id in listed]
+    )
+    return family_artifact_ids(
+        listed_records, listed, father_sample_id=trio.father_sample_id, cfdna_sample_id=trio.cfdna_sample_id, qc=qc
+    )
 
 
 def _family_sites(
@@ -911,7 +926,7 @@ async def _analyse_family(
     listed = await _load_listed_artifacts(session, context, assay_key)
     gate_bound = await load_nipt_gate_bound(session)
     data = await _load_family_data(context, trio)
-    removed, protected = _family_artifacts(data.records, listed, trio, qc)
+    removed, protected = await _family_artifacts(context, data, listed, trio, qc)
     summary = await _summarize_family(data, trio, qc, removed, gate_bound)
     return _FamilyAnalysis(
         listed=listed, data=data, removed=removed, protected=protected, summary=summary
@@ -1578,7 +1593,7 @@ async def get_family_nipt_variants(
     # the filtered subset is classified against that FF. Both steps are CPU work over
     # many sites, so they run in a worker thread.
     data = await _load_family_data(context, trio)
-    removed, _protected = _family_artifacts(data.records, listed, trio, qc)
+    removed, _protected = await _family_artifacts(context, data, listed, trio, qc)
     ff_estimate, fetal_sex = await asyncio.to_thread(
         _estimate_cohort_fetal_fraction, data, trio, qc, removed
     )
@@ -1587,8 +1602,8 @@ async def get_family_nipt_variants(
     # does not classify them. Read as the signed record reads the reported ones.
     not_classified: dict[str, str] = {}
     if review.include:
-        _selected, not_classified = await asyncio.to_thread(
-            _classify_selected,
+        _selected, not_classified = await _classify_selected(
+            context,
             review.include - review.exclude,
             data,
             trio,
@@ -1940,7 +1955,7 @@ async def get_family_nipt_diagnostic_candidates(
         )
     listed = await _load_listed_artifacts(session, context, assay_key)
     data = await _load_family_data(context, trio)
-    removed, _protected = _family_artifacts(data.records, listed, trio, qc)
+    removed, _protected = await _family_artifacts(context, data, listed, trio, qc)
     ff_estimate, fetal_sex = await asyncio.to_thread(_estimate_cohort_fetal_fraction, data, trio, qc, removed)
     candidates, filters = await _scoped_diagnostic_candidates(
         session,
@@ -2002,7 +2017,8 @@ NO_PLASMA_CALL = "no_plasma_call"
 _FETAL_WINDOWS = frozenset({"strict", "loose"})
 
 
-def _classify_selected(
+async def _classify_selected(
+    context: FamilyMetadataContext,
     wanted: set[str],
     data: _FamilyData,
     trio: NiptTrio,
@@ -2012,13 +2028,16 @@ def _classify_selected(
     qc: NiptQualityThresholds,
     fetal_sex: str | None = None,
 ) -> tuple[list[NiptClassifiedVariant], dict[str, str]]:
-    """``wanted`` among the family's variants, each classified as the variant list
-    classifies it against ``ff_estimate`` (no filter, no minimum confidence), and why the
-    analysis classifies none of the others (variant id -> reason): not in the family's
+    """``wanted`` among the family's variants, with their annotation, each classified as the
+    variant list classifies it against ``ff_estimate`` (no filter, no minimum confidence), and
+    why the analysis classifies none of the others (variant id -> reason): not in the family's
     data, removed by the artifact list, or without a plasma call. The signed record's
     reported variants and the variant list's review-tag selection both come from here."""
-    records = [record for record in data.records if record.variant_id in wanted]
-    classified = _classify_candidates(
+    records = await annotate_small_variant_records(
+        context, [record for record in data.records if record.variant_id in wanted]
+    )
+    classified = await asyncio.to_thread(
+        _classify_candidates,
         records,
         trio,
         listed,
@@ -2071,8 +2090,8 @@ async def get_family_nipt_record(
     )
     summary = analysis.summary
     wanted = {str(variant_id) for variant_id in variant_ids if variant_id}
-    classified, unclassified = await asyncio.to_thread(
-        _classify_selected,
+    classified, unclassified = await _classify_selected(
+        context,
         wanted,
         data,
         trio,

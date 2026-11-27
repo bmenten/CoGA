@@ -28,7 +28,7 @@ from backend.app.services.nipt_service import (
     get_family_nipt_variants,
     run_family_nipt_analysis,
 )
-from backend.tests._nipt_service_fakes import nipt_family, wire_nipt_reads
+from backend.tests._nipt_service_fakes import as_loaded, nipt_family, wire_nipt_reads
 
 
 def _call(sample: str, gt: str, *, dp=None, af=None, ad=None) -> SmallVariantCall:
@@ -1123,7 +1123,9 @@ def _wire_family_rows(
     _wire_variants_mocks(monkeypatch, cohort=records, filtered=records, artifacts=artifacts)
     loads: list[dict] = []
 
-    async def fetch(_context, _filters, *, limit=None, include_variant_ids=None, exclude_variant_ids=(), **_kwargs):
+    async def fetch(
+        _context, _filters, *, limit=None, include_variant_ids=None, exclude_variant_ids=(), annotated=True, **_kwargs
+    ):
         loads.append({"include": include_variant_ids, "exclude": list(exclude_variant_ids), "limit": limit})
         rows = [
             record
@@ -1131,7 +1133,7 @@ def _wire_family_rows(
             if (include_variant_ids is None or record.variant_id in include_variant_ids)
             and record.variant_id not in exclude_variant_ids
         ]
-        return rows if limit is None else rows[:limit]
+        return as_loaded(rows if limit is None else rows[:limit], annotated)
 
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fetch)
     return loads

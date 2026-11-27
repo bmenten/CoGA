@@ -83,6 +83,15 @@ Two inputs, one model:
   `source_format` names it; [data-import.md](data-import.md#small-variant-callsets)). Its quality is
   the site's QUAL (`entries.qual`).
 
+Every NIPT view reads the fetal fraction off the family's every record (`_load_family_records`),
+and the plasma's Mutect2 callset holds every low-level call, a million rows or more. That load reads
+the records' calls without their annotation (`_fetch_small_variant_rows(annotated=False)`). A
+record whose annotation the analysis reads is annotated apart (`annotate_small_variant_records`):
+the family's alleles on the artifact list, whose protection reads it (`_family_artifacts`), and the
+selected and reported variants (`_classify_selected`). The variant list and the report read their
+own variants with it. The stored details are read 2,000 annotation sets per query
+(`_ANNOTATION_SET_CHUNK`), so no query passes ClickHouse's `max_query_size`.
+
 `build_nipt_observations` (`nipt_service.py`) turns the records into one `NiptSiteObservation` per
 allele:
 
