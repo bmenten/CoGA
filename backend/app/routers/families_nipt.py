@@ -30,6 +30,7 @@ from ..schemas import (
     NiptPaternityOut,
     NiptQcOut,
     NiptRecessiveAlleleOut,
+    NiptRecessiveGeneGroupOut,
     NiptRecessiveGeneOut,
     NiptRecurrenceOut,
     NiptSummaryOut,
@@ -76,6 +77,7 @@ from ..services.nipt_service import (
     get_family_nipt_summary as load_family_nipt_summary,
     get_family_nipt_summary_with_artifacts,
     get_family_nipt_variants,
+    NiptRecessiveGene,
 )
 from ..services.nipt_target_coverage import TargetCoverageRow, TargetCoverageSummary
 from ..services.nipt_triage import RecessiveGeneRisk
@@ -224,6 +226,17 @@ def _qc_out(summary: NiptFamilySummary) -> NiptQcOut:
     )
 
 
+def _recessive_gene_group_out(gene: NiptRecessiveGene) -> NiptRecessiveGeneGroupOut:
+    """A gene of the recessive view as the list groups it: its fetal status and its variants."""
+    return NiptRecessiveGeneGroupOut(
+        **_recessive_gene_out(gene.risk).model_dump(),
+        # One gene can be read twice: chrX on either side of a pseudo-autosomal boundary.
+        group_key=f"nipt-recessive-gene:{gene.gene_id or gene.risk.gene}:{gene.risk.mode}",
+        gene_id=gene.gene_id,
+        variants=[_nipt_variant_out(item) for item in gene.variants],
+    )
+
+
 def _recessive_gene_out(gene: RecessiveGeneRisk) -> NiptRecessiveGeneOut:
     return NiptRecessiveGeneOut(
         gene=gene.gene,
@@ -249,10 +262,10 @@ def _recessive_gene_out(gene: RecessiveGeneRisk) -> NiptRecessiveGeneOut:
         maternal_variant_id=gene.maternal_variant_id,
         paternal_variant_id=gene.paternal_variant_id,
         risk_uses_prior=gene.risk_uses_prior,
-        status=gene.status,  # type: ignore[arg-type]
+        status=gene.status,
         carrier_probability=gene.carrier_probability,
         unaffected_probability=gene.unaffected_probability,
-        mode=gene.mode,  # type: ignore[arg-type]
+        mode=gene.mode,
     )
 
 
@@ -540,7 +553,9 @@ async def get_family_nipt_variants_page(
         count_limit=result.count_limit,
         fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
         variants=[_nipt_variant_out(item) for item in result.variants],
-        recessive_genes=[_recessive_gene_out(gene) for gene in result.recessive_genes],
+        variant_groups=[_recessive_gene_group_out(gene) for gene in result.recessive_genes],
+        gene_total=result.gene_total,
+        variant_total=result.variant_total,
         not_classified=[
             NiptNotClassifiedOut(variant_id=variant_id, reason=reason)  # type: ignore[arg-type]
             for variant_id, reason in sorted(result.not_classified.items())
@@ -675,7 +690,11 @@ async def export_family_nipt_variants_csv(
         panel_search="nipt_variants_export",
         **search,
     )
-    rows = [_nipt_variant_out(item) for item in result.variants]
+    # The recessive view's variants by gene, as its list groups them; a variant is in one gene.
+    rows = [
+        _nipt_variant_out(item)
+        for item in [*result.variants, *(item for gene in result.recessive_genes for item in gene.variants)]
+    ]
     cell = partial(
         _nipt_export_cell,
         fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),

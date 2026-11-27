@@ -634,10 +634,39 @@ async def test_get_family_nipt_variants_recessive_at_risk(
         inheritance="recessive_at_risk",
     )
 
-    kept = {item.record.variant_id for item in result.variants}
+    kept = {gene.risk.gene: [item.record.variant_id for item in gene.variants] for gene in result.recessive_genes}
     # GENEA compound pair + GENEC homozygote; GENEB's lone paternal hit is excluded.
-    assert kept == {"1-1-A-G", "1-2-A-G", "1-4-A-G"}
-    assert result.total == 3
+    assert kept == {"GENEA": ["1-1-A-G", "1-2-A-G"], "GENEC": ["1-4-A-G"]}
+    assert (result.total, result.gene_total, result.variant_total) == (2, 2, 3)
+
+
+@pytest.mark.asyncio
+async def test_the_categories_choose_the_recessive_genes_and_the_pairing_reads_every_carrier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # In the recessive view a category keeps the genes with a carrier variant in it: GENEA by
+    # its father's allele (category 7), paired with the mother's (category 3) as without the
+    # filter, so that the card's status is the report's; GENEC (category 4) has none.
+    _wire_variants_mocks(
+        monkeypatch, cohort=_cohort_cat7_records(), filtered=_recessive_filtered_records()
+    )
+
+    async def recessive(categories: list[int] | None) -> list:
+        result = await get_family_nipt_variants(
+            session=None,  # type: ignore[arg-type]
+            family_id="NIPT001",
+            user=None,  # type: ignore[arg-type]
+            query_filters={"gene": "GENEA GENEB GENEC"},
+            inheritance="recessive_at_risk",
+            categories=categories,
+        )
+        return result.recessive_genes
+
+    [genea] = await recessive([7])
+    [unfiltered] = [gene for gene in await recessive(None) if gene.risk.gene == "GENEA"]
+    assert [item.record.variant_id for item in genea.variants] == ["1-1-A-G", "1-2-A-G"]
+    assert genea.risk == unfiltered.risk
+    assert await recessive([1]) == []
 
 
 @pytest.mark.asyncio

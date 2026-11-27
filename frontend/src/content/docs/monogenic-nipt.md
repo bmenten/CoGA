@@ -399,11 +399,21 @@ the rest. A lower plasma call is no allele of the mother's (see *Recessive: both
 
 ### Recessive: both parents carriers
 
-The genes where the mother and the father each carry an allele among the matching variants, and, for
-a son, the X-linked genes in which his mother carries one. A parent may be heterozygous or homozygous:
-a homozygous parent (or a father with the allele on his one X) always passes it on. A son inherits his
-X from his mother alone: her allele makes him affected, and his father's X never reaches him. A
-daughter's X-linked gene is paired as an autosome: her father's X always reaches her.
+The genes where the mother and the father each carry an allele among the matching variants, and the
+X-linked genes read by the fetal sex. A parent may be heterozygous or homozygous: a homozygous parent
+(or a father with the allele on his one X) always passes it on. A variant counts in its card's gene, as
+the expanded carrier screen reads it: a gene its annotation names otherwise (one it lies up- or
+downstream of) makes no pair.
+
+On chrX outside the pseudo-autosomal regions:
+
+- a **son** inherits his X from his mother alone: her allele makes him affected, and his father's X
+  never reaches him;
+- a **daughter**'s gene is paired as an autosome, her father's X always reaching her; one parent's
+  allele alone makes her a carrier at most (her father's always, her mother's by its inheritance);
+- of a fetus whose **sex is not known** (indeterminate, discordant, or twins), every X-linked allele of
+  the mother's (a plasma call of 25% or more) and of the father's is listed, nothing told: a son would
+  inherit his mother's X alone, a daughter her father's.
 
 The mother carries an allele only where the plasma calls it in her band (categories 2 to 6) at an
 allele fraction of 25% or more. Her heterozygous allele sits near 50% in the plasma; a lower call that
@@ -411,10 +421,21 @@ the model places in her band is a low-level artefact or the fetus's allele, neve
 gene one both parents carry. The maternal and recessive views therefore read only the variants a
 parent's allele can come from: a plasma call of 25% or more, or a call of the father's.
 
-The table **Recessive fetal status by gene** gives, per gene, every maternal and paternal allele with the
-probability that the fetus inherited it. For the pair most likely to make the fetus affected it gives
-the **fetal status** and three probabilities: **affected** (the fetus inherited a maternal and a
-paternal allele), **carrier** (one of the two) and **unaffected** (neither).
+Each gene is a card, as in the expanded carrier screen: its carrier variants, what each parent carries
+with each allele's category and the probability that the fetus inherited it, the pair most likely to
+make the fetus affected (the pair the status rests on), which of its variants the fetus inherited
+(**both**, **one of the two**, **neither**) and three probabilities: **affected** (the fetus inherited a maternal and a paternal allele), **carrier**
+(one of the two) and **unaffected** (neither). An inheritance between 20% and 80%, or one the cfDNA did
+not tell, is not told: the status is then **undetermined**, or **not affected (carrier status
+undetermined)** when one of the two alleles was surely not inherited (20% or less), since the fetus
+cannot have inherited both. The mother's inheritance is the hard one to tell: her allele sits near 50%
+in the plasma whether the fetus inherited it or not, the difference half the fetal fraction.
+
+The genes are listed by status, **affected** first, then **undetermined** (an X-linked gene of a fetus
+whose sex is not known among them), then the carriers and the unaffected, and by the probability that
+the fetus is affected within each. The pairing reads every carrier variant of the search, as the
+report and the signed record do: the category and recurrence filters choose which genes are listed
+(those with a carrier variant they keep), and never change a gene's status.
 
 - For a maternal allele and a paternal allele at different sites, the two inheritances are independent:
   affected is their product, carrier the chance of exactly one.
@@ -427,7 +448,7 @@ paternal allele), **carrier** (one of the two) and **unaffected** (neither).
   undetermined.
 - For a son's X-linked gene, affected is the probability that he inherited his mother's allele. He is
   never a carrier.
-- The table highlights the pair. A carrier couple's prior is 25%.
+- A carrier couple's prior is 25%.
 
 The status follows the R validation's rule. An inheritance of 80% or more counts as inherited, one of
 20% or less as not inherited. The fetus is affected when both alleles were inherited, a carrier when
@@ -437,8 +458,8 @@ probability is then read at its 50% prior, and the table says so.
 
 The status assumes both alleles are pathogenic and, for two sites, that the maternal and paternal
 alleles are in trans. An allele without any population frequency is noted: the frequency filters let it
-through. An MNV never has one (gnomAD lists its SNVs) and is often a common haplotype. The variant list
-below the table holds every carrier variant of the listed genes.
+through. An MNV never has one (gnomAD lists its SNVs) and is often a common haplotype. Each card holds
+every carrier variant of its gene.
 
 ### Built-in presets
 
@@ -449,7 +470,10 @@ The presets combine the views with the usual filters:
   left out;
 - **Paternal, inherited**: the paternal view with HIGH or MODERATE impact and the same frequency and
   ClinVar rules;
-- **Recessive (both parents carrier)**: the recessive view with those filters.
+- **Recessive (both parents carrier)**: the recessive view as the expanded carrier screen reads a couple:
+  the gene panel named *BeGECS v3* (every gene without one), HIGH or MODERATE impact, gnomAD below 5%,
+  ClinVar pathogenic or likely pathogenic overriding the impact and the frequency, ClinVar benign and
+  likely benign left out.
 
 The page opens on **De novo**, on the analysis's diagnostic gene panel (without one, on the **Mendeliome**), unless its link carries a search of its own.
 
@@ -596,7 +620,7 @@ adjustable, for exploring; the report and the sign-out use these.
 | De novo in the fetus | A de novo candidate in the fetal window, at most 25%, that no other cfDNA sample of the assay carries (unless ClinVar calls it pathogenic), rare and protein-altering |
 | Paternal, inherited | The father's allele the fetus inherited (probability 50% or more), rare and protein-altering |
 | Maternal | Each of the mother's alleles (a plasma call of 25% or more), rare and protein-altering, with the probability that the fetus inherited it: the maternal inference is the least certain, so it does not narrow the list |
-| Recessive | A gene in which both parents carry an allele that is rare at 1% and protein-altering (for a son, an X-linked gene in which his mother carries one), the mother's from a plasma call of 25% or more, with the fetal status and its probabilities |
+| Recessive | A gene in which both parents carry an allele that is rare at 1% and protein-altering (on chrX, read by the fetal sex as the recessive view reads it), the mother's from a plasma call of 25% or more, with the fetal status and its probabilities |
 
 - **Technical filter**, as in the R validation: the de novo, paternal and maternal lists, and the
   mother's alleles of the recessive pairing, hold only plasma calls that pass the cfDNA quality filter

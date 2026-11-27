@@ -1,4 +1,5 @@
 import type { ApiNiptCoverageLowRegion, NiptLowCoverageReason } from '../../lib/apiTypes';
+import type { NiptRecessiveGeneOut } from '../../lib/apiSchema.generated';
 import { holdsAnalysis } from '../../lib/familyAnalyses';
 
 // Shared presentation helpers for the monogenic NIPT views (the workbench page
@@ -101,35 +102,116 @@ export const describeNiptGateBound = (gate: {
     gate.provisional ? ' (provisional: QA has not set it)' : ' (set by QA)'
   }.`;
 
-// The fetal status of a recessive gene (nipt_triage): affected, carrier, unaffected or
-// undetermined (an inheritance between 20% and 80%, or one the cfDNA did not tell).
-export const RECESSIVE_STATUS_LABELS: Record<string, string> = {
+export type RecessiveStatus = NiptRecessiveGeneOut['status'];
+export type RecessiveMode = NiptRecessiveGeneOut['mode'];
+
+// The fetal status of a recessive gene (nipt_triage): affected, carrier, unaffected, not
+// affected with the carrier status not told (one allele surely not inherited, the other not
+// told), or undetermined (an inheritance between 20% and 80%, or one the cfDNA did not tell).
+export const RECESSIVE_STATUS_LABELS: Record<RecessiveStatus, string> = {
   affected: 'Affected',
   carrier: 'Carrier',
   unaffected: 'Unaffected',
+  carrier_or_unaffected: 'Not affected (carrier status undetermined)',
   undetermined: 'Undetermined',
 };
 
-export const recessiveStatusTone = (status?: string | null): string => {
-  if (status === 'affected') return 'table-chip table-chip--critical';
-  if (status === 'undetermined') return 'table-chip table-chip--warning';
-  if (status === 'unaffected' || status === 'carrier') return 'table-chip table-chip--success';
-  return 'table-chip table-chip--neutral';
+const RECESSIVE_STATUS_TONES: Record<RecessiveStatus, string> = {
+  affected: 'critical',
+  undetermined: 'warning',
+  carrier: 'success',
+  carrier_or_unaffected: 'success',
+  unaffected: 'success',
+};
+
+export const recessiveStatusTone = (status: RecessiveStatus): string =>
+  `table-chip table-chip--${RECESSIVE_STATUS_TONES[status]}`;
+
+// How a recessive gene's chrX is read (nipt_triage.RecessiveMode), as the report names it; an
+// autosome needs no name.
+export const RECESSIVE_MODE_LABELS: Record<RecessiveMode, string | null> = {
+  autosomal: null,
+  x_linked_son: 'X-linked, a son: his mother’s allele alone',
+  x_linked_daughter: 'X-linked, a daughter: paired as an autosome, one parent’s allele at most a carrier',
+  x_linked_sex_unknown: 'X-linked, the fetal sex not known: each parent’s alleles',
+};
+
+/** Whether a signed record's text is one of the statuses. */
+export const isRecessiveStatus = (value: string): value is RecessiveStatus => Object.hasOwn(RECESSIVE_STATUS_LABELS, value);
+
+/** Whether a signed record's text is one of the modes. */
+export const isRecessiveMode = (value: string): value is RecessiveMode => Object.hasOwn(RECESSIVE_MODE_LABELS, value);
+
+/**
+ * "affected 92.0%, carrier 7.0%, unaffected 1.0%": a recessive gene's fetal probabilities by its
+ * `mode`. A son's X-linked gene has no carrier state: his mother's allele alone makes him
+ * affected. Of a fetus whose sex is not known none is told (null).
+ */
+export const recessiveProbabilitiesText = (
+  affected: number | null,
+  carrier: number | null,
+  unaffected: number | null,
+  mode: RecessiveMode,
+): string | null =>
+  mode === 'x_linked_sex_unknown'
+    ? null
+    : [`affected ${pct(affected)}`, mode === 'x_linked_son' ? null : `carrier ${pct(carrier)}`, `unaffected ${pct(unaffected)}`]
+        .filter(Boolean)
+        .join(', ');
+
+/**
+ * The alleles a recessive gene's status rests on: "maternal A, paternal B", "A, a site both
+ * parents carry", or one parent's allele alone, each by its variant ID or as `name` names it;
+ * null when nothing is paired (the fetal sex not known).
+ */
+export const recessivePairText = (
+  maternal: string | null,
+  paternal: string | null,
+  name: (variantId: string) => string = (variantId) => variantId,
+): string | null => {
+  if (maternal && paternal) {
+    return maternal === paternal
+      ? `${name(maternal)}, a site both parents carry`
+      : `maternal ${name(maternal)}, paternal ${name(paternal)}`;
+  }
+  if (maternal) return `maternal ${name(maternal)}`;
+  return paternal ? `paternal ${name(paternal)}` : null;
+};
+
+type RecessiveGeneReading = Pick<NiptRecessiveGeneOut, 'status' | 'mode' | 'maternal' | 'paternal'>;
+
+/** Whether the mother and the father each carry an allele of the gene. */
+export const bothParentsCarry = (gene: Pick<NiptRecessiveGeneOut, 'maternal' | 'paternal'>): boolean =>
+  gene.maternal.length > 0 && gene.paternal.length > 0;
+
+const PAIR_INHERITANCE: Record<RecessiveStatus, string> = {
+  affected: 'Both variants inherited: affected',
+  carrier: 'One of the two variants inherited: a carrier',
+  unaffected: 'Neither variant inherited',
+  carrier_or_unaffected: 'Not both inherited: one variant surely not, the other not told',
+  undetermined: 'Not told which of the variants the fetus inherited',
 };
 
 /**
- * "affected 92.0%, carrier 7.0%, unaffected 1.0%": a recessive gene's fetal probabilities. A
- * son's X-linked gene has no carrier state: his mother's allele alone makes him affected.
+ * Which of the gene's alleles the fetus inherited, in words: both, one of the two or neither for
+ * a pair (an autosome, a daughter's X); a daughter's one parent's allele; a son's mother's X
+ * allele; nothing told of a fetus whose sex is not known.
  */
-export const recessiveProbabilitiesText = (
-  affected: number | null | undefined,
-  carrier: number | null | undefined,
-  unaffected: number | null | undefined,
-  xLinked: boolean,
-): string =>
-  [`affected ${pct(affected)}`, xLinked ? null : `carrier ${pct(carrier)}`, `unaffected ${pct(unaffected)}`]
-    .filter(Boolean)
-    .join(', ');
+export const recessiveInheritanceText = (gene: RecessiveGeneReading): string => {
+  if (gene.mode === 'x_linked_sex_unknown') return 'Not told whether the fetus is affected';
+  if (gene.mode === 'x_linked_son') {
+    if (gene.status === 'affected') return "Inherited his mother's variant: affected";
+    if (gene.status === 'unaffected') return "Did not inherit his mother's variant";
+    return "Not told whether he inherited his mother's variant";
+  }
+  if (!bothParentsCarry(gene)) {
+    // A daughter's X: one parent's allele alone.
+    if (gene.status === 'carrier') return 'Inherited the variant: a carrier';
+    if (gene.status === 'unaffected') return 'Did not inherit the variant';
+    return 'Not told whether she inherited the variant: a carrier at most';
+  }
+  return PAIR_INHERITANCE[gene.status];
+};
 
 // The father's genotype classes (nipt_analysis.FATHER_STATES): his HaplotypeCaller genotype, or
 // his allele depths for a call without a GQ (nipt_service.derive_father_state).

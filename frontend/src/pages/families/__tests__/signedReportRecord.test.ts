@@ -11,6 +11,7 @@ import {
   describeSignedDiagnosticCandidate,
   describeSignedGate,
   describeSignedQcMetric,
+  describeSignedRecessivePair,
   describeSignedRecessiveStatus,
   describeCatalogue,
   describeCnvKnowledgebase,
@@ -70,6 +71,7 @@ import {
   parseUnreviewedFindings,
   reportViewSearch,
   type SignedCoverageTrack,
+  type SignedNiptRecessiveGene,
   type SignedPgtAnalysis,
   type SignedRepeatExpansions,
   type SignedReport,
@@ -2284,6 +2286,29 @@ describe('a NIPT family’s NIPT results', () => {
         unaffectedProbability: 0.1,
       }),
     ).toBe('Affected (X-linked): affected 90.0%, unaffected 10.0%');
+    // One allele surely not inherited, the other not told: never both.
+    expect(
+      describeSignedRecessiveStatus({ ...nipt.recessiveGenes[0], status: 'carrier_or_unaffected', riskUsesPrior: false }),
+    ).toBe('Not affected (carrier status undetermined): affected 0.0%, carrier 2.0%, unaffected 98.0%');
+    // The fetal sex not known: each parent's X alleles, nothing told or paired.
+    const sexUnknown: SignedNiptRecessiveGene = {
+      ...nipt.recessiveGenes[0],
+      status: 'undetermined',
+      mode: 'x_linked_sex_unknown',
+      risk: null,
+      carrierProbability: null,
+      unaffectedProbability: null,
+      riskUsesPrior: false,
+    };
+    expect(describeSignedRecessiveStatus(sexUnknown)).toBe('Undetermined (X-linked): not told, the fetal sex is not known');
+    expect(describeSignedRecessivePair(sexUnknown)).toBe('');
+    // A daughter's X with her father's allele alone; a site both parents carry.
+    expect(describeSignedRecessivePair({ ...nipt.recessiveGenes[0], paternalVariantId: 'X-300-C-T' })).toBe(
+      ' (paternal X-300-C-T)',
+    );
+    expect(
+      describeSignedRecessivePair({ ...nipt.recessiveGenes[0], maternalVariantId: '1-1-A-G', paternalVariantId: '1-1-A-G' }),
+    ).toBe(' (1-1-A-G, a site both parents carry)');
     expect(nipt.artifactList).toBeNull();
     expect(nipt.modelReference).toBeNull();
   });

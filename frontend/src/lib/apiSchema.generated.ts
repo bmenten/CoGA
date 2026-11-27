@@ -3048,9 +3048,34 @@ export interface NiptRecessiveAlleleOut {
 }
 
 /**
- * A gene where both parents carry an allele (or, X-linked, a son's mother carries one):
- * whether the fetus inherited each, the probability it is affected (``risk``; a carrier
- * couple's prior is 25%), a carrier or neither, and its fetal status.
+ * A gene of the NIPT list's recessive view, as the list groups it: its fetal status, its card
+ * gene's id, and every carrier variant of the gene, as the list shows a variant.
+ */
+export interface NiptRecessiveGeneGroupOut {
+  gene: string;
+  maternal: NiptRecessiveAlleleOut[];
+  paternal: NiptRecessiveAlleleOut[];
+  risk: number | null;
+  maternal_variant_id: string | null;
+  paternal_variant_id: string | null;
+  risk_uses_prior: boolean;
+  status: "affected" | "carrier" | "unaffected" | "carrier_or_unaffected" | "undetermined";
+  carrier_probability: number | null;
+  unaffected_probability: number | null;
+  mode: "autosomal" | "x_linked_daughter" | "x_linked_son" | "x_linked_sex_unknown";
+  group_type: "nipt_recessive_gene";
+  group_key: string;
+  gene_id: string | null;
+  variants: NiptVariantOut[];
+}
+
+/**
+ * A gene where both parents carry an allele (on chrX outside the pseudo-autosomal regions
+ * also one where a son's mother, one parent of a daughter, or either parent of a fetus whose
+ * sex is not known carries one): whether the fetus inherited each, the probability it is
+ * affected (``risk``; a carrier couple's prior is 25%; none when the fetal sex is not known),
+ * a carrier or neither, and its fetal status (``carrier_or_unaffected``: one allele surely
+ * not inherited, the other not told).
  */
 export interface NiptRecessiveGeneOut {
   gene: string;
@@ -3060,10 +3085,10 @@ export interface NiptRecessiveGeneOut {
   maternal_variant_id: string | null;
   paternal_variant_id: string | null;
   risk_uses_prior: boolean;
-  status: "affected" | "carrier" | "unaffected" | "undetermined";
+  status: "affected" | "carrier" | "unaffected" | "carrier_or_unaffected" | "undetermined";
   carrier_probability: number | null;
   unaffected_probability: number | null;
-  mode: "autosomal" | "x_linked_daughter" | "x_linked_son";
+  mode: "autosomal" | "x_linked_daughter" | "x_linked_son" | "x_linked_sex_unknown";
 }
 
 /**
@@ -3293,7 +3318,9 @@ export interface NiptVariantPage {
   count_limit: number | null;
   fetal_fraction: NiptFetalFractionOut;
   variants: NiptVariantOut[];
-  recessive_genes: NiptRecessiveGeneOut[];
+  variant_groups: NiptRecessiveGeneGroupOut[];
+  gene_total: number | null;
+  variant_total: number | null;
   not_classified: NiptNotClassifiedOut[];
 }
 

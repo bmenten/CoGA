@@ -7,6 +7,7 @@ import type {
   GenePanelOut,
   GenotypeOut,
   NiptClassificationOut,
+  NiptRecessiveGeneGroupOut,
   NiptVariantPage,
   CompoundHetPairOut,
   SmallVariantCarrierGeneOut,
@@ -129,8 +130,7 @@ export type RankedBy = VariantPage['ranked_by'];
 // A page of variants as the variant list shows it: the family list's (VariantPage) or the
 // monogenic NIPT list's (NiptVariantPage), which has no pairs, no ranking and no candidate
 // window. The family list only: `members_without_calls`, the members without calls in the
-// callsets it reads (membersWithoutCalls.ts). NIPT only: `recessive_genes`, the genes of the
-// recessive view where both parents carry an allele, `not_classified`, the variants the
+// callsets it reads (membersWithoutCalls.ts). NIPT only: `not_classified`, the variants the
 // review-tag filter selects that the analysis does not classify, so that no list shows them,
 // with why, and `trio`, the samples the analysis read as the plasma and the father, and the
 // fetus's placeholder, by which the genotypes show each sample's reads (niptGenotypes.ts).
@@ -152,7 +152,7 @@ export type SmallVariantPage = Pick<VariantPage, 'total' | 'total_is_estimated' 
       | 'members_without_calls'
     >
   > &
-  Partial<Pick<NiptVariantPage, 'recessive_genes' | 'not_classified' | 'trio'>> & {
+  Partial<Pick<NiptVariantPage, 'not_classified' | 'trio'>> & {
     variants: SmallVariant[];
     variant_groups?: SmallVariantResultGroup[];
   };
@@ -163,7 +163,10 @@ export type FamilySmallVariantPage = Omit<VariantPage, 'variants' | 'variant_gro
   variants: SmallVariant[];
   variant_groups: SmallVariantResultGroup[];
 };
-export type NiptSmallVariantPage = Omit<NiptVariantPage, 'variants'> & { variants: SmallVariant[] };
+export type NiptSmallVariantPage = Omit<NiptVariantPage, 'variants' | 'variant_groups'> & {
+  variants: SmallVariant[];
+  variant_groups: NiptRecessiveGene[];
+};
 
 // A pair of a compound-het gene. `phase` is derived from the calls, unlike review.phase_status
 // which is the curator's own call: the reads (one phase set) or the parents' genotypes, as
@@ -182,8 +185,14 @@ export type SmallVariantCarrierGene = Omit<SmallVariantCarrierGeneOut, 'variants
   variants: SmallVariant[];
 };
 
+// A gene of the monogenic NIPT list's recessive view: every carrier variant of the gene, which
+// parent carries each and whether the fetus inherited it, and the fetal status.
+export type NiptRecessiveGene = Omit<NiptRecessiveGeneGroupOut, 'variants'> & {
+  variants: SmallVariant[];
+};
+
 // A grouped result of the list, told apart by its group_type.
-export type SmallVariantResultGroup = SmallVariantCompoundHetGene | SmallVariantCarrierGene;
+export type SmallVariantResultGroup = SmallVariantCompoundHetGene | SmallVariantCarrierGene | NiptRecessiveGene;
 
 export type SmallVariantReviewSavePayload = {
   // null clears the stored classification; left out, the save clears it too, so a client
@@ -540,7 +549,7 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
     value: 'nipt_recessive',
     label: 'Recessive (both parents carrier)',
     description:
-      "Genes where both parents carry a rare, high/moderate variant (ClinVar P/LP overrides frequency and impact), the mother's from a plasma call of 25% or more, with the probability that the fetus inherited each allele and both.",
+      `Genes of the ${CARRIER_SCREENING_PANEL_NAME} panel where both parents carry a high- or moderate-impact variant below 5% in gnomAD (ClinVar P/LP overrides the frequency and impact cut-offs, ClinVar benign is left out), the mother's from a plasma call of 25% or more, and the X-linked variants of either parent, read by the fetal sex: for each gene, whether the fetus inherited neither, one or both variants.`,
   },
 ];
 
@@ -1025,6 +1034,21 @@ const buildPresetState = (
     filters.max_gnomad_popmax_af = value;
   };
 
+  // The carrier screen's variants, of a couple or of a pregnancy's parents: those of the BeGECS
+  // panel with a high or moderate impact below 5% (which keeps the carrier frequencies of the
+  // common recessive disorders). A ClinVar pathogenic or likely pathogenic call overrides the
+  // impact and frequency cut-offs, so a founder allele above 5% in some population stays in,
+  // and so does a pathogenic synonymous or splice-region variant. A ClinVar benign or likely
+  // benign variant is no finding: it is left out, and cannot make a gene one both carry a
+  // variant in. Without a panel of that name the screen reads every gene.
+  const setCarrierScreenVariants = () => {
+    filters.panel_id = carrierScreeningPanelId;
+    filters.impact = 'HIGH, MODERATE';
+    setFrequencyCeiling('0.05');
+    filters.clinvar_pathogenic_override = 'true';
+    filters.exclude_clinvar = 'Benign, Likely benign';
+  };
+
   if (preset === 'dominant_strict') {
     setFrequencyCeiling('0.001');
     filters.impact = 'HIGH';
@@ -1059,35 +1083,22 @@ const buildPresetState = (
     setFrequencyCeiling('0.01');
     filters.clinvar_pathogenic_override = 'true';
   } else if (preset === 'nipt_recessive') {
-    // Monogenic NIPT: genes where both parents carry a high/moderate, rare
-    // variant; the backend recessive_at_risk grouping returns every carrier
-    // variant in those genes so the analyst can read the fetal inheritance
-    // (none / one / both) off the categories. ClinVar P/LP overrides impact and frequency.
+    // Monogenic NIPT, as the expanded carrier screen reads a couple: the genes in which both
+    // parents carry a variant, and the X-linked variants of either parent. The backend's
+    // recessive_at_risk view lists each gene with every carrier variant and the fetal status
+    // (none, one or both inherited).
     filters.inheritance = 'recessive_at_risk';
-    filters.impact = 'HIGH, MODERATE';
-    setFrequencyCeiling('0.01');
-    filters.clinvar_pathogenic_override = 'true';
+    setCarrierScreenVariants();
   } else if (preset === 'expanded_carrier_screening') {
     const couple = resolveCarrierScreeningCoupleMembers(members);
     if (!couple) {
       return { filters, sampleFilters };
     }
-    // The genes of the BeGECS panel both partners carry a high- or moderate-impact variant
-    // below 5% in, and each partner's X-linked variants: 5% keeps the carrier frequencies of
-    // the common recessive disorders. Without an impact filter a long-read genome holds
-    // hundreds of thousands of such variants: the search would stop at its candidate cap long
-    // before chrX. A ClinVar pathogenic or likely pathogenic call overrides the impact and
-    // frequency cut-offs, so a founder allele above 5% in some population stays in, and so
-    // does a pathogenic synonymous or splice-region variant. A ClinVar
-    // benign or likely benign variant is no finding: it is left out, and cannot make a gene
-    // one both partners carry a variant in. Without a panel of that name the screen reads
-    // every gene.
+    // The genes both partners carry a variant in, and each partner's X-linked variants.
+    // Without an impact filter a long-read genome holds hundreds of thousands of variants
+    // below 5%: the search would stop at its candidate cap long before chrX.
     filters.expanded_carrier_screening = 'true';
-    filters.panel_id = carrierScreeningPanelId;
-    filters.impact = 'HIGH, MODERATE';
-    setFrequencyCeiling('0.05');
-    filters.clinvar_pathogenic_override = 'true';
-    filters.exclude_clinvar = 'Benign, Likely benign';
+    setCarrierScreenVariants();
   } else if (preset === 'phenotype_priority') {
     // Exomiser-style: rare candidate set ranked by gene-phenotype match. gnomAD
     // <1% + H/H <=10, but ClinVar P/LP overrules the impact and frequency cut-offs; ClinVar

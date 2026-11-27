@@ -366,22 +366,39 @@ class NiptRecessiveAlleleOut(BaseModel):
 
 
 class NiptRecessiveGeneOut(BaseModel):
-    """A gene where both parents carry an allele (or, X-linked, a son's mother carries one):
-    whether the fetus inherited each, the probability it is affected (``risk``; a carrier
-    couple's prior is 25%), a carrier or neither, and its fetal status."""
+    """A gene where both parents carry an allele (on chrX outside the pseudo-autosomal regions
+    also one where a son's mother, one parent of a daughter, or either parent of a fetus whose
+    sex is not known carries one): whether the fetus inherited each, the probability it is
+    affected (``risk``; a carrier couple's prior is 25%; none when the fetal sex is not known),
+    a carrier or neither, and its fetal status (``carrier_or_unaffected``: one allele surely
+    not inherited, the other not told)."""
 
     gene: str
     maternal: List[NiptRecessiveAlleleOut]
     paternal: List[NiptRecessiveAlleleOut]
-    risk: Optional[float] = None
-    maternal_variant_id: Optional[str] = None
-    paternal_variant_id: Optional[str] = None
-    risk_uses_prior: bool = False
-    status: Literal["affected", "carrier", "unaffected", "undetermined"] = "undetermined"
-    carrier_probability: Optional[float] = None
-    unaffected_probability: Optional[float] = None
-    # autosomal; x_linked_daughter (paired as an autosome); x_linked_son (his mother's allele alone).
-    mode: Literal["autosomal", "x_linked_daughter", "x_linked_son"] = "autosomal"
+    risk: Optional[float]
+    # The pair the status rests on (none when the fetal sex is not known).
+    maternal_variant_id: Optional[str]
+    paternal_variant_id: Optional[str]
+    risk_uses_prior: bool
+    status: Literal["affected", "carrier", "unaffected", "carrier_or_unaffected", "undetermined"]
+    carrier_probability: Optional[float]
+    unaffected_probability: Optional[float]
+    # autosomal; x_linked_daughter (paired as an autosome, one parent's allele alone at most a
+    # carrier); x_linked_son (his mother's allele alone); x_linked_sex_unknown (each parent's
+    # alleles, the fetal sex not known).
+    mode: Literal["autosomal", "x_linked_daughter", "x_linked_son", "x_linked_sex_unknown"]
+
+
+class NiptRecessiveGeneGroupOut(NiptRecessiveGeneOut):
+    """A gene of the NIPT list's recessive view, as the list groups it: its fetal status, its card
+    gene's id, and every carrier variant of the gene, as the list shows a variant."""
+
+    group_type: Literal["nipt_recessive_gene"] = "nipt_recessive_gene"
+    group_key: str
+    gene_id: Optional[str] = None
+    # NiptVariantOut subclasses VariantOut, which is defined later in this module.
+    variants: List["NiptVariantOut"] = Field(default_factory=list)
 
 
 class NiptNotClassifiedOut(BaseModel):
@@ -420,8 +437,12 @@ class NiptVariantPage(BaseModel):
     fetal_fraction: NiptFetalFractionOut
     # NiptVariantOut subclasses VariantOut, which is defined later in this module.
     variants: List["NiptVariantOut"]
-    # The recessive view: the genes where both parents carry an allele, highest risk first.
-    recessive_genes: List[NiptRecessiveGeneOut] = Field(default_factory=list)
+    # The recessive view's results: its genes, most likely affected first, each with its
+    # carrier variants (``variants`` then holds none, and ``total`` counts the genes);
+    # ``gene_total`` and ``variant_total`` count them on every page.
+    variant_groups: List[NiptRecessiveGeneGroupOut] = Field(default_factory=list)
+    gene_total: Optional[int] = None
+    variant_total: Optional[int] = None
     # The variants the review-tag filter selects that the analysis does not classify,
     # whatever the other filters, by variant id; [] without a review-tag filter.
     not_classified: List[NiptNotClassifiedOut] = Field(default_factory=list)
@@ -645,6 +666,7 @@ class NiptDiagnosticCandidatesOut(BaseModel):
     recessive_variants: List[NiptDiagnosticCandidateOut] = Field(default_factory=list)
 
 
+NiptRecessiveGeneGroupOut.model_rebuild()
 NiptVariantPage.model_rebuild()
 NiptClassificationOut.model_rebuild()
 NiptTargetCoverageGeneOut.model_rebuild()

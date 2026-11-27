@@ -25,8 +25,8 @@ import {
   type SmallVariantCardListProps,
 } from './SmallVariantCards';
 import { GeneCurationLine, GeneDiseaseSummaryLine } from './VariantGeneDiseases';
-
-type MemberView = 'cards' | 'table';
+import { niptRecessiveGeneView } from './NiptRecessiveGeneView';
+import { namedVariants, type GroupView, type MemberView } from './smallVariantGroupView';
 
 interface SmallVariantGroupCardsProps extends SmallVariantCardListProps {
   groups: SmallVariantResultGroup[];
@@ -53,20 +53,6 @@ const personName = (samples: string[], members: FamilyMember[]) =>
       return role && role !== 'other' ? `${sample} (${role})` : sample;
     })
     .join(' + ') || 'Unnamed';
-
-const listInWords = (items: string[]) =>
-  items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
-
-// Some of a group's variants, as its lines name them: by their place when the group lists its
-// variants as cards headed "Variant 1 of 3", by their change in a table.
-const namedVariants = (variants: SmallVariant[], ids: string[], memberView: MemberView) => {
-  const named = variants
-    .map((variant, index) => ({ variant, place: index + 1 }))
-    .filter(({ variant }) => ids.includes(variant._id));
-  if (!named.length) return null;
-  if (memberView === 'table') return listInWords(named.map(({ variant }) => formatVariantChange(variant)));
-  return `${named.length === 1 ? 'variant' : 'variants'} ${listInWords(named.map(({ place }) => String(place)))}`;
-};
 
 // A pair of a gene, as its line names it: "Variants 1 + 3" over cards, the two changes in a table.
 const pairName = (variants: SmallVariant[], pair: CompoundHetPair, memberView: MemberView) => {
@@ -245,10 +231,92 @@ function CoupleLines({
   );
 }
 
+interface GroupContext {
+  gene: string;
+  list: SmallVariantCardList;
+  members: FamilyMember[];
+  memberView: MemberView;
+}
+
+const compoundHetView = (
+  group: SmallVariantCompoundHetGene,
+  { list, members, memberView }: GroupContext,
+): GroupView => {
+  const parents = tracedParents(group, members);
+  return {
+    label: 'Compound het',
+    subject: 'compound het gene',
+    aria: 'Compound het gene',
+    chips: (
+      <span className="variant-card-chip variant-card-chip--neutral">
+        {group.pairs.length} pair{group.pairs.length === 1 ? '' : 's'}
+      </span>
+    ),
+    lines: <CompoundHetLines group={group} list={list} members={members} memberView={memberView} />,
+    // The parent the variant traces to.
+    personChips: (variant) => {
+      const parent = group.inherited_from[variant._id];
+      if (!parent) return null;
+      return (
+        <span
+          className={`variant-card-chip variant-group-person variant-group-person--${parents.indexOf(parent) + 1}`}
+          title={`Traced to ${personName([parent], members)}`}
+        >
+          {parentChipLabel(parent, members)}
+        </span>
+      );
+    },
+  };
+};
+
+const carrierGeneView = (
+  group: SmallVariantCarrierGene,
+  { gene, members, memberView }: GroupContext,
+): GroupView => ({
+  label: 'Carrier gene',
+  subject: 'carrier gene',
+  aria: 'Carrier gene',
+  chips: (
+    <>
+      {group.both_partners_carry ? (
+        <span className="variant-card-chip variant-card-chip--critical">Both partners</span>
+      ) : null}
+      {group.x_linked ? <span className="variant-card-chip variant-card-chip--warning">X-linked</span> : null}
+    </>
+  ),
+  lines: <CoupleLines group={group} gene={gene} members={members} memberView={memberView} />,
+  // Each partner who carries the variant.
+  personChips: (variant) =>
+    group.partners.map((partner, index) =>
+      partner.variant_ids.includes(variant._id) ? (
+        <span
+          key={partner.samples.join('+') || index}
+          className={`variant-card-chip variant-group-person variant-group-person--${index + 1}`}
+          title="Carried by this partner"
+        >
+          {partner.samples.join(' + ')}
+        </span>
+      ) : null,
+    ),
+});
+
+/** What a group shows of its own kind: a compound-het gene, a carrier screen's or the NIPT's. */
+const groupView = (group: SmallVariantResultGroup, context: GroupContext): GroupView => {
+  switch (group.group_type) {
+    case 'compound_het':
+      return compoundHetView(group, context);
+    case 'carrier_gene':
+      return carrierGeneView(group, context);
+    case 'nipt_recessive_gene':
+      return niptRecessiveGeneView(group, context);
+  }
+};
+
 /**
  * A search's grouped results: each gene with compound-het pairs, with every variant of its pairs
  * and the pairs among them, and each gene of an expanded carrier screen with every variant the
- * couple carries there, however many. A group is headed by its gene, once with the gene's
+ * couple carries there, however many, and each recessive gene of the monogenic NIPT with every
+ * carrier variant and the fetal status. A group is headed by its gene, once with the gene's
  * diseases and curated inheritance, and holds its variants as the single-variant list shows
  * them: each as its full card, or as the rows of a table.
  */
@@ -263,7 +331,6 @@ export default function SmallVariantGroupCards({ groups, memberView, ...props }:
     <div className="variant-card-list">
       {groups.map((group) => {
         const anchorVariant = group.variants[0];
-        const isCompoundHet = group.group_type === 'compound_het';
         const groupGene = group.gene || group.gene_id || anchorVariant?.gene || anchorVariant?.gene_id;
         const geneName = groupGene || 'an unnamed gene';
         const geneInfoHref = anchorVariant
@@ -277,52 +344,24 @@ export default function SmallVariantGroupCards({ groups, memberView, ...props }:
               projectId,
             )
           : null;
-        const kind = isCompoundHet ? 'compound het gene' : 'carrier gene';
         const folded = list.collapsedCards.isCollapsed(group.group_key);
         const geneDiseaseState = geneDiseaseStateOf(list, group.gene || anchorVariant?.gene);
         const firstCardKey = anchorVariant ? `${group.group_key}:${anchorVariant._id}` : group.group_key;
         const count = group.variants.length;
-        const parents = isCompoundHet ? tracedParents(group, members) : [];
-        // On each card, in the lines' colours: the parent the variant traces to, in a
-        // compound-het gene; each partner who carries it, in a carrier screen.
-        const personChips = (variant: SmallVariant) => {
-          if (isCompoundHet) {
-            const parent = group.inherited_from[variant._id];
-            if (!parent) return null;
-            return (
-              <span
-                className={`variant-card-chip variant-group-person variant-group-person--${parents.indexOf(parent) + 1}`}
-                title={`Traced to ${personName([parent], members)}`}
-              >
-                {parentChipLabel(parent, members)}
-              </span>
-            );
-          }
-          return group.partners.map((partner, index) =>
-            partner.variant_ids.includes(variant._id) ? (
-              <span
-                key={partner.samples.join('+') || index}
-                className={`variant-card-chip variant-group-person variant-group-person--${index + 1}`}
-                title="Carried by this partner"
-              >
-                {partner.samples.join(' + ')}
-              </span>
-            ) : null,
-          );
-        };
+        const view = groupView(group, { gene: geneName, list, members, memberView });
 
         return (
           <article
             key={group.group_key}
             className={`variant-card variant-group-card${folded ? ' variant-card--collapsed' : ''}`}
-            aria-label={`${isCompoundHet ? 'Compound het gene' : 'Carrier gene'} ${geneName}`}
+            aria-label={`${view.aria} ${geneName}`}
           >
             <div className="variant-card-topbar">
               <div className="variant-card-topline">
                 <CardCollapseToggle
                   collapsed={folded}
                   onToggle={() => list.collapsedCards.toggle(group.group_key)}
-                  subject={`the ${kind} ${geneName}`}
+                  subject={`the ${view.subject} ${geneName}`}
                 />
                 {/* The gene as a single variant's card names it, and the way to it in the
                     gene explorer. */}
@@ -333,21 +372,11 @@ export default function SmallVariantGroupCards({ groups, memberView, ...props }:
                 ) : (
                   <span className="variant-card-gene">{groupGene || 'Unnamed gene'}</span>
                 )}
-                <span className="variant-card-toplabel">{isCompoundHet ? 'Compound het' : 'Carrier gene'}</span>
+                <span className="variant-card-toplabel">{view.label}</span>
                 <span className="variant-card-chip variant-card-chip--neutral">
                   {count} variant{count === 1 ? '' : 's'}
                 </span>
-                {isCompoundHet ? (
-                  <span className="variant-card-chip variant-card-chip--neutral">
-                    {group.pairs.length} pair{group.pairs.length === 1 ? '' : 's'}
-                  </span>
-                ) : null}
-                {!isCompoundHet && group.both_partners_carry ? (
-                  <span className="variant-card-chip variant-card-chip--critical">Both partners</span>
-                ) : null}
-                {!isCompoundHet && group.x_linked ? (
-                  <span className="variant-card-chip variant-card-chip--warning">X-linked</span>
-                ) : null}
+                {view.chips}
               </div>
             </div>
 
@@ -363,11 +392,7 @@ export default function SmallVariantGroupCards({ groups, memberView, ...props }:
                 />
                 <GeneCurationLine links={geneDiseaseState.links} />
 
-                {isCompoundHet ? (
-                  <CompoundHetLines group={group} list={list} members={members} memberView={memberView} />
-                ) : (
-                  <CoupleLines group={group} gene={geneName} members={members} memberView={memberView} />
-                )}
+                {view.lines}
 
                 {memberView === 'cards' ? (
                   <div className="variant-group-members">
@@ -380,7 +405,7 @@ export default function SmallVariantGroupCards({ groups, memberView, ...props }:
                         grouped={{
                           label: `Variant ${index + 1} of ${count}`,
                           subject: `variant ${index + 1} of ${count} in ${geneName}`,
-                          aside: personChips(variant),
+                          aside: view.personChips(variant),
                         }}
                         {...props}
                       />

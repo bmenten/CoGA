@@ -479,6 +479,7 @@ X_MALE_MODEL = "x_male"
 # one is not classified (``sex_chromosome_unsupported``).
 X_FEMALE_FLAG = "x_nonpar_female_fetus"
 X_MALE_FLAG = "x_nonpar_male_fetus"
+SEX_CHROMOSOME_UNSUPPORTED_FLAG = "sex_chromosome_unsupported"
 FATHER_X_HET_FLAG = "father_het_call_on_x"
 PATERNAL_X_IN_SON_FLAG = "paternal_x_allele_in_male_fetus"
 
@@ -960,7 +961,7 @@ def classify_site(
 
     model = chromosome_model(site, fetal_sex)
     if model is None:
-        flags.append("sex_chromosome_unsupported")
+        flags.append(SEX_CHROMOSOME_UNSUPPORTED_FLAG)
         return _classification(
             site,
             category=None,

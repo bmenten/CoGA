@@ -1,18 +1,18 @@
 import React from 'react';
 import type { NiptDiagnosticCandidateOut, NiptDiagnosticCandidatesOut } from '../../lib/apiSchema.generated';
-import { RECESSIVE_STATUS_LABELS, pct, recessiveProbabilitiesText } from './niptClassification';
+import {
+  RECESSIVE_MODE_LABELS,
+  RECESSIVE_STATUS_LABELS,
+  pct,
+  recessivePairText,
+  recessiveProbabilitiesText,
+} from './niptClassification';
 
 /** How the report names a candidate's flags. */
 export const DIAGNOSTIC_FLAG_LABELS: Record<string, string> = {
   repeat_context: 'indel in a repeat',
   clinvar_pathogenic: 'ClinVar pathogenic',
   paternal_x_allele_in_male_fetus: "a son's X allele his father also calls (a son never inherits his father's X)",
-};
-
-/** How the report names a recessive gene's chrX reading. */
-export const RECESSIVE_MODE_LABELS: Record<string, string> = {
-  x_linked_son: 'X-linked, a son: his mother’s allele alone',
-  x_linked_daughter: 'X-linked, a daughter: paired as an autosome',
 };
 
 /** One line of the criteria the report and the signed record name. */
@@ -62,14 +62,14 @@ interface NiptDiagnosticCandidatesSectionProps {
   renderVariant: (candidate: NiptDiagnosticCandidateOut) => React.ReactNode;
 }
 
-// The pair a recessive gene's status rests on.
-const recessivePair = (gene: NiptDiagnosticCandidatesOut['recessive_genes'][number]): string => {
-  if (gene.maternal_variant_id && gene.paternal_variant_id) {
-    return gene.maternal_variant_id === gene.paternal_variant_id
-      ? `; ${gene.maternal_variant_id}, a site both parents carry`
-      : `; maternal ${gene.maternal_variant_id}, paternal ${gene.paternal_variant_id}`;
-  }
-  return gene.maternal_variant_id ? `; maternal ${gene.maternal_variant_id}` : '';
+// A recessive gene's probabilities and the pair its status rests on, as one parenthesis; none
+// when nothing is told or paired (the fetal sex not known).
+const recessiveDetails = (gene: NiptDiagnosticCandidatesOut['recessive_genes'][number]): string => {
+  const details = [
+    recessiveProbabilitiesText(gene.risk, gene.carrier_probability, gene.unaffected_probability, gene.mode),
+    recessivePairText(gene.maternal_variant_id, gene.paternal_variant_id),
+  ].filter(Boolean);
+  return details.length ? ` (${details.join('; ')})` : '';
 };
 
 /**
@@ -128,9 +128,8 @@ const NiptDiagnosticCandidatesSection: React.FC<NiptDiagnosticCandidatesSectionP
             <li key={gene.gene}>
               {gene.gene}
               {RECESSIVE_MODE_LABELS[gene.mode] ? ` (${RECESSIVE_MODE_LABELS[gene.mode]})` : ''}:{' '}
-              {RECESSIVE_STATUS_LABELS[gene.status] ?? gene.status} (
-              {recessiveProbabilitiesText(gene.risk, gene.carrier_probability, gene.unaffected_probability, gene.mode === 'x_linked_son')}
-              {recessivePair(gene)})
+              {RECESSIVE_STATUS_LABELS[gene.status]}
+              {recessiveDetails(gene)}
               {gene.risk_uses_prior ? ', an inheritance read at its Mendelian prior' : ''}
             </li>
           ))}

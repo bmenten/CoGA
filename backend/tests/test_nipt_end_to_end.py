@@ -17,7 +17,7 @@ import pytest
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 from backend.app.services.nipt_analysis import NiptQualityThresholds, run_nipt_analysis, trusted_father_state
 from backend.app.services.nipt_service import build_nipt_observations
-from backend.app.services.nipt_triage import RecessiveCandidate, recessive_gene_risks
+from backend.app.services.nipt_triage import RecessiveCandidate, recessive_gene_risks, recessive_mode
 from backend.app.services.variant_upload_service import (
     _parse_float_list,
     _parse_format,
@@ -139,16 +139,25 @@ def test_nipt_demo_recessive_at_risk() -> None:
     sites_by_id = {site.variant_id: site for site in sites}
     result = run_nipt_analysis(sites, qc, artifact_lookup=artifact_ids.__contains__)
 
-    candidates = [
-        RecessiveCandidate(
-            variant_id=classification.variant_id,
-            genes=records_by_id[classification.variant_id].gene_symbols,
-            father_state=trusted_father_state(sites_by_id[classification.variant_id], qc),
-            classification=classification,
-        )
-        for classification in result.classifications
-    ]
-    risks = {risk.gene: risk for risk in recessive_gene_risks(candidates)}
+    candidates_by_gene: dict[str, list[RecessiveCandidate]] = {}
+    for classification in result.classifications:
+        record = records_by_id[classification.variant_id]
+        mode = recessive_mode(classification, record.chr)
+        assert mode is not None
+        for gene in record.gene_symbols:
+            candidates_by_gene.setdefault(gene, []).append(
+                RecessiveCandidate(
+                    variant_id=classification.variant_id,
+                    father_state=trusted_father_state(sites_by_id[classification.variant_id], qc),
+                    classification=classification,
+                    mode=mode,
+                )
+            )
+    risks = {
+        risk.gene: risk
+        for gene, candidates in candidates_by_gene.items()
+        for risk in recessive_gene_risks(gene, candidates)
+    }
 
     # Genes where both parents carry an allele: GENE_RECESS (maternal cat 3 + paternal cat
     # 7), GENE_HOMRISK (cat 4 -- maternal het + paternal allele the fetus made homozygous)

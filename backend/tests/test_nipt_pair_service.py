@@ -482,7 +482,7 @@ async def test_the_maternal_view_leaves_out_a_low_level_call_the_model_places_in
     everything = await _variants(inheritance="maternal_dominant", include_not_inherited=True)
     assert [item.record.variant_id for item in everything.variants] == ["7-100-A-G", "7-300-A-G"]
     recessive = await _variants(inheritance="recessive_at_risk")
-    [gene_a] = [gene for gene in recessive.recessive_genes if gene.gene == "GENEA"]
+    [gene_a] = [gene.risk for gene in recessive.recessive_genes if gene.risk.gene == "GENEA"]
     assert [allele.variant_id for allele in gene_a.maternal] == ["7-100-A-G"]
 
 
@@ -490,12 +490,50 @@ async def test_the_maternal_view_leaves_out_a_low_level_call_the_model_places_in
 async def test_the_recessive_view_gives_each_genes_fetal_risk(monkeypatch: pytest.MonkeyPatch) -> None:
     _wire(monkeypatch, filtered=_gene_sites())
     result = await _variants(inheritance="recessive_at_risk")
-    genes = {gene.gene: gene for gene in result.recessive_genes}
-    assert set(genes) == {"GENEA", "GENEB"}
-    assert [gene.gene for gene in result.recessive_genes] == ["GENEA", "GENEB"]  # highest risk first
-    assert genes["GENEA"].risk is not None and genes["GENEA"].risk > 0.9
-    assert genes["GENEB"].risk is not None and genes["GENEB"].risk < 0.01
-    assert {item.record.variant_id for item in result.variants} == {"7-100-A-G", "7-200-C-T", "7-300-A-G", "7-400-C-T"}
+    genes = {gene.risk.gene: gene for gene in result.recessive_genes}
+    assert [gene.risk.gene for gene in result.recessive_genes] == ["GENEA", "GENEB"]  # highest risk first
+    assert genes["GENEA"].risk.risk is not None and genes["GENEA"].risk.risk > 0.9
+    assert genes["GENEB"].risk.risk is not None and genes["GENEB"].risk.risk < 0.01
+    # The results are the genes, each with its carrier variants; none is listed on its own.
+    assert {gene: [item.record.variant_id for item in genes[gene].variants] for gene in genes} == {
+        "GENEA": ["7-100-A-G", "7-200-C-T"],
+        "GENEB": ["7-300-A-G", "7-400-C-T"],
+    }
+    assert (result.variants, result.total, result.gene_total, result.variant_total) == ([], 2, 2, 4)
+
+
+def _annotated(variant_id: str, calls: list[SmallVariantCall], *transcripts: tuple[str, str, str]) -> SmallVariantRecord:
+    """A record whose annotation names each of ``transcripts`` (gene, gene id, consequence), the
+    first its card's (canonical)."""
+    annotations = [
+        {"gene": gene, "gene_id": gene_id, "consequence": consequence, "canonical": index == 0,
+         "impact": "MODERATE" if consequence == "missense_variant" else "MODIFIER"}
+        for index, (gene, gene_id, consequence) in enumerate(transcripts)
+    ]
+    return _record(variant_id, calls, genes=[gene for gene, _gene_id, _consequence in transcripts], annotations=annotations)
+
+
+@pytest.mark.asyncio
+async def test_a_variant_pairs_in_its_cards_gene_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The mother's missense allele of GENEA lies upstream of GENEB too, where the father carries
+    # one: read in its card's gene, as the expanded carrier screen reads it, it pairs nothing in
+    # GENEB. A renamed gene, its two symbols under one gene id, is one gene.
+    upstream = [
+        _annotated("7-100-A-G", [_call(PLASMA, [1020, 980])],
+                   ("GENEA", "ENSG0A", "missense_variant"), ("GENEB", "ENSG0B", "upstream_gene_variant")),
+        _annotated("7-400-C-T", [_call(FATHER, [150, 150])], ("GENEB", "ENSG0B", "missense_variant")),
+    ]
+    _wire(monkeypatch, filtered=upstream)
+    assert (await _variants(inheritance="recessive_at_risk")).recessive_genes == []
+    renamed = [
+        _annotated("7-100-A-G", [_call(PLASMA, [1020, 980])], ("OLDNAME", "ENSG0C", "missense_variant")),
+        _annotated("7-200-C-T", [_call(PLASMA, [1350, 150]), _call(FATHER, [150, 150])],
+                   ("NEWNAME", "ENSG0C", "missense_variant")),
+    ]
+    _wire(monkeypatch, filtered=renamed)
+    [gene] = (await _variants(inheritance="recessive_at_risk")).recessive_genes
+    assert (gene.risk.gene, gene.gene_id) == ("OLDNAME", "ENSG0C")
+    assert [item.record.variant_id for item in gene.variants] == ["7-100-A-G", "7-200-C-T"]
 
 
 @pytest.mark.asyncio

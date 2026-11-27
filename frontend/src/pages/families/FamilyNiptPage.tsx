@@ -27,6 +27,7 @@ import {
 import { parseCommaSeparatedValues } from '../../lib/sampleFilterState';
 import {
   buildPresetPayload,
+  CARRIER_SCREENING_PANEL_NAME,
   createEmptySmallFilters,
   describeUnappliedFilters,
   isNiptInheritanceView,
@@ -69,7 +70,6 @@ import NiptDiagnosticPanel, { niptDiagnosticPanelKey } from './NiptDiagnosticPan
 import type { NiptDiagnosticPanelStateOut } from '../../lib/apiSchema.generated';
 import AnalysisSelect from './AnalysisSelect';
 import MultiplePregnancyNote from './MultiplePregnancyNote';
-import NiptRecessiveGenes from './NiptRecessiveGenes';
 import NiptTargetCoverage from './NiptTargetCoverage';
 import VariantResultsLoading from './VariantResultsLoading';
 import { apiPath } from '../../lib/apiPath';
@@ -248,6 +248,11 @@ const FamilyNiptPage: React.FC = () => {
     () => panels.find((panel) => panel.source === 'mendeliome')?._id,
     [panels],
   );
+  // The panel the Recessive preset reads, as the expanded carrier screen reads a couple.
+  const carrierScreeningPanelId = useMemo(
+    () => panels.find((panel) => panel.name === CARRIER_SCREENING_PANEL_NAME)?._id,
+    [panels],
+  );
 
   // The pregnancy whose monogenic NIPT the page reads: a family holds one per pregnancy, each
   // read on its own (the owner's decision of 2026-11-21); the URL names it, else the last imported.
@@ -304,6 +309,7 @@ const FamilyNiptPage: React.FC = () => {
     navigate,
     resolvedProjectId: projectId,
     mendeliomePanelId: openingPanelId,
+    carrierScreeningPanelId,
     panelsLoaded: !panelsLoading && !diagnosticPanelLoading,
     // Opens on the De novo preset, on the analysis's diagnostic panel, else the Mendeliome: the
     // small-variant page's Phenotype-priority default rests on genotype and phenotype filters that
@@ -776,9 +782,6 @@ const FamilyNiptPage: React.FC = () => {
               ))}
             </ul>
           </div>
-        ) : null}
-        {!variantsFailed && filters.inheritance === 'recessive_at_risk' && variantPage ? (
-          <NiptRecessiveGenes genes={variantPage.recessive_genes ?? []} />
         ) : null}
         {/* A failed search is said as such: it read "No variants match the current
             search". */}

@@ -262,16 +262,35 @@ it.
   (`nipt_triage.mother_carries`, the owner's decision of 2026-11-27): her het allele sits near 50%,
   and a lower call the likelihood places in her band (from about 15% at FF 0.1) is a low-level
   artefact or the fetus's allele. The maternal and recessive views, the locked diagnostic
-  candidates and the signed record read the mother's alleles by this one rule. Per gene the pair most likely to make the fetus affected, with
-  P(affected), P(carrier) and P(unaffected): from the two independent inheritances at two sites
-  (`_two_site_pair`), the fetal genotype posterior at a shared site (`_shared_site_pair`), or a son's
-  maternal X inheritance alone (`_son_x_pair`, `mode` `x_linked_son`, never a carrier; a daughter's
-  chrX gene is `x_linked_daughter`, paired as an autosome). The status (`_pair_status`) is R's:
-  `undetermined` when an inheritance lies in `UNDETERMINED_BAND` (0.2–0.8) or was not told (then
-  read at the ½ prior), else `affected`, `carrier` or `unaffected` by the inheritances of 0.8 or
-  more. As R reads it, a homozygous father always passes his allele; a heterozygous father's allele
-  the mother carries too is not told (`maternal_also_carrier`); a shared site with a homozygous mother
-  is undetermined, unless the father is homozygous too. Notes for a missing population frequency.
+  candidates and the signed record read the mother's alleles by this one rule. A variant counts in
+  its card's gene, as the expanded carrier screen reads it (`nipt_service._recessive_view`:
+  `_gene_match_keys`, the gene id and symbol of its primary annotation, joined by `_joined_genes`):
+  a gene its annotation names otherwise (up- or downstream) pairs nothing. Each variant is read by
+  the model that classified its site (`recessive_mode`), and a gene's alleles once per reading: a
+  gene across a pseudo-autosomal boundary is read on either side. Per gene the pair most
+  likely to make the fetus affected, with P(affected), P(carrier) and P(unaffected): from the two
+  independent inheritances at two sites (`_two_site_pair`), the fetal genotype posterior at a shared
+  site (`_shared_site_pair`), or a son's maternal X inheritance alone (`_son_x_pair`, `mode`
+  `x_linked_son`, never a carrier). The status (`_pair_status`) counts the inheritances of 0.8 or
+  more when both are told outside `UNDETERMINED_BAND` (0.2–0.8): `affected` (both), `carrier` (one),
+  `unaffected` (neither). Otherwise it is `carrier_or_unaffected` when one allele was surely not
+  inherited (0.2 or less), since the fetus cannot inherit both, and `undetermined` else (an untold
+  inheritance is read at the ½ prior). As R reads it, a homozygous father always passes his allele;
+  a heterozygous father's allele the mother carries too is not told (`maternal_also_carrier`); a
+  shared site with a homozygous mother is undetermined, unless the father is homozygous too. Notes
+  for a missing population frequency. The genes are listed by status (affected, undetermined,
+  carrier, `carrier_or_unaffected`, unaffected), then by risk (`recessive_listing_order`): a gene
+  the cfDNA did not tell comes before a carrier's.
+- **X-linked recessive** — on chrX outside the pseudo-autosomal regions, by the fetal sex the
+  classification read (`mode`): a son's gene is his mother's allele alone (`x_linked_son`); a
+  daughter's is paired as an autosome, her father's X always passed, and one parent's allele alone
+  makes her at most a carrier (`x_linked_daughter`, `_one_allele_pair`: her father's always, her
+  mother's by its inheritance, `carrier_or_unaffected` when not told). Of a fetus whose sex is not
+  known (indeterminate, discordant, or more than one fetus: `model_fetal_sex`) the classification
+  reads no chrX outside the PARs, so every allele the mother carries there (a plasma call of
+  `MATERNAL_ALLELE_VAF_BOUNDARY` or more) and every hemizygous allele of the father's is listed by
+  gene, nothing told or paired, `undetermined` (`x_linked_sex_unknown`, risk none, no pair): a son
+  inherits his mother's X alone, a daughter her father's.
 - **Target coverage** — `summarize_target_coverage` (weak: mean < 300× or uncovered bases; 1000×
   advisory). The NIPT page's card counts the genes with a weak target. The coverage page lists every
   gene in scope (`include_passing`) and reads one gene's targets on demand
@@ -313,7 +332,20 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
   8. paging, and each listed variant's recurrence. Without a page size (`page_size=None`) the
      list holds every classified variant: the CSV export.
 
-  The recessive view returns `recessive_genes`. The maternal and recessive views read the parents'
+  The recessive view pairs every carrier variant step 4 keeps, as the report and the signed record
+  pair them, so that a gene's status does not depend on the filters; steps 6 and 7 then keep the genes
+  with a carrier variant they keep. Its results are genes (`NiptRecessiveGene`): a page holds genes, each with every carrier variant of its own
+  (`variant_groups`, `group_type` `nipt_recessive_gene`), `total` counts the genes and `gene_total` and
+  `variant_total` the genes and their variants on every page; the export lists their variants gene by
+  gene. The NIPT page shows each gene as a card (`SmallVariantGroupCards`, as the expanded carrier
+  screen's): the fetal status, which of the variants the fetus inherited (both, one of the two,
+  neither; a son's mother's; nothing told of a fetus whose sex is not known), the pair that status
+  rests on, and what each parent carries, with each allele's category and the probability that the
+  fetus inherited it. The page's *Recessive (both parents
+  carrier)* preset reads the parents as the expanded carrier screen reads a couple: the gene panel
+  named *BeGECS v3* (every gene without one), HIGH/MODERATE impact, gnomAD AF and popmax at most 5%,
+  ClinVar P/LP overriding the impact and frequency cut-offs, ClinVar benign and likely benign left out.
+  The maternal and recessive views read the parents'
   alleles alone (`_CARRIER_ROW_VIEWS`), so their load (step 2) keeps only the rows such an allele
   can be read from (`CarrierCallRows`, `clickhouse_family_variants._carrier_call_condition`): the
   plasma's call at `MATERNAL_ALLELE_VAF_BOUNDARY` or more over its own allele depths, or without
@@ -543,7 +575,7 @@ reported variant once; the de novo triage reads that count.
 - An indel written differently in the two VCFs (trimming, alignment) is not matched; an MNV is
   matched base by base.
 - The frequency filters let a variant without a population frequency through (CoGA-wide); an MNV
-  never has one. The recessive table notes it.
+  never has one. The recessive gene card notes it.
 - The artifact-list protections need annotation: a site with no population frequency or ClinVar
   record is not protected.
 - The R recurrent table counts the cfDNA families of the R cohort, the index family included.
@@ -565,7 +597,7 @@ The in-app reference describes these for lab users.
   `routers/families_nipt.py`, `schemas/nipt.py`.
 - Frontend: `frontend/src/pages/families/FamilyNiptPage.tsx`, `FamilyNiptReportPage.tsx`,
   `FamilyNiptCoveragePage.tsx` (the coverage page, `/families/{id}/nipt/coverage`),
-  `NiptQcPanel.tsx`, `NiptRecessiveGenes.tsx`, `NiptTargetCoverage.tsx`,
+  `NiptQcPanel.tsx`, `NiptRecessiveGeneView.tsx` (the recessive gene cards), `NiptTargetCoverage.tsx`,
   `NiptClassificationBlock.tsx`, `niptClassification.ts`, `VariantSummaryNipt.tsx` (the variant
   summary's NIPT-M tab); views and presets in
   `smallVariantSearch.ts` and `smallVariantFilterSections.tsx`.

@@ -693,7 +693,7 @@ def test_a_pair_tagged_for_the_report_is_frozen_as_the_nipt_page_listed_it(pair_
 def test_the_recessive_risk_frozen_is_the_one_the_reported_view_computes(pair_signed) -> None:
     # Both parents carry an allele of GENE_RECESS among the reported variants: the record's
     # recessive fetal risk is the one the NIPT page computes over "Show reported".
-    [gene] = ok_json(pair_signed, "reported_recessive_view")["recessive_genes"]
+    [gene] = ok_json(pair_signed, "reported_recessive_view")["variant_groups"]
     assert (gene["gene"], gene["maternal_variant_id"], gene["paternal_variant_id"]) == ("GENE_RECESS", MATERNAL, PATERNAL)
     [frozen] = _pair_snapshot(pair_signed)["nipt"]["recessive_genes"]
     assert (frozen["gene"], frozen["maternal_variant_id"], frozen["paternal_variant_id"]) == (
