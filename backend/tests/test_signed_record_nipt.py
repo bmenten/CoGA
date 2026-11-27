@@ -43,7 +43,7 @@ from backend.app.services.nipt_analysis import NIPT_MODEL_REFERENCE, NiptQuality
 from backend.app.services.nipt_quality_checks import nipt_quality_checks
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
 from backend.app.services.sample_integrity_qc import evaluate_nipt_category_qc
-from backend.tests._nipt_service_fakes import gate_bound_loader, listed_artifact_recurrence
+from backend.tests._nipt_service_fakes import as_loaded, gate_bound_loader, listed_artifact_recurrence, wire_annotation
 from backend.tests._query_results import MappingRows as _Result
 
 FATHER = "FATHER1"
@@ -270,15 +270,20 @@ def _wire(
     async def fake_context(_session, *, family_identifier, user, project_id=None, analysis=None):
         return _context()
 
-    async def fake_fetch(_context, filters, *, limit=None, include_variant_ids=None, exclude_variant_ids=(), **_kwargs):
+    async def fake_fetch(
+        _context, filters, *, limit=None, include_variant_ids=None, exclude_variant_ids=(), annotated=True, **_kwargs
+    ):
         # The review selection's ids, kept or left out in the load, as ClickHouse does.
         rows = cohort if filters.gene is None else filtered
-        return [
-            record
-            for record in rows
-            if (include_variant_ids is None or record.variant_id in include_variant_ids)
-            and record.variant_id not in exclude_variant_ids
-        ]
+        return as_loaded(
+            [
+                record
+                for record in rows
+                if (include_variant_ids is None or record.variant_id in include_variant_ids)
+                and record.variant_id not in exclude_variant_ids
+            ],
+            annotated,
+        )
 
     async def fake_tracks(_assembly, *, sample_uuid=None, track_type=None, include_metadata=False, record_ids=None, **_kw):
         assert track_type == "target_coverage"
@@ -315,6 +320,7 @@ def _wire(
     monkeypatch.setattr(nipt_service, "get_family_record", fake_family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
+    wire_annotation(monkeypatch, cohort)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_tracks)
     monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
     monkeypatch.setattr(nipt_service, "load_nipt_gate_bound", gate_bound_loader(gate_bounds))

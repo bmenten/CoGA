@@ -7,10 +7,16 @@ list, with one), the assay's artifact list, the QC gate's bound (provisional: QA
 and the other cfDNA samples of the assay; the
 review and internal-cohort hydration of the listed rows is a database concern exercised
 elsewhere, and is a no-op here. Synthetic families only.
+
+A load without annotation (``annotated=False``, the cohort's) answers its records without it,
+as ClickHouse does, and ``annotate_small_variant_records`` gives a record back its own
+(``wire_annotation``): a record the service reads the annotation of without annotating it
+reads none.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -48,6 +54,23 @@ def listed_artifact_recurrence(artifacts: set[str] | dict[str, int] | None) -> d
     if isinstance(artifacts, dict):
         return dict(artifacts)
     return {variant_id: LISTED_ARTIFACT_RECURRENCE for variant_id in artifacts or ()}
+
+
+def as_loaded(records: list[SmallVariantRecord], annotated: bool) -> list[SmallVariantRecord]:
+    """``records`` as a variant load answers them: without their annotation when it reads none
+    (``_fetch_small_variant_rows(annotated=False)``)."""
+    return records if annotated else [replace(record, annotations=[]) for record in records]
+
+
+def wire_annotation(monkeypatch: pytest.MonkeyPatch, records: list[SmallVariantRecord]) -> None:
+    """``annotate_small_variant_records`` answering each record with its annotation as
+    ``records`` hold it."""
+    stored = {record.variant_id: record.annotations for record in records}
+
+    async def annotate(_context: Any, loaded: list[SmallVariantRecord]) -> list[SmallVariantRecord]:
+        return [replace(record, annotations=list(stored[record.variant_id])) for record in loaded]
+
+    monkeypatch.setattr(nipt_service, "annotate_small_variant_records", annotate)
 
 
 def nipt_family(
@@ -99,12 +122,14 @@ def wire_nipt_reads(
             scope=AnalysisScope(),
         )
 
-    async def fetch(_context: Any, filters: Any, *, limit: int | None = None, **_kwargs: Any) -> list[SmallVariantRecord]:
+    async def fetch(
+        _context: Any, filters: Any, *, limit: int | None = None, annotated: bool = True, **_kwargs: Any
+    ) -> list[SmallVariantRecord]:
         # The cohort (FF) load carries no gene filter; the variant load does. A limit is the
         # SQL LIMIT: the first rows, in genomic order.
         if filters.gene is None:
-            return cohort
-        return filtered if limit is None else filtered[:limit]
+            return as_loaded(cohort, annotated)
+        return as_loaded(filtered if limit is None else filtered[:limit], annotated)
 
     async def listed_artifacts(_session: Any, *, assembly_id: str, assay_key: str) -> dict[str, int]:
         return listed_artifact_recurrence(artifacts)
@@ -118,6 +143,7 @@ def wire_nipt_reads(
     monkeypatch.setattr(nipt_service, "get_family_record", family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", metadata_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fetch)
+    wire_annotation(monkeypatch, [*cohort, *filtered])
     monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
     monkeypatch.setattr(nipt_service, "load_nipt_gate_bound", gate_bound_loader())
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)

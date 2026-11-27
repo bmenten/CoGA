@@ -8,7 +8,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from functools import partial
-from itertools import zip_longest
+from itertools import batched, zip_longest
 from typing import Any, Collection, Iterable, Literal, Mapping, Sequence
 
 from fastapi import HTTPException
@@ -1305,56 +1305,96 @@ async def _count_small_variant_rows_bounded(
     return count, count >= params["count_limit"]
 
 
+# A stored annotation set: the variant's key, the annotation version and the set's hash.
+_AnnotationSetIdentity = tuple[int, str, int]
+# How many annotation sets one query of their stored rows (their details, their transcripts)
+# asks after. Their keys and hashes are written into the query, and ClickHouse refuses a query
+# longer than its max_query_size (CLICKHOUSE_MAX_QUERY_SIZE, 16 MiB): a few hundred thousand
+# sets would pass it.
+_ANNOTATION_SET_CHUNK = 2_000
+
+
+def _annotation_set_identity(record: SmallVariantRecord) -> _AnnotationSetIdentity | None:
+    if record.variant_key is None or record.annotation_set_hash is None:
+        return None
+    return (int(record.variant_key), str(record.annotation_version or "current"), int(record.annotation_set_hash))
+
+
+def _annotation_set_params(chunk: Sequence[_AnnotationSetIdentity]) -> dict[str, Any]:
+    """The parameters a query of ``chunk``'s stored rows selects them by: ``set_keys``,
+    ``set_versions`` and ``set_hashes``. Their product can name a set not in ``chunk``, which
+    the reader looks past."""
+    return {
+        "set_keys": tuple(dict.fromkeys(key for key, _version, _set_hash in chunk)),
+        "set_versions": tuple(dict.fromkeys(version for _key, version, _set_hash in chunk)),
+        "set_hashes": tuple(dict.fromkeys(set_hash for _key, _version, set_hash in chunk)),
+    }
+
+
 async def _fetch_small_variant_detail_map(
     assembly_name: str,
-    variants: Sequence[tuple[int, str, int]],
-) -> dict[tuple[int, str, int], dict[str, Any]]:
-    pairs = [
-        (int(key), str(annotation_version or "current"), int(annotation_set_hash))
-        for key, annotation_version, annotation_set_hash in variants
-        if key is not None and annotation_set_hash is not None
-    ]
-    keys = tuple(dict.fromkeys(key for key, _annotation_version, _annotation_set_hash in pairs))
-    if not keys:
-        return {}
-    annotation_versions = tuple(
-        dict.fromkeys(annotation_version for _key, annotation_version, _annotation_set_hash in pairs)
-    )
-    annotation_set_hashes = tuple(
-        dict.fromkeys(annotation_set_hash for _key, _annotation_version, annotation_set_hash in pairs)
-    )
+    identities: Iterable[_AnnotationSetIdentity],
+) -> dict[_AnnotationSetIdentity, dict[str, Any]]:
+    """The stored details (rsID, annotations) of each annotation set, ``_ANNOTATION_SET_CHUNK``
+    sets per query."""
     details_table = _small_table_name(assembly_name, "variants/details")
-    rows = await _execute_clickhouse(
-        f"""
-        SELECT
-            key,
-            annotation_version,
-            annotationSetHash,
-            any(rsid) AS rsid,
-            any(annotationsJson) AS annotations_json
-        FROM {details_table}
-        WHERE key IN %(variant_keys)s
-          AND annotation_version IN %(annotation_versions)s
-          AND annotationSetHash IN %(annotation_set_hashes)s
-        GROUP BY key, annotation_version, annotationSetHash
-        """,
-        {
-            "variant_keys": keys,
-            "annotation_versions": annotation_versions,
-            "annotation_set_hashes": annotation_set_hashes,
-        },
-    )
-    details: dict[tuple[int, str, int], dict[str, Any]] = {}
-    for key, annotation_version, annotation_set_hash, rsid, annotations_json in rows:
-        parsed_key = field_int(key)
-        parsed_annotation_set_hash = field_int(annotation_set_hash)
-        if parsed_key is None or parsed_annotation_set_hash is None:
-            continue
-        details[(parsed_key, str(annotation_version or "current"), parsed_annotation_set_hash)] = {
-            "rsid": rsid,
-            "annotations_json": annotations_json,
-        }
+    details: dict[_AnnotationSetIdentity, dict[str, Any]] = {}
+    for chunk in batched(dict.fromkeys(identities), _ANNOTATION_SET_CHUNK):
+        rows = await _execute_clickhouse(
+            f"""
+            SELECT
+                key,
+                annotation_version,
+                annotationSetHash,
+                any(rsid) AS rsid,
+                any(annotationsJson) AS annotations_json
+            FROM {details_table}
+            WHERE key IN %(set_keys)s
+              AND annotation_version IN %(set_versions)s
+              AND annotationSetHash IN %(set_hashes)s
+            GROUP BY key, annotation_version, annotationSetHash
+            """,
+            _annotation_set_params(chunk),
+        )
+        for key, annotation_version, annotation_set_hash, rsid, annotations_json in rows:
+            parsed_key = field_int(key)
+            parsed_annotation_set_hash = field_int(annotation_set_hash)
+            if parsed_key is None or parsed_annotation_set_hash is None:
+                continue
+            details[(parsed_key, str(annotation_version or "current"), parsed_annotation_set_hash)] = {
+                "rsid": rsid,
+                "annotations_json": annotations_json,
+            }
     return details
+
+
+def _stored_rsid(value: Any) -> str | None:
+    return str(value) if value not in (None, "") else None
+
+
+async def annotate_small_variant_records(
+    context: FamilyMetadataContext, records: Sequence[SmallVariantRecord]
+) -> list[SmallVariantRecord]:
+    """``records`` read without their annotation (``_fetch_small_variant_rows(annotated=False)``)
+    with it: each with its stored annotation set's transcripts, and its rsID where its entry
+    holds none. A record without a stored set keeps none, as an annotated read reads it."""
+    if not context.assembly_name:
+        return list(records)
+    identities = [_annotation_set_identity(record) for record in records]
+    details = await _fetch_small_variant_detail_map(
+        context.assembly_name, (identity for identity in identities if identity is not None)
+    )
+    annotated: list[SmallVariantRecord] = []
+    for record, identity in zip(records, identities, strict=True):
+        detail = details.get(identity, {}) if identity is not None else {}
+        annotated.append(
+            replace(
+                record,
+                rsid=record.rsid or _stored_rsid(detail.get("rsid")),
+                annotations=_collect_annotations(_decode_json_payload(detail.get("annotations_json"))),
+            )
+        )
+    return annotated
 
 
 async def _family_has_small_variants(context: FamilyMetadataContext) -> bool:
@@ -1586,6 +1626,7 @@ async def _fetch_small_variant_rows(
     exclude_gene_terms: Sequence[str] = (),
     segregation_flags: bool = False,
     carrier_calls: CarrierCallRows | None = None,
+    annotated: bool = True,
 ) -> list[SmallVariantRecord]:
     """The family's small-variant rows the search's ``filters`` and scope keep, one per key.
 
@@ -1593,7 +1634,12 @@ async def _fetch_small_variant_rows(
     it fits (``SmallVariantRecord.segregation``), as the SQL decides them for the inheritance
     filter (``_small_segregation_flag_columns``): what the ranking's segregation and the
     paired searches read. With ``carrier_calls``, only the rows a monogenic NIPT's parent's
-    allele can be read from (``_carrier_call_condition``)."""
+    allele can be read from (``_carrier_call_condition``).
+
+    Without ``annotated``, the records hold their calls and their entries' columns but not
+    their annotation (``annotate_small_variant_records`` reads it for those that need it): a
+    read of a whole callset whose reader looks at the calls, which a plasma's every low-level
+    call makes a million rows or more."""
     if not context.assembly_name:
         return []
     entries_table = _small_table_name(context.assembly_name, "entries")
@@ -1647,15 +1693,6 @@ async def _fetch_small_variant_rows(
     """
     query = _append_limit_offset(query, params, limit=limit, offset=offset)
     rows = await _execute_clickhouse(query, params)
-    detail_map = await _fetch_small_variant_detail_map(
-        context.assembly_name,
-        [
-            (parsed_key, str(row[2] or "current"), int(row[3]))
-            for row in rows
-            if (parsed_key := field_int(row[0])) is not None
-            and field_int(row[3]) is not None
-        ],
-    )
     records: list[SmallVariantRecord] = []
     for row in rows:
         (
@@ -1685,18 +1722,6 @@ async def _fetch_small_variant_rows(
         sample_filters = row[21] if len(row) > 21 else None
         sample_metrics = row[22] if len(row) > 22 else None
         segregation = _segregation_flags_from_row(row[23:26]) if segregation_flags else None
-        parsed_variant_key = field_int(variant_key)
-        parsed_annotation_set_hash = field_int(annotation_set_hash)
-        detail = detail_map.get(
-            (
-                parsed_variant_key or -1,
-                str(annotation_version or "current"),
-                parsed_annotation_set_hash or -1,
-            ),
-            {},
-        )
-        annotations_json = detail.get("annotations_json")
-        rsid = rsid if rsid not in (None, "") else detail.get("rsid")
         calls: list[SmallVariantCall] = []
         sample_id_list = _listify(sample_ids)
         for index, sample_id in enumerate(sample_id_list):
@@ -1726,7 +1751,7 @@ async def _fetch_small_variant_rows(
         ref_text = str(ref or "")
         records.append(
             SmallVariantRecord(
-                variant_key=parsed_variant_key,
+                variant_key=field_int(variant_key),
                 variant_id=str(variant_id),
                 chr=normalize_chromosome(str(chrom)),
                 start=start,
@@ -1734,18 +1759,18 @@ async def _fetch_small_variant_rows(
                 ref=ref_text,
                 alt=str(alt or ""),
                 source=str(source) if source is not None else None,
-                rsid=str(rsid) if rsid not in (None, "") else None,
+                rsid=_stored_rsid(rsid),
                 filters=_string_list(entry_filters),
                 gene_symbols=_string_list(gene_symbols),
-                annotations=_collect_annotations(_decode_json_payload(annotations_json)),
+                annotations=[],
                 calls=calls,
                 qual=_coerce_float(qual),
                 segregation=segregation,
                 annotation_version=str(annotation_version or "current"),
-                annotation_set_hash=parsed_annotation_set_hash,
+                annotation_set_hash=field_int(annotation_set_hash),
             )
         )
-    return records
+    return await annotate_small_variant_records(context, records) if annotated else records
 
 
 def _merge_params(target: dict[str, Any], source: dict[str, Any]) -> None:
@@ -1775,18 +1800,6 @@ def _segregation_flags_from_row(values: Sequence[Any]) -> SmallSegregationFlags:
     )
 
 
-# A stored annotation set: the variant's key, the annotation version and the set's hash.
-_AnnotationSetIdentity = tuple[int, str, int]
-# How many annotation sets one transcript query asks after.
-_FILTER_TRANSCRIPT_CHUNK = 2_000
-
-
-def _annotation_set_identity(record: SmallVariantRecord) -> _AnnotationSetIdentity | None:
-    if record.variant_key is None or record.annotation_set_hash is None:
-        return None
-    return (int(record.variant_key), str(record.annotation_version or "current"), int(record.annotation_set_hash))
-
-
 async def _filter_transcript_matches(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters | None,
@@ -1810,24 +1823,19 @@ async def _filter_transcript_matches(
     )
     if condition is None:
         return None
-    identities = list(dict.fromkeys(i for record in records if (i := _annotation_set_identity(record)) is not None))
+    identities = dict.fromkeys(i for record in records if (i := _annotation_set_identity(record)) is not None)
     table = _small_table_name(context.assembly_name, "variants/annotations")
     matches: dict[_AnnotationSetIdentity, frozenset[int]] = {}
-    for start in range(0, len(identities), _FILTER_TRANSCRIPT_CHUNK):
-        chunk = identities[start : start + _FILTER_TRANSCRIPT_CHUNK]
-        params = {
-            **condition_params,
-            "filter_transcript_keys": tuple(dict.fromkeys(key for key, _version, _set in chunk)),
-            "filter_transcript_versions": tuple(dict.fromkeys(version for _key, version, _set in chunk)),
-            "filter_transcript_sets": tuple(dict.fromkeys(set_hash for _key, _version, set_hash in chunk)),
-        }
+    for chunk in batched(identities, _ANNOTATION_SET_CHUNK):
+        params = _annotation_set_params(chunk)
+        _merge_params(params, condition_params)
         rows = await _execute_clickhouse(
             f"""
             SELECT a.key, a.annotation_version, a.annotationSetHash, groupUniqArray(a.annotationHash)
             FROM {table} AS a
-            WHERE a.key IN %(filter_transcript_keys)s
-              AND a.annotation_version IN %(filter_transcript_versions)s
-              AND a.annotationSetHash IN %(filter_transcript_sets)s
+            WHERE a.key IN %(set_keys)s
+              AND a.annotation_version IN %(set_versions)s
+              AND a.annotationSetHash IN %(set_hashes)s
               AND ({condition})
             GROUP BY a.key, a.annotation_version, a.annotationSetHash
             """,
