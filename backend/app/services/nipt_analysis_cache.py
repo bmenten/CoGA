@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from .analysis_scope import AnalysisScope
+from .clinvar_coga import ClinvarCogaRead
 from .nipt_qc_gate import NiptGateBound
 from .nipt_target_coverage import TargetCoverageRow
 
@@ -60,7 +61,7 @@ class NiptAnalysisInputs:
     """What an analysis is computed from besides the family's records: their data version
     (``get_family_small_variant_data_version``), what they are read with (the analysis's
     scope and the family's samples), the assay's artifact list, the QC gate's bound and the
-    plasma's and the father's per-target coverage."""
+    plasma's and the father's per-target coverage, and CoGA's ClinVar release."""
 
     data_version: str | None
     scope: AnalysisScope
@@ -69,6 +70,9 @@ class NiptAnalysisInputs:
     gate_bound: NiptGateBound
     plasma_targets: list[TargetCoverageRow]
     father_targets: list[TargetCoverageRow]
+    # CoGA's ClinVar release the analysis reads where it holds an allele (the design's one rule,
+    # B9, B11): the protection of the listed artefacts, the triage and the diagnostic candidates.
+    clinvar_coga: ClinvarCogaRead
 
 
 @dataclass(slots=True)

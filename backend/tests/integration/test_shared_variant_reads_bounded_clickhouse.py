@@ -39,6 +39,7 @@ from uuid import uuid4
 import pytest
 
 from backend.tests.integration._datastores import run_closing_stores
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
 
 pytestmark = pytest.mark.integration
 
@@ -581,7 +582,10 @@ def test_shared_variant_reads_read_their_variants_rows_only() -> None:
 
         # The NIPT protections read every annotation of the variant on the assembly: another
         # family's annotation protects a variant the plasmas' own rows do not.
-        flags = await _measured(label("protection"), fetch_artifact_protection_flags(assembly_name, protection_ids))
+        flags = await _measured(
+            label("protection"),
+            fetch_artifact_protection_flags(assembly_name, protection_ids, clinvar_coga=NO_CLINVAR_COGA),
+        )
         assert flags == await _measured(
             label("protection-whole"), _reference_protection_flags(assembly_name, protection_ids)
         )
@@ -592,7 +596,11 @@ def test_shared_variant_reads_read_their_variants_rows_only() -> None:
         recurrent = await _measured(
             label("recurrent"),
             fetch_recurrent_artifact_candidates(
-                assembly_name, carrier_samples=set(_CFDNA), rules=rules, min_unexplained_samples=2
+                assembly_name,
+                clinvar_coga=NO_CLINVAR_COGA,
+                carrier_samples=set(_CFDNA),
+                rules=rules,
+                min_unexplained_samples=2,
             ),
         )
         assert recurrent == await _measured(label("recurrent-whole"), _reference_recurrent(assembly_name, rules))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
 from backend.app.services import clickhouse_family_variants, nipt_artifact_pg
 from backend.app.services.nipt_analysis import NiptQualityThresholds
 from backend.app.services.nipt_artifact_pg import (
@@ -11,6 +12,16 @@ from backend.app.services.nipt_artifact_pg import (
     load_nipt_artifacts,
     recurrence_rules,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_clinvar_release_for_the_artifact_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No ClinVar release of CoGA's own: the artifact list's protection reads the annotation."""
+
+    async def no_release(_session, _assembly_name):
+        return NO_CLINVAR_COGA
+
+    monkeypatch.setattr(nipt_artifact_pg, "clinvar_coga_read", no_release)
 
 # How the auto-seed reads a call: the NIPT quality filter's defaults.
 _RULES = recurrence_rules(NiptQualityThresholds())
@@ -90,7 +101,13 @@ def test_recurrence_rules_read_calls_by_the_quality_filter_and_the_fathers_class
 async def _candidates(**kwargs):
     return await clickhouse_family_variants.fetch_recurrent_artifact_candidates(
         "GRCh38",
-        **{"carrier_samples": ["CF2", "CF1"], "rules": _RULES, "min_unexplained_samples": 3, **kwargs},
+        **{
+            "clinvar_coga": NO_CLINVAR_COGA,
+            "carrier_samples": ["CF2", "CF1"],
+            "rules": _RULES,
+            "min_unexplained_samples": 3,
+            **kwargs,
+        },
     )
 
 
@@ -189,7 +206,7 @@ async def test_artifact_candidates_without_samples_or_threshold_read_nothing(
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", no_query)
     assert await _candidates(**kwargs) == []
     assert await clickhouse_family_variants.fetch_recurrent_artifact_candidates(
-        "", carrier_samples=["CF1"], rules=_RULES, min_unexplained_samples=3
+        "", clinvar_coga=NO_CLINVAR_COGA, carrier_samples=["CF1"], rules=_RULES, min_unexplained_samples=3
     ) == []
 
 
@@ -236,7 +253,7 @@ class _AutoSeedSession:
 async def test_auto_seed_nipt_artifacts_upserts_the_unexplained_recurrent_alleles(
     monkeypatch: pytest.MonkeyPatch, audit_events: list[dict]
 ) -> None:
-    async def fake_candidates(assembly_name, *, carrier_samples, rules, min_unexplained_samples):
+    async def fake_candidates(assembly_name, *, clinvar_coga, carrier_samples, rules, min_unexplained_samples):
         assert assembly_name == "GRCh38"
         assert (rules, min_unexplained_samples) == (_RULES, 4)
         return [("1-100-A-G", 12), ("2-200-C-T", 7)]
@@ -310,7 +327,7 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
     # artefacts and the germline calls of every other application.
     seen: dict = {}
 
-    async def fake_candidates(assembly_name, *, carrier_samples, rules, min_unexplained_samples):
+    async def fake_candidates(assembly_name, *, clinvar_coga, carrier_samples, rules, min_unexplained_samples):
         seen.update(carrier_samples=carrier_samples)
         return [("1-100-A-G", 3)]
 
@@ -362,7 +379,7 @@ def test_a_cfdna_samples_scope_is_read_from_the_monogenic_nipts_panel() -> None:
 async def test_auto_seed_without_cfdna_samples_for_the_assay_seeds_nothing(
     monkeypatch: pytest.MonkeyPatch, audit_events: list[dict]
 ) -> None:
-    async def fake_candidates(assembly_name, *, carrier_samples, rules, min_unexplained_samples):
+    async def fake_candidates(assembly_name, *, clinvar_coga, carrier_samples, rules, min_unexplained_samples):
         assert carrier_samples == []
         return []
 
@@ -538,7 +555,7 @@ async def test_protection_flags_read_the_pooled_annotation(monkeypatch: pytest.M
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
     flags = await clickhouse_family_variants.fetch_artifact_protection_flags(
-        "GRCh38", ["1-1-A-G", "1-2-A-G", "1-3-A-G"]
+        "GRCh38", ["1-1-A-G", "1-2-A-G", "1-3-A-G"], clinvar_coga=NO_CLINVAR_COGA
     )
     assert flags == {"1-1-A-G": "common", "1-2-A-G": "clinvar"}
 

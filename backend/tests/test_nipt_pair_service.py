@@ -4,6 +4,8 @@ record, and the paternal, maternal, de novo and recessive views. Synthetic data 
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from fastapi import HTTPException
 
@@ -285,13 +287,13 @@ def test_triage_annotation() -> None:
             {"impact": "MODERATE", "spliceai_ds_ag": 0.3, "gnomad_popmax_af": 0.002},
         ],
     )
-    annotation = triage_annotation(record)
+    annotation = triage_annotation(record, None)
     assert annotation.impact == "MODERATE"
     assert annotation.spliceai_max == 0.3
     assert annotation.max_population_af == 0.002
     assert annotation.is_novel
-    assert not triage_annotation(_record("7-1-A-G", [], rsid="rs1")).is_novel
-    assert not triage_annotation(_record("7-1-A-G", [], annotations=[{"rsid": "rs2"}])).is_novel
+    assert not triage_annotation(_record("7-1-A-G", [], rsid="rs1"), None).is_novel
+    assert not triage_annotation(_record("7-1-A-G", [], annotations=[{"rsid": "rs2"}]), None).is_novel
 
 
 def test_triage_annotation_reads_the_parsers_population_frequencies() -> None:
@@ -307,7 +309,7 @@ def test_triage_annotation_reads_the_parsers_population_frequencies() -> None:
             }
         ],
     )
-    assert triage_annotation(record).max_population_af == 0.03
+    assert triage_annotation(record, None).max_population_af == 0.03
 
 
 def test_triage_annotation_reads_vep_max_af_as_the_r_validation_does() -> None:
@@ -320,7 +322,7 @@ def test_triage_annotation_reads_vep_max_af_as_the_r_validation_does() -> None:
             {"impact": "MODERATE", "gnomad_af": 0.0001, "population_frequencies": {"gnomad_af": 0.0001, "max_af": 0.012}}
         ],
     )
-    assert triage_annotation(record).max_population_af == 0.012
+    assert triage_annotation(record, None).max_population_af == 0.012
 
 
 # --------------------------------------------------------------------------- #
@@ -457,6 +459,43 @@ async def test_the_paternal_view_lists_what_the_fetus_inherited(monkeypatch: pyt
     missed = everything.variants[1].classification
     assert missed.fetal_inheritance == "paternal_not_transmitted"
     assert missed.paternal_transmission_probability is not None and missed.paternal_transmission_probability < 1e-6
+
+
+@pytest.mark.asyncio
+async def test_the_variant_list_reads_clinvar_in_cogas_release_the_analysis_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The ClinVar design's one rule (B11): the list's ClinVar filters read the release the
+    # analysis reads, as the family page's do; each variant carries its value of the release.
+    from datetime import date
+
+    from backend.app.services.clinvar_coga import ClinvarCogaRead
+    from backend.tests._nipt_service_fakes import wire_clinvar_release
+
+    _wire(monkeypatch, filtered=_gene_sites())
+    release = date(2026, 11, 22)
+    wire_clinvar_release(monkeypatch, ClinvarCogaRead("GRCh38", release, True))
+    read: list[Any] = []
+
+    async def values(coga: ClinvarCogaRead, records: list[SmallVariantRecord]) -> dict[str, Any]:
+        read.append(coga.release)
+        return {record.variant_id: None for record in records}
+
+    fetch = nipt_service._fetch_small_variant_rows
+    asked: list[Any] = []
+
+    async def fetch_asked(context: Any, filters: Any, **kwargs: Any) -> list[SmallVariantRecord]:
+        asked.append(filters.clinvar_coga_release)
+        return await fetch(context, filters, **kwargs)
+
+    monkeypatch.setattr(nipt_service, "clinvar_coga_by_variant", values)
+    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fetch_asked)
+    inherited = await _variants(inheritance="paternal_dominant")
+
+    assert [item.record.variant_id for item in inherited.variants] == ["7-200-C-T"]
+    # The cohort load reads no filter; the variant load reads the release.
+    assert asked[-1] == release and set(read) == {release}
+    assert all(item.clinvar_coga is None for item in inherited.variants)
 
 
 @pytest.mark.asyncio
@@ -687,7 +726,7 @@ async def test_a_de_novo_allele_on_a_sons_x_beside_his_fathers_call_is_a_low_con
     [site] = build_nipt_observations([record], father_sample_id=FATHER, cfdna_sample_id=PLASMA)
     classification = nipt_analysis.classify_site(site, ff, qc, fetal_sex="male")
     assert classification.category == 1 and "paternal_x_allele_in_male_fetus" in classification.flags
-    item = nipt_service.NiptClassifiedVariant(record=record, classification=classification, site=site)
+    item = nipt_service.NiptClassifiedVariant(record=record, classification=classification, clinvar_coga=None, site=site)
     scope = nipt_service._RecurrenceScope(
         assembly_name=None, carrier_samples=[], family_uuid="family-uuid", rules=recurrence_rules(qc)
     )
@@ -831,6 +870,7 @@ def test_what_the_recurrence_filter_leaves_out() -> None:
         return nipt_service.NiptClassifiedVariant(
             record=record,
             classification=None,  # type: ignore[arg-type]
+            clinvar_coga=None,
             recurrence=nipt_service.NiptRecurrence(
                 other_samples=10,
                 counts=CfdnaRecurrence(carriers=unexplained + 4, maternal=4, unexplained_low_vaf=unexplained),
@@ -843,7 +883,7 @@ def test_what_the_recurrence_filter_leaves_out() -> None:
     assert not nipt_service.hidden_as_recurrent(item(3, "common"), 2)
     with pytest.raises(RuntimeError):
         nipt_service.hidden_as_recurrent(
-            nipt_service.NiptClassifiedVariant(record=record, classification=None),  # type: ignore[arg-type]
+            nipt_service.NiptClassifiedVariant(record=record, classification=None, clinvar_coga=None),  # type: ignore[arg-type]
             2,
         )
 
@@ -865,14 +905,14 @@ async def test_a_listed_artefact_the_familys_annotation_protects_stays_in(monkey
 
 
 def test_what_protects_a_listed_artefact() -> None:
-    assert artifact_protection(_record("7-1-A-G", [], annotations=[{"clinvar": "Likely_pathogenic"}])) == "clinvar"
+    assert artifact_protection(_record("7-1-A-G", [], annotations=[{"clinvar": "Likely_pathogenic"}]), None) == "clinvar"
     assert artifact_protection(
-        _record("7-1-A-G", [], annotations=[{"clinvar": "Conflicting_classifications_of_pathogenicity"}])
+        _record("7-1-A-G", [], annotations=[{"clinvar": "Conflicting_classifications_of_pathogenicity"}]), None
     ) == "clinvar"
     assert artifact_protection(
-        _record("7-1-A-G", [], annotations=[{"population_frequencies": {"gnomad_popmax_af": 0.2}}])
+        _record("7-1-A-G", [], annotations=[{"population_frequencies": {"gnomad_popmax_af": 0.2}}]), None
     ) == "common"
-    assert artifact_protection(_record("7-1-A-G", [], annotations=[{"clinvar": "Benign", "gnomad_af": 0.01}])) is None
+    assert artifact_protection(_record("7-1-A-G", [], annotations=[{"clinvar": "Benign", "gnomad_af": 0.01}]), None) is None
     removed, protected = family_artifact_ids(
         [
             _record("7-1-A-G", [], annotations=[{"clinvar": "Pathogenic"}]),
@@ -880,6 +920,7 @@ def test_what_protects_a_listed_artefact() -> None:
             _record("7-3-A-G", []),
         ],
         {"7-1-A-G": 10, "7-2-A-G": 10, "7-9-A-G": 10},
+        clinvar_coga={},
         father_sample_id=FATHER,
         cfdna_sample_id=PLASMA,
         qc=NiptQualityThresholds(),
@@ -913,13 +954,16 @@ def test_a_listed_allele_the_father_carries_stays_in_when_it_recurs_in_few_plasm
     listed = {"7-1-A-G": 3, "7-2-A-G": 4, "7-3-A-G": 1, "7-4-A-G": 0, "7-5-A-G": 1, "7-6-A-G": 2,
               "7-7-A-G": 1, "7-8-A-G": 1}
     removed, protected = family_artifact_ids(
-        records, listed, father_sample_id=FATHER, cfdna_sample_id=PLASMA, qc=qc
+        records, listed, clinvar_coga={}, father_sample_id=FATHER, cfdna_sample_id=PLASMA, qc=qc
     )
     assert protected == {"7-1-A-G": "paternal_carrier", "7-4-A-G": "paternal_carrier", "7-6-A-G": "paternal_carrier"}
     assert removed == {"7-2-A-G", "7-3-A-G", "7-5-A-G", "7-7-A-G", "7-8-A-G"}
     # The family's annotation comes first: a ClinVar record names its own reason.
     clinvar = _record("7-9-A-G", [_call(PLASMA, [1350, 150]), father_het], annotations=[{"clinvar": "Pathogenic"}])
-    assert listed_artifact_protection(clinvar, 1, father_sample_id=FATHER, cfdna_sample_id=PLASMA, qc=qc) == "clinvar"
+    assert (
+        listed_artifact_protection(clinvar, 1, clinvar_coga=None, father_sample_id=FATHER, cfdna_sample_id=PLASMA, qc=qc)
+        == "clinvar"
+    )
 
 
 @pytest.mark.asyncio

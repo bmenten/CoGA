@@ -26,6 +26,7 @@ import pytest
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services import nipt_service
+from backend.app.services.clinvar_coga import NO_CLINVAR_COGA, ClinvarCogaRead
 from backend.app.services.nipt_artifact_pg import recurrence_rules
 from backend.app.services.nipt_qc_gate import NiptGateBound, resolve_nipt_gate_bound
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
@@ -71,6 +72,16 @@ def wire_annotation(monkeypatch: pytest.MonkeyPatch, records: list[SmallVariantR
         return [replace(record, annotations=list(stored[record.variant_id])) for record in loaded]
 
     monkeypatch.setattr(nipt_service, "annotate_small_variant_records", annotate)
+
+
+def wire_clinvar_release(monkeypatch: pytest.MonkeyPatch, read: ClinvarCogaRead = NO_CLINVAR_COGA) -> None:
+    """CoGA's ClinVar release the analysis reads (``clinvar_coga_read``): none by default, so
+    the NIPT readers read the annotation's ClinVar."""
+
+    async def release(_session: Any, _assembly_name: Any) -> ClinvarCogaRead:
+        return read
+
+    monkeypatch.setattr(nipt_service, "clinvar_coga_read", release)
 
 
 def wire_data_version(monkeypatch: pytest.MonkeyPatch, version: str = "1:1") -> None:
@@ -158,6 +169,7 @@ def wire_nipt_reads(
     wire_annotation(monkeypatch, [*cohort, *filtered])
     monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
     monkeypatch.setattr(nipt_service, "load_nipt_gate_bound", gate_bound_loader())
+    wire_clinvar_release(monkeypatch)
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
     monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", assay_carriers)
     counts: list[list[str]] = []

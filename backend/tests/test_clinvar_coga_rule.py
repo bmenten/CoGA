@@ -272,3 +272,100 @@ async def _coverage() -> tuple[dict[str, Any], list[str]]:
 
 async def _no_svs() -> list[Any]:
     return []
+
+
+# --- the monogenic NIPT (B9, B11) ----------------------------------------------------------------
+
+
+def _nipt_record(clinvar: str) -> SmallVariantRecord:
+    return SmallVariantRecord(
+        variant_key=None,
+        variant_id="7-100-G-A",
+        chr="7",
+        start=100,
+        end=100,
+        ref="G",
+        alt="A",
+        source="mutect2",
+        rsid=None,
+        filters=[],
+        gene_symbols=["SYNG7"],
+        annotations=[{"gene": "SYNG7", "impact": "MODERATE", "clinvar": clinvar}],
+        calls=[],
+    )
+
+
+@pytest.mark.parametrize(
+    ("annotated", "coga", "may_assert", "protection"),
+    [
+        ("Benign", _value("A"), True, "clinvar"),
+        ("Pathogenic", _value("A", classification="Benign"), False, None),
+        ("Benign", _value("A", classification="Conflicting_classifications_of_pathogenicity"), True, "clinvar"),
+        ("Pathogenic", _value("A", status="not_in_release", classification=None), True, "clinvar"),
+        ("Pathogenic", None, True, "clinvar"),
+    ],
+    ids=["coga-pathogenic", "coga-benign", "coga-conflict", "not-in-release", "no-release"],
+)
+def test_the_nipt_readers_read_clinvar_by_the_rule(
+    annotated: str, coga: ClinvarCogaOut | None, may_assert: bool, protection: str | None
+) -> None:
+    from backend.app.services import nipt_service
+
+    record = _nipt_record(annotated)
+
+    assert nipt_service.triage_annotation(record, coga).clinvar_pathogenic is may_assert
+    assert nipt_service.artifact_protection(record, coga) == protection
+
+
+def test_the_diagnostic_candidates_read_a_strict_pathogenic_classification_by_the_rule() -> None:
+    from backend.app.services import nipt_service
+
+    def strict(annotated: str, coga: ClinvarCogaOut | None) -> bool:
+        item = nipt_service.NiptClassifiedVariant(
+            record=_nipt_record(annotated), classification=None, clinvar_coga=coga  # type: ignore[arg-type]
+        )
+        return nipt_service.diagnostic_annotation(item).clinvar_pathogenic
+
+    assert strict("Benign", _value("A", classification="Likely_pathogenic")) is True
+    assert strict("Pathogenic", _value("A", classification="Uncertain_significance")) is False
+    # A conflicting record may assert pathogenic, but is not strictly pathogenic.
+    assert strict("Benign", _value("A", classification="Conflicting_classifications_of_pathogenicity")) is False
+    assert strict("Pathogenic", None) is True
+
+
+def test_the_artifact_lists_protection_reads_the_release_for_the_alleles_it_holds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.app.services.clinvar_coga import ClinvarCogaRead
+
+    pooled = {
+        "1-100-G-A": cfv._PooledAnnotations(population_af=0.0, clinvar_terms=["benign"]),
+        "1-200-G-A": cfv._PooledAnnotations(population_af=0.0, clinvar_terms=["pathogenic"]),
+        "1-300-G-A": cfv._PooledAnnotations(population_af=0.0, clinvar_terms=["pathogenic"]),
+    }
+
+    async def values(_read: Any, variant_ids: Any) -> dict[str, ClinvarCogaOut]:
+        # 1-100 newly pathogenic, 1-200 now benign; 1-300 not held, and 1-400 held by no family.
+        return {
+            "1-100-G-A": _value("A"),
+            "1-200-G-A": _value("A", classification="Benign"),
+            "1-400-G-A": _value("A", classification="Likely_pathogenic"),
+        }
+
+    monkeypatch.setattr(cfv, "clinvar_coga_by_variant_id", values)
+
+    protected = asyncio.run(
+        cfv._clinvar_protected(
+            ClinvarCogaRead("GRCh38", RELEASE, True), ["1-100-G-A", "1-200-G-A", "1-300-G-A", "1-400-G-A"], pooled
+        )
+    )
+
+    assert protected == {"1-100-G-A", "1-300-G-A", "1-400-G-A"}
+
+
+def test_a_variant_id_names_its_locus_unless_a_dash_makes_it_ambiguous() -> None:
+    from backend.app.services.clinvar_coga import locus_of_variant_id
+
+    assert locus_of_variant_id("chrM-3243-A-G") == ("chrM", 3243, "A", "G")
+    assert locus_of_variant_id("HLA-A*01:01-100-A-G") is None
+    assert locus_of_variant_id("1-x-A-G") is None
