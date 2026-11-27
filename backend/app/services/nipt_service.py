@@ -977,18 +977,25 @@ class _FamilyAnalysis:
     counterparts: NiptCounterparts
     summary: NiptFamilySummary
 
+    @property
+    def fetal_sex(self) -> str:
+        """The fetal sex chrX is classified with, as the summary classifies its sites: the
+        summary's call in a singleton pregnancy, ``indeterminate`` in a multiple one
+        (``model_fetal_sex``)."""
+        return model_fetal_sex(self.summary.analysis.fetal_sex_call, len(self.summary.trio.fetus_sample_ids))
+
     def classify(
         self,
         records: list[SmallVariantRecord],
         trio: NiptTrio,
         qc: NiptQualityThresholds,
         *,
-        fetal_sex: str,
         min_confidence: float | None = None,
     ) -> list[NiptClassifiedVariant]:
-        """``records``, some of the family's, classified against the summary's fetal fraction
-        with ``fetal_sex`` (``_classify_candidates``): with the artifact list and the per-target
-        coverage the analysis read, each observed as the family's every record observes it."""
+        """``records``, some of the family's, classified as the summary classifies its sites
+        (``_classify_candidates``): against its fetal fraction and fetal sex, with the artifact
+        list and the per-target coverage the analysis read, each observed as the family's every
+        record observes it."""
         return _classify_candidates(
             records,
             trio,
@@ -999,7 +1006,7 @@ class _FamilyAnalysis:
             plasma_targets=self.inputs.plasma_targets,
             father_targets=self.inputs.father_targets,
             counterparts=self.counterparts,
-            fetal_sex=fetal_sex,
+            fetal_sex=self.fetal_sex,
         )
 
 
@@ -1684,17 +1691,16 @@ async def get_family_nipt_variants(
 
     # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are rarely inside
     # the clinical filter): the summary's, and the fetal sex it classifies chrX with in this
-    # pregnancy (``model_fetal_sex``). The filtered subset is classified against them.
+    # pregnancy. The filtered subset is classified against them.
     family = await _kept_family_analysis(session, context, trio, assay_key, qc)
     ff_estimate = family.summary.analysis.fetal_fraction
-    fetal_sex = model_fetal_sex(family.summary.analysis.fetal_sex_call, len(trio.fetus_sample_ids))
 
     # The selected variants no list can show, whatever the other filters: the analysis
     # does not classify them. Read as the signed record reads the reported ones.
     not_classified: dict[str, str] = {}
     if review.include:
         _selected, not_classified = await _classify_selected(
-            context, review.include - review.exclude, family, trio, qc, fetal_sex
+            context, review.include - review.exclude, family, trio, qc
         )
     if review.matches_nothing:
         return NiptVariantsResult(fetal_fraction=ff_estimate, total=0, variants=[], trio=trio)
@@ -1742,9 +1748,7 @@ async def get_family_nipt_variants(
     capped = len(records) > fetch_limit
     if capped:
         records = records[:fetch_limit]
-    classified = await asyncio.to_thread(
-        family.classify, records, trio, qc, fetal_sex=fetal_sex, min_confidence=min_confidence
-    )
+    classified = await asyncio.to_thread(family.classify, records, trio, qc, min_confidence=min_confidence)
 
     recurrence_scope = await _recurrence_scope(session, context, assay_key, qc)
     recessive_genes: list[RecessiveGeneRisk] = []
@@ -1954,14 +1958,13 @@ async def _scoped_diagnostic_candidates(
     qc: NiptQualityThresholds,
     *,
     family: _FamilyAnalysis,
-    fetal_sex: str,
     panel_id: str | None,
     gene: str | None,
 ) -> tuple[NiptDiagnosticCandidates, SmallVariantQueryFilters]:
     """The diagnostic candidates of the family's variants in a gene panel and/or gene (every
-    variant without either), classified against the family's fetal fraction with ``fetal_sex``
-    as the variant list classifies them. The NIPT report's list and the signed record's both
-    come from here."""
+    variant without either), classified as the variant list classifies them
+    (``_FamilyAnalysis.classify``). The NIPT report's list and the signed record's both come
+    from here."""
     ff_estimate = family.summary.analysis.fetal_fraction
     filters = _build_nipt_query_filters({"panel_id": panel_id or None, "gene": gene or None})
     panel_constraints = PanelFilterConstraints()
@@ -1975,7 +1978,7 @@ async def _scoped_diagnostic_candidates(
     )
     capped = len(records) > NIPT_VARIANT_FETCH_LIMIT
     records = records[:NIPT_VARIANT_FETCH_LIMIT]
-    classified = await asyncio.to_thread(family.classify, records, trio, qc, fetal_sex=fetal_sex)
+    classified = await asyncio.to_thread(family.classify, records, trio, qc)
     scope = await _recurrence_scope(session, context, assay_key, qc)
     candidates = await diagnostic_candidates(classified, ff_estimate, qc, scope=scope)
     candidates.capped = capped
@@ -2015,7 +2018,6 @@ async def get_family_nipt_diagnostic_candidates(
             session, context=context, panel_id=panel_id, user=user, search="nipt_diagnostic_candidates"
         )
     family = await _kept_family_analysis(session, context, trio, assay_key, qc)
-    fetal_sex = model_fetal_sex(family.summary.analysis.fetal_sex_call, len(trio.fetus_sample_ids))
     candidates, filters = await _scoped_diagnostic_candidates(
         session,
         context,
@@ -2023,7 +2025,6 @@ async def get_family_nipt_diagnostic_candidates(
         assay_key,
         qc,
         family=family,
-        fetal_sex=fetal_sex,
         panel_id=panel_id,
         gene=gene,
     )
@@ -2082,7 +2083,6 @@ async def _classify_selected(
     family: _FamilyAnalysis,
     trio: NiptTrio,
     qc: NiptQualityThresholds,
-    fetal_sex: str,
 ) -> tuple[list[NiptClassifiedVariant], dict[str, str]]:
     """``wanted`` among the family's variants, with their annotation, each classified as the
     variant list classifies it (no filter, no minimum confidence), and
@@ -2094,7 +2094,7 @@ async def _classify_selected(
     )
     # By their exact ids: the query reads an id without its surrounding spaces.
     records = [record for record in read if record.variant_id in wanted]
-    classified = await asyncio.to_thread(family.classify, records, trio, qc, fetal_sex=fetal_sex)
+    classified = await asyncio.to_thread(family.classify, records, trio, qc)
     found = {record.variant_id for record in records}
     classified_ids = {item.record.variant_id for item in classified}
     unclassified: dict[str, str] = {}
@@ -2130,9 +2130,7 @@ async def get_family_nipt_record(
     family = await _family_analysis(session, context, trio, assay_key, qc, shared_nipt)
     summary = family.summary
     wanted = {str(variant_id) for variant_id in variant_ids if variant_id}
-    classified, unclassified = await _classify_selected(
-        context, wanted, family, trio, qc, summary.analysis.fetal_sex_call
-    )
+    classified, unclassified = await _classify_selected(context, wanted, family, trio, qc)
     # Each reported variant's recurrence, which the record freezes as the list showed it, in
     # one count that the de novo triage then reads.
     scope = await _recurrence_scope(session, context, assay_key, qc)
@@ -2159,7 +2157,6 @@ async def get_family_nipt_record(
         assay_key,
         qc,
         family=family,
-        fetal_sex=summary.analysis.fetal_sex_call,
         panel_id=diagnostic_panel_id,
         gene=None,
     )
