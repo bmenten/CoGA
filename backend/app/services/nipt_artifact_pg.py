@@ -493,9 +493,9 @@ async def auto_seed_nipt_artifacts(
     hundred plasmas.
 
     Protected, never seeded whatever its count: a variant more than 5% frequent in gnomAD
-    or TopMed (the import-time ``is_gnomad_gt_5_percent`` flag), one with a ClinVar
-    pathogenic or likely pathogenic assertion in any of its annotations on the assembly
-    (Pathogenic, Likely_pathogenic, their combinations and low-penetrance forms), and every
+    or TopMed (the import-time ``is_gnomad_gt_5_percent`` flag), one whose classification in
+    CoGA's ClinVar release carries a pathogenic or likely pathogenic assertion (Pathogenic,
+    Likely_pathogenic, their combinations and low-penetrance forms), and every
     "conflicting classifications/interpretations" record, which may hold a P/LP submission
     (``clinvar_may_assert_pathogenic``). A familial founder variant (CFTR F508del is ~1% in
     gnomAD) is a maternal or paternal call in a disease-focused panel; seeded, it would be
@@ -504,8 +504,9 @@ async def auto_seed_nipt_artifacts(
     Known limits; review the auto entries before relying on them. A family without a
     father's sample, or whose father's call fails the quality floors, cannot explain its
     paternal alleles, so a polymorphism can still reach the threshold in a large cohort of
-    such families. "Not common" is the import-time flag, and the ClinVar protection needs a
-    ClinVar annotation. A cfDNA sample counts only when tagged ``assay: nipt_cfdna``.
+    such families. "Not common" is the import-time flag, and the ClinVar protection needs the
+    allele in CoGA's ClinVar release. A cfDNA sample counts only when tagged
+    ``assay: nipt_cfdna``.
 
     Returns what it wrote: the number of cfDNA samples it read and each seeded allele, with
     the source of its entry already on the list (``_auto_seed_candidates``, the reading

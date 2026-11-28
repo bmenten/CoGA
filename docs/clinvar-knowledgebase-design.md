@@ -60,20 +60,19 @@ Grenzen:
 
 ## 3. Wie ClinVar leest
 
-Zonder eigen release lezen alle lezers de geannoteerde waarde; de tabel zegt waar en hoe. De
-kolom *Fase* zegt wanneer de lezer CoGA's release leest (§8.1). Met B13 leest elke lezer alleen
-CoGA's release; de import vergelijkt de geannoteerde waarde alleen met CoGA's kopie van dezelfde
-release (§6.6).
+Elke lezer leest alleen CoGA's release (B13); de tabel zegt waar en hoe. De import vergelijkt de
+geannoteerde waarde alleen met CoGA's kopie van dezelfde release (§6.6). De kolom *Fase* zegt in
+welke fase de lezer CoGA's release ging lezen (§8.1).
 
 | Lezer | Waar | Wat het leest | Fase |
 | --- | --- | --- | --- |
 | Import | [variant_annotation_parser.py](../backend/app/services/variant_annotation_parser.py), [annotation_table_parser.py](../backend/app/services/annotation_table_parser.py) | `ClinVar_CLNSIG`/`CLNSIG` → `clinvar`; `CLIN_SIG` → `clinvar_vep_cache` (of `clinvar` zonder ClinVar-bestand); review-status, aandoeningen, AlleleID, VariationID; per allel van een multi-allelisch record (`alt_allele`) | — |
-| Opslag | [clickhouse_variant_rows.py](../backend/app/services/clickhouse_variant_rows.py), [clickhouse_variant_storage.py](../backend/app/services/clickhouse_variant_storage.py) | alle sleutels in `variants/details.annotationsJson`; de genormaliseerde termen (`_status_terms`: kleine letters, spaties, gesplitst op `/`, `,`, `\|`, …) als `clinvar_terms` in `variants/annotations`, `variants/annotation_index` en `entries.transcripts` | — |
-| Filters (familie, Explorer, NIPT) | [clickhouse_variant_queries.py](../backend/app/services/clickhouse_variant_queries.py) | `clinvar` (opnemen) en `exclude_clinvar` (uitsluiten): `hasAny(a.clinvar_terms, …)`; de **P/LP-override** (`clinvar_pathogenic_override`, standaard aan): een P/LP-variant passeert de consequentie-, frequentie- en in-silico-filters; de salient-markering op het genoomspoor | override: 1; rest: 2 |
-| Ranking | [variant_prioritization.py](../backend/app/services/variant_prioritization.py), [variant_ranking_cache.py](../backend/app/services/variant_ranking_cache.py) | `pathogenicity_score` op de `clinvar` van de primaire annotatie; de cache-sleutel bevat geen ClinVar-release | 2 |
+| Opslag | [clickhouse_variant_rows.py](../backend/app/services/clickhouse_variant_rows.py), [clickhouse_variant_storage.py](../backend/app/services/clickhouse_variant_storage.py) | alle sleutels in `variants/details.annotationsJson`, waar de import ze vergelijkt (§6.6); de annotatietabellen en `entries.transcripts` houden geen ClinVar | — |
+| Filters (familie, Explorer, NIPT) | [clickhouse_variant_queries.py](../backend/app/services/clickhouse_variant_queries.py) | `clinvar` (opnemen) en `exclude_clinvar` (uitsluiten): `hasAny(classification_terms, …)` in CoGA's release, op de allel-sleutels van de rij (`entries.allele_keys`); de **P/LP-override** (`clinvar_pathogenic_override`, standaard aan): een P/LP-variant passeert de consequentie-, frequentie- en in-silico-filters; de salient-markering op het genoomspoor | override: 1; rest: 2 |
+| Ranking | [variant_prioritization.py](../backend/app/services/variant_prioritization.py), [variant_ranking_cache.py](../backend/app/services/variant_ranking_cache.py) | `pathogenicity_score` op de classificatie van de getoonde ALT in CoGA's release; de cache-sleutel bevat die release (`clinvar_coga_release`) | 2 |
 | ACMG | `frontend/src/lib/acmg/evaluate.ts`, `frontend/src/lib/clinvar.ts` | PP5/BP6, altijd *consider*; mtDNA: `evaluateMito.ts` | 2 |
-| NIPT | [nipt_service.py](../backend/app/services/nipt_service.py), [nipt_diagnostic_filters.py](../backend/app/services/nipt_diagnostic_filters.py), [nipt_artifact_pg.py](../backend/app/services/nipt_artifact_pg.py) | triage ("ClinVar pathogenic: not excluded as recurrent"), diagnostische kandidaten (strikt P/LP), en de bescherming van de artefactlijst: `clinvar_terms` uit `annotation_index` over alle families samen | 2 |
-| Evidence-snapshot en drift | [small_variant_review_acmg.py](../backend/app/services/small_variant_review_acmg.py), [classification_drift_service.py](../backend/app/services/classification_drift_service.py) | bevriest `clinvar`, `clinvar_from_vep_cache`, `clinvar_review_status`; drift vergelijkt `clinvar` | 1 |
+| NIPT | [nipt_service.py](../backend/app/services/nipt_service.py), [nipt_diagnostic_filters.py](../backend/app/services/nipt_diagnostic_filters.py), [nipt_artifact_pg.py](../backend/app/services/nipt_artifact_pg.py) | triage ("ClinVar pathogenic: not excluded as recurrent"), diagnostische kandidaten (strikt P/LP), en de bescherming van de artefactlijst: de classificatie in CoGA's release | 2 |
+| Evidence-snapshot en drift | [small_variant_review_acmg.py](../backend/app/services/small_variant_review_acmg.py), [classification_drift_service.py](../backend/app/services/classification_drift_service.py) | bevriest per ALT de waarde in CoGA's release (`clinvar_coga`); drift vergelijkt die classificatie | 1 |
 | Manifest en ondertekend record | [annotation_manifest_service.py](../backend/app/services/annotation_manifest_service.py), [report_signout_service.py](../backend/app/services/report_signout_service.py), `signedReportRecord.ts`, `SignedFamilyReport.tsx` | modules `clinvar` en `clinvar_vep_cache` (release uit de bestandsnaam); de snapshot per gerapporteerde review; de sectie `reference_data` (genreferentie, klinische CNV's) | 1 |
 | Tonen | `VariantOut` in [schemas/variants.py](../backend/app/schemas/variants.py); `SmallVariantCards.tsx`, `smallVariantResultUtils.ts`, `SmallVariantTable.tsx`, `AcmgEvidencePanel.tsx`, `GlobalSmallVariantTable.tsx`, het rapportverhaal | classificatie, sterren, aandoeningen, VariationID-link, kleur in tabel en spoor | 1 |
 
@@ -139,7 +138,7 @@ CREATE TABLE `GRCh38/SNV_INDEL/clinvar` (
     variation_id         UInt32,
     allele_id            UInt32,
     classification       String,                        -- CLNSIG zoals gepubliceerd
-    classification_terms Array(LowCardinality(String)), -- dezelfde termen als clinvar_terms
+    classification_terms Array(LowCardinality(String)), -- CLNSIG in termen (_status_terms)
     conflicting          String,                        -- CLNSIGCONF
     review_status        LowCardinality(String),
     conditions           Array(String),
@@ -151,8 +150,9 @@ PARTITION BY release
 ORDER BY allele_key
 ```
 
-- `classification_terms` wordt gemaakt met dezelfde functie als `clinvar_terms`
-  (`_status_terms`), zodat beide filters dezelfde woorden testen.
+- `classification_terms` wordt gemaakt met `_status_terms` (kleine letters, spaties, gesplitst
+  op `/`, `,`, `\|`, …), zoals `_status_filter_terms` de woorden van een filter normaliseert,
+  zodat beide dezelfde woorden testen.
 - De sterren worden bij het tonen afgeleid uit `review_status`, zoals nu
   ([clinvar_review_status.py](../backend/app/services/clinvar_review_status.py)).
 - ClickHouse en niet Postgres, omdat de filters in ClickHouse lopen en de tabel daar op de

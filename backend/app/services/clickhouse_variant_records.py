@@ -247,7 +247,8 @@ class StoredStructuralVariantRow:
 
 
 # What separates the terms of a ClinVar value (``_status_terms``) and of a consequence
-# (``_annotation_terms``), compiled once: they are read for every annotation stored.
+# (``_annotation_terms``), compiled once: they are read for every ClinVar record and every
+# annotation stored.
 _STATUS_TERM_SEPARATORS = re.compile(r"[,;&|/]+")
 _ANNOTATION_TERM_SEPARATORS = re.compile(r"[,|&;/]+")
 
@@ -303,8 +304,8 @@ def mane_only_condition(column_prefix: str) -> str:
 
 
 def _status_terms(value: Any) -> set[str]:
-    """Normalised status terms of a ClinVar value, as the import stores them for the SQL to
-    read (``clinvar_terms``).
+    """Normalised status terms of a ClinVar value, as a ClinVar release stores them for the SQL
+    to read (``classification_terms``, ``clinvar_vcf``).
 
     Multiple values are separated by ``,`` ``;`` ``&`` ``|`` or ``/``. The ``/`` is
     ClinVar's own aggregate form (``Pathogenic/Likely_pathogenic``,
@@ -479,10 +480,6 @@ def _annotation_effect(annotation: dict[str, Any]) -> str | None:
         "consequence",
         "most_severe_consequence",
     )
-
-
-def _annotation_clinvar(annotation: dict[str, Any]) -> str | None:
-    return _annotation_text(annotation, "clinvar")
 
 
 def _annotation_sift(annotation: dict[str, Any]) -> str | None:

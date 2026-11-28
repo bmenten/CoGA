@@ -84,8 +84,7 @@ def clinvar_may_assert_pathogenic(clinvar: str | Iterable[str] | None) -> bool:
     and "pathogenicity" does not. Unlike the score, a conflicting record counts too: a
     conflict can hold a P/LP submission, and only ClinVar's aggregate significance is
     imported (not its per-submission CLNSIGCONF breakdown), so no conflict can be shown
-    to lack one. Takes a raw significance, or the normalised terms kept in
-    ``clinvar_terms``.
+    to lack one. Takes a raw significance, or its normalised terms (``_status_terms``).
     """
     values = [clinvar] if clinvar is None or isinstance(clinvar, str) else list(clinvar)
     for value in values:

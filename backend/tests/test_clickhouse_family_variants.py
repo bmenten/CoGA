@@ -759,7 +759,6 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
     assert "a.impact IN %(detail_impact_terms)s" in query
     assert "hasAny(a.effects, %(detail_effect_terms)s)" in query
     # ClinVar is the alleles' in CoGA's release of the request, never a transcript's.
-    assert "a.clinvar_terms" not in query
     assert (
         "arrayExists(k -> k IN (SELECT allele_key FROM coga.`GRCh38/SNV_INDEL/clinvar` WHERE release = "
         "%(clinvar_status_release)s AND hasAny(classification_terms, %(clinvar_status_terms)s)), e.allele_keys)"

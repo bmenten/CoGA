@@ -261,8 +261,8 @@ async def _fill_with_other_families(assembly_name: str, round_: int) -> None:
             "k, concat(c, '-', toString(p), '-A-AC'), 'current', sipHash64(k), c, p, 'A', 'AC', %(json)s",
         ),
         _small_table_name(assembly_name, "variants/annotation_index"): (
-            "key, variantId, annotation_version, annotationSetHash, chrom, pos, ref, alt, clinvar_terms, max_gnomad_af",
-            "k, concat(c, '-', toString(p), '-A-AC'), 'current', sipHash64(k), c, p, 'A', 'AC', ['benign'], 0.001",
+            "key, variantId, annotation_version, annotationSetHash, chrom, pos, ref, alt, max_gnomad_af",
+            "k, concat(c, '-', toString(p), '-A-AC'), 'current', sipHash64(k), c, p, 'A', 'AC', 0.001",
         ),
         _small_table_name(assembly_name, "entries"): (
             "key, variantId, annotation_version, annotationSetHash, project_guid, family_guid, xpos, chrom, pos, "

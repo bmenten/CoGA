@@ -210,20 +210,19 @@ def test_a_variants_index_rows_gather_its_annotations_rows() -> None:
     )
 
     # An annotations row's values, from column 9: gene, gene id, transcript, HGVS c. and p.,
-    # impact, effects, ClinVar terms, the three flags, LoF, five frequencies, three counts,
-    # CADD, REVEL, SpliceAI, SIFT and PolyPhen. The index row's, from column 8: the rsid,
-    # then each gathered over the annotations.
+    # impact, effects, the three flags, LoF, five frequencies, three counts, CADD, REVEL,
+    # SpliceAI, SIFT and PolyPhen. The index row's, from column 8: the rsid, then each
+    # gathered over the annotations.
     assert [row[9] for row in annotation_rows] == ["gene1", "gene2", "gene1"]
     assert index_row[8] == "rs1"
     assert index_row[9:14] == (["gene1", "gene2"], ["ensg1", "ensg2"], [], [], ["moderate", "modifier"])
     assert sorted(index_row[14]) == ["intron_variant", "missense_variant", "splice_region_variant"]
-    assert sorted(index_row[15]) == ["likely pathogenic", "pathogenic"]
-    assert index_row[16:20] == (True, True, False, True)  # canonical, MANE Select, MANE Plus, LoF
-    assert index_row[20] == max(row[21] for row in annotation_rows if row[21] is not None) == 0.5
-    assert index_row[21] == annotation_rows[0][22] == pytest.approx(0.04)
-    assert index_row[24] == annotation_rows[0][25] == pytest.approx(0.2)
-    assert index_row[25:28] == (7, 3, None)
-    assert index_row[28:31] == (25.0, 0.9, 0.3)
+    assert index_row[15:19] == (True, True, False, True)  # canonical, MANE Select, MANE Plus, LoF
+    assert index_row[19] == max(row[20] for row in annotation_rows if row[20] is not None) == 0.5
+    assert index_row[20] == annotation_rows[0][21] == pytest.approx(0.04)
+    assert index_row[23] == annotation_rows[0][24] == pytest.approx(0.2)
+    assert index_row[24:27] == (7, 3, None)
+    assert index_row[27:30] == (25.0, 0.9, 0.3)
     assert [row[4] for row in gene_rows] == ["gene0", "gene1", "gene2", "ensg1", "ensg2"]
 
 
@@ -235,7 +234,7 @@ def test_a_variant_without_annotations_stores_one_empty_annotations_row() -> Non
     (row,) = annotation_rows
     assert row[3] == _stable_uint64("small_annotation_set", "[]")
     assert row[4] == _stable_uint64("small_annotation", "{}")
-    assert index_row[9:17] == ([], [], [], [], [], [], [], False)
+    assert index_row[9:16] == ([], [], [], [], [], [], False)
     assert gene_rows == []
 
 

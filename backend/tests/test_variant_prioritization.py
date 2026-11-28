@@ -46,7 +46,7 @@ def test_pathogenicity_clinvar_pathogenic_overrides() -> None:
         ("Conflicting_classifications_of_pathogenicity", True),
         ("Conflicting_interpretations_of_pathogenicity", True),
         ("conflicting_interpretations_of_pathogenicity&pathogenic", True),
-        # The normalised terms stored in clinvar_terms read the same way.
+        # The normalised terms (_status_terms) read the same way.
         (["likely pathogenic"], True),
         (["conflicting classifications of pathogenicity"], True),
         (["uncertain significance", "pathogenic"], True),

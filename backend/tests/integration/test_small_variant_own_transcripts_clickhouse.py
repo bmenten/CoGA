@@ -444,6 +444,5 @@ def test_the_cases_cover_every_field_the_transcripts_serve() -> None:
             _SALIENT_IMPACT if search.salient_only else None,
         ):
             read.update(re.findall(r"\ba\.(\w+)", condition or ""))
-    # Every field but the annotation's ClinVar terms, which no filter reads: ClinVar is CoGA's
-    # release's, read on the row's allele keys.
-    assert {name for name, _type in ENTRY_TRANSCRIPT_FIELDS} - read == {"clinvar_terms"}
+    # Every field the transcripts hold is one a case filters on.
+    assert {name for name, _type in ENTRY_TRANSCRIPT_FIELDS} <= read
