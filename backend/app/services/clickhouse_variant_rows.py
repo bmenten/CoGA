@@ -22,7 +22,6 @@ from .clickhouse_variant_records import (
     StructuralVariantCall,
     StructuralVariantRecord,
     _annotation_bool,
-    _annotation_clinvar,
     _annotation_effect,
     _annotation_float,
     _annotation_gene,
@@ -33,7 +32,6 @@ from .clickhouse_variant_records import (
     _annotation_terms,
     _annotation_text,
     _casefold,
-    _status_terms,
 )
 
 
@@ -196,7 +194,6 @@ class _AnnotationColumns:
     # As read, unsorted: the annotation index gathers them in this order, the annotations
     # row stores them sorted.
     effect_terms: set[str]
-    clinvar_terms: set[str]
     canonical: bool
     mane_select: bool
     mane_plus_clinical: bool
@@ -226,7 +223,6 @@ def _annotation_columns(annotation: dict[str, Any]) -> _AnnotationColumns:
         hgvsp=_clean_text(_annotation_text(annotation, "hgvsp")),
         impact=_casefold(_annotation_text(annotation, "impact")),
         effect_terms=_annotation_terms(_annotation_effect(annotation)),
-        clinvar_terms=_status_terms(_annotation_clinvar(annotation)),
         canonical=_annotation_bool(annotation, "canonical"),
         mane_select=_annotation_bool(annotation, "mane_select"),
         mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical"),
@@ -251,16 +247,15 @@ def _annotation_columns(annotation: dict[str, Any]) -> _AnnotationColumns:
 
 # The fields of an ``entries`` row's ``transcripts``, as ``(name, ClickHouse type)``: the
 # columns of ``variants/annotations`` that the family search's per-transcript filters test
-# (``clickhouse_variant_queries._small_annotation_filter_condition``, the salient and the
-# excluded-ClinVar conditions), under the same names and types, so that a condition on a
-# transcript row ``a`` means the same on the shared table and on a row's own transcripts. The
-# text columns (transcript, HGVS c. and p.) are left out: on a synthetic whole-genome trio
-# they took 92 B a row, against 36 B for these (ZSTD; 83 B for the rest of the row), and their
-# filters read the shared table.
+# (``clickhouse_variant_queries._small_annotation_filter_condition`` and the salient
+# condition), under the same names and types, so that a condition on a transcript row ``a``
+# means the same on the shared table and on a row's own transcripts. The text columns
+# (transcript, HGVS c. and p.) are left out: on a synthetic whole-genome trio they took 92 B a
+# row, against 36 B for these (ZSTD; 83 B for the rest of the row), and their filters read the
+# shared table.
 ENTRY_TRANSCRIPT_FIELDS: tuple[tuple[str, str], ...] = (
     ("impact", "LowCardinality(String)"),
     ("effects", "Array(String)"),
-    ("clinvar_terms", "Array(String)"),
     ("canonical", "Bool"),
     ("mane_select", "Bool"),
     ("mane_plus_clinical", "Bool"),
@@ -302,7 +297,6 @@ def _entry_transcripts(columns: Sequence[_AnnotationColumns]) -> list[dict[str, 
             (
                 column.impact,
                 tuple(sorted(column.effect_terms)),
-                tuple(sorted(column.clinvar_terms)),
                 column.canonical,
                 column.mane_select,
                 column.mane_plus_clinical,
@@ -325,8 +319,8 @@ def _entry_transcripts(columns: Sequence[_AnnotationColumns]) -> list[dict[str, 
         )
     names = [name for name, _type in ENTRY_TRANSCRIPT_FIELDS]
     return [
-        dict(zip(names, (impact, list(effects), list(clinvar), *rest), strict=True))
-        for impact, effects, clinvar, *rest in distinct
+        dict(zip(names, (impact, list(effects), *rest), strict=True))
+        for impact, effects, *rest in distinct
     ]
 
 
@@ -359,7 +353,6 @@ def _annotation_row_from_columns(
         columns.hgvsp,
         columns.impact,
         sorted(columns.effect_terms),
-        sorted(columns.clinvar_terms),
         columns.canonical,
         columns.mane_select,
         columns.mane_plus_clinical,
@@ -410,7 +403,6 @@ def _small_annotation_index_row(
         _string_list(column.hgvsp for column in columns),
         _string_list(column.impact for column in columns),
         _string_list(term for column in columns for term in column.effect_terms),
-        _string_list(term for column in columns for term in column.clinvar_terms),
         any(column.canonical for column in columns),
         any(column.mane_select for column in columns),
         any(column.mane_plus_clinical for column in columns),

@@ -74,7 +74,6 @@ def test_the_tracks_salient_set_reads_the_alleles_clinvar_in_the_release() -> No
         ", e.allele_keys))"
     )
     assert clause == f"({diamond} OR ({_IMPACT} AND NOT {benign}))"
-    assert "a.clinvar_terms" not in clause
     assert params == {
         "salient_impacts": ("high", "moderate", "medium"),
         "clinvar_diamond_release": RELEASE,

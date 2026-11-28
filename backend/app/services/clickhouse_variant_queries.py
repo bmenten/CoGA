@@ -3951,8 +3951,8 @@ def _small_annotation_filter_clauses(
     if transcript_clause:
         clauses.append(transcript_clause)
 
-    if clinvar_terms := _status_filter_terms(filters.clinvar):
-        clauses.append(_clinvar_condition(context, filters, clinvar_terms, params=params, prefix="clinvar_status"))
+    if status_terms := _status_filter_terms(filters.clinvar):
+        clauses.append(_clinvar_condition(context, filters, status_terms, params=params, prefix="clinvar_status"))
 
     if excluded_terms := _status_filter_terms(filters.exclude_clinvar):
         excluded = _clinvar_condition(

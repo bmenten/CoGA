@@ -405,7 +405,6 @@ def variant_columns(model: CohortModel, source: str, extra: tuple[str, ...] = ()
             "cv < 0.004, 'Likely_pathogenic', csq0 = 'missense_variant' AND cv < 0.02, "
             "'Uncertain_significance', is_common AND exonic AND cv < 0.05, 'Benign', '') AS clinvar"
         ),
-        "if(clinvar = '', CAST([] AS Array(String)), [replaceAll(lower(clinvar), '_', ' ')]) AS clinvar_terms",
     ]
     return f"SELECT {', '.join(columns)} FROM ({source})"
 
@@ -582,7 +581,6 @@ def tx_filter_values(t: str) -> list[str]:
     return [
         f"lower({_impact(csq)})",
         f"arraySort(splitByChar('&', lower({csq})))",
-        "clinvar_terms",
         f"genic AND {t} = 0",
         f"genic AND pc AND {t} = 0",
         "false",
@@ -621,7 +619,7 @@ def annotation_index_insert(table: str, model: CohortModel, source: str) -> str:
     csq = tx_csq("t")
     return (
         f"INSERT INTO {table} (key, variantId, annotation_version, annotationSetHash, chrom, pos, ref, "
-        "alt, rsid, gene_symbols, gene_ids, hgvsc_values, hgvsp_values, impacts, effects, clinvar_terms, "
+        "alt, rsid, gene_symbols, gene_ids, hgvsc_values, hgvsp_values, impacts, effects, "
         "has_canonical, has_mane_select, has_mane_plus_clinical, has_lof, max_gnomad_af, "
         "max_gnomad_exomes_af, max_gnomad_genomes_af, max_gnomad_popmax_af, max_topmed_af, max_gnomad_ac, "
         "max_gnomad_hom_count, max_gnomad_hemi_count, max_cadd_phred, max_revel, max_spliceai) "
@@ -632,7 +630,7 @@ def annotation_index_insert(table: str, model: CohortModel, source: str) -> str:
         f"arrayDistinct(arrayFilter(x -> x != '', arrayMap(t -> {tx_hgvsp('t')}, range(n_tx)))), "
         f"arrayDistinct(arrayMap(t -> lower({_impact(csq)}), range(n_tx))), "
         f"arrayDistinct(arrayFlatten(arrayMap(t -> splitByChar('&', lower({csq})), range(n_tx)))), "
-        "clinvar_terms, genic, genic AND pc, false, impact0 = 'HIGH' AND pc AND genic, "
+        "genic, genic AND pc, false, impact0 = 'HIGH' AND pc AND genic, "
         "af, af_exomes, af, af_popmax, af_topmed, g_ac, g_hom, g_hemi, cadd, revel, splice "
         f"FROM ({variant_columns(model, source)})"
     )

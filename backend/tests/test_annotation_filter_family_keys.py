@@ -194,7 +194,6 @@ def test_the_per_transcript_filters_read_the_row_s_own_transcripts() -> None:
     assert _own_transcripts(where) == [detail, lifted, _SALIENT_IMPACT]
     assert {name: params[name] for name in expected_params} == expected_params
     assert params["salient_impacts"] == ("high", "moderate", "medium")
-    assert "clinvar_terms" not in where
     assert where.count(f"SELECT allele_key FROM {_CLINVAR} WHERE release = ") == 5
     assert {
         params[f"{prefix}_release"]
@@ -208,16 +207,13 @@ def test_the_per_transcript_filters_read_the_row_s_own_transcripts() -> None:
 
 
 def test_the_row_s_transcripts_hold_every_column_a_per_transcript_filter_reads() -> None:
-    # A filter reading a column the transcripts do not hold would fail on every row: each
-    # column it reads is one of theirs, under the name the shared table gives it.
+    # A filter reading a column the transcripts do not hold would fail on every row, and a
+    # column no filter reads would be stored for nothing: the filters read exactly the columns
+    # the transcripts hold, under the names the shared table gives them.
     filters = _filters(**_EVERY_TRANSCRIPT_FILTER)
     where, _params = _search(filters)
     read = {column for condition in _own_transcripts(where) for column in re.findall(r"\ba\.(\w+)", condition)}
-    held = {name for name, _type in ENTRY_TRANSCRIPT_FIELDS}
-    assert read and read <= held
-    # Every field held is one a filter reads, but the annotation's ClinVar terms: ClinVar is
-    # CoGA's release's, read on the row's allele keys.
-    assert held - read == {"clinvar_terms"}
+    assert read == {name for name, _type in ENTRY_TRANSCRIPT_FIELDS}
 
 
 @pytest.mark.parametrize("text_filter", [{"transcript": "ENST0001"}, {"hgvsc": "c.76"}, {"hgvsp": "p.Arg"}])

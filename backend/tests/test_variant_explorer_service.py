@@ -426,8 +426,8 @@ def test_clinvar_rescue_keeps_pathogenic_variants_past_the_frequency_ceilings() 
         "WHERE release = %(clinvar_override_release)s AND hasAny(classification_terms, %(clinvar_override_terms)s)), "
         "e.allele_keys))"
     )
-    # The frequency ceilings sit only once, beside the rescue, and no transcript reads ClinVar.
-    assert transcript.count("a.gnomad_af") == 1 and "a.clinvar_terms" not in transcript
+    # The frequency ceilings sit only once, beside the rescue.
+    assert transcript.count("a.gnomad_af") == 1
     assert not _index_subqueries(clauses)
     # The family search's terms, in the scope's release.
     assert params["clinvar_override_terms"] == ["pathogenic", "likely pathogenic"]

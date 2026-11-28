@@ -22,6 +22,7 @@ The values are synthetic: the families are new and uniquely named. Skipped unles
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -115,8 +116,11 @@ async def _exercise(base: Path, run: str) -> dict[str, Any]:
         {"family": family_uuid},
     )
     index = _small_table_name(_harness.ASSEMBLY, "variants/annotation_index")
+    details = _small_table_name(_harness.ASSEMBLY, "variants/details")
     out["annotation"] = await execute_clickhouse(
-        f"SELECT max_gnomad_popmax_af, clinvar_terms FROM {index} WHERE variantId = %(variant)s",
+        f"SELECT ai.max_gnomad_popmax_af, d.annotationsJson FROM {index} AS ai "
+        f"INNER JOIN {details} AS d USING (key, annotation_version, annotationSetHash) "
+        "WHERE ai.variantId = %(variant)s",
         {"variant": MISSENSE},
     )
     return out
@@ -182,9 +186,10 @@ def test_its_import_stores_the_callset_under_its_callers_name_with_its_annotatio
     assert calls["Y-2800415-T-C"][mother] == "."
     # Stored once per annotation set of the variant: every one reads the same.
     assert ran["annotation"]
-    for popmax, clinvar_terms in ran["annotation"]:
+    for popmax, annotations_json in ran["annotation"]:
         assert popmax == pytest.approx(MAX_AF)
-        assert "benign" not in " ".join(clinvar_terms).lower()
+        (annotation,) = (a for a in json.loads(annotations_json)["annotations"] if a.get("gene") == "SYNGENE1")
+        assert (annotation["clinvar"], annotation["clinvar_vep_cache"]) == ("Uncertain_significance", "benign")
 
 
 def test_its_import_records_each_samples_cram(ran) -> None:
