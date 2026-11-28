@@ -275,6 +275,9 @@ export type SmallFilterState = {
   max_gnomad_ac: string;
   max_gnomad_hom_count: string;
   max_gnomad_hemi_count: string;
+  // The most other families that may carry the allele in the row's callset (Frequency); the
+  // family small-variant list alone.
+  max_callset_families: string;
   min_cadd: string;
   min_revel: string;
   min_spliceai: string;
@@ -481,7 +484,7 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'phenotype_priority',
     label: 'Phenotype priority (Exomiser-style)',
     description:
-      'Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch), with the compound-het pairs among them grouped by gene.',
+      'Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch), with the compound-het pairs among them grouped by gene; a variant two other families carry in the same callset is left out unless ClinVar holds it (likely) pathogenic.',
   },
   {
     value: 'dominant_strict',
@@ -559,8 +562,8 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
  * Filters of the shared form that the NIPT variant list does not apply: of the review
  * filters it takes the review tags and the excluded tags, as the small-variant list does,
  * but not the classification or the saved notes; nor the family-aware ones (phenotype
- * prioritization, expanded carrier screening, the SV second hit, the callers' FILTER) or a
- * link's raw locus. The
+ * prioritization, expanded carrier screening, the SV second hit, the callers' FILTER), the
+ * callset recurrence (it counts its own, `max_unexplained_recurrence`) or a link's raw locus. The
  * form offers them no control. A saved search made on the small-variant list, or a link, can
  * still carry them: the NIPT page shows no chip for them (`niptAppliesFilterChip`).
  */
@@ -574,6 +577,7 @@ export const NIPT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new
   'require_sv_second_hit',
   'locus',
   'pass_only',
+  'max_callset_families',
 ]);
 
 /**
@@ -672,6 +676,7 @@ const UNAPPLIED_FILTER_NAMES: Partial<Record<keyof SmallFilterState, string>> = 
   require_sv_second_hit: 'SV second-hit',
   locus: 'location',
   pass_only: 'pass-only',
+  max_callset_families: 'callset-recurrence',
   category: 'maternal/fetal category',
   min_confidence: 'minimum-confidence',
   include_not_inherited: 'not-inherited-alleles',
@@ -742,6 +747,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   max_gnomad_ac: 'Max gnomAD AC',
   max_gnomad_hom_count: 'Max gnomAD H/H',
   max_gnomad_hemi_count: 'Max gnomAD hemi',
+  max_callset_families: 'Max other families (callset)',
   min_cadd: 'Min CADD',
   min_revel: 'Min REVEL',
   min_spliceai: 'Min SpliceAI',
@@ -898,6 +904,7 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   max_gnomad_ac: '',
   max_gnomad_hom_count: '',
   max_gnomad_hemi_count: '',
+  max_callset_families: '',
   min_cadd: '',
   min_revel: '',
   min_spliceai: '',
@@ -1131,6 +1138,10 @@ const buildPresetState = (
     filters.max_gnomad_hemi_count = '10';
     filters.clinvar_pathogenic_override = 'true';
     filters.exclude_clinvar = 'Benign, Likely benign';
+    // A variant three families of the callset carry (this one and two others) is a recurrent
+    // artefact of the caller and its chemistry; ClinVar P/LP overrules it as it does the
+    // frequency (the owner's decision of 2026-11-28).
+    filters.max_callset_families = '1';
     // Standard proband QC: GQ/QUAL >= 20, DP >= 10, AF >= 0.2, AD alt >= 4.
     setAffectedGenotypes([...HOM_GT_GROUP, ...HET_GT_GROUP], {
       qual: '20',
@@ -1391,6 +1402,9 @@ export const buildSmallVariantQueryParams = (
   }
   if (currentFilters.max_gnomad_hemi_count) {
     params.set('max_gnomad_hemi_count', currentFilters.max_gnomad_hemi_count);
+  }
+  if (currentFilters.max_callset_families) {
+    params.set('max_callset_families', currentFilters.max_callset_families);
   }
   if (currentFilters.min_cadd) params.set('min_cadd', currentFilters.min_cadd);
   if (currentFilters.min_revel) params.set('min_revel', currentFilters.min_revel);

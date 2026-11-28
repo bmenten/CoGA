@@ -247,6 +247,12 @@ class SmallVariantQueryFilters:
     max_gnomad_ac: int | None = None
     max_gnomad_hom_count: int | None = None
     max_gnomad_hemi_count: int | None = None
+    # The callset recurrence filter: leave out a row whose allele more than this many other
+    # families carry in the same callset (an alt call of any of their samples, every project):
+    # the mark of the callset's recurrent artefacts. The ClinVar P/LP override lifts it with
+    # the frequency filter (``_small_callset_recurrence_clause``; the owner's decisions of
+    # 2026-11-28).
+    max_callset_families: int | None = None
     min_cadd: float | None = None
     min_revel: float | None = None
     min_spliceai: float | None = None

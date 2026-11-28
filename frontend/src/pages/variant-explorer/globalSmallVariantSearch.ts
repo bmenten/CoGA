@@ -78,7 +78,8 @@ const EMPTY_SAMPLE_FILTERS: Record<string, SmallVariantSampleFilter> = {};
 /**
  * Filters of the shared form that the explorer's backend does not apply: it takes
  * one locus, not an interval list, and no transcript, excluded genes or intervals, no
- * callers' FILTER, and none of the per-family review state (excluded tags, saved notes). The
+ * callers' FILTER, no callset recurrence (other families than the one searched), and none of
+ * the per-family review state (excluded tags, saved notes). The
  * form hides their controls, and their parameters are never sent, so no chip claims a filter
  * that the results do not reflect.
  */
@@ -92,6 +93,7 @@ export const GLOBAL_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = n
   'exclude_review_tags',
   'has_notes',
   'pass_only',
+  'max_callset_families',
 ]);
 
 // Everything the shared builder sends that the explorer's endpoint does not read: the
@@ -106,6 +108,7 @@ const GLOBAL_UNREAD_PARAMS = [
   'exclude_review_tag',
   'has_notes',
   'pass_only',
+  'max_callset_families',
   'inheritance',
   'category',
   'min_confidence',

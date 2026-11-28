@@ -694,7 +694,7 @@ export const SECTION_FILTER_COUNTS: Record<
       draftFilters.sift,
       draftFilters.polyphen,
     ),
-  frequency: ({ draftFilters }) =>
+  frequency: ({ draftFilters, offers }) =>
     countNonEmpty(
       draftFilters.max_gnomad_af,
       draftFilters.max_gnomad_exomes_af,
@@ -704,7 +704,7 @@ export const SECTION_FILTER_COUNTS: Record<
       draftFilters.max_gnomad_ac,
       draftFilters.max_gnomad_hom_count,
       draftFilters.max_gnomad_hemi_count,
-    ),
+    ) + (offers('max_callset_families') ? countNonEmpty(draftFilters.max_callset_families) : 0),
   callQuality: ({ draftFilters, activeQualityMemberCount }) =>
     activeQualityMemberCount + (draftFilters.pass_only === 'true' ? 1 : 0),
   locations: ({ draftFilters }) =>
@@ -1656,6 +1656,7 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
     draftFilters,
     handleDraftFieldChange,
     handleSectionToggle,
+    offers,
     openSections,
     setDraftFilterValue,
     summarizeSection,
@@ -1789,6 +1790,25 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
               </label>
             </div>
           </div>
+          {offers('max_callset_families') ? (
+            <div className="variant-frequency-column">
+              <ColumnTitle
+                label="CoGA callset"
+                hint="Recurrence in CoGA: leave out a variant that more than this many other families carry in the same callset (an alt call of one of their samples, in every project). A recurrent artefact of a caller and its chemistry (an ONT homopolymer indel, a paralogue in short reads) recurs in the families of its callset, so each callset counts apart. A family in two projects counts once. With the ClinVar overrule below, a variant ClinVar holds (likely) pathogenic stays."
+              />
+              <div className="variant-frequency-counts">
+                <label className="variant-inline-field">
+                  <span>Other families ≤</span>
+                  <input
+                    name="max_callset_families"
+                    inputMode="numeric"
+                    value={draftFilters.max_callset_families}
+                    onChange={handleDraftFieldChange}
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
         </div>
         <label className="analysis-checkbox">
           <input

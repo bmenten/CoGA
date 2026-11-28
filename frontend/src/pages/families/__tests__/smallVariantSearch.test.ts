@@ -129,6 +129,7 @@ describe('smallVariantSearch preset helpers', () => {
         max_gnomad_ac: '',
         max_gnomad_hom_count: '',
         max_gnomad_hemi_count: '',
+        max_callset_families: '',
         min_cadd: '',
         min_revel: '',
         min_spliceai: '',
@@ -277,6 +278,16 @@ describe('smallVariantSearch preset helpers', () => {
     filters.pass_only = 'true';
     expect(buildSmallVariantQueryParams(filters, samples, 1).get('pass_only')).toBe('true');
     expect(deserializePresetFilters(serializePresetFilters(filters)).pass_only).toBe('true');
+  });
+
+  // The callset recurrence (Frequency): sent only when set; 0 is a threshold.
+  it('serializes the callset recurrence into the query string', () => {
+    const filters = createEmptySmallFilters();
+    const samples = { S1: defaultSampleFilter(), S2: defaultSampleFilter() };
+    expect(buildSmallVariantQueryParams(filters, samples, 1).has('max_callset_families')).toBe(false);
+    filters.max_callset_families = '0';
+    expect(buildSmallVariantQueryParams(filters, samples, 1).get('max_callset_families')).toBe('0');
+    expect(deserializePresetFilters(serializePresetFilters(filters)).max_callset_families).toBe('0');
   });
 
   // The ranking's order: sent for a prioritised search ranked by the variant score only, and
@@ -468,6 +479,19 @@ describe('preset frequency ceilings bound popmax', () => {
       expect(result.current.draftFilters.inheritance).toBe('all_compound_het_grouped');
     },
   );
+
+  // The page opens on it: a variant in three families of the callset (two others) is left out.
+  it('leaves out from the default preset a variant two other families carry in the callset', async () => {
+    const { result } = renderSearch();
+    await waitFor(() => expect(result.current.filters).toBeTruthy());
+
+    act(() => result.current.applyPreset('phenotype_priority'));
+    expect(result.current.draftFilters.max_callset_families).toBe('1');
+    expect(result.current.draftFilters.clinvar_pathogenic_override).toBe('true');
+
+    act(() => result.current.applyPreset('expanded_carrier_screening'));
+    expect(result.current.draftFilters.max_callset_families).toBe('');
+  });
 
   it('keeps the strictest preset strict', async () => {
     const { result } = renderSearch();
@@ -837,6 +861,18 @@ describe('a NIPT search on the small-variant list', () => {
     expect(smallVariantAppliesFilterChip(passOnly!)).toBe(true);
     expect(describeUnappliedFilters('NIPT list', chips.filter((chip) => !niptAppliesFilterChip(chip)))).toBe(
       'The NIPT list does not apply this search’s pass-only filter.',
+    );
+  });
+
+  // The NIPT list counts its own recurrence: a saved search's callset recurrence is named there,
+  // and applied on the small-variant list.
+  it('names the callset recurrence as a filter the NIPT list does not apply', () => {
+    const chips = buildActiveFilterChips({ ...createEmptySmallFilters(), max_callset_families: '2' }, members, {});
+    const recurrence = chips.find((chip) => chip.kind === 'top' && chip.key === 'max_callset_families');
+    expect(recurrence?.label).toBe('Max other families (callset): 2');
+    expect(smallVariantAppliesFilterChip(recurrence!)).toBe(true);
+    expect(describeUnappliedFilters('NIPT list', chips.filter((chip) => !niptAppliesFilterChip(chip)))).toBe(
+      'The NIPT list does not apply this search’s callset-recurrence filter.',
     );
   });
 

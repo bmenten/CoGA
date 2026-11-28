@@ -7,7 +7,9 @@ inputs that change the ranking:
 
 - the family's small-variant data, as the storage-level data version the caller reads
   from ClickHouse (``get_family_small_variant_data_version``) — every insert, delete or
-  re-import of the family's variants changes it, whatever code path made the change;
+  re-import of the family's variants changes it, whatever code path made the change. A
+  search with the callset recurrence filter reads every family's rows, and so the
+  assembly's version (``get_assembly_small_variant_data_version``);
 - affected HPO terms, pedigree/affected status and the gene panel's version: its own
   version, which every change of the genes or regions it holds raises (an edit, a
   Mendeliome rebuild, a PanelApp import), and its source's release (``external_version``);
@@ -201,9 +203,10 @@ async def compute_ranking_hashes(
     gene panel, so all panels over the same family/phenotype/filters share it — that lets
     a narrower panel be served from a broader cached (superset) ranking.
 
-    ``variant_data_version`` is the family's small-variant data version from storage
-    (``get_family_small_variant_data_version``); both hashes cover it, so a ranking over
-    different variant data is never a hit, exact or superset.
+    ``variant_data_version`` is the small-variant data version from storage of what the
+    search reads: the family's (``get_family_small_variant_data_version``), or the assembly's
+    with the callset recurrence filter; both hashes cover it, so a ranking over different
+    variant data is never a hit, exact or superset.
 
     The rest is what the query applied, as the ranking hands it to the variant fetch:
     ``panel_members`` (``panel_members_digest`` of the panel's genes and regions) in the
