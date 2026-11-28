@@ -11,9 +11,12 @@ for exploring.
   and genomes, popmax, TopMed: the R pipeline reads VEP's MAX_AF) at most
   ``rare_max_af_dominant`` (0.1 %) for a de novo, paternal or maternal candidate, at most
   ``rare_max_af_recessive`` (1 %) for an allele of the recessive pairing. An allele without a
-  population frequency is rare, unless it recurs in ``cohort_common_min_samples`` (3) cfDNA
-  samples of the assay or more, this one included: then it is an unannotated common allele
-  (a paralogue, a VNTR, a population variant missing from the annotation).
+  population frequency is rare, unless it recurs in ``cohort_common_min_samples`` (3) families
+  of the assay or more: then it is an unannotated common allele (a paralogue, a VNTR, a
+  population variant missing from the annotation). As the R validation counts them
+  (``is_cohort_common``): an allele read off the plasma, by the plasmas that show it; the
+  father's allele of the recessive pairing, by the plasmas that show it or the fathers that
+  carry it, whichever are more, this family's each counted only when it does.
 * **Protein effect.** A HIGH or MODERATE impact, or a SpliceAI delta score of 0.2 or more.
 * **ClinVar.** A ClinVar record that calls the allele pathogenic or likely pathogenic, with no
   benign or conflicting assertion, and a population frequency of at most ``clinvar_max_af``
@@ -31,7 +34,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 NIPT_DIAGNOSTIC_CRITERIA_REFERENCE = "R NIPT-M v0.7.3 diagnostic criteria (blinded analysis, step 15)"
 
@@ -62,13 +65,33 @@ class NiptDiagnosticCriteria:
 class DiagnosticAnnotation:
     """What the criteria read of a variant: its highest population allele frequency, most severe
     impact, highest SpliceAI delta score, whether ClinVar calls it pathogenic without a benign or
-    conflicting assertion, and in how many other cfDNA samples of the assay it is called."""
+    conflicting assertion, in how many other cfDNA samples of the assay it is called and in how
+    many other families of the assay the father carries it, and whether this family's plasma
+    shows it and its father carries it."""
 
     max_population_af: float | None
     impact: str | None
     spliceai_max: float | None
     clinvar_pathogenic: bool
     other_cfdna_carriers: int = 0
+    other_fathers: int = 0
+    plasma_calls: bool = True
+    father_carries: bool = False
+
+
+# Whose allele a count reads: one read off the plasma (a de novo, paternal or maternal candidate,
+# the mother's allele of the recessive pairing), or the father's allele of the recessive pairing.
+CohortSide = Literal["plasma", "father"]
+
+
+def cohort_count(annotation: DiagnosticAnnotation, side: CohortSide = "plasma") -> int:
+    """In how many families of the assay the allele recurs, as the R validation counts it: the
+    plasmas that show it; for the father's allele, those or the fathers that carry it, whichever
+    are more. This family's plasma and father each count only when they show or carry it."""
+    plasmas = annotation.other_cfdna_carriers + int(annotation.plasma_calls)
+    if side == "plasma":
+        return plasmas
+    return max(plasmas, annotation.other_fathers + int(annotation.father_carries))
 
 
 def clinvar_strictly_pathogenic(values: Iterable[str | None]) -> bool:
@@ -88,12 +111,14 @@ def clinvar_strictly_pathogenic(values: Iterable[str | None]) -> bool:
     return pathogenic
 
 
-def is_cohort_common(annotation: DiagnosticAnnotation, criteria: NiptDiagnosticCriteria) -> bool:
+def is_cohort_common(
+    annotation: DiagnosticAnnotation, criteria: NiptDiagnosticCriteria, side: CohortSide = "plasma"
+) -> bool:
     """An allele without a population frequency that recurs in ``cohort_common_min_samples``
-    cfDNA samples of the assay or more, this one included."""
+    families of the assay or more (``cohort_count``)."""
     return (
         annotation.max_population_af is None
-        and annotation.other_cfdna_carriers + 1 >= criteria.cohort_common_min_samples
+        and cohort_count(annotation, side) >= criteria.cohort_common_min_samples
     )
 
 
@@ -103,19 +128,25 @@ def clinvar_override(annotation: DiagnosticAnnotation, criteria: NiptDiagnosticC
     return annotation.clinvar_pathogenic and (af is None or af <= criteria.clinvar_max_af)
 
 
-def _rare(annotation: DiagnosticAnnotation, criteria: NiptDiagnosticCriteria, ceiling: float) -> bool:
+def _rare(
+    annotation: DiagnosticAnnotation, criteria: NiptDiagnosticCriteria, ceiling: float, side: CohortSide
+) -> bool:
     af = annotation.max_population_af
     if af is None:
-        return not is_cohort_common(annotation, criteria)
+        return not is_cohort_common(annotation, criteria, side)
     return af <= ceiling
 
 
 def is_rare_dominant(annotation: DiagnosticAnnotation, criteria: NiptDiagnosticCriteria) -> bool:
-    return _rare(annotation, criteria, criteria.rare_max_af_dominant)
+    return _rare(annotation, criteria, criteria.rare_max_af_dominant, "plasma")
 
 
-def is_rare_recessive(annotation: DiagnosticAnnotation, criteria: NiptDiagnosticCriteria) -> bool:
-    return _rare(annotation, criteria, criteria.rare_max_af_recessive) or clinvar_override(annotation, criteria)
+def is_rare_recessive(
+    annotation: DiagnosticAnnotation, criteria: NiptDiagnosticCriteria, side: CohortSide = "plasma"
+) -> bool:
+    return _rare(annotation, criteria, criteria.rare_max_af_recessive, side) or clinvar_override(
+        annotation, criteria
+    )
 
 
 def has_protein_effect(annotation: DiagnosticAnnotation, criteria: NiptDiagnosticCriteria) -> bool:
@@ -165,10 +196,13 @@ def dominant_failures(annotation: DiagnosticAnnotation, criteria: NiptDiagnostic
     return failures
 
 
-def recessive_failures(annotation: DiagnosticAnnotation, criteria: NiptDiagnosticCriteria) -> list[str]:
-    """Why an allele is left out of the recessive pairing; [] when it qualifies."""
+def recessive_failures(
+    annotation: DiagnosticAnnotation, criteria: NiptDiagnosticCriteria, side: CohortSide = "plasma"
+) -> list[str]:
+    """Why an allele is left out of the recessive pairing as the mother's (``plasma``) or the
+    father's (``father``) allele; [] when it qualifies."""
     failures = []
-    if not is_rare_recessive(annotation, criteria):
+    if not is_rare_recessive(annotation, criteria, side):
         failures.append("not_rare")
     if not has_protein_effect(annotation, criteria):
         failures.append("no_protein_effect")

@@ -675,6 +675,29 @@ async def test_the_locked_criteria_leave_the_rare_protein_altering_candidates_of
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("other_fathers", "paired"), [(0, True), (2, False)])
+async def test_the_locked_pairing_counts_a_fathers_allele_by_the_plasmas_or_the_fathers(
+    monkeypatch: pytest.MonkeyPatch, other_fathers: int, paired: bool
+) -> None:
+    # REQ-NIPT-020, as the R validation counts an unannotated father's allele: the plasmas that
+    # show it or the fathers that carry it, whichever are more, this family's own each counted
+    # only when it does. GENEB's father allele (7-400) is in no read of this plasma; 2 other
+    # plasmas call it: 2, rare. With 2 other fathers carrying it: 3, common, so it is not the
+    # father's allele and GENEB pairs nothing.
+    targets = [
+        *_plasma_targets(),
+        TargetCoverageRow(chrom="7", start=250, end=349, gene="GENEB", attribute="GENEB", mean=1500.0, median=1500.0),
+    ]
+    sites = _annotated_gene_sites()
+    sites[2].annotations = [{"impact": "HIGH", "gnomad_af": 0.0002}]  # 7-300: the mother's
+    sites[3].annotations = [{"impact": "HIGH", "gnomad_af": None}]  # 7-400: the father's, no AF
+    recurrence = {"7-400-C-T": CfdnaRecurrence(carriers=2, fathers=other_fathers)}
+    _wire(monkeypatch, filtered=sites, targets=targets, recurrence=recurrence)
+    genes = [gene.gene for gene in (await _diagnostic()).recessive_genes]
+    assert ("GENEB" in genes) is paired
+
+
+@pytest.mark.asyncio
 async def test_the_maternal_list_holds_every_rare_protein_altering_allele_of_the_mothers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -766,7 +789,12 @@ async def test_a_de_novo_allele_on_a_sons_x_beside_his_fathers_call_is_a_low_con
     assert classification.category == 1 and "paternal_x_allele_in_male_fetus" in classification.flags
     item = nipt_service.NiptClassifiedVariant(record=record, classification=classification, clinvar_coga=None, site=site)
     scope = nipt_service._RecurrenceScope(
-        assembly_name=None, carrier_samples=[], family_uuid="family-uuid", rules=recurrence_rules(qc)
+        assembly_name=None,
+        carrier_samples=[],
+        father_samples=[],
+        family_uuid="family-uuid",
+        rules=recurrence_rules(qc),
+        qc=qc,
     )
     candidates = await nipt_service.diagnostic_candidates([item], ff, qc, scope=scope)
     [candidate] = candidates.de_novo
@@ -922,6 +950,8 @@ def test_what_the_recurrence_filter_leaves_out() -> None:
                 other_samples=10,
                 counts=CfdnaRecurrence(carriers=unexplained + 4, maternal=4, unexplained_low_vaf=unexplained),
                 protection=protection,
+                plasma_calls=True,
+                father_carries=False,
             ),
         )
 

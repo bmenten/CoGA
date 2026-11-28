@@ -629,8 +629,11 @@ adjustable, for exploring; the report and the sign-out use these.
 - **Rare:** the highest population frequency CoGA holds for the allele (VEP's MAX_AF, which the R
   validation reads, and gnomAD's own, its exomes and genomes, popmax, TopMed) is 0.1% or less (1% for
   the recessive pairing). An allele without a
-  population frequency is rare, unless it recurs in 3 cfDNA samples of the assay or more, this one
-  included: then it is an unannotated common allele (a paralogue, a VNTR).
+  population frequency is rare, unless 3 families of the assay or more carry it: then it is an
+  unannotated common allele (a paralogue, a VNTR). As the R validation counts them, an allele read
+  off the plasma counts the plasmas that show it; the father's allele of the recessive pairing, those
+  or the fathers that carry it, whichever are more. This pregnancy's plasma and father count only
+  when they show or carry it. An allele common only by the fathers' count can still be the mother's.
 - **Protein-altering:** a HIGH or MODERATE impact, or a SpliceAI score of 0.2 or more.
 - **ClinVar:** the allele's classification in the ClinVar release CoGA loads, the one the analysis
   read (the callsets' annotated ClinVar is not read). A record calling the allele pathogenic or
@@ -808,12 +811,13 @@ only narrows the list. The fetal fraction, the funnel and every classification s
 The count grows as more pregnancies of the assay are imported. Use it to find artefacts, and to
 propose candidates for the artifact list, which stays the reviewed, audited filter of the analysis.
 
-**Leave out alleles without a population frequency that 3 or more cfDNA samples of this assay call**,
+**Leave out alleles without a population frequency that 3 or more families of this assay carry**,
 under the same heading, applies the report's cohort rule. A gnomAD frequency filter lets an allele
 without a frequency through, and in a capture assay such an allele is often one nearly every pregnancy
 carries: an MNV (gnomAD lists its SNVs), an indel in a homopolymer or a repeat whose length varies, a
-paralogue. Called in 3 or more cfDNA samples of the assay, this one included, it is read as common,
-not rare, and the recessive view pairs it with nothing. An allele ClinVar calls pathogenic stays. The
+paralogue. Carried by 3 or more families of the assay, counted as the report counts them (above), it
+is read as common, not rare, and the recessive view pairs it with nothing; one common only as the
+father's allele stays listed and is never paired as his. An allele ClinVar calls pathogenic stays. The
 *Recessive (both parents carrier)* preset turns the rule on; the classification does not change.
 
 > **The rule can hide a pathogenic allele.** An allele that gnomAD does not list and ClinVar does not

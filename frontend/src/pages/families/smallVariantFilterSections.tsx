@@ -1202,11 +1202,13 @@ export const NiptCategoriesFilterSection = ({ form }: { form: FilterSectionForm 
             checked={draftFilters.exclude_cohort_common === 'true'}
             onChange={(event) => setDraftFilterValue('exclude_cohort_common', event.target.checked ? 'true' : '')}
           />
-          <span>Leave out alleles without a population frequency that 3 or more cfDNA samples of this assay call</span>
+          <span>Leave out alleles without a population frequency that 3 or more families of this assay carry</span>
         </label>
         <p className="table-subtle">
           The report&apos;s rule: such an allele is an unannotated common one (a paralogue, a repeat-length allele, an
-          MNV gnomAD lists as its SNVs), not a rare one. An allele ClinVar calls pathogenic stays listed.
+          MNV gnomAD lists as its SNVs), not a rare one. An allele read off the plasma counts the plasmas that show it;
+          the father&apos;s allele, those or the fathers that carry it, whichever are more. An allele ClinVar calls
+          pathogenic stays listed.
         </p>
       </div>
     </FilterSection>

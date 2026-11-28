@@ -131,13 +131,15 @@ def wire_nipt_reads(
     artifacts: set[str] | dict[str, int] | None = None,
     sample_name_to_uuid: dict[str, str] | None = None,
     carrier_samples: list[str] | None = None,
+    father_samples: list[str] | None = None,
     recurrence: dict[str, CfdnaRecurrence] | None = None,
     other_samples: int = 0,
 ) -> list[list[str]]:
     """Answer the NIPT service's reads for ``family``. ``carrier_samples`` are the assay's other
-    cfDNA samples (none by default: no allele recurs). Each variant's recurrence in them is
-    read from ``recurrence`` (none: no other sample carries it), and ``other_samples`` is how
-    many of them have a call. Returns the variant ids of each recurrence count, as made."""
+    cfDNA samples (none by default: no allele recurs), ``father_samples`` the assay's fathers.
+    Each variant's recurrence in them is read from ``recurrence`` (none: no other sample or
+    father carries it), and ``other_samples`` is how many of the cfDNA samples have a call.
+    Returns the variant ids of each recurrence count, as made."""
 
     async def family_record(_session: Any, _family_id: str, _user: Any) -> FamilyOut:
         return family
@@ -173,6 +175,10 @@ def wire_nipt_reads(
     async def assay_carriers(_session: Any, *, assay_key: str) -> list[str]:
         return list(carrier_samples or [])
 
+    async def assay_fathers(_session: Any, *, cfdna_samples: Any) -> list[str]:
+        assert list(cfdna_samples) == list(carrier_samples or [])
+        return list(father_samples or [])
+
     monkeypatch.setattr(nipt_service, "get_family_record", family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", metadata_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fetch)
@@ -183,10 +189,17 @@ def wire_nipt_reads(
     wire_clinvar_release(monkeypatch)
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
     monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", assay_carriers)
+    monkeypatch.setattr(nipt_service, "assay_father_samples", assay_fathers)
     counts: list[list[str]] = []
 
     async def count_recurrence(
-        _assembly: str, variant_ids: Any, *, carrier_samples: Any, exclude_family_uuid: str, rules: Any
+        _assembly: str,
+        variant_ids: Any,
+        *,
+        carrier_samples: Any,
+        father_samples: Any,
+        exclude_family_uuid: str,
+        rules: Any,
     ) -> dict[str, CfdnaRecurrence]:
         assert exclude_family_uuid == "family-uuid"
         assert rules == recurrence_rules(nipt_service.NiptQualityThresholds())

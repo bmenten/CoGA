@@ -287,7 +287,16 @@ def test_the_diagnostic_candidates_read_a_strict_pathogenic_classification_in_th
 
     def strict(annotated: str, coga: ClinvarCogaOut | None) -> bool:
         item = nipt_service.NiptClassifiedVariant(
-            record=_nipt_record(annotated), classification=None, clinvar_coga=coga  # type: ignore[arg-type]
+            record=_nipt_record(annotated),
+            classification=None,  # type: ignore[arg-type]
+            clinvar_coga=coga,
+            recurrence=nipt_service.NiptRecurrence(
+                other_samples=0,
+                counts=nipt_service.CfdnaRecurrence(),
+                protection=None,
+                plasma_calls=True,
+                father_carries=False,
+            ),
         )
         return nipt_service.diagnostic_annotation(item).clinvar_pathogenic
 

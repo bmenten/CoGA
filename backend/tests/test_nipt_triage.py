@@ -3,6 +3,8 @@ risk. Synthetic sites only."""
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from backend.app.services.nipt_analysis import (
@@ -256,6 +258,27 @@ def test_the_recessive_risk_of_a_compound_pair() -> None:
     assert [allele.variant_id for allele in risk.paternal] == ["pat"]
     # The father's allele alone pairs nothing.
     assert recessive_gene_risks("GENEA", [paternal]) == []
+    # One the locked criteria do not count as the father's (the cohort count of a father's
+    # allele reads it as common) pairs nothing either.
+    uncounted = dataclasses.replace(paternal, paternal_counted=False)
+    assert recessive_gene_risks("GENEA", [maternal, uncounted]) == []
+
+
+def test_an_allele_both_parents_carry_counts_as_the_mothers_alone_when_not_as_the_fathers() -> None:
+    # As the R validation pairs it: the mother's allele read off the plasma, the father's by the
+    # cohort count of a father's allele too. A site both carry, uncounted as the father's,
+    # pairs as the mother's with the father's other allele, never with itself.
+    shared = dataclasses.replace(
+        _candidate("both", "het", _classification(3, maternal_state="het", maternal_allele_probability=0.9)),
+        paternal_counted=False,
+    )
+    paternal = _candidate(
+        "pat", "het", _classification(7, maternal_state="hom_ref", paternal_transmission_probability=1.0)
+    )
+    [risk] = recessive_gene_risks("GENEA", [shared, paternal])
+    assert [allele.variant_id for allele in risk.maternal] == ["both"]
+    assert [allele.variant_id for allele in risk.paternal] == ["pat"]
+    assert recessive_gene_risks("GENEA", [shared]) == []
 
 
 @pytest.mark.parametrize(("plasma_vaf", "at_risk"), [(0.12, False), (0.249, False), (0.25, True), (0.47, True)])

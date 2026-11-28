@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import text
 
-from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Mapping, Sequence
+from typing import TYPE_CHECKING, Callable, Collection, Iterable, Iterator, Mapping, Sequence
 
 from ..core.sql import require_uuid
 from ..schemas import ClinvarCogaOut
@@ -91,7 +91,12 @@ from .nipt import (
     resolve_nipt_trio,
 )
 from .nipt_analysis_cache import NiptAnalysisCache, NiptAnalysisInputs, NiptAnalysisKey
-from .nipt_artifact_pg import assay_cfdna_carrier_samples, load_nipt_artifacts, recurrence_rules
+from .nipt_artifact_pg import (
+    assay_cfdna_carrier_samples,
+    assay_father_samples,
+    load_nipt_artifacts,
+    recurrence_rules,
+)
 from .nipt_qc_gate import NiptGateBound, fetal_read_depth, load_nipt_gate_bound
 from .nipt_coverage import (
     DEFAULT_MIN_DEPTH,
@@ -139,6 +144,7 @@ from .analysis_gene_panel import (
     set_analysis_gene_panel,
 )
 from .nipt_diagnostic_filters import (
+    CohortSide,
     DiagnosticAnnotation,
     NiptDiagnosticCriteria,
     clinvar_override,
@@ -791,14 +797,19 @@ def listed_artifact_protection(
 
 @dataclass(slots=True)
 class NiptRecurrence:
-    """How a variant's allele recurs in the other cfDNA samples of the family's assay
-    (``count_cfdna_recurrence``): ``other_samples`` is how many of them have a call on the
-    assembly, and ``protection`` why the recurrence filter keeps the variant whatever its
-    count (``artifact_protection``: ``clinvar`` or ``common``)."""
+    """How a variant's allele recurs in the family's assay: in its other cfDNA samples and
+    other families' fathers (``count_cfdna_recurrence``), and whether this family's plasma shows
+    it (``plasma_calls``, its call read as the other plasmas' are) and its father carries it
+    (``father_carries``), which the cohort count of an unannotated allele includes
+    (``nipt_diagnostic_filters.cohort_count``). ``other_samples`` is how many of the other cfDNA
+    samples have a call on the assembly, and ``protection`` why the recurrence filter keeps the
+    variant whatever its count (``artifact_protection``: ``clinvar`` or ``common``)."""
 
     other_samples: int
     counts: CfdnaRecurrence
     protection: str | None
+    plasma_calls: bool
+    father_carries: bool
 
 
 @dataclass(slots=True)
@@ -1441,6 +1452,24 @@ def _trusted_father(item: NiptClassifiedVariant, qc: NiptQualityThresholds) -> s
     return trusted_father_state(item.site, qc) if item.site is not None else "missing"
 
 
+def _pairing_father_state(item: NiptClassifiedVariant, qc: NiptQualityThresholds) -> str:
+    """The father's genotype as the recessive pairing reads it: his trusted state, a het call of
+    a man's X (an artefact, ``classify_site``) read as no call."""
+    return "missing" if FATHER_X_HET_FLAG in item.classification.flags else _trusted_father(item, qc)
+
+
+def _plasma_carries(site: NiptSiteObservation | None, rules: CfdnaRecurrenceRules) -> bool:
+    """Whether the family's own plasma shows the allele, its call read as the recurrence count
+    reads another plasma's (``clickhouse_family_variants._cfdna_sample_calls``): at least
+    ``rules.min_alt_reads`` alt reads and ``rules.min_alt_fraction`` of its reads, or, without
+    allele depths, a call."""
+    if site is None or not site.cf_present or site.cf_depth_estimated:
+        return False
+    if site.cf_alt_reads is None or not site.cf_dp:
+        return True
+    return site.cf_alt_reads >= rules.min_alt_reads and site.cf_alt_reads >= rules.min_alt_fraction * site.cf_dp
+
+
 def _is_paternal_allele(item: NiptClassifiedVariant, qc: NiptQualityThresholds) -> bool:
     """The father carries the allele and the mother does not (the fetal band, or no plasma
     call): what a paternal-dominant variant looks like in the plasma."""
@@ -1508,7 +1537,11 @@ class NiptRecessiveGene:
 
 
 def _recessive_view(
-    classified: list[NiptClassifiedVariant], qc: NiptQualityThresholds, *, technical: bool = False
+    classified: list[NiptClassifiedVariant],
+    qc: NiptQualityThresholds,
+    *,
+    technical: bool = False,
+    not_paternal: Collection[str] = frozenset(),
 ) -> list[NiptRecessiveGene]:
     """The genes in which both parents carry an allele, and on chrX outside the
     pseudo-autosomal regions those in which a son's mother carries one, one parent of a
@@ -1526,7 +1559,9 @@ def _recessive_view(
     his genotype is het or hom-alt (a homozygous or hemizygous parent always passes the
     allele). Run the gene, consequence and frequency filters first so the carriers are
     plausibly causal. ``technical`` applies the technical filter (``_technically_retained``),
-    as the locked diagnostic candidates do.
+    as the locked diagnostic candidates do. An allele of ``not_paternal`` (by variant id) does
+    not count as the father's: one the cohort count of a father's allele reads as an
+    unannotated common allele (``nipt_diagnostic_filters.is_cohort_common``, the father's side).
     """
     keyed = [(item, keys) for item in classified if (keys := _gene_match_keys(item.record))]
     genes: dict[tuple[str, str], list[NiptClassifiedVariant]] = {}
@@ -1541,10 +1576,8 @@ def _recessive_view(
         candidates = [
             RecessiveCandidate(
                 variant_id=item.record.variant_id,
-                # A het call of a man's X is an artefact, read as no call (classify_site).
-                father_state="missing"
-                if FATHER_X_HET_FLAG in item.classification.flags
-                else _trusted_father(item, qc),
+                father_state=_pairing_father_state(item, qc),
+                paternal_counted=item.record.variant_id not in not_paternal,
                 classification=item.classification,
                 mode=mode,
                 variant_class=item.site.variant_class if item.site is not None else "SNV",
@@ -1569,25 +1602,32 @@ class _RecurrenceScope:
 
     assembly_name: str | None
     carrier_samples: Sequence[str]
+    # The fathers of the assay's families (``assay_father_samples``), whose calls the cohort
+    # count of a father's allele reads.
+    father_samples: Sequence[str]
     family_uuid: str
     rules: CfdnaRecurrenceRules
+    qc: NiptQualityThresholds
     other_samples: int | None = None
 
 
 async def _recurrence_scope(
     session: AsyncSession, context: FamilyMetadataContext, assay_key: str, qc: NiptQualityThresholds
 ) -> _RecurrenceScope:
+    carrier_samples = await assay_cfdna_carrier_samples(session, assay_key=assay_key)
     return _RecurrenceScope(
         assembly_name=context.assembly_name,
-        carrier_samples=await assay_cfdna_carrier_samples(session, assay_key=assay_key),
+        carrier_samples=carrier_samples,
+        father_samples=await assay_father_samples(session, cfdna_samples=carrier_samples),
         family_uuid=context.family_uuid,
         rules=recurrence_rules(qc),
+        qc=qc,
     )
 
 
 async def _attach_recurrence(items: Sequence[NiptClassifiedVariant], scope: _RecurrenceScope) -> None:
-    """Give each of ``items`` that has none its recurrence in the other cfDNA samples of the
-    family's assay, in one count."""
+    """Give each of ``items`` that has none its recurrence in the family's assay (its other cfDNA
+    samples and fathers, and the family's own plasma and father), in one count."""
     pending = [item for item in items if item.recurrence is None]
     if not pending:
         return
@@ -1597,6 +1637,7 @@ async def _attach_recurrence(items: Sequence[NiptClassifiedVariant], scope: _Rec
             scope.assembly_name,
             [item.record.variant_id for item in pending],
             carrier_samples=scope.carrier_samples,
+            father_samples=scope.father_samples,
             exclude_family_uuid=scope.family_uuid,
             rules=scope.rules,
         )
@@ -1611,6 +1652,8 @@ async def _attach_recurrence(items: Sequence[NiptClassifiedVariant], scope: _Rec
             other_samples=scope.other_samples or 0,
             counts=counts.get(item.record.variant_id, CfdnaRecurrence()),
             protection=artifact_protection(item.record, item.clinvar_coga),
+            plasma_calls=_plasma_carries(item.site, scope.rules),
+            father_carries=_pairing_father_state(item, scope.qc) in ("het", "hom_alt"),
         )
 
 
@@ -1748,8 +1791,9 @@ async def get_family_nipt_variants(
     categories, the variants that are an unexplained low-VAF call in more of them
     (``hidden_as_recurrent``), as recurrent artefacts; in the recessive view, the genes with no
     other carrier variant. ``exclude_cohort_common`` leaves out, before the view, the alleles the
-    locked criteria read as an unannotated common allele (``_not_cohort_common``), so that the
-    recessive view pairs none of them.
+    locked criteria read as an unannotated common allele (``_cohort_common``), so that the
+    recessive view pairs none of them; one that is common only by the cohort count of a father's
+    allele stays, and is never counted as the father's.
 
     ``page_size`` None gives every classified variant of the search, as the CSV export
     writes them; ``panel_search`` names the search on the family's audit trail when it
@@ -1853,15 +1897,15 @@ async def get_family_nipt_variants(
     classified = await family.classify(records, trio, qc, min_confidence=min_confidence)
 
     recurrence_scope = await _recurrence_scope(session, context, assay_key, qc)
-    if exclude_cohort_common:
-        classified = await _not_cohort_common(classified, recurrence_scope)
+    common = await _cohort_common(classified, recurrence_scope) if exclude_cohort_common else _CohortCommon()
+    classified = [item for item in classified if item.record.variant_id not in common.plasma]
     gene_total: int | None = None
     variant_total: int | None = None
     if inheritance == RECESSIVE_AT_RISK:
         # The pairing reads every carrier variant of the search, as the report and the signed
         # record pair them; the categories and the recurrence filter choose the genes listed,
         # each with every carrier variant of its own. A page holds genes.
-        genes = _recessive_view(classified, qc)
+        genes = _recessive_view(classified, qc, not_paternal=common.father)
         carriers = [item for gene in genes for item in gene.variants]
         shown = {
             item.record.variant_id
@@ -1904,26 +1948,39 @@ async def get_family_nipt_variants(
     )
 
 
-async def _not_cohort_common(
-    items: list[NiptClassifiedVariant], scope: _RecurrenceScope
-) -> list[NiptClassifiedVariant]:
-    """The ``items`` less those the locked criteria read as an unannotated common allele
-    (``nipt_diagnostic_filters.is_cohort_common``: no population frequency, called in
-    ``cohort_common_min_samples`` cfDNA samples of the assay or more, this one included: a
-    paralogue, a repeat-length allele, an MNV gnomAD lists as its SNVs), unless ClinVar calls
-    them pathogenic (``clinvar_override``), as the report's recessive pairing reads them."""
+@dataclass(frozen=True, slots=True)
+class _CohortCommon:
+    """The variants the locked criteria read as an unannotated common allele (a paralogue, a
+    repeat-length allele, an MNV gnomAD lists as its SNVs), by variant id: read off the plasma
+    (``plasma``: left out of every view) and as the father's allele of the recessive pairing
+    (``father``: never counted as the father's). ``father`` holds ``plasma``."""
+
+    plasma: frozenset[str] = frozenset()
+    father: frozenset[str] = frozenset()
+
+
+async def _cohort_common(items: list[NiptClassifiedVariant], scope: _RecurrenceScope) -> _CohortCommon:
+    """Of ``items``, those the locked criteria read as an unannotated common allele
+    (``nipt_diagnostic_filters.is_cohort_common``: no population frequency, recurring in
+    ``cohort_common_min_samples`` families of the assay or more, counted as the R validation
+    counts them, ``cohort_count``), unless ClinVar calls them pathogenic (``clinvar_override``),
+    as the report's recessive pairing reads them."""
     criteria = NiptDiagnosticCriteria()
     unannotated = [
         item for item in items if triage_annotation(item.record, item.clinvar_coga).max_population_af is None
     ]
     await _attach_recurrence(unannotated, scope)
-    common = {
-        item.record.variant_id
-        for item in unannotated
-        if is_cohort_common(annotation := diagnostic_annotation(item), criteria)
-        and not clinvar_override(annotation, criteria)
-    }
-    return [item for item in items if item.record.variant_id not in common]
+    annotations = {item.record.variant_id: diagnostic_annotation(item) for item in unannotated}
+    protected = {variant_id for variant_id, annotation in annotations.items() if clinvar_override(annotation, criteria)}
+
+    def common(side: CohortSide) -> frozenset[str]:
+        return frozenset(
+            variant_id
+            for variant_id, annotation in annotations.items()
+            if variant_id not in protected and is_cohort_common(annotation, criteria, side)
+        )
+
+    return _CohortCommon(plasma=common("plasma"), father=common("father"))
 
 
 async def _shown(
@@ -1995,15 +2052,21 @@ class NiptDiagnosticCandidates:
 def diagnostic_annotation(item: NiptClassifiedVariant) -> DiagnosticAnnotation:
     """What the locked criteria read of a classified variant: its annotation
     (``triage_annotation``), whether ClinVar strictly calls it pathogenic (in CoGA's release,
-    ``clinvar_read``), and in how many other cfDNA samples of the assay it is called (its
-    recurrence, counted first)."""
+    ``clinvar_read``), and how it recurs in the assay: in how many other cfDNA samples it is
+    called and other families' fathers carry it, and whether the family's own plasma shows it
+    and its father carries it (its recurrence, counted first: ``_attach_recurrence``)."""
     base = triage_annotation(item.record, item.clinvar_coga)
+    recurrence = item.recurrence
+    assert recurrence is not None  # counted first (_attach_recurrence)
     return DiagnosticAnnotation(
         max_population_af=base.max_population_af,
         impact=base.impact,
         spliceai_max=base.spliceai_max,
         clinvar_pathogenic=clinvar_strictly_pathogenic(clinvar_read(item.clinvar_coga)),
-        other_cfdna_carriers=item.recurrence.counts.carriers if item.recurrence is not None else 0,
+        other_cfdna_carriers=recurrence.counts.carriers,
+        other_fathers=recurrence.counts.fathers,
+        plasma_calls=recurrence.plasma_calls,
+        father_carries=recurrence.father_carries,
     )
 
 
@@ -2079,8 +2142,16 @@ async def diagnostic_candidates(
     retained = [item for item in classified if _technically_retained(item)]
     paternal = dominant(_paternal_view(retained, qc, include_not_inherited=False))
     maternal = dominant(_maternal_view(retained, include_not_inherited=True))
+    # The mother's allele is read off the plasma; the father's by the cohort count of a father's
+    # allele too (nipt_diagnostic_filters.cohort_count), which is never lower: an allele can
+    # qualify as the mother's and not as the father's, never the other way round.
     qualifying = [item for item in classified if not recessive_failures(annotations[item.record.variant_id], criteria)]
-    recessive_genes = _recessive_view(qualifying, qc, technical=True)
+    not_paternal = {
+        item.record.variant_id
+        for item in qualifying
+        if recessive_failures(annotations[item.record.variant_id], criteria, "father")
+    }
+    recessive_genes = _recessive_view(qualifying, qc, technical=True, not_paternal=not_paternal)
     carried = {item.record.variant_id for gene in recessive_genes for item in gene.variants}
     carriers = [item for item in qualifying if item.record.variant_id in carried]
     genes = [gene.risk for gene in recessive_genes]

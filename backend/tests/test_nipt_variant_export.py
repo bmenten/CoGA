@@ -180,6 +180,8 @@ def _classified(variant_id: str, *, gene: str = "GENEA", de_novo: bool = False) 
             other_samples=17,
             counts=CfdnaRecurrence(carriers=15, maternal=12, paternal_low_vaf=1, unexplained_low_vaf=2),
             protection="clinvar",
+            plasma_calls=True,
+            father_carries=True,
         ),
     )
 

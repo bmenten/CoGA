@@ -17,6 +17,10 @@ whatever its allele fraction; any other by 20% of the reads and a quality (TLOD)
 low-level or low-quality paternal call does not. The index family's own calls never count,
 and a family stored under two projects counts once.
 
+The same rules count, for the cohort count of a father's allele, the other families whose
+father carries the allele, whether or not their plasma shows it: only the assay's fathers' own
+calls (a mother's DNA in the row does not count), each family once.
+
 The rows are synthetic, written by the importer's own writer as a monogenic NIPT import
 stores them: one row per variant and family in the ``nipt`` callset, the plasma's and the
 father's calls in it, and the family's per-sample summary refreshed after each write, as an
@@ -43,8 +47,11 @@ _OTHER_PROJECT = "e2e-nipt-other-project"
 _INDEX_FAMILY = "e2e-nipt-index"
 _SITE = "7-1000-A-G"
 _CROSSED_OVER_ONLY = "7-2000-C-T"
+_FATHERS_ONLY = "7-3000-G-T"
 # The cfDNA samples of the assay; CFDNA10 has no data on the assembly.
 _CFDNA = [f"CFDNA{index}" for index in range(1, 14)]
+# The fathers of the assay's families (the index family's FATHER1 among them).
+_FATHERS = [f"FATHER{index}" for index in range(1, 15)]
 
 # (sample, gt, ad, metrics, gq): a HaplotypeCaller call has a GQ, the others none.
 Call = tuple[str, str, list[int], dict[str, float], float | None]
@@ -89,6 +96,17 @@ _ROWS: list[tuple[str, str, list[Call]]] = [
     (_INDEX_FAMILY, _SITE, [_call("CFDNA1", "0/1", [980, 20])]),
     # Another variant, carried only by crossed-over reads.
     ("e2e-nipt-other-1", _CROSSED_OVER_ONLY, [_call("CFDNA2", "0/1", [997, 3])]),
+    # An allele in no plasma, carried by fathers: FATHER2's het call, FATHER11's HaplotypeCaller
+    # genotype, and FATHER6's in a family stored under two projects (once) count.
+    ("e2e-nipt-other-1", _FATHERS_ONLY, [_call("FATHER2", "0/1", [50, 50], {"TLOD": 80.0})]),
+    ("e2e-nipt-other-9", _FATHERS_ONLY, [_hc("FATHER11", "0/1", [30, 30], qual=99.0, gq=60.0)]),
+    ("e2e-nipt-other-5", _FATHERS_ONLY, [_call("FATHER6", "0/1", [45, 55], {"TLOD": 90.0})]),
+    # Not counted: a father's low-level call (1%), a HaplotypeCaller genotype with a GQ below
+    # 20, a mother's DNA (no father of the assay), the index family's own father.
+    ("e2e-nipt-other-6", _FATHERS_ONLY, [_call("FATHER7", "0/1", [990, 10], {"TLOD": 30.0})]),
+    ("e2e-nipt-other-11", _FATHERS_ONLY, [_hc("FATHER13", "0/1", [30, 28], qual=812.0, gq=12.0)]),
+    ("e2e-nipt-other-12", _FATHERS_ONLY, [_call("MOTHER14", "0/1", [50, 50], {"TLOD": 80.0})]),
+    (_INDEX_FAMILY, _FATHERS_ONLY, [_call("FATHER1", "0/1", [50, 50], {"TLOD": 80.0})]),
 ]
 
 
@@ -125,8 +143,9 @@ async def _count() -> dict[str, Any]:
     return {
         "recurrence": await count_cfdna_recurrence(
             _ASSEMBLY,
-            [_SITE, _CROSSED_OVER_ONLY],
+            [_SITE, _CROSSED_OVER_ONLY, _FATHERS_ONLY],
             carrier_samples=_CFDNA,
+            father_samples=_FATHERS,
             exclude_family_uuid=_INDEX_FAMILY,
             rules=recurrence_rules(NiptQualityThresholds()),
         ),
@@ -195,6 +214,19 @@ def test_each_call_is_read_as_maternal_paternal_or_unexplained(counts, state: st
 @pytest.mark.parametrize("state", ["stored", "merged"])
 def test_a_variant_only_crossed_over_reads_carry_is_not_listed(counts, state: str) -> None:
     assert _CROSSED_OVER_ONLY not in counts[state]["recurrence"]
+
+
+@pytest.mark.parametrize("state", ["stored", "merged"])
+def test_the_other_families_fathers_that_carry_the_allele_are_counted(counts, state: str) -> None:
+    # At the site: FATHER2's het call and FATHER11's HaplotypeCaller genotype; not FATHER7's
+    # low-level call, FATHER9's low-quality one, nor FATHER12's and FATHER13's genotypes below
+    # QUAL 50 and GQ 20.
+    assert counts[state]["recurrence"][_SITE].fathers == 2
+    # An allele no plasma calls is listed by its fathers alone: FATHER2, FATHER6 (one family
+    # under two projects) and FATHER11; not FATHER7, FATHER13, the mother's DNA or the index
+    # family's FATHER1.
+    fathers_only = counts[state]["recurrence"][_FATHERS_ONLY]
+    assert (fathers_only.fathers, fathers_only.carriers) == (3, 0)
 
 
 @pytest.mark.parametrize("state", ["stored", "merged"])

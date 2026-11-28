@@ -449,6 +449,7 @@ def _diagnostic_candidate(candidate: NiptDiagnosticCandidate) -> dict[str, Any]:
         "spliceai_max": _number(annotation.spliceai_max),
         "clinvar_pathogenic": annotation.clinvar_pathogenic,
         "other_cfdna_carriers": annotation.other_cfdna_carriers,
+        "other_fathers": annotation.other_fathers,
         "confidence": candidate.confidence,
         "flags": list(candidate.flags),
     }
