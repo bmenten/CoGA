@@ -19,17 +19,21 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets 
 from __future__ import annotations
 
 import shutil
+from datetime import date
 from pathlib import Path
 
 import pytest
 import yaml
 
+from backend.tests.e2e._clinvar_release import clinvar_release
 from backend.tests.e2e._harness import capture
 
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
 FAMILY = "FAM_TRIO"
+# CoGA's ClinVar release of the test's own, read while the override's requests run.
+_RELEASE = date(2026, 10, 4)
 
 
 async def _collect_api_responses(root: Path) -> dict:
@@ -59,22 +63,24 @@ async def _collect_api_responses(root: Path) -> dict:
         r["small_full"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 100}))
         r["small_paged"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 2}))
         r["comp_het"] = capture(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"inheritance": "compound_het"}))
-        # A frequency ceiling below the ClinVar-pathogenic GENE_PATH variant
-        # (gnomAD AF 1e-5). With the override the variant must survive the ClickHouse
-        # filter, not only the Python matcher; without it, it must not.
+        # A frequency ceiling below the GENE_PATH variant (gnomAD AF 1e-5), which CoGA's
+        # ClinVar release holds pathogenic (its annotation's ClinVar is not read). With the
+        # override the variant must survive the ClickHouse filter, not only the Python
+        # matcher; without it, it must not.
         freq_ceiling = {"page": 1, "page_size": 100, "max_gnomad_af": 0.000001}
-        r["freq_rescue_on"] = capture(
-            await ac.get(
-                f"/api/families/{FAMILY}/small-variants",
-                params={**freq_ceiling, "clinvar_pathogenic_override": "true"},
+        async with clinvar_release(_harness.ASSEMBLY, _RELEASE, {"1-2000-C-T": "Pathogenic"}):
+            r["freq_rescue_on"] = capture(
+                await ac.get(
+                    f"/api/families/{FAMILY}/small-variants",
+                    params={**freq_ceiling, "clinvar_pathogenic_override": "true"},
+                )
             )
-        )
-        r["freq_rescue_off"] = capture(
-            await ac.get(
-                f"/api/families/{FAMILY}/small-variants",
-                params={**freq_ceiling, "clinvar_pathogenic_override": "false"},
+            r["freq_rescue_off"] = capture(
+                await ac.get(
+                    f"/api/families/{FAMILY}/small-variants",
+                    params={**freq_ceiling, "clinvar_pathogenic_override": "false"},
+                )
             )
-        )
 
         r["sv"] = capture(await ac.get(f"/api/families/{FAMILY}/structural-variants"))
         # The NeedlR breakend's mate is on 5:3000000 (its ALT, N]chr5:3000000]).
@@ -402,11 +408,15 @@ def _page_ids(resp: dict) -> set[str]:
 
 def test_clinvar_pathogenic_survives_the_frequency_ceiling_in_clickhouse(api):
     # "ClinVar P/LP overrides frequency" holds in the ClickHouse fetch itself, not only in
-    # the Python matcher.
+    # the Python matcher, for CoGA's release's classification.
     rescued = _page_ids(_resp(api, "freq_rescue_on"))
     strict = _page_ids(_resp(api, "freq_rescue_off"))
     assert "1-2000-C-T" in rescued, rescued
     assert "1-2000-C-T" not in strict, strict
+    # The page serves the variant's ClinVar from that release, and names it.
+    page = _resp(api, "freq_rescue_on")["json"]
+    [served] = [variant for variant in page["variants"] if variant["_id"] == "1-2000-C-T"]
+    assert (served["clinvar"], page["clinvar_coga_release"]) == ("Pathogenic", _RELEASE.isoformat())
     # The rescue is ClinVar-scoped: the common benign GENE_BENIGN variant (AF 0.42, no
     # ClinVar) stays filtered either way.
     assert "1-1000-A-G" not in rescued

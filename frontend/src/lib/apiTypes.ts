@@ -396,12 +396,10 @@ export interface ApiClassificationDriftItem {
   status: string; // 'drifted' | 'noted' | 'unknown' | 'variant_missing'
   annotation_version_from: string | null;
   annotation_version_to: string | null;
-  clinvar_from: string | null;
-  clinvar_to: string | null;
-  // Each ALT's ClinVar in CoGA's own release, as frozen and as it is now.
+  // Each ALT's ClinVar in CoGA's release, as frozen and as it is now.
   clinvar_coga_from: ClinvarCogaOut[] | null;
   clinvar_coga_to: ClinvarCogaOut[] | null;
-  // What moved: 'clinvar', 'clinvar_coga' (an ALT's classification in CoGA's own release),
+  // What moved: 'clinvar_coga' (an ALT's ClinVar classification in CoGA's release),
   // 'transcript_id', a consequence, frequency or in-silico field
   // ('effect', 'lof', 'gnomad_af', 'revel', …), a missense variant's gene 'gene_missense_z' and
   // its source 'gene_missense_z_source', or 'annotations' (the annotation set).
@@ -836,8 +834,9 @@ export interface ApiMitoDNAVariantAnnotation {
     | 'uncertain'
     | 'polymorphism'
     | 'unknown';
-  // The variant's ClinVar in CoGA's own release, which clinical_significance reads where it
-  // holds the allele (the design's one rule, B12); null where the assembly reads no release.
+  // The variant's ClinVar in CoGA's release, which clinical_significance reads with MITOMAP's
+  // status beside it (the annotation's ClinVar is not read); null where the assembly reads no
+  // release.
   clinvar_coga: ClinvarCogaOut | null;
   disorders: string[];
   polymorphism_notes: string[];

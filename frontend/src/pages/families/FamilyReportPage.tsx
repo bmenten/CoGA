@@ -162,7 +162,7 @@ const modesOfInheritance = (profile?: GeneProfileResponse): string[] =>
     ),
   );
 
-// What moved in the evidence of a small variant's classification: its ClinVar significance,
+// What moved in the evidence of a small variant's classification: its ClinVar in CoGA's release,
 // its frozen consequence, frequencies, in-silico scores and gene missense Z, else its
 // annotation set.
 const describeClassificationDrift = (item: ApiClassificationDriftItem): string => {
@@ -170,8 +170,6 @@ const describeClassificationDrift = (item: ApiClassificationDriftItem): string =
   if (item.status === 'variant_missing') return 'no longer present in the data';
   return (
     describeSmallVariantDrift({
-      clinvarFrom: item.clinvar_from,
-      clinvarTo: item.clinvar_to,
       clinvarCogaFrom: item.clinvar_coga_from,
       clinvarCogaTo: item.clinvar_coga_to,
       changed: item.changed ?? [],
@@ -480,7 +478,7 @@ const LiveFamilyReport: React.FC = () => {
       ).data as ApiClassificationDrift,
   });
   // The small variants' drift and the structural variants' / CNVs' drift, in one banner; a
-  // ClinVar (CoGA) review status or stars that moved on the same classification apart, as the
+  // ClinVar review status or stars that moved on the same classification apart, as the
   // sign-out does not count it (B5).
   const { counted: smallDrift, noted: notedDrift } = splitNotedDrift(drift?.drifted ?? []);
   const structuralDrift = drift?.structural?.drifted ?? [];
@@ -939,7 +937,7 @@ const LiveFamilyReport: React.FC = () => {
         <section className="surface-card">
           <p className="report-paragraph">
             Noted, not counted at sign-out: the review status or the stars of the same ClinVar
-            (CoGA) classification changed since it was made.
+            classification changed since it was made.
           </p>
           <ul className="report-drift-list">
             {notedDrift.map((item) => (

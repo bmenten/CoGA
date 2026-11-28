@@ -1,12 +1,14 @@
-"""ClinVar (CoGA) in the clinical trail, on real Postgres and ClickHouse (the owner's decision
-B5).
+"""A small variant's ClinVar, CoGA's release's, in the clinical trail, on real Postgres and
+ClickHouse (the owner's decision B5).
 
 A ClinVar release is loaded through the real load job (NCBI stood in for, the synthetic file of
 ``fixtures/clinvar``), for an assembly of the test's own; the family's variant is written
-through the import's write path. Then:
+through the import's write path, its annotation calling it benign (a ClinVar nothing reads).
+Then:
 
 - the real review save freezes, in ``acmg_evidence_snapshot``, the variant's ClinVar in the
-  current release: its classification, review status and stars, with the release;
+  current release: its classification, review status and stars, with the release, and nothing
+  of the annotation's ClinVar;
 - a newer release that gives the same classification another review status reads as
   ``noted``: listed, not counted, so the sign-out needs no acknowledgement; the signed record
   holds the frozen value, the noted entry and the release it was signed with, and the sign-out
@@ -15,7 +17,7 @@ through the import's write path. Then:
   the sign-out is refused until it is acknowledged;
 - the project's re-analysis list (the design's phase 3) holds no variant while the release says
   what the signed version saw, and the reclassified variant once it does not, with its ClinVar
-  (CoGA) as signed and as now;
+  as signed and as now;
 - a release a load makes current while a signed record is being built becomes current only once
   the record's transaction has ended, so every read of one record is of one release.
 
@@ -60,7 +62,7 @@ _VARIANT = "1-1000100-G-A"
 _RECORD_ID = "\t900001\t"
 _FIRST, _REVIEWED, _RECLASSIFIED = date(2026, 11, 22), date(2026, 11, 29), date(2026, 12, 6)
 _WHILE_SIGNING = date(2026, 12, 13)
-_CSQ_FIELDS = "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
+_CSQ_FIELDS = "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT|ClinVar_CLNSIG"
 
 
 def _expert_panel(record: str) -> str:
@@ -185,7 +187,7 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
             await ensure_clickhouse_variant_tables(assembly)
             annotation = "|".join(
                 ["A", "missense_variant", "MODERATE", "SYNG1", "ENSG00000000901", "Transcript",
-                 "ENST00000000901", "YES", "NM_000901.1"]
+                 "ENST00000000901", "YES", "NM_000901.1", "benign"]
             )
             await insert_small_variant_records(
                 assembly, held["family"], [project], [small_variant(_VARIANT, vep_annotations(_CSQ_FIELDS, [annotation]))]
@@ -232,6 +234,8 @@ def test_a_changed_classification_is_drift_and_a_changed_review_status_is_noted(
             assert check["matches"] is True, check
             [reported] = signed["reported_variants"]
             assert reported["evidence_snapshot"]["clinvar_coga"] == [frozen]
+            # The annotation's ClinVar ("benign") is neither frozen nor compared.
+            assert not {"clinvar", "clinvar_from_vep_cache", "clinvar_review_status"} & set(reported["evidence_snapshot"])
             assert signed["drift"]["drifted_count"] == 0
             assert [entry["status"] for entry in signed["drift"]["drifted"]] == ["noted"]
             release = signed["reference_data"]["clinvar_coga"]

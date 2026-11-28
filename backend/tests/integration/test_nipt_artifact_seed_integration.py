@@ -9,6 +9,8 @@ mark the auto-seed counts (how maternal and paternal calls are read:
 ``e2e/test_e2e_nipt_artifact_auto_seed.py``). This seeds a fixture with one variant of each
 kind and checks that each assay lists only its own recurrent, non-common variants without a
 ClinVar P/LP (or conflicting) record, counting a sample once however many rows hold its call.
+ClinVar is CoGA's release's: a release of the test's own assembly, stored in ClickHouse and
+read as the assembly's current one; an annotation's ClinVar is not read.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -17,17 +19,24 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import date
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
 
+from backend.tests.integration._clinvar_source import release_rows
 from backend.tests.integration._datastores import fresh_assembly, fresh_species
 
 pytestmark = pytest.mark.integration
 
+_RELEASE = date(2026, 11, 22)
 
-def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_variants() -> None:
+
+def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from backend.app.core.clickhouse import close_clickhouse_client
     from backend.app.core.postgres import (
         close_postgres_engine,
@@ -35,7 +44,10 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
         init_postgres_schema,
     )
     from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
+    from backend.app.services import nipt_artifact_pg
     from backend.app.services.clickhouse_variant_storage import insert_small_variant_records
+    from backend.app.services.clinvar_coga import ClinvarCogaRead
+    from backend.app.services.clinvar_release_store import ensure_clinvar_table, insert_clinvar_rows
     from backend.app.services.nipt_artifact_pg import auto_seed_nipt_artifacts, list_nipt_artifacts
 
     tag = uuid4().hex[:8].upper()
@@ -44,6 +56,19 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
 
     def name(label: str) -> str:
         return f"{label}-{tag}"
+
+    # CoGA's ClinVar release of the assembly, current: the alleles it classifies.
+    async def current_release(_session: Any, assembly: str | None) -> ClinvarCogaRead:
+        assert assembly == assembly_name
+        return ClinvarCogaRead(assembly_name, _RELEASE, True)
+
+    monkeypatch.setattr(nipt_artifact_pg, "clinvar_coga_read", current_release)
+    release = {
+        "1-600-A-G": "Pathogenic",
+        "1-700-A-G": "Likely_pathogenic,_low_penetrance",
+        "1-800-A-G": "Conflicting_classifications_of_pathogenicity",
+        "1-900-A-G": "Uncertain_significance",
+    }
 
     default_cfdna = [name(f"CF{i}") for i in range(1, 6)]
     panel_cfdna = [name(f"PX{i}") for i in range(1, 6)]
@@ -55,7 +80,7 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
         *,
         ref_calls: list[str] | None = None,
         common: bool = False,
-        clinvar: str | None = None,
+        annotated_clinvar: str | None = None,
     ):
         chrom, pos, ref, alt = variant_id.split("-")
         return SmallVariantRecord(
@@ -71,8 +96,13 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
             filters=["PASS"],
             gene_symbols=[],
             annotations=(
-                [{"gnomad_af": 0.31 if common else 0.012, **({"clinvar": clinvar} if clinvar else {})}]
-                if common or clinvar
+                [
+                    {
+                        "gnomad_af": 0.31 if common else 0.012,
+                        **({"clinvar": annotated_clinvar} if annotated_clinvar else {}),
+                    }
+                ]
+                if common or annotated_clinvar or variant_id in release
                 else []
             ),
             calls=[
@@ -124,13 +154,16 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
                 assembly_id, _sample_uuids = await _seed_postgres(session)
 
             cf1, cf2, cf3, cf4, cf5 = default_cfdna
+            await ensure_clinvar_table(assembly_name)
+            await insert_clinvar_rows(assembly_name, _RELEASE, release_rows(assembly_name, release))
             await insert_small_variant_records(
                 assembly_name,
                 str(uuid4()),
                 [str(uuid4())],
                 [
-                    # Recurrent in the assay's cfDNA, not common, no ClinVar record: an artifact.
-                    record("1-100-A-G", [cf1, cf2, cf3, cf4, cf5]),
+                    # Recurrent in the assay's cfDNA, not common, no ClinVar record in the release
+                    # (its annotation's pathogenic call is not read): an artifact.
+                    record("1-100-A-G", [cf1, cf2, cf3, cf4, cf5], annotated_clinvar="Pathogenic"),
                     # As recurrent, but a common SNP (the kind FF is read from).
                     record("1-200-A-G", [cf1, cf2, cf3, cf4, cf5], common=True),
                     # One carrier in this assay; recurrent only in other samples (below).
@@ -139,25 +172,13 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_var
                     record("1-400-A-G", [cf1, cf2, cf3, cf4], ref_calls=[cf5]),
                     # Four carriers, the first of them again in another row (below): counted once.
                     record("1-500-A-G", [cf1, cf2, cf3, cf4]),
-                    # Recurrent, rare (gnomAD 1.2%) and ClinVar P/LP, or a conflicting record
-                    # that may hold a P/LP submission: never seeded.
-                    record("1-600-A-G", [cf1, cf2, cf3, cf4, cf5], clinvar="Pathogenic"),
-                    record(
-                        "1-700-A-G",
-                        [cf1, cf2, cf3, cf4, cf5],
-                        clinvar="Likely_pathogenic,_low_penetrance",
-                    ),
-                    record(
-                        "1-800-A-G",
-                        [cf1, cf2, cf3, cf4, cf5],
-                        clinvar="Conflicting_classifications_of_pathogenicity",
-                    ),
-                    # A recurrent VUS is not protected.
-                    record(
-                        "1-900-A-G",
-                        [cf1, cf2, cf3, cf4, cf5],
-                        clinvar="Uncertain_significance",
-                    ),
+                    # Recurrent, rare (gnomAD 1.2%) and P/LP in the release, or a conflicting
+                    # record that may hold a P/LP submission: never seeded.
+                    record("1-600-A-G", [cf1, cf2, cf3, cf4, cf5]),
+                    record("1-700-A-G", [cf1, cf2, cf3, cf4, cf5]),
+                    record("1-800-A-G", [cf1, cf2, cf3, cf4, cf5]),
+                    # A recurrent VUS is not protected, whatever its annotation says.
+                    record("1-900-A-G", [cf1, cf2, cf3, cf4, cf5], annotated_clinvar="Pathogenic"),
                 ],
             )
             await insert_small_variant_records(

@@ -205,12 +205,3 @@
   outline-offset: 2px;
   border-radius: var(--radius-card);
 }
-
-/* A row's sign that CoGA's own ClinVar release classifies the variant otherwise than its
-   annotation, CoGA's value on hover (ClinvarCogaMark, family table and Variant Explorer). */
-.clinvar-coga-mark {
-  margin-left: 0.25rem;
-  color: var(--color-signature-red);
-  font-weight: 700;
-  cursor: help;
-}

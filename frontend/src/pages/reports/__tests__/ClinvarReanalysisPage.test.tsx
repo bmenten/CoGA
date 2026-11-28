@@ -78,7 +78,8 @@ describe('ClinvarReanalysisPage', () => {
     fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'p-1' } });
 
     const list = await screen.findByRole('region', { name: 'ClinVar reclassifications' });
-    expect(list).toHaveTextContent('Read against ClinVar (CoGA, 2026-11-22) for GRCh38.');
+    expect(list).toHaveTextContent('Read against ClinVar 2026-11-22 for GRCh38.');
+    expect(within(list).getAllByRole('columnheader').map((header) => header.textContent)).toContain('ClinVar as signed');
     const row = within(list).getAllByRole('row')[1];
     expect(row).toHaveTextContent('FAM 1 (long_read_wgs)');
     expect(row).toHaveTextContent('Version 2, 2026-11-16 09:00 UTC · 7KQM2X-2-4PHT');

@@ -4,6 +4,7 @@ import dataclasses
 import json
 import logging
 import types
+from datetime import date
 
 import pytest
 from clickhouse_connect.driver.binding import bind_query
@@ -736,6 +737,7 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
         impact=["MODERATE"],
         effect=["missense_variant"],
         clinvar=["pathogenic"],
+        clinvar_coga_release=date(2026, 11, 22),
         max_gnomad_af=0.01,
     )
 
@@ -756,12 +758,17 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
     assert "GROUP BY e.key" in query  # list dedups by key
     assert "a.impact IN %(detail_impact_terms)s" in query
     assert "hasAny(a.effects, %(detail_effect_terms)s)" in query
-    assert "hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)" in query
+    # ClinVar is the alleles' in CoGA's release of the request, never a transcript's.
+    assert "a.clinvar_terms" not in query
+    assert (
+        "arrayExists(k -> k IN (SELECT allele_key FROM coga.`GRCh38/SNV_INDEL/clinvar` WHERE release = "
+        "%(clinvar_status_release)s AND hasAny(classification_terms, %(clinvar_status_terms)s)), e.allele_keys)"
+    ) in query
     assert "ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)" in query
     assert "inheritance_affected_het_0_gts" in params
     assert params["detail_impact_terms"] == ("moderate",)
     assert params["detail_effect_terms"] == ["missense_variant"]
-    assert params["detail_clinvar_terms"] == ["pathogenic"]
+    assert (params["clinvar_status_terms"], params["clinvar_status_release"]) == (["pathogenic"], date(2026, 11, 22))
     assert params["limit"] == 2
 
 
@@ -833,11 +840,14 @@ async def test_execute_clickhouse_returns_empty_for_missing_table(
 
 
 def test_clinvar_status_filter_is_exact_not_substring() -> None:
-    # The SQL keeps a transcript when one of its stored ClinVar terms is one the filter names
-    # (hasAny(a.clinvar_terms, …)): the terms as the import stores them and as the filter's
-    # values are read.
+    # The SQL keeps a row when one of its alleles' terms in CoGA's release is one the filter
+    # names (hasAny(classification_terms, …)): the terms as the release stores them and as the
+    # filter's values are read.
+    from backend.tests._clinvar_release_fakes import stored_allele
+
     def matches(stored: str, wanted: list[str]) -> bool:
-        return not _annotation_columns({"clinvar": stored}).clinvar_terms.isdisjoint(_status_filter_terms(wanted))
+        terms = set(stored_allele("1_100_G_A", stored).classification_terms)
+        return not terms.isdisjoint(_status_filter_terms(wanted))
 
     assert matches("Pathogenic", ["pathogenic"])
     assert not matches("Likely pathogenic", ["pathogenic"])
@@ -859,10 +869,10 @@ def test_clickhouse_annotation_filters_are_scoped_to_one_annotation() -> None:
 
     assert "JSONExtract" not in query
     assert "a.impact IN %(detail_impact_terms)s" in query
-    assert "hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)" in query
     assert "detail_max_gnomad_af" in query
     assert " AND " in query
-    assert params["detail_clinvar_terms"] == ["pathogenic"]
+    # ClinVar is no transcript's: the alleles' in CoGA's release, a clause of its own.
+    assert "clinvar" not in query and not any("clinvar" in name for name in params)
 
 
 def test_small_annotation_effect_filter_splits_vep_compound_terms() -> None:

@@ -18,7 +18,8 @@ carries (`_small_family_key_condition`); this page calls that *the family-key bo
   each). The GCP deployment's default ClickHouse disk (`clickhouse_data_disk_gb = 200`) fills at
   about 600 genomes, before any room for merges.
 - **The family search reads the family's rows, whatever the cohort's size.** It tests its
-  frequency, impact, ClinVar and other per-transcript filters on each row's own transcripts: a
+  frequency, impact and other per-transcript filters on each row's own transcripts (a ClinVar
+  filter reads the row's allele keys in one partition of CoGA's ClinVar release): a
   rare search of a trio read 12.6 M rows at 50, 100 and 250 genomes alike, where reading the
   cohort's annotation table it read 198, 248 and 359 M, about 750 M at 1,000. It held 0.2–0.5 GiB
   and took 1–3 s here at every size.
@@ -173,7 +174,7 @@ table, with the family-key bound; the code measured tests them on the rows' own 
 
 Every search kept the same variants and the same count both ways.
 
-- Read on the rows' own transcripts, a search with a frequency, impact or ClinVar filter reads the
+- Read on the rows' own transcripts, a search with a frequency or impact filter reads the
   family's rows and nothing else: 12.6 M rows for the trio, its 6.3 M rows in the list and again
   in the count, at every size. On the shared table it read the cohort's whole
   `variants/annotations` table twice, growing by the six transcript rows of each new distinct

@@ -148,7 +148,6 @@ def _family_small_variant_filters(
     clinvar: List[str] = Query(default_factory=list),
     exclude_clinvar: List[str] = Query(default_factory=list, alias="exclude_clinvar"),
     clinvar_pathogenic_override: bool = False,
-    clinvar_coga: List[str] = Query(default_factory=list),
     exclude_gene: str | None = None,
     exclude_intervals: str | None = None,
     rsid: str | None = None,
@@ -203,7 +202,6 @@ def _family_small_variant_filters(
         clinvar=clinvar,
         exclude_clinvar=exclude_clinvar,
         clinvar_pathogenic_override=clinvar_pathogenic_override,
-        clinvar_coga=clinvar_coga,
         exclude_gene=exclude_gene,
         exclude_intervals=exclude_intervals,
         rsid=rsid,
@@ -290,9 +288,9 @@ async def get_family_small_variants(
         # The list names the members without calls in the callsets it reads, whose missing calls
         # an inheritance filter reads as no ALT allele (the owner's decision of 2026-11-20).
         result.members_without_calls = await family_members_without_calls(context, source=filters.get("source"))
-    # The list and the track both read each variant's ClinVar (CoGA): the track marks a variant
-    # by its ClinVar read by the design's one rule (B8).
-    await serve_clinvar_coga(session, context, clinvar_coga, result)
+    # The list and the track both read each variant's ClinVar from CoGA's release: the track marks
+    # a variant by it.
+    await serve_clinvar_coga(clinvar_coga, result)
     return result
 
 
@@ -346,11 +344,10 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("hgvsg", "HGVSg"),
     ("hgvsc", "HGVSc"),
     ("hgvsp", "HGVSp"),
+    # The shown ALT's ClinVar classification and stars in CoGA's release; the annotation's
+    # ClinVar is not exported.
     ("clinvar", "ClinVar"),
-    # True where that classification is VEP's cache's, read without a ClinVar file annotated:
-    # the known variant's (the dbSNP rsID's), perhaps another allele's.
-    ("clinvar_from_vep_cache", "ClinVar from VEP cache"),
-    ("clinvar_coga", "ClinVar (CoGA)"),
+    ("clinvar_stars", "ClinVar stars"),
     ("gnomad_af", "gnomAD AF"),
     ("gnomad_hom_count", "gnomAD hom"),
     ("cadd_phred", "CADD"),
@@ -408,12 +405,6 @@ def _family_export_cell(variant: VariantOut, field: str, members_without_calls: 
             else None
         )
         return "" if value is None else str(value)
-    if field == "clinvar_coga":
-        # Each ALT's value in CoGA's own release, with the release; why it has none, else.
-        return "; ".join(
-            f"{value.alt}: {value.classification or value.status} ({value.release or 'no release'})"
-            for value in variant.clinvar_coga
-        )
     if field == "priority_score":
         return f"{variant.priority.combined_score:.4f}" if variant.priority else ""
     if field == "priority_variant_score":

@@ -578,9 +578,8 @@ describe('FamilyNiptPage', () => {
   });
 
   it("shows each variant's ClinVar in CoGA's release the analysis read, and suggests PP5 from it", async () => {
-    // The analysis's decisions read CoGA's release where it holds the allele (B11): the card
-    // shows that value beside the annotation's, each named by its release (B7), and the ACMG
-    // evaluation reads it (B9), not the annotation's benign.
+    // The page serves each variant's ClinVar from CoGA's release the analysis read: the card
+    // shows it as its one ClinVar chip, and the ACMG evaluation reads it.
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/NIPT001') {
         return Promise.resolve({
@@ -593,7 +592,6 @@ describe('FamilyNiptPage', () => {
             family_id: 'NIPT001',
             total: 1,
             fetal_fraction: FETAL_FRACTION,
-            clinvar_annotation_release: '2026-05-01',
             clinvar_coga_release: '2026-11-22',
             variants: [
               {
@@ -605,7 +603,11 @@ describe('FamilyNiptPage', () => {
                 ref: 'A',
                 alt: 'G',
                 gene: 'GENEA',
-                clinvar: 'Benign',
+                clinvar: 'Likely_pathogenic',
+                clinvar_review_status: 'criteria provided, single submitter',
+                clinvar_stars: 1,
+                clinvar_conditions: ['Synthetic disorder 1'],
+                clinvar_variation_id: '900011',
                 clinvar_coga: [
                   {
                     alt: 'G',
@@ -645,9 +647,8 @@ describe('FamilyNiptPage', () => {
 
     renderPage('NIPT001');
 
-    expect(await screen.findByText('ClinVar (annotation, 2026-05-01)')).toBeInTheDocument();
     expect(
-      screen.getByRole('link', { name: /^ClinVar \(CoGA, 2026-11-22\)\s*Likely pathogenic ★☆☆☆\s*changed$/ }),
+      await screen.findByRole('link', { name: /^ClinVar\s*Likely pathogenic ★☆☆☆$/ }),
     ).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/clinvar/variation/900011/');
 
     fireEvent.click(screen.getByRole('button', { name: 'ACMG classify' }));
@@ -656,7 +657,9 @@ describe('FamilyNiptPage', () => {
     const pp5 = pp5Box.closest('.acmg-criterion') as HTMLElement;
     expect(pp5).toHaveClass('acmg-criterion--suggested');
     fireEvent.mouseEnter(pp5);
-    expect(screen.getByRole('tooltip')).toHaveTextContent('ClinVar (CoGA, 2026-11-22)');
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'ClinVar reports Likely_pathogenic (1 star, criteria provided, single submitter) for Synthetic disorder 1',
+    );
     expect(screen.getByRole('tooltip')).toHaveTextContent('review before applying');
   });
 

@@ -13,6 +13,19 @@ import {
 } from '../../../test/signedAnalysisFixture';
 import CLASS_SHOWN_E2E from './fixtures/signed-class-shown-e2e.json';
 
+// One ALT's ClinVar in CoGA's release, as a drift entry holds it.
+const clinvarIn = (classification: string, release: string) => ({
+  alt: 'G',
+  status: 'in_release',
+  release,
+  classification,
+  review_status: null,
+  stars: null,
+  conditions: [],
+  variation_id: null,
+  included_only: false,
+});
+
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -518,8 +531,9 @@ describe('FamilyReportPage', () => {
                 status: 'drifted',
                 annotation_version_from: 'v1',
                 annotation_version_to: 'v2',
-                clinvar_from: 'Uncertain significance',
-                clinvar_to: 'Pathogenic',
+                clinvar_coga_from: [clinvarIn('Uncertain_significance', '2026-11-15')],
+                clinvar_coga_to: [clinvarIn('Pathogenic', '2026-11-22')],
+                changed: ['clinvar_coga'],
               },
             ],
           },
@@ -533,7 +547,7 @@ describe('FamilyReportPage', () => {
     expect(alert).toBeInTheDocument();
     expect(screen.getByText('1-100-A-G')).toBeInTheDocument();
     expect(
-      screen.getByText(/ClinVar Uncertain significance → Pathogenic/),
+      screen.getByText(/ClinVar 2026-11-15: Uncertain significance → ClinVar 2026-11-22: Pathogenic/),
     ).toBeInTheDocument();
     expect(screen.getByText(/classified by alice/)).toBeInTheDocument();
   });
@@ -547,8 +561,6 @@ describe('FamilyReportPage', () => {
       status: 'drifted',
       annotation_version_from: 'v1',
       annotation_version_to: 'v1',
-      clinvar_from: null,
-      clinvar_to: null,
       changed: [],
       evidence_from: null,
       evidence_to: null,
@@ -589,7 +601,7 @@ describe('FamilyReportPage', () => {
     expect(items).toContain('2-200-C-T — annotation set changed (classified by alice)');
   });
 
-  it('counts a moved ClinVar (CoGA) classification as drift, and notes moved review status or stars apart', async () => {
+  it('counts a moved ClinVar classification as drift, and notes moved review status or stars apart', async () => {
     const coga = (classification: string, reviewStatus: string, stars: number, release: string) => ({
       alt: 'A',
       status: 'in_release',
@@ -609,8 +621,6 @@ describe('FamilyReportPage', () => {
       status,
       annotation_version_from: 'v1',
       annotation_version_to: 'v1',
-      clinvar_from: null,
-      clinvar_to: null,
       clinvar_coga_from: [from],
       clinvar_coga_to: [to],
       changed,
@@ -656,14 +666,14 @@ describe('FamilyReportPage', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('1 classification has evidence changes since being made');
     expect(alert).toHaveTextContent(
-      '1-100-G-A — ClinVar (CoGA) Uncertain significance ★☆☆☆, criteria provided, single submitter (2026-11-15) → ' +
-        'Likely pathogenic ★☆☆☆, criteria provided, single submitter (2026-11-22) (classified by alice)',
+      '1-100-G-A — ClinVar 2026-11-15: Uncertain significance ★☆☆☆, criteria provided, single submitter → ' +
+        'ClinVar 2026-11-22: Likely pathogenic ★☆☆☆, criteria provided, single submitter (classified by alice)',
     );
     expect(alert).not.toHaveTextContent('2-200-C-A');
     const noted = screen.getByText(/Noted, not counted at sign-out/).closest('section')!;
     expect(noted).toHaveTextContent(
-      '2-200-C-A — ClinVar (CoGA) Pathogenic ★☆☆☆, criteria provided, single submitter (2026-11-15) → ' +
-        'Pathogenic ★★☆☆, criteria provided, multiple submitters, no conflicts (2026-11-22)',
+      '2-200-C-A — ClinVar 2026-11-15: Pathogenic ★☆☆☆, criteria provided, single submitter → ' +
+        'ClinVar 2026-11-22: Pathogenic ★★☆☆, criteria provided, multiple submitters, no conflicts',
     );
   });
 
@@ -690,8 +700,6 @@ describe('FamilyReportPage', () => {
                 status: 'drifted',
                 annotation_version_from: 'v1',
                 annotation_version_to: 'v2',
-                clinvar_from: null,
-                clinvar_to: null,
                 changed: ['effect', 'lof', 'annotations'],
                 evidence_from: { effect: 'stop_gained', lof: 'LC' },
                 evidence_to: { effect: 'stop_gained&splice_region_variant', lof: 'HC' },
@@ -705,8 +713,6 @@ describe('FamilyReportPage', () => {
                 status: 'drifted',
                 annotation_version_from: 'v1',
                 annotation_version_to: 'v1',
-                clinvar_from: null,
-                clinvar_to: null,
                 changed: ['gene_missense_z'],
                 evidence_from: { gene_missense_z: 2.95 },
                 evidence_to: { gene_missense_z: 3.52 },
@@ -771,8 +777,6 @@ describe('FamilyReportPage', () => {
                 classified_by: 'bob',
                 classified_at: null,
                 status: 'variant_missing',
-                clinvar_from: null,
-                clinvar_to: null,
                 changed: [],
                 evidence_from: null,
                 evidence_to: null,
@@ -1647,7 +1651,6 @@ describe('FamilyReportPage', () => {
         evidence_snapshot: {
           annotation_version: 'v1',
           annotation_set_hash: 'h1',
-          clinvar: 'Likely_pathogenic',
           captured_at: '2026-06-20T08:30:00+00:00',
           clinvar_coga: [
             {
@@ -1798,10 +1801,11 @@ describe('FamilyReportPage', () => {
       expect(variant).toHaveTextContent('based on PS3, PM2 and PP3');
       expect(within(variant).queryByText('BP4')).not.toBeInTheDocument();
       expect(variant).toHaveTextContent('Evidence: Functional assay shows loss of function.');
-      expect(variant).toHaveTextContent('ClinVar reported Likely pathogenic, with annotation version v1');
       expect(variant).toHaveTextContent(
-        'ClinVar (CoGA, 2026-06-15): Pathogenic ★★★☆ (reviewed by expert panel).',
+        'The evidence was frozen when the variant was classified (2026-06-20 08:30 UTC), with annotation version v1.',
       );
+      expect(variant).toHaveTextContent('ClinVar 2026-06-15: Pathogenic ★★★☆ (reviewed by expert panel).');
+      expect(variant).not.toHaveTextContent('CoGA');
       expect(variant).toHaveTextContent('Interpretation as signed.');
       expect(variant).toHaveTextContent('Tags: acmg_class_4, report');
 
@@ -1846,22 +1850,6 @@ describe('FamilyReportPage', () => {
       );
       // The latest intact signed version prints without a notice.
       expect(container.querySelector('.report-print-notice')).toBeNull();
-    });
-
-    it("names a ClinVar classification frozen from VEP's cache as the cache's", async () => {
-      const [reported] = SIGNED_SNAPSHOT.reported_variants;
-      mockSignedCase({
-        snapshot: {
-          ...SIGNED_SNAPSHOT,
-          reported_variants: [
-            { ...reported, evidence_snapshot: { ...reported.evidence_snapshot, clinvar_from_vep_cache: true } },
-          ],
-        },
-      });
-      renderPage();
-
-      const variant = (await screen.findByRole('heading', { name: '17-43000000-A-G' })).closest('article')!;
-      expect(variant).toHaveTextContent('ClinVar (VEP cache) reported Likely pathogenic, with annotation version v1');
     });
 
     // ClinGen CNV points as the classifier writes them: signed and to two decimals, since
@@ -1982,14 +1970,14 @@ describe('FamilyReportPage', () => {
         'Clinical CNV knowledgebase: clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated)',
       );
       expect(reference).toHaveTextContent(
-        'ClinVar (CoGA): 2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 0123abcd), loaded 2026-11-23 04:00 UTC, 3 alleles',
+        'ClinVar: 2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 0123abcd), loaded 2026-11-23 04:00 UTC, 3 alleles',
       );
 
       // Beside the modules in the footer, with the code.
       const footer = container.querySelector('footer')!;
       expect(footer).toHaveTextContent('Signed version 2 · signed out 2026-06-25 10:00 UTC · report code 7KQM2X-2-4PHT');
       expect(footer).toHaveTextContent(
-        'Reference data as signed: gene reference ClinGen dosage 2026-09-30 and 2026-08-30 · HGNC 2026-09-01; clinical CNV knowledgebase clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated); ClinVar (CoGA) 2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 0123abcd), loaded 2026-11-23 04:00 UTC, 3 alleles; PanelApp Epilepsy 3.1',
+        'Reference data as signed: gene reference ClinGen dosage 2026-09-30 and 2026-08-30 · HGNC 2026-09-01; clinical CNV knowledgebase clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated); ClinVar 2026-11-22 (clinvar_20261122.vcf.gz, SHA-256 0123abcd), loaded 2026-11-23 04:00 UTC, 3 alleles; PanelApp Epilepsy 3.1',
       );
 
       // Still nothing of the family's current data.
@@ -3056,8 +3044,6 @@ describe('FamilyReportPage', () => {
               {
                 variant_id: '17-43000000-A-G',
                 status: 'drifted',
-                clinvar_from: 'Likely_pathogenic',
-                clinvar_to: 'Likely_pathogenic',
                 changed: ['revel', 'annotations'],
                 evidence_from: { revel: 0.412 },
                 evidence_to: { revel: 0.951 },
@@ -3073,7 +3059,7 @@ describe('FamilyReportPage', () => {
 
       await signedRecordCard();
       const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
-      expect(variant).toHaveTextContent('ClinVar reported Likely pathogenic, with annotation version v1');
+      expect(variant).toHaveTextContent('with annotation version v1.');
       expect(variant).toHaveTextContent(
         'Read from its primary transcript ENST00000000001: population frequencies gnomAD AF 3.10e-5, ' +
           'gnomAD exomes AF not annotated, gnomAD genomes AF 3.10e-5, gnomAD popmax AF not annotated, ' +
@@ -3113,8 +3099,6 @@ describe('FamilyReportPage', () => {
               {
                 variant_id: '17-43000000-A-G',
                 status: 'drifted',
-                clinvar_from: 'Likely_pathogenic',
-                clinvar_to: 'Likely_pathogenic',
                 changed: ['gene_missense_z'],
                 evidence_from: { gene_missense_z: 2.95 },
                 evidence_to: { gene_missense_z: 3.52 },
@@ -3160,8 +3144,6 @@ describe('FamilyReportPage', () => {
               {
                 variant_id: '17-43000000-A-G',
                 status: 'drifted',
-                clinvar_from: 'Likely_pathogenic',
-                clinvar_to: 'Likely_pathogenic',
                 changed: ['gene_missense_z', 'gene_missense_z_source'],
                 evidence_from: { gene_missense_z: 4.2, gene_missense_z_source: 'vcf' },
                 evidence_to: { gene_missense_z: 3.52, gene_missense_z_source: 'gene_profile' },
@@ -3185,7 +3167,7 @@ describe('FamilyReportPage', () => {
       );
     });
 
-    it('lists a ClinVar (CoGA) review status that had moved apart, as noted and not counted', async () => {
+    it('lists a ClinVar review status that had moved apart, as noted and not counted', async () => {
       const coga = (reviewStatus: string, stars: number, release: string) => ({
         alt: 'G',
         status: 'in_release',
@@ -3207,8 +3189,6 @@ describe('FamilyReportPage', () => {
               {
                 variant_id: '17-43000000-A-G',
                 status: 'noted',
-                clinvar_from: 'Likely_pathogenic',
-                clinvar_to: 'Likely_pathogenic',
                 clinvar_coga_from: [coga('criteria provided, single submitter', 1, '2026-06-15')],
                 clinvar_coga_to: [coga('reviewed by expert panel', 3, '2026-06-22')],
                 changed: [],
@@ -3224,9 +3204,9 @@ describe('FamilyReportPage', () => {
       const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
       expect(drift).toHaveTextContent('No reported classification had changed evidence when this version was signed');
       expect(drift).toHaveTextContent(
-        'Noted, not counted: the review status or the stars of the same ClinVar (CoGA) classification had changed:' +
-          '17-43000000-A-G — ClinVar (CoGA) Pathogenic ★☆☆☆, criteria provided, single submitter (2026-06-15) → ' +
-          'Pathogenic ★★★☆, reviewed by expert panel (2026-06-22)',
+        'Noted, not counted: the review status or the stars of the same ClinVar classification had changed:' +
+          '17-43000000-A-G — ClinVar 2026-06-15: Pathogenic ★☆☆☆, criteria provided, single submitter → ' +
+          'ClinVar 2026-06-22: Pathogenic ★★★☆, reviewed by expert panel',
       );
     });
 
@@ -3249,7 +3229,16 @@ describe('FamilyReportPage', () => {
           drift: {
             checked: 1,
             drifted_count: 1,
-            drifted: [{ variant_id: '17-43000000-A-G', status: 'drifted', clinvar_from: 'Uncertain_significance', clinvar_to: 'Likely_pathogenic', classified_by: 'alice' }],
+            drifted: [
+              {
+                variant_id: '17-43000000-A-G',
+                status: 'drifted',
+                clinvar_coga_from: [clinvarIn('Uncertain_significance', '2026-06-15')],
+                clinvar_coga_to: [clinvarIn('Likely_pathogenic', '2026-06-22')],
+                changed: ['clinvar_coga'],
+                classified_by: 'alice',
+              },
+            ],
           },
           acknowledged_drift: true,
           drift_acknowledgement_reason: 'reviewed',
@@ -3268,7 +3257,9 @@ describe('FamilyReportPage', () => {
       expect(drift).toHaveTextContent(
         '1 classification had evidence that changed, or could not be verified, when this version was signed',
       );
-      expect(drift).toHaveTextContent('17-43000000-A-G — ClinVar Uncertain_significance → Likely_pathogenic (classified by alice)');
+      expect(drift).toHaveTextContent(
+        '17-43000000-A-G — ClinVar 2026-06-15: Uncertain significance → ClinVar 2026-06-22: Likely pathogenic (classified by alice)',
+      );
       expect(drift).toHaveTextContent('Signed out over it, with the reason: reviewed.');
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       expect(checks).toHaveTextContent('Overall: Fail (Trio WGS).');
@@ -3729,9 +3720,9 @@ describe('FamilyReportPage', () => {
               variant_id: '17-43000000-A-G',
               acmg_class: 'acmg_class_4',
               status: 'drifted',
-              clinvar_from: 'uncertain_significance',
-              clinvar_to: 'pathogenic',
-              changed: ['clinvar', 'annotations'],
+              clinvar_coga_from: [clinvarIn('Uncertain_significance', '2026-11-15')],
+              clinvar_coga_to: [clinvarIn('Pathogenic', '2026-11-22')],
+              changed: ['clinvar_coga', 'annotations'],
               evidence_from: null,
               evidence_to: null,
             },
@@ -3776,7 +3767,7 @@ describe('FamilyReportPage', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      '17-43000000-A-G — ClinVar uncertain_significance → pathogenic',
+      '17-43000000-A-G — ClinVar 2026-11-15: Uncertain significance → ClinVar 2026-11-22: Pathogenic',
       '2-200-C-T — no frozen evidence (not saved through ACMG classify)',
       '1-7000-12000-DEL (structural variant) — genes BRCA2 → BRCA2, N4BP2L1',
     ]);

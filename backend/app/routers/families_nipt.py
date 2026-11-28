@@ -565,7 +565,6 @@ async def get_family_nipt_variants_page(
             NiptNotClassifiedOut(variant_id=variant_id, reason=reason)  # type: ignore[arg-type]
             for variant_id, reason in sorted(result.not_classified.items())
         ],
-        clinvar_annotation_release=result.clinvar_annotation_release,
         clinvar_coga_release=result.clinvar_coga_release,
     )
 

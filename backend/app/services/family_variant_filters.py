@@ -217,19 +217,19 @@ class SmallVariantQueryFilters:
     transcript: str | None = None
     impact: List[str] = field(default_factory=list)
     effect: List[str] = field(default_factory=list)
+    # The ClinVar statuses an allele of the variant must have, and those that leave the variant
+    # out where every allele has one; ClinVar is CoGA's release's (``clinvar_coga_release``),
+    # never the annotation's.
     clinvar: List[str] = field(default_factory=list)
     exclude_clinvar: List[str] = field(default_factory=list)
-    # When set, a ClinVar pathogenic or likely pathogenic variant passes the consequence
-    # filter (impact, consequence, the SpliceAI minimum), the in-silico filter (CADD, REVEL,
-    # SIFT, PolyPhen, SpliceAI) and the frequency filter (population frequencies, gnomAD
-    # AC / hom / hemi counts) whatever its values: the ClinVar P/LP override.
+    # When set, a variant with an allele ClinVar holds pathogenic or likely pathogenic passes
+    # the consequence filter (impact, consequence, the SpliceAI minimum), the in-silico filter
+    # (CADD, REVEL, SIFT, PolyPhen, SpliceAI) and the frequency filter (population frequencies,
+    # gnomAD AC / hom / hemi counts) whatever its values: the ClinVar P/LP override.
     clinvar_pathogenic_override: bool = False
-    # *ClinVar (CoGA)*: the classifications CoGA's own ClinVar release must give an allele of
-    # the variant, read in ``clinvar_coga_release``.
-    clinvar_coga: List[str] = field(default_factory=list)
     # CoGA's ClinVar release the request reads (``clinvar_coga.clinvar_coga_read``), set
-    # server-side once per request and not a request field: the *ClinVar (CoGA)* filter and the
-    # P/LP override read it. None when the assembly has no release: neither reads one.
+    # server-side once per request and not a request field: every ClinVar filter and the P/LP
+    # override read it. None when the assembly has no release: no variant has ClinVar.
     clinvar_coga_release: date | None = None
     exclude_gene: str | None = None
     exclude_intervals: str | None = None
@@ -266,7 +266,7 @@ class SmallVariantQueryFilters:
     require_sv_second_hit: bool = False
     sv_hit_genes: List[str] = field(default_factory=list)
     # The salient variants alone: ClinVar (likely) pathogenic, or of HIGH or MODERATE impact
-    # on a transcript and not ClinVar (likely) benign. The chromosome view's small-variant
+    # on a transcript unless ClinVar holds every allele (likely) benign. The chromosome view's small-variant
     # track asks for these in a wide window, where it draws no other mark
     # (``_small_salient_condition``).
     salient_only: bool = False

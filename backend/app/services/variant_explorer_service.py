@@ -92,12 +92,16 @@ from .clickhouse_variant_queries import (
     _small_variant_windows,
 )
 from .clickhouse_variant_records import (
-    CLINVAR_CONFLICT_TERMS,
     PanelFilterConstraints,
     Region,
-    _normalized_status_term,
 )
-from .clinvar_coga import NO_CLINVAR_COGA, ClinvarCogaRead, clinvar_coga_read, clinvar_coga_values
+from .clinvar_coga import (
+    NO_CLINVAR_COGA,
+    ClinvarCogaRead,
+    clinvar_classification,
+    clinvar_coga_read,
+    clinvar_coga_values,
+)
 from .family_variant_filters import (
     SmallVariantQueryFilters,
     SmallVariantSampleFilter,
@@ -241,19 +245,6 @@ _CLASSIFICATION_WORD_RANK = {
     "likely_benign": 2,
     "benign": 1,
 }
-# A variant's ClinVar terms as the annotation index stores them (``_status_terms``), the most
-# severe highest. Each key is ClinVar's own spelling normalised as the import normalises it, so
-# the table reads the stored terms.
-_CLINVAR_RANK = {
-    _normalized_status_term("Pathogenic"): 6,
-    _normalized_status_term("Likely_pathogenic"): 5,
-    _normalized_status_term("drug_response"): 4,
-    **dict.fromkeys(CLINVAR_CONFLICT_TERMS, 3),
-    _normalized_status_term("Uncertain_significance"): 2,
-    _normalized_status_term("Likely_benign"): 1,
-    _normalized_status_term("Benign"): 0,
-}
-
 # The tag / classification filter reaches ClickHouse as a variant_id list inlined into the
 # query, so it holds at most this many ids. Past it a search can miss matches: the export
 # then reports itself truncated.
@@ -336,9 +327,6 @@ class GlobalVariantFilters:
     effects: list[str] = field(default_factory=list)
     clinvar: list[str] = field(default_factory=list)
     exclude_clinvar: list[str] = field(default_factory=list)
-    # ClinVar (CoGA): the classifications of CoGA's own ClinVar release, read in the scope's
-    # release (``ExplorerScope.clinvar_coga``).
-    clinvar_coga: list[str] = field(default_factory=list)
     rsid: str | None = None
     hgvsc: str | None = None
     hgvsp: str | None = None
@@ -386,7 +374,7 @@ class ExplorerScope:
     assembly_name: str
     project_ids: list[str]
     # CoGA's ClinVar release the request reads, once (design §6.1): its filters and its rows'
-    # ClinVar (CoGA) values read it.
+    # ClinVar read it.
     clinvar_coga: ClinvarCogaRead = NO_CLINVAR_COGA
     # The keys of the variants a query reads, when it reads only some (one page's columns,
     # :func:`_variant_columns`): every filter's subquery then gathers those variants alone
@@ -823,7 +811,6 @@ def _family_search_filters(filters: GlobalVariantFilters, scope: ExplorerScope) 
         effect=list(filters.effects),
         clinvar=list(filters.clinvar),
         clinvar_pathogenic_override=filters.clinvar_pathogenic_override,
-        clinvar_coga=list(filters.clinvar_coga),
         clinvar_coga_release=scope.clinvar_coga.release,
         hgvsc=filters.hgvsc,
         hgvsp=filters.hgvsp,
@@ -1503,10 +1490,6 @@ async def search_global_small_variants(
     if len(variants) > page_size:
         next_cursor = _encode_cursor(sort, order, fingerprint, *row_cursors[page_size - 1])
         variants = variants[:page_size]
-    values = await clinvar_coga_values(scope.clinvar_coga, [(row.chr, row.pos, row.ref, row.alt) for row in variants])
-    for row, value in zip(variants, values):
-        row.clinvar_coga = value
-
     return GlobalVariantPageOut(
         total=total,
         total_is_estimated=total_is_estimated,
@@ -1714,7 +1697,6 @@ async def _fetch_variant_rows(
         effects = annotation.get("effects", [])
         # The transcript the row's consequence and HGVS come from: [effect, HGVSc, HGVSp].
         shown = annotation.get("shown", [])
-        clinvar_terms = annotation.get("clinvar_terms", [])
         # The class the reviews show, the most severe, and beside it the text of the review
         # that shows it, as stored.
         shown_classes: list[str] = review.get("classifications", [])
@@ -1743,7 +1725,6 @@ async def _fetch_variant_rows(
                 effects=effects,
                 hgvsc=_first_non_empty(shown[1:2]) if shown else _first_non_empty(annotation.get("hgvsc_values", [])),
                 hgvsp=_first_non_empty(shown[2:3]) if shown else _first_non_empty(annotation.get("hgvsp_values", [])),
-                clinvar=_most_severe(clinvar_terms, _CLINVAR_RANK) or _first_non_empty(clinvar_terms),
                 classification=classification,
                 classification_text=classification_text,
                 tags=sorted(review.get("tags", set())),
@@ -1755,6 +1736,12 @@ async def _fetch_variant_rows(
             )
         )
 
+    # Each row's ClinVar is CoGA's release's (the annotation's is not read): each ALT's value,
+    # and the classifications of the ALTs the release holds.
+    values = await clinvar_coga_values(scope.clinvar_coga, [(row.chr, row.pos, row.ref, row.alt) for row in variants])
+    for row, value in zip(variants, values):
+        row.clinvar_coga = value
+        row.clinvar = "; ".join(dict.fromkeys(c for each in value if (c := clinvar_classification(each)))) or None
     return variants, row_cursors
 
 
@@ -1877,7 +1864,6 @@ async def _fetch_annotation_display(
             arrayDistinct(arrayFlatten(groupArray(gene_ids))) AS gene_ids,
             arrayDistinct(arrayFlatten(groupArray(impacts))) AS impacts,
             arrayDistinct(arrayFlatten(groupArray(effects))) AS effects,
-            arrayDistinct(arrayFlatten(groupArray(clinvar_terms))) AS clinvar_terms,
             arrayDistinct(arrayFlatten(groupArray(hgvsc_values))) AS hgvsc_values,
             arrayDistinct(arrayFlatten(groupArray(hgvsp_values))) AS hgvsp_values
         FROM {annotation_index}
@@ -1895,9 +1881,8 @@ async def _fetch_annotation_display(
             "gene_ids": [str(value) for value in (row[1] or [])],
             "impacts": [str(value) for value in (row[2] or [])],
             "effects": [str(value) for value in (row[3] or [])],
-            "clinvar_terms": [str(value) for value in (row[4] or [])],
-            "hgvsc_values": [str(value) for value in (row[5] or [])],
-            "hgvsp_values": [str(value) for value in (row[6] or [])],
+            "hgvsc_values": [str(value) for value in (row[4] or [])],
+            "hgvsp_values": [str(value) for value in (row[5] or [])],
         }
     # The row shows the most severe impact over the transcripts; its consequence and HGVS
     # come from a transcript of that impact (MANE Select, then canonical, first), never

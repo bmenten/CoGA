@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 
-import { type ClinvarClass, clinvarByTheRule, clinvarClass } from './clinvar';
+import { type ClinvarClass, clinvarClass } from './clinvar';
 
 /**
  * How the small-variant track marks a variant:
@@ -14,7 +14,7 @@ import { type ClinvarClass, clinvarByTheRule, clinvarClass } from './clinvar';
  *   itself alone.
  *
  * The dots differ by colour only; the tooltip names the impact and the ClinVar class. ClinVar is
- * CoGA's own release where it holds the allele, else the annotation's (`clinvarByTheRule`).
+ * CoGA's release's (lib/clinvar).
  */
 export type SmallVariantMarkKind = ClinvarClass | 'high' | 'moderate' | 'other';
 
@@ -59,11 +59,11 @@ const DRAW_RANK: Record<SmallVariantMarkKind, number> = {
   pathogenic: 5,
 };
 
-export const smallVariantMarkKind = (
-  variant: Parameters<typeof clinvarByTheRule>[0] & { impact?: string | null },
-): SmallVariantMarkKind => {
-  // ClinVar by the design's one rule (B8): CoGA's own release where it holds the allele.
-  const clinvar = clinvarClass(clinvarByTheRule(variant).classification);
+export const smallVariantMarkKind = (variant: {
+  clinvar?: string | null;
+  impact?: string | null;
+}): SmallVariantMarkKind => {
+  const clinvar = clinvarClass(variant.clinvar);
   if (clinvar) return clinvar;
   switch ((variant.impact || '').toUpperCase()) {
     case 'HIGH':

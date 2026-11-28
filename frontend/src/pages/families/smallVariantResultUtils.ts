@@ -652,10 +652,6 @@ export const buildSvSecondHitHref = (
   return routePath`/families/${familyId}/structural-variants${raw(`?${params.toString()}`)}`;
 };
 
-/** ClinVar's review stars, as ClinVar draws them: "★★☆☆" for 2 of 4. */
-export const formatClinvarStars = (stars?: number | null): string | null =>
-  typeof stars === 'number' && stars >= 0 && stars <= 4 ? `${'★'.repeat(stars)}${'☆'.repeat(4 - stars)}` : null;
-
 /**
  * SpliceAI's highest delta score with the change it describes and where SpliceAI places it:
  * "0.82 · donor gain +14" (bases from the variant). The score alone where the annotation has
@@ -716,9 +712,8 @@ const CLINVAR_POSITION_FIELDS: Partial<Record<string, string>> = {
  * (that link opens the record by its VariationID).
  *
  * ClinVar knows no Ensembl accession: `ENST00000357654.9:c.68_69del` finds nothing. In order:
- * - the rsIDs (`rs80357914`): each record of any allele at the site. A classification from VEP's
- *   cache is the rsID's, so this search shows the records it came from; and ClinVar may name an
- *   indel in a repeat otherwise than VEP's HGVSc, which then finds nothing;
+ * - the rsIDs (`rs80357914`): each record of any allele at the site. ClinVar may name an indel in
+ *   a repeat otherwise than VEP's HGVSc, which then finds nothing;
  * - the primary transcript's HGVSc where it is on a RefSeq transcript (`NM_007294.4:c.68_69del`),
  *   else its c. change on the RefSeq transcript VEP's MANE fields pair with it. MANE pairs
  *   identical transcripts, so the change reads the same on either. ClinVar opens the variant's

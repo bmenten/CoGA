@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import types
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 import pytest
@@ -10,10 +10,12 @@ import pytest
 from backend.app.services import classification_drift_service as cds
 from backend.app.services.analysis_scope import AnalysisScope
 from backend.app.services import small_variant_review_acmg as acmg
+from backend.app.schemas import ClinvarCogaOut
 from backend.app.services.clinvar_coga import NO_CLINVAR_COGA, ClinvarCogaRead
 from backend.app.services.small_variant_review_acmg import build_evidence_snapshot
 
 _WHEN = datetime(2026, 6, 25, tzinfo=timezone.utc)
+_RELEASE = date(2026, 11, 22)
 # The family's assembly, whose gene profiles the constraint lookup reads.
 _ASSEMBLY_ID = "assembly-uuid"
 
@@ -52,49 +54,46 @@ def _record(hash_: str | None, clinvar: str | None = None, version: str = "v1"):
     )
 
 
-def test_build_evidence_snapshot_extracts_identity_and_clinvar() -> None:
-    snap = _freeze(_record("123", "Pathogenic"))
+def test_build_evidence_snapshot_freezes_the_identity_and_cogas_clinvar_alone() -> None:
+    # The variant's ClinVar is each ALT's value in CoGA's release; the annotation's ClinVar
+    # ("Pathogenic" here) is neither frozen nor compared.
+    coga = [ClinvarCogaOut(alt="G", status="in_release", release=_RELEASE, classification="Likely_pathogenic", stars=1)]
+    snap = _freeze(_record("123", "Pathogenic"), clinvar_coga=coga)
     assert snap["annotation_set_hash"] == "123"
     assert snap["annotation_version"] == "v1"
-    assert snap["clinvar"] == "Pathogenic"
+    assert snap["clinvar_coga"] == [value.model_dump(mode="json") for value in coga]
     assert snap["captured_at"].startswith("2026-06-25")
-
-
-def test_build_evidence_snapshot_freezes_whether_clinvar_is_the_vep_caches() -> None:
-    # The signed record names a classification read from VEP's cache as the cache's.
-    assert _freeze(_record("123", "Pathogenic"))["clinvar_from_vep_cache"] is False
-    cached = types.SimpleNamespace(
-        annotation_version="v1",
-        annotation_set_hash="123",
-        annotations=[{"clinvar": "not_provided&pathogenic", "clinvar_from_vep_cache": True}],
-    )
-    snap = _freeze(cached)
-    assert (snap["clinvar"], snap["clinvar_from_vep_cache"]) == ("not_provided&pathogenic", True)
-
-
-def test_build_evidence_snapshot_treats_placeholder_as_no_clinvar() -> None:
-    assert _freeze(_record("123", "-"))["clinvar"] is None
-    assert _freeze(_record("123", "."))["clinvar"] is None
+    assert not {"clinvar", "clinvar_from_vep_cache", "clinvar_review_status"} & set(snap)
 
 
 def test_diff_unchanged_is_current() -> None:
-    snap = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
+    snap = {"annotation_set_hash": "h1", "annotation_version": "v1", "clinvar_coga": []}
     assert cds._diff(snap, dict(snap))["status"] == "current"
 
 
 def test_diff_changed_hash_is_drifted_with_from_to() -> None:
-    snap = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
-    cur = {"annotation_set_hash": "h2", "clinvar": "Pathogenic", "annotation_version": "v2", "clinvar_coga": []}
+    snap = {"annotation_set_hash": "h1", "annotation_version": "v1", "clinvar_coga": []}
+    cur = {"annotation_set_hash": "h2", "annotation_version": "v2", "clinvar_coga": []}
     diff = cds._diff(snap, cur)
-    assert diff["status"] == "drifted"
-    assert diff["clinvar_from"] == "VUS" and diff["clinvar_to"] == "Pathogenic"
+    assert (diff["status"], diff["changed"]) == ("drifted", ["annotations"])
     assert diff["annotation_version_from"] == "v1" and diff["annotation_version_to"] == "v2"
+    assert (diff["clinvar_coga_from"], diff["clinvar_coga_to"]) == ([], [])
+    assert "clinvar_from" not in diff and "clinvar_to" not in diff
+
+
+def test_the_annotations_clinvar_is_not_compared() -> None:
+    # Under the same annotation set, a ClinVar the annotation names differently is no drift:
+    # the variant's ClinVar is CoGA's release's (``clinvar_coga``), which did not move.
+    frozen = _stored(_freeze(_annotated("h1", _OTHER, _MANE, clinvar="Uncertain_significance")))
+    diff = cds._diff(frozen, _now(_annotated("h1", _OTHER, _MANE, clinvar="Pathogenic")))
+    assert (diff["status"], diff["changed"]) == ("current", [])
 
 
 def test_diff_missing_variant() -> None:
-    snap = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
+    snap = {"annotation_set_hash": "h1", "annotation_version": "v1", "clinvar_coga": []}
     diff = cds._diff(snap, None)
-    assert diff["status"] == "variant_missing" and diff["clinvar_to"] is None
+    assert diff["status"] == "variant_missing"
+    assert (diff["clinvar_coga_from"], diff["clinvar_coga_to"]) == ([], None)
 
 
 def test_diff_missing_hash_is_unknown_not_false_current() -> None:
@@ -102,13 +101,13 @@ def test_diff_missing_hash_is_unknown_not_false_current() -> None:
     # a false "drifted" — but it must also not read as a false "current" (which would
     # silently clear the sign-out drift gate). Fail safe to "unknown", which the gate
     # counts like a drift (requiring acknowledgement).
-    snap = {"annotation_set_hash": None, "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
-    cur = {"annotation_set_hash": "h2", "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
+    snap = {"annotation_set_hash": None, "annotation_version": "v1", "clinvar_coga": []}
+    cur = {"annotation_set_hash": "h2", "annotation_version": "v1", "clinvar_coga": []}
     assert cds._diff(snap, cur)["status"] == "unknown"
 
     # The finding's case: a present current record whose hash field is empty/renamed.
-    snap2 = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
-    cur2 = {"annotation_set_hash": None, "clinvar": "VUS", "annotation_version": "v1", "clinvar_coga": []}
+    snap2 = {"annotation_set_hash": "h1", "annotation_version": "v1", "clinvar_coga": []}
+    cur2 = {"annotation_set_hash": None, "annotation_version": "v1", "clinvar_coga": []}
     assert cds._diff(snap2, cur2)["status"] == "unknown"
 
 
@@ -130,7 +129,6 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
                     "acmg_class": "acmg_class_4",
                     "acmg_evidence_snapshot": {
                         "annotation_set_hash": "OLD",
-                        "clinvar": "Uncertain significance",
                         "annotation_version": "v1",
                         "clinvar_coga": [],
                     },
@@ -142,7 +140,6 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
                     "acmg_class": "acmg_class_3",
                     "acmg_evidence_snapshot": {
                         "annotation_set_hash": "SAME",
-                        "clinvar": None,
                         "annotation_version": "v1",
                         "clinvar_coga": [],
                     },
@@ -174,7 +171,8 @@ def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None
     assert out["drifted_count"] == 1
     item = out["drifted"][0]
     assert item["variant_id"] == "1-100-A-G" and item["status"] == "drifted"
-    assert item["clinvar_from"] == "Uncertain significance" and item["clinvar_to"] == "Pathogenic"
+    # Its annotation set moved; the annotation's ClinVar beside it is not compared.
+    assert item["changed"] == ["annotations"] and "clinvar_from" not in item
     assert item["classified_by"] == "alice"
 
     # A family without a resolved assembly has no variant to compare a classification with:
@@ -384,8 +382,9 @@ def test_the_snapshot_freezes_the_primary_transcripts_frequencies_and_in_silico_
     # Every field is frozen, in the order the drift check names them, also without a value.
     assert tuple(snap["frequencies"]) == EVIDENCE_FREQUENCY_FIELDS
     assert tuple(snap["in_silico"]) == EVIDENCE_IN_SILICO_FIELDS
-    # The identity and the ClinVar significance are frozen too.
-    assert (snap["annotation_set_hash"], snap["annotation_version"], snap["clinvar"]) == ("123", "v1", None)
+    # The identity and the ClinVar of CoGA's release are frozen too (none: the release holds
+    # no ALT of it here).
+    assert (snap["annotation_set_hash"], snap["annotation_version"], snap["clinvar_coga"]) == ("123", "v1", [])
 
 
 def test_the_frozen_values_are_the_ones_the_acmg_dialog_is_given() -> None:
@@ -485,8 +484,8 @@ def test_a_changed_revel_reads_as_drift_naming_it() -> None:
     assert diff["status"] == "drifted"
     assert diff["changed"] == ["revel", "annotations"]
     assert (diff["evidence_from"]["revel"], diff["evidence_to"]["revel"]) == (0.412, 0.951)
-    # The ClinVar significance did not move, and is reported unchanged.
-    assert diff["clinvar_from"] is None and diff["clinvar_to"] is None
+    # The ClinVar of CoGA's release did not move, and is reported unchanged.
+    assert diff["clinvar_coga_from"] == diff["clinvar_coga_to"] == []
 
 
 def test_a_value_changed_under_the_same_annotation_set_hash_is_still_drift() -> None:
@@ -534,7 +533,7 @@ def test_a_number_compares_by_value_whatever_its_encoding() -> None:
 
 
 def test_a_frozen_group_that_cannot_be_read_is_unknown_not_current() -> None:
-    unreadable = {"annotation_version": "v1", "annotation_set_hash": "h1", "clinvar": None, "frequencies": "?", "clinvar_coga": []}
+    unreadable = {"annotation_version": "v1", "annotation_set_hash": "h1", "frequencies": "?", "clinvar_coga": []}
     now = _now(_annotated("h1", _OTHER, _MANE))
     assert cds._diff(unreadable, now)["status"] == "unknown"
     # What can be read still names what moved.
@@ -569,7 +568,7 @@ def test_evaluate_classification_drift_names_the_moved_value(monkeypatch) -> Non
             # Its variant unchanged: not listed.
             "variant_id": "2-200-C-T",
             "acmg_class": "acmg_class_3",
-            "acmg_evidence_snapshot": {"annotation_set_hash": "h9", "clinvar": None, "annotation_version": "v1", "clinvar_coga": []},
+            "acmg_evidence_snapshot": {"annotation_set_hash": "h9", "annotation_version": "v1", "clinvar_coga": []},
             "updated_by": "bob",
             "updated_at": _WHEN,
         },
@@ -1192,8 +1191,9 @@ def test_a_multi_allelic_records_snapshot_names_the_alt_its_values_are_of() -> N
 
 def test_the_snapshot_freezes_what_the_new_criteria_read() -> None:
     # PVS1 reads LOFTEE's flags and the NMD prediction, BA1 / BS1 gnomAD's FAF95, PP5 / BP6 name
-    # ClinVar's review status; a chrM variant's mtDNA criteria its homoplasmic and
-    # heteroplasmic frequencies, frozen for a chrM variant only.
+    # ClinVar's review status (CoGA's release's: the annotation's is not frozen); a chrM
+    # variant's mtDNA criteria its homoplasmic and heteroplasmic frequencies, frozen for a chrM
+    # variant only.
     annotation = {
         "gene": "GENE1",
         "transcript_id": "ENST1",
@@ -1209,10 +1209,17 @@ def test_the_snapshot_freezes_what_the_new_criteria_read() -> None:
     nuclear = types.SimpleNamespace(
         annotation_version="v1", annotation_set_hash="1", annotations=[annotation], chr="1", alt="T"
     )
-    snap = _freeze(nuclear)
+    coga = ClinvarCogaOut(
+        alt="T", status="in_release", release=_RELEASE, classification="Pathogenic",
+        review_status="criteria provided, single submitter", stars=1,
+    )
+    snap = _freeze(nuclear, clinvar_coga=[coga])
     assert (snap["consequence"]["lof_flags"], snap["consequence"]["nmd"]) == ("SINGLE_EXON", "NMD_escaping_variant")
     assert snap["frequencies"]["gnomad_faf95_af"] == 0.0004
-    assert snap["clinvar_review_status"] == "reviewed by expert panel"
+    assert [(value["review_status"], value["stars"]) for value in snap["clinvar_coga"]] == [
+        ("criteria provided, single submitter", 1)
+    ]
+    assert "clinvar_review_status" not in snap
     assert "gnomad_mt_af_hom" not in snap["frequencies"]
     mito = types.SimpleNamespace(
         annotation_version="v1", annotation_set_hash="1", annotations=[annotation], chr="MT", alt="G"

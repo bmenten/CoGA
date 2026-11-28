@@ -95,9 +95,12 @@ administrator rebuilds it with the ↻ button next to the clinical-CNV count in 
   the recurrent CNV file by release and SHA-256, and each other file (the ClinGen dosage curation, the
   cytobands, ClinVar, Orphanet, a DECIPHER map) by name and SHA-256.
 
-**ClinVar (CoGA).** Beside the ClinVar of each callset's annotation, CoGA loads ClinVar itself:
-NCBI's weekly VCF for GRCh37 and GRCh38 (T2T has none). A new installation loads the newest release
-at its first start; an administrator loads a newer one with **Load newest** in the Reference catalog.
+**ClinVar.** CoGA loads ClinVar itself: NCBI's weekly VCF for GRCh37 and GRCh38 (T2T has none). For
+small variants this release is the one ClinVar CoGA shows and uses; the ClinVar in a callset's
+annotation (a ClinVar file the pipeline annotated, or VEP's cache) is neither shown nor used, only
+compared at import (below). A new installation loads the newest release at its first start; CoGA
+then looks each day for a newer one (`CLINVAR_WEEKLY_LOAD`, on by default), and an administrator
+loads one with **Load newest** in the Reference catalog.
 
 - A load refuses a download whose MD5 is not the one NCBI states, and a file whose `##fileDate` is
   not the date in its name or whose `##reference` is not the assembly.
@@ -109,7 +112,8 @@ at its first start; an administrator loads a newer one with **Load newest** in t
 - The current release and the one before it are kept. Each release made current is recorded with its
   file and SHA-256, and on the clinical audit chain `system:clinvar-releases`.
 - Each import of a callset annotated with a ClinVar release CoGA keeps compares, per allele, the
-  annotation's classification, review status and VariationID with CoGA's, on the alleles of the file
+  annotation's classification, review status and VariationID with CoGA's copy of that release, as a
+  check on CoGA's allele matching, on the alleles of the file
   it loaded: a callset loaded one sample's file at a time (a monogenic NIPT, the mtDNA calls) is
   compared per sample, on that sample's alleles. The import page shows, under **ClinVar concordance**,
   for each load named by its dataset and samples, how many alleles agree and each difference with its

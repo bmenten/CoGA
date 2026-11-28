@@ -764,8 +764,8 @@ describe('clinvarSearchTerm', () => {
   });
 
   it('searches the rsIDs first, also where a RefSeq HGVSc is known', () => {
-    // A classification from VEP's cache is the rsID's, and ClinVar may name an indel in a
-    // repeat otherwise than VEP's HGVSc: the rsID finds the records either way.
+    // ClinVar may name an indel in a repeat otherwise than VEP's HGVSc: the rsID finds the
+    // records either way.
     expect(
       clinvarSearchTerm({
         variant: { ...brca1, mane_refseq_id: 'NM_007294.4', rsid: 'rs80357914' },

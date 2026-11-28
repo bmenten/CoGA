@@ -11,7 +11,6 @@ import type {
   StructuralVariantFamilyMember,
 } from './structuralVariantSearch';
 import { memberLabel } from '../../lib/familyMembers';
-import { clinvarLabel } from '../../lib/clinvar';
 import { joinWithAnd } from '../../lib/format';
 
 export type Zygosity =
@@ -123,7 +122,7 @@ export const describeInSilico = (variant: SmallVariant): string => {
 export const describeClinvar = (variant: SmallVariant): string | null => {
   const clinvar = variant.clinvar?.trim();
   if (!clinvar) return null;
-  return `${clinvarLabel(variant.clinvar_from_vep_cache)} reports this variant as ${clinvar.replace(/_/g, ' ')}.`;
+  return `ClinVar reports this variant as ${clinvar.replace(/_/g, ' ')}.`;
 };
 
 const isAffected = (member: FamilyMember): boolean =>

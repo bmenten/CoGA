@@ -1,19 +1,21 @@
-"""The *ClinVar (CoGA)* filter and the P/LP override's reading of CoGA's release, on real
-ClickHouse.
+"""A small variant's ClinVar filters, the P/LP override and the values the page serves, read in
+CoGA's release on real ClickHouse.
 
 A family's rows, written through the import's write path with their allele keys, and a ClinVar
-release stored from the synthetic file, are searched by the family search's own conditions
-(``_small_annotation_filter_clauses``), on both of its paths: the family page's, which reads
-each row's own transcripts, and the shared annotation table's, which the Variant Explorer reads.
-A search for HIGH impact and rare variants with the override keeps a common, low-impact allele
-that CoGA's release holds pathogenic, as it keeps one the annotation holds pathogenic, unless a
-filter the override does not lift fails it; the *ClinVar (CoGA)* filter keeps the alleles the
-release classifies so. An untrimmed record matches ClinVar's anchored one, in the filter and in
-the values the page serves, which one lookup of the release reads. The *ClinVar status* filter
-and its exclusion read the release where it holds the allele, else the annotation (the design's
-one rule, B8): an annotation the release contradicts is not read. A multi-allelic row the release
-holds in part, one of its alleles (likely) pathogenic there, is not left out by an excluded status
-of its annotation, which may be that allele's.
+release stored from the synthetic file (with two more alleles at one site), are searched by the
+family search's own conditions (``_small_annotation_filter_clauses``), on both of its paths: the
+family page's, which reads each row's own transcripts, and the shared annotation table's, which
+the Variant Explorer reads. ClinVar is the release's alone: each row's annotation names a ClinVar
+classification the search never reads. A search for HIGH impact and rare variants with the
+override keeps a common, low-impact allele the release holds (likely) pathogenic, unless a
+filter the override does not lift fails it, and never one only the annotation calls pathogenic.
+The *ClinVar status* filter keeps a row with an allele the release classifies so; the excluded
+statuses leave a row out only where every allele has one, so a pathogenic allele is never hidden
+by a benign sibling ALT. An allele the release does not hold has no ClinVar: the status filter
+drops it, the exclusion keeps it, the override does not lift it; without a release no row has
+ClinVar. An untrimmed record matches ClinVar's anchored one, in the filters and in the values
+the page serves, which one lookup of the release reads, the variant's own ClinVar fields its
+shown ALT's.
 
 On an assembly of its own, whose tables the test drops. Synthetic data only. Skipped unless
 ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -68,35 +70,45 @@ def _record(variant_id: str, *, impact: str, frequency: float, canonical: bool =
 
 
 # Against the fixture's release: 1 1000100 G A Pathogenic; 1 1000200 AG A Likely pathogenic;
-# 2 2000100 C T Benign/Likely benign; 3 4000300 CTT CT Uncertain significance.
+# 2 2000100 C T Benign/Likely benign; 3 4000300 CTT CT Uncertain significance; X 3000100 G C
+# Pathogenic/Likely pathogenic|risk factor. And at 2 2000100 the test's own: C G Pathogenic, C A
+# Likely benign. Each annotation's ClinVar is one the search never reads.
+_EXTRA_ALLELES = [
+    "2\t2000100\t900101\tC\tG\t.\t.\tALLELEID=910101;CLNREVSTAT=criteria_provided,_single_submitter;CLNSIG=Pathogenic",
+    "2\t2000100\t900102\tC\tA\t.\t.\tALLELEID=910102;CLNREVSTAT=criteria_provided,_single_submitter;CLNSIG=Likely_benign",
+]
 _RECORDS = [
-    # Common, low impact: kept by CoGA's pathogenic classification alone.
+    # Common, low impact: kept by the release's pathogenic classification alone.
     ("1-1000100-G-A", {"impact": "LOW", "frequency": 0.2}),
     # Untrimmed, as a pipeline may write it: ClinVar's 1 1000200 AG A.
     ("1-1000200-AGG-AG", {"impact": "LOW", "frequency": 0.2, "canonical": False}),
-    # Kept by the annotation's classification, which CoGA's release does not hold.
+    # Pathogenic in its annotation alone: the release does not hold it, so it has no ClinVar.
     ("1-1000400-G-A", {"impact": "LOW", "frequency": 0.2, "clinvar": "Pathogenic"}),
-    # HIGH impact and rare: kept by the filters themselves. Annotated pathogenic, which CoGA's
-    # release, holding it Benign/Likely benign, contradicts.
+    # HIGH impact and rare: kept by the filters themselves. Benign/likely benign in the release,
+    # pathogenic in its annotation.
     ("2-2000100-C-T", {"impact": "HIGH", "frequency": 0.0001, "clinvar": "Pathogenic"}),
-    # Neither.
+    # Multi-allelic, every allele in the release: benign/likely benign and likely benign...
+    ("2-2000100-C-T,A", {"impact": "LOW", "frequency": 0.2}),
+    # ...and benign/likely benign beside pathogenic, benign in its annotation.
+    ("2-2000100-C-T,G", {"impact": "LOW", "frequency": 0.2, "clinvar": "Benign"}),
+    # Uncertain significance.
     ("3-4000300-CTT-CT", {"impact": "LOW", "frequency": 0.2}),
-    # Multi-allelic, held in part: the release holds the first ALT, not the second, and the
-    # annotation, which does not say which ALT it is of, calls the row benign. Here the release
-    # holds that ALT pathogenic/likely pathogenic...
-    ("X-3000100-G-C,T", {"impact": "LOW", "frequency": 0.2, "clinvar": "Benign"}),
-    # ...and here of uncertain significance.
+    # Multi-allelic, the release holding one ALT, of uncertain significance...
     ("3-4000300-CTT-CT,C", {"impact": "LOW", "frequency": 0.2, "clinvar": "Benign"}),
+    # ...and here pathogenic/likely pathogenic.
+    ("X-3000100-G-C,T", {"impact": "LOW", "frequency": 0.2, "clinvar": "Benign"}),
 ]
+_EVERY_ROW = [variant_id for variant_id, _values in _RECORDS]
 
 
-def test_the_filter_and_the_override_read_cogas_release_on_both_search_paths() -> None:
+def test_the_clinvar_filters_and_the_override_read_cogas_release_alone_on_both_search_paths() -> None:
     from backend.app.core.clickhouse import execute_clickhouse
     from backend.app.core.config import settings
     from backend.app.services.clickhouse_variant_ids import _require_clickhouse_identifier, _small_table_name
     from backend.app.services.clickhouse_variant_queries import _small_annotation_filter_clauses
     from backend.app.services.clickhouse_variant_storage import insert_small_variant_records
-    from backend.app.services.clinvar_coga import ClinvarCogaRead, clinvar_coga_values
+    from backend.app.schemas import VariantOut
+    from backend.app.services.clinvar_coga import ClinvarCogaRead, attach_clinvar_coga, clinvar_coga_values
     from backend.app.services.clinvar_release_store import clinvar_alleles, ensure_clinvar_table, insert_clinvar_rows
     from backend.app.services.clinvar_vcf import ClinvarFileReader
     from backend.app.services.family_metadata_context import FamilyMetadataContext
@@ -137,7 +149,7 @@ def test_the_filter_and_the_override_read_cogas_release_on_both_search_paths() -
             lines = [
                 f"##reference={assembly}" if line.startswith("##reference=") else line
                 for line in _FIXTURE.read_text().splitlines()
-            ]
+            ] + _EXTRA_ALLELES
             reader = ClinvarFileReader(assembly_name=assembly, release=_RELEASE, file_name=_FIXTURE.name)
             await ensure_clinvar_table(assembly)
             await insert_clinvar_rows(assembly, _RELEASE, list(reader.rows(lines)))
@@ -155,69 +167,90 @@ def test_the_filter_and_the_override_read_cogas_release_on_both_search_paths() -
             assert (benign[0].classification, benign[0].variation_id) == ("Benign/Likely_benign", 900004)
             assert gone[0].status == "not_in_release"
             assert await clinvar_alleles(assembly, _RELEASE, set()) == {}
+            # The variant's own ClinVar fields: its shown ALT's in the release, none where the
+            # release does not hold it, whatever its annotation said.
+            shown = VariantOut(_id="1-1000200-AGG-AG", chr="1", start=1000200, end=1000202, type="DEL", ref="AGG", alt="AG")
+            annotated = VariantOut(
+                _id="1-1000400-G-A", chr="1", start=1000400, end=1000400, type="SNV", ref="G", alt="A", clinvar="Pathogenic"
+            )
+            await attach_clinvar_coga(ClinvarCogaRead(assembly, _RELEASE, True), [shown, annotated])
+            assert (
+                shown.clinvar,
+                shown.clinvar_review_status,
+                shown.clinvar_stars,
+                shown.clinvar_conditions,
+                shown.clinvar_variation_id,
+            ) == ("Likely_pathogenic", "reviewed by expert panel", 3, ["Synthetic disorder 1", "not provided"], "900002")
+            assert (annotated.clinvar, annotated.clinvar_coga[0].status) == (None, "not_in_release")
 
             for context in (family_context, explorer_scope):
                 rare = {"impact": ["HIGH"], "max_gnomad_genomes_af": 0.01}
                 assert await kept(context, **rare) == ["2-2000100-C-T"]
+                # The override: an allele the release holds (likely) pathogenic; never 1-1000400,
+                # pathogenic in its annotation alone.
                 assert await kept(context, **rare, clinvar_pathogenic_override=True) == [
                     "1-1000100-G-A",
                     "1-1000200-AGG-AG",
-                    "1-1000400-G-A",
                     "2-2000100-C-T",
+                    "2-2000100-C-T,G",
                     "X-3000100-G-C,T",
                 ]
                 # A filter the override does not lift still holds on a transcript.
                 assert await kept(context, **rare, clinvar_pathogenic_override=True, canonical_only=True) == [
                     "1-1000100-G-A",
-                    "1-1000400-G-A",
                     "2-2000100-C-T",
+                    "2-2000100-C-T,G",
                     "X-3000100-G-C,T",
                 ]
-                assert await kept(context, clinvar_coga=["Pathogenic", "Likely pathogenic"]) == [
+                # Without a release no allele has ClinVar: the override lifts nothing.
+                assert await kept(context, release=None, **rare, clinvar_pathogenic_override=True) == [
+                    "2-2000100-C-T"
+                ]
+
+                # The ClinVar status filter: an allele the release classifies so. The
+                # annotation's ClinVar is not read: 1-1000400 and 2-2000100-C-T are pathogenic
+                # there.
+                assert await kept(context, clinvar=["Pathogenic", "Likely pathogenic"]) == [
                     "1-1000100-G-A",
                     "1-1000200-AGG-AG",
+                    "2-2000100-C-T,G",
                     "X-3000100-G-C,T",
                 ]
-                assert await kept(context, clinvar_coga=["Benign"]) == ["2-2000100-C-T"]
-
-                # The ClinVar status filter by the one rule: the release for the alleles it
-                # holds, the annotation for 1-1000400 it does not; without a release, the
-                # annotation alone.
                 assert await kept(context, clinvar=["Pathogenic"]) == [
                     "1-1000100-G-A",
-                    "1-1000400-G-A",
+                    "2-2000100-C-T,G",
                     "X-3000100-G-C,T",
                 ]
-                assert await kept(context, release=None, clinvar=["Pathogenic"]) == [
-                    "1-1000400-G-A",
+                assert await kept(context, clinvar=["Benign"]) == [
                     "2-2000100-C-T",
+                    "2-2000100-C-T,A",
+                    "2-2000100-C-T,G",
                 ]
-                # With another transcript filter, on a row the release holds.
-                assert await kept(context, clinvar=["Pathogenic", "Benign"], impact=["HIGH"]) == ["2-2000100-C-T"]
-                assert await kept(context, exclude_clinvar=["Pathogenic"]) == [
-                    "1-1000200-AGG-AG",
-                    "2-2000100-C-T",
+                assert await kept(context, clinvar=["Uncertain significance"]) == [
                     "3-4000300-CTT-CT",
                     "3-4000300-CTT-CT,C",
                 ]
-                # The rows held in part: the annotation's benign does not hide the one whose
-                # allele the release holds pathogenic, as it may be that allele's; it leaves out
-                # the other, whose held allele the release does not hold (likely) pathogenic.
+                # With another transcript filter.
+                assert await kept(context, clinvar=["Pathogenic", "Benign"], impact=["HIGH"]) == ["2-2000100-C-T"]
+                # Without a release no allele has a status.
+                assert await kept(context, release=None, clinvar=["Pathogenic"]) == []
+
+                # The excluded statuses leave a row out only where every allele has one: the
+                # pathogenic X allele, the benign sibling of 2-2000100-C-T,G and 1-1000400 (not in
+                # the release) stay.
+                assert await kept(context, exclude_clinvar=["Pathogenic"]) == [
+                    variant_id for variant_id in _EVERY_ROW if variant_id != "1-1000100-G-A"
+                ]
                 assert await kept(context, exclude_clinvar=["Benign"]) == [
-                    "1-1000100-G-A",
-                    "1-1000200-AGG-AG",
-                    "1-1000400-G-A",
-                    "3-4000300-CTT-CT",
-                    "X-3000100-G-C,T",
+                    variant_id for variant_id in _EVERY_ROW if variant_id != "2-2000100-C-T"
                 ]
-                # Without a release, the annotation leaves out both.
-                assert await kept(context, release=None, exclude_clinvar=["Benign"]) == [
-                    "1-1000100-G-A",
-                    "1-1000200-AGG-AG",
-                    "1-1000400-G-A",
-                    "2-2000100-C-T",
-                    "3-4000300-CTT-CT",
+                # Every allele of 2-2000100-C-T,A excluded: left out; 2-2000100-C-T,G keeps its
+                # pathogenic allele.
+                assert await kept(context, exclude_clinvar=["Benign", "Likely benign"]) == [
+                    variant_id for variant_id in _EVERY_ROW if variant_id not in {"2-2000100-C-T", "2-2000100-C-T,A"}
                 ]
+                # Without a release no row is left out for ClinVar.
+                assert await kept(context, release=None, exclude_clinvar=["Benign"]) == _EVERY_ROW
         finally:
             tables = await execute_clickhouse(
                 "SELECT name FROM system.tables WHERE database = %(database)s AND startsWith(name, %(prefix)s)",

@@ -37,7 +37,7 @@ from .coverage_read_depth import (
     coverage_tracks_by_sample,
     not_read_as_depth_note,
 )
-from .clinvar_coga import clinvar_by_the_rule, clinvar_coga_of, clinvar_coga_read, clinvar_coga_values
+from .clinvar_coga import clinvar_classification, clinvar_coga_of, clinvar_coga_read, clinvar_coga_values
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype
@@ -224,15 +224,11 @@ def _position_locus(position: int, gene: str | None = None) -> dict[str, Any]:
 
 
 def _clinical_significance(annotation: dict[str, Any], clinvar_coga: ClinvarCogaOut | None) -> str:
-    """The variant's status in one word: its ClinVar, read by the design's one rule (B12: CoGA's
-    release where it holds the allele, else the annotation's), joined with MITOMAP's."""
+    """The variant's status in one word: its ClinVar, in CoGA's release (the annotation's ClinVar
+    is not read), joined with MITOMAP's."""
     status_text = " ".join(
         _list_texts(
-            clinvar_by_the_rule(
-                " ".join(_list_texts(_annotation_value(annotation, "clinical_significance", "clinvar", "ClinVar_CLNSIG")))
-                or None,
-                clinvar_coga,
-            ),
+            clinvar_classification(clinvar_coga),
             _annotation_value(annotation, "mitomap_status", "mitomapClinicalSignificance", "status"),
             _annotation_value(annotation, "classification"),
             _annotation_value(annotation, "variant_status", "variantStatus"),
@@ -297,7 +293,6 @@ def _consequence_terms(annotation: dict[str, Any]) -> list[str]:
 def _annotation_source_keys(annotation: dict[str, Any]) -> list[str]:
     interesting = (
         "mitomap",
-        "clinvar",
         "disease",
         "phenotype",
         "haplogroup",

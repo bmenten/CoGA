@@ -127,8 +127,6 @@ const toSmallVariantForAcmg = (
     mito: {
       category: (variant.annotation.category ?? null) as AcmgMitoContext['category'],
       clinicalSignificance: variant.annotation.clinical_significance ?? null,
-      clinvarCogaRelease:
-        variant.annotation.clinvar_coga?.status === 'in_release' ? (variant.annotation.clinvar_coga.release ?? null) : null,
       homoplasmicAf: frequencies.homoplasmic?.af ?? null,
       homoplasmicSource: frequencies.homoplasmic?.source ?? null,
       heteroplasmicAf: frequencies.heteroplasmic?.af ?? null,

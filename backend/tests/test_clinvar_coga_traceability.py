@@ -1,8 +1,8 @@
-"""ClinVar (CoGA) in the clinical trail: what a classification freezes, how the drift check
-compares it, and what the signed record names (the owner's decision B5).
+"""A small variant's ClinVar in the clinical trail: what a classification freezes, how the drift
+check compares it, and what the signed record names (the owner's decision B5).
 
-A classification freezes each ALT's ClinVar in CoGA's current release beside the annotation's.
-The drift check reads the release current now: another classification of an ALT (one on one
+A classification freezes each ALT's ClinVar in CoGA's current release, the variant's only
+ClinVar. The drift check reads the release current now: another classification of an ALT (one on one
 side and none on the other included) is drift naming ``clinvar_coga``; another review status or
 other stars of the same classification is ``noted``, listed and never counted at sign-out;
 another release alone is no change; a snapshot without the value, or not as a list of values,
@@ -156,11 +156,11 @@ def test_a_classification_where_there_was_none_is_drift() -> None:
 
 def test_a_review_that_moved_beside_a_drift_leaves_it_a_drift() -> None:
     now = _snapshot(_value(review_status="reviewed by expert panel", stars=3))
-    now["clinvar"] = "Pathogenic"
+    now["annotation_set_hash"] = "h2"
 
     diff = cds._diff(_snapshot(_value()), now)
 
-    assert (diff["status"], diff["changed"]) == ("drifted", ["clinvar"])
+    assert (diff["status"], diff["changed"]) == ("drifted", ["annotations"])
 
 
 @pytest.mark.parametrize("frozen", [None, "Pathogenic", ["Pathogenic"]], ids=["missing", "text", "not-mappings"])

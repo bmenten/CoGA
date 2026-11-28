@@ -447,8 +447,6 @@ export interface ClassificationDriftItem {
   status: string;
   annotation_version_from: string | null;
   annotation_version_to: string | null;
-  clinvar_from: string | null;
-  clinvar_to: string | null;
   clinvar_coga_from: ClinvarCogaOut[] | null;
   clinvar_coga_to: ClinvarCogaOut[] | null;
   changed: string[];
@@ -631,7 +629,8 @@ export interface ClinvarAssemblyReleasesOut {
 }
 
 /**
- * One ALT's ClinVar in CoGA's own ClinVar release (*ClinVar (CoGA)*), or why it has none:
+ * One ALT's ClinVar in the ClinVar release CoGA loaded (the only ClinVar a small variant has),
+ * or why it has none:
  * ``in_release`` (the release holds the allele: its classification, or only that it is
  * classified as part of a combination, ``included_only``), ``not_in_release``, ``no_release``
  * (none is loaded for the assembly) or ``not_available`` (ClinVar publishes no VCF for the
@@ -715,8 +714,8 @@ export interface ClinvarLoadStatusOut {
 /**
  * A variant of a signed analysis that CoGA's current ClinVar release classifies otherwise
  * than it was frozen (the ClinVar design's phase 3, B10): the family analysis's latest signed
- * version, the variant, whether the record reports it, its class, and its ClinVar (CoGA) per
- * ALT as frozen and as the current release has it.
+ * version, the variant, whether the record reports it, its class, and its ClinVar per ALT as
+ * frozen and as the current release has it.
  */
 export interface ClinvarReanalysisItemOut {
   family_id: string;
@@ -3337,7 +3336,6 @@ export interface NiptVariantOut {
   impact: string | null;
   effect: string | null;
   clinvar: string | null;
-  clinvar_from_vep_cache: boolean;
   clinvar_review_status: string | null;
   clinvar_stars: number | null;
   clinvar_conditions: string[];
@@ -3406,7 +3404,6 @@ export interface NiptVariantPage {
   gene_total: number | null;
   variant_total: number | null;
   not_classified: NiptNotClassifiedOut[];
-  clinvar_annotation_release: string | null;
   clinvar_coga_release: string | null;
 }
 
@@ -5281,7 +5278,6 @@ export interface VariantOut {
   impact: string | null;
   effect: string | null;
   clinvar: string | null;
-  clinvar_from_vep_cache: boolean;
   clinvar_review_status: string | null;
   clinvar_stars: number | null;
   clinvar_conditions: string[];
@@ -5355,7 +5351,6 @@ export interface VariantPage {
   summary: Record<string, Record<string, number>> | null;
   small_variant_summary: SmallVariantSummaryOut | null;
   members_without_calls: MemberWithoutCallsOut[] | null;
-  clinvar_annotation_release: string | null;
   clinvar_coga_release: string | null;
 }
 

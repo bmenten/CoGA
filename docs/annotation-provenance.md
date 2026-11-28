@@ -73,11 +73,14 @@ never an error, so capture cannot fail an import.
 
 ### The ClinVar release
 
-A record's ClinVar classification comes from the ClinVar file the pipeline annotated it with
-(VEP `--custom`'s `ClinVar_CLNSIG`, the `CLNSIG` that bcftools annotate or vcfanno write), and
-from VEP's cache (`CLIN_SIG`) only when no such file was annotated, named as the cache's
-([variant_annotation_parser.py](../backend/app/services/variant_annotation_parser.py)). The two
-ClinVar modules keep the two sources apart:
+For small variants CoGA shows and uses one ClinVar: the classification in the ClinVar release CoGA
+loads itself (`clinvar_coga`, below; the owner's decision of 2026-11-27). The ClinVar of a callset's
+annotation is neither shown nor used. The import reads it, from the ClinVar file the pipeline
+annotated the record with (VEP `--custom`'s `ClinVar_CLNSIG`, the `CLNSIG` that bcftools annotate or
+vcfanno write), and from VEP's cache (`CLIN_SIG`) only when no such file was annotated
+([variant_annotation_parser.py](../backend/app/services/variant_annotation_parser.py)), and compares
+the file's with CoGA's copy of the same release ([data-import.md](data-import.md#concordance-at-each-import)).
+The manifest records where each came from, in three modules:
 
 - **`clinvar`** is the ClinVar file's release, and only a callset annotated with a ClinVar file has
   one. A ClinVar file is annotated when the header declares one of its fields, as an `##INFO` key or
@@ -89,10 +92,10 @@ ClinVar modules keep the two sources apart:
 - **`clinvar_vep_cache`** (*ClinVar (VEP cache)*) is the ClinVar release of VEP's cache, from the
   `##VEP=` line (`ClinVar="…"`) or a VEP table's `## ClinVar version …`, with or without a ClinVar
   file. Without one it is the release of the records' classification, named as the cache's.
-- **`clinvar_coga`** (*ClinVar (CoGA)*) is the third source: the ClinVar release CoGA loaded
-  itself, NCBI's weekly VCF for the assembly ([data-import.md](data-import.md#clinvar)). It is a
-  module of the reference layer, under a key of its own, so the pipeline's `clinvar` never stands
-  in for it ([below](#the-reference-modules)).
+- **`clinvar_coga`** (*ClinVar (CoGA)*) is the ClinVar release CoGA loaded itself, NCBI's weekly
+  VCF for the assembly ([data-import.md](data-import.md#clinvar)): the release every small
+  variant's ClinVar is read from. It is a module of the reference layer, under a key of its own, so
+  the pipeline's `clinvar` never stands in for it ([below](#the-reference-modules)).
 
 ## How it is stored
 
@@ -212,20 +215,21 @@ VEP's `assembly`), per input where they differ (`GRCh38_no_alt.fa (package), hg3
 - **SV evidence.** A CNV classification freezes the versions its SV comes from: those of the
   manifest of the analysis whose package record lists the SV's caller, or of no analysis for an
   uploaded SV (`structural_variant_evidence.read_structural_evidence_versions`).
-- **ClinVar (CoGA) beside the annotation's.** A small variant's ClinVar is shown twice, each named
-  by its release (the owner's decision B7): *ClinVar (annotation, 2026-05-01)*, of the ClinVar file
-  the analysis's manifest names (`analysis_clinvar_release`), and *ClinVar (CoGA, 2026-11-22)*, CoGA's
-  own release, per ALT (`VariantOut.clinvar_coga`, `services/clinvar_coga.py`). A request reads
-  CoGA's current release once and serves it with the page (`VariantPage.clinvar_coga_release`), and
-  its filters read the same one: a page never shows two releases, even while a newer one is
-  released. The card marks CoGA's value *changed* where its classification or stars differ.
-- **One rule for the other readers** (the design's phase 2, B8). The *ClinVar status* filter, its
-  exclusion and the ranking's pathogenicity score read CoGA's release where it holds the allele,
-  else the annotation (`clinvar_coga.clinvar_by_the_rule`; in SQL `_clinvar_read_by_the_rule`). A
-  multi-allelic row the release holds only in part is read both ways.
-- **ClinVar (CoGA) in the trail.** A small-variant classification freezes each ALT's value with its
+- **One ClinVar.** A small variant's ClinVar is its classification in CoGA's release, per ALT
+  (`VariantOut.clinvar_coga`, `services/clinvar_coga.py`), its own ClinVar fields those of the ALT
+  it is shown with (`attach_clinvar_coga`), shown as *ClinVar* without a release
+  ([clinvar-knowledgebase-design.md](clinvar-knowledgebase-design.md), B13). A request reads CoGA's
+  current release once and serves it with the page (`VariantPage.clinvar_coga_release`), and its
+  filters read the same one: a page never reads two releases, even while a newer one is released.
+  The *ClinVar status* filter, its exclusion, the P/LP override, the ranking's pathogenicity score,
+  the genome track, PP5/BP6, the mtDNA status and the monogenic NIPT read it
+  (`clinvar_coga.clinvar_classification`; in SQL `_clinvar_condition`); an allele the release does
+  not hold has no ClinVar. The annotation's `clinvar` module is provenance and the concordance's
+  key, never a value shown.
+- **ClinVar in the trail.** A small-variant classification freezes each ALT's value with its
   release; the drift check compares it with the release current then, and the signed record names
   the release it was signed with ([clinical-traceability.md](clinical-traceability.md#evidence-drift)).
+  The annotation's ClinVar is neither frozen nor compared.
 
 ## Limitations
 

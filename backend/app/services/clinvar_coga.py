@@ -1,14 +1,19 @@
-"""*ClinVar (CoGA)*: each small variant's ClinVar in the release CoGA loaded itself, beside the
-ClinVar of its annotation.
+"""A small variant's ClinVar: its classification in the ClinVar release CoGA loaded itself (the
+owner's decision of 2026-11-27). It is the ClinVar every view shows and every reader uses: the
+filters, the P/LP override, the ranking, the genome track, the ACMG criteria, the mtDNA and NIPT
+criteria and the drift check. The ClinVar in a callset's annotation (a ClinVar file, or VEP's
+cache) is neither shown nor used; the import compares it with CoGA's copy of its release
+(``clinvar_concordance``). An allele the release does not hold has no ClinVar.
 
 A request reads the assembly's current release once (``clinvar_coga_read``), passes it to every
-ClickHouse query it runs (the *ClinVar (CoGA)* filter and the P/LP override,
-``SmallVariantQueryFilters.clinvar_coga_release``) and serves it with its answer, so one page
-never shows two releases, even while a newer one is released; the monogenic NIPT page reads and
-serves the release its analysis read (``NiptAnalysisInputs.clinvar_coga``). The variants a page
-shows are looked up by the allele key of each of their ALTs (``record_allele_keys``), as the
-import keys its rows: each ALT gets its classification, review status, stars, conditions and
-VariationID, or the reason it has none (``ClinvarCogaOut.status``).
+ClickHouse query it runs (``SmallVariantQueryFilters.clinvar_coga_release``) and serves it with
+its answer, so one page never reads two releases, even while a newer one is released; the
+monogenic NIPT page reads and serves the release its analysis read
+(``NiptAnalysisInputs.clinvar_coga``). The variants a page shows are looked up by the allele key
+of each of their ALTs (``record_allele_keys``), as the import keys its rows: each ALT gets its
+classification, review status, stars, conditions and VariationID, or the reason it has none
+(``ClinvarCogaOut.status``), and the variant's own ClinVar fields hold its shown ALT's
+(``attach_clinvar_coga``).
 """
 
 from __future__ import annotations
@@ -20,14 +25,12 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import ClinvarCogaOut, VariantOut, VariantPage
-from .annotation_manifest_service import analysis_clinvar_release
 from .clickhouse_small_variants import SmallVariantFamilyRecord
 from .clickhouse_variant_records import SmallVariantRecord
 from .clickhouse_variant_ids import minimal_allele_id, small_allele_key
 from .clinvar_release_store import ClinvarStoredAllele, clinvar_alleles
 from .clinvar_releases import CLINVAR_ASSEMBLY_FOLDERS, current_clinvar_release
 from .clinvar_review_status import clinvar_stars
-from .family_metadata_context import FamilyMetadataContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,16 +106,10 @@ def clinvar_coga_of(alt: str | None, alt_allele: str | None, values: Sequence[Cl
     return next((value for value in values if value.alt == shown), values[0] if len(values) == 1 else None)
 
 
-def clinvar_coga_held(coga: ClinvarCogaOut | None) -> bool:
-    """Whether CoGA's release holds the allele: where the design's one rule reads it."""
-    return coga is not None and coga.status == "in_release"
-
-
-def clinvar_by_the_rule(annotated: str | None, coga: ClinvarCogaOut | None) -> str | None:
-    """The design's one rule for the readers of phase 2 (B8, B12): the classification in CoGA's
-    ClinVar release where it holds the allele, else the annotation's. An allele the release
-    holds only as part of a combination has no classification there."""
-    return coga.classification if coga is not None and clinvar_coga_held(coga) else annotated
+def clinvar_classification(coga: ClinvarCogaOut | None) -> str | None:
+    """An allele's ClinVar classification: CoGA's release's, None where the release does not hold
+    it, or holds it only as part of a combination."""
+    return coga.classification if coga is not None and coga.status == "in_release" else None
 
 
 def locus_of_variant_id(variant_id: str) -> Locus | None:
@@ -155,22 +152,28 @@ async def clinvar_coga_by_id(
 
 
 async def attach_clinvar_coga(read: ClinvarCogaRead, variants: Sequence[VariantOut]) -> None:
-    """Each served small variant's ClinVar (CoGA), one value per ALT, from the release ``read``
-    names: one lookup for them all."""
+    """Each served small variant's ClinVar from the release ``read`` names, one lookup for them
+    all: one value per ALT (``clinvar_coga``), and the variant's own ClinVar fields (its
+    classification, review status, stars, conditions and VariationID) its shown ALT's
+    (``clinvar_coga_of``); none where the release does not hold that allele."""
     values = await clinvar_coga_values(read, [(v.chr, v.start, v.ref, v.alt) for v in variants])
     for variant, value in zip(variants, values):
+        shown = clinvar_coga_of(variant.alt, variant.alt_allele, value)
+        held = shown if shown is not None and shown.status == "in_release" else None
         variant.clinvar_coga = value
+        variant.clinvar = held.classification if held is not None else None
+        variant.clinvar_review_status = held.review_status if held is not None else None
+        variant.clinvar_stars = held.stars if held is not None else None
+        variant.clinvar_conditions = list(held.conditions) if held is not None else []
+        variant.clinvar_variation_id = (
+            str(held.variation_id) if held is not None and held.variation_id is not None else None
+        )
 
 
-async def serve_clinvar_coga(
-    session: AsyncSession, context: FamilyMetadataContext, read: ClinvarCogaRead, page: VariantPage
-) -> None:
-    """A family's small-variant page with its two ClinVar releases (design B7): each variant's
-    ClinVar (CoGA) per ALT, from the release the request read; that release; and the release of
-    the ClinVar file the analysis's annotation names, which the annotation's value is of."""
+async def serve_clinvar_coga(read: ClinvarCogaRead, page: VariantPage) -> None:
+    """A family's small-variant page with its ClinVar: each variant's from the release the
+    request read (``attach_clinvar_coga``), and that release."""
     variants = [*page.variants, *(variant for group in page.variant_groups for variant in group.variants)]
-    if not variants:
-        return  # a page without a variant names no ClinVar
-    await attach_clinvar_coga(read, variants)
     page.clinvar_coga_release = read.release
-    page.clinvar_annotation_release = await analysis_clinvar_release(session, context)
+    if variants:
+        await attach_clinvar_coga(read, variants)

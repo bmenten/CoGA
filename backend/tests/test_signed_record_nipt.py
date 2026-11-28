@@ -43,6 +43,7 @@ from backend.app.services.nipt_analysis import NIPT_MODEL_REFERENCE, NiptQuality
 from backend.app.services.nipt_quality_checks import nipt_quality_checks
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
 from backend.app.services.sample_integrity_qc import evaluate_nipt_category_qc
+from backend.tests._clinvar_release_fakes import READ
 from backend.tests._nipt_service_fakes import (
     as_loaded,
     gate_bound_loader,
@@ -257,13 +258,15 @@ def _wire(
     recurrence_counts: list[list[str]] | None = None,
     gate_bounds: dict[str, dict[str, float | None]] | None = None,
     fetuses: tuple[str, ...] = ("FETUS1",),
+    clinvar: dict[str, str] | None = None,
 ) -> list[list[str]]:
     """The family's data, as the NIPT page and the signed record both read it (its pregnancy's
     ``fetuses``): with ``roi``
     the family page's region of interest, and with ``coverage`` what each of the plasma's
     coverage tracks holds, by source; each variant's recurrence in the assay's 12 other cfDNA
     samples from ``recurrence`` (the ids of each count appended to ``recurrence_counts``); the
-    QC gate's bound as QA set it in ``gate_bounds`` (else provisional). The
+    QC gate's bound as QA set it in ``gate_bounds`` (else provisional); CoGA's ClinVar release
+    holding the alleles of ``clinvar`` with their classification (none: no release). The
     chromosomes each read of the coverage tracks asked for are returned (appended to as they
     are read)."""
     filtered = sites if sites is not None else _gene_sites()
@@ -337,7 +340,10 @@ def _wire(
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
     wire_data_version(monkeypatch)
     wire_annotation(monkeypatch, cohort)
-    wire_clinvar_release(monkeypatch)
+    if clinvar is None:
+        wire_clinvar_release(monkeypatch)
+    else:
+        wire_clinvar_release(monkeypatch, READ, held=clinvar)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_tracks)
     monkeypatch.setattr(nipt_service, "load_nipt_artifacts", listed_artifacts)
     monkeypatch.setattr(nipt_service, "load_nipt_gate_bound", gate_bound_loader(gate_bounds))
@@ -685,8 +691,13 @@ async def test_the_recessive_risk_of_the_reported_variants_genes(monkeypatch: py
 
 @pytest.mark.asyncio
 async def test_the_inputs_the_analysis_ran_with(monkeypatch: pytest.MonkeyPatch) -> None:
-    protected = _record("7-700-A-G", [_call(PLASMA, [1360, 140])], genes=["GENEE"], annotations=[{"clinvar": "Pathogenic"}])
-    _wire(monkeypatch, sites=[*_gene_sites(), protected], artifacts={"7-300-A-G": 4, "7-700-A-G": 9, "8-1-C-T": 0})
+    protected = _record("7-700-A-G", [_call(PLASMA, [1360, 140])], genes=["GENEE"])
+    _wire(
+        monkeypatch,
+        sites=[*_gene_sites(), protected],
+        artifacts={"7-300-A-G": 4, "7-700-A-G": 9, "8-1-C-T": 0},
+        clinvar={"7-700-A-G": "Pathogenic"},
+    )
     session = _Session()
     inputs = (await _section([], session))["inputs"]
     assert inputs["target_tables"] == [

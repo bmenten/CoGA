@@ -94,7 +94,6 @@ import {
 const FROZEN_EVIDENCE = {
   annotation_version: 'v1',
   annotation_set_hash: 'h1',
-  clinvar: null,
   clinvar_coga: [],
   transcript_id: 'ENST00000000001',
   frequencies: {
@@ -206,7 +205,7 @@ const SNAPSHOT = {
       },
       tags: ['acmg_class_4', 'report'],
       note: 'Signed interpretation.',
-      evidence_snapshot: { annotation_version: 'v1', clinvar: 'Likely_pathogenic', captured_at: '2026-06-20T08:30:00+00:00' },
+      evidence_snapshot: { annotation_version: 'v1', clinvar_coga: [], captured_at: '2026-06-20T08:30:00+00:00' },
     },
     // Classified through the review tags only, never through ACMG classify.
     { variant_id: '2-200-C-T', classification: null, class_shown: 'VUS - class 3', acmg_class: null, acmg: null, tags: ['acmg_class_3', 'report'], note: null, evidence_snapshot: null },
@@ -248,8 +247,6 @@ describe('parseSignedReport', () => {
         {
           variantId: '1-100-A-G',
           status: 'no_snapshot',
-          clinvarFrom: null,
-          clinvarTo: null,
           clinvarCogaFrom: null,
           clinvarCogaTo: null,
           changed: [],
@@ -335,10 +332,7 @@ describe('parseSignedReport', () => {
     // The record's evidence holds no consequence, frequencies, in-silico scores or gene
     // missense Z: none is read.
     expect(classified.evidence).toEqual({
-      clinvar: 'Likely_pathogenic',
       clinvarCoga: [],
-      clinvarFromVepCache: false,
-      clinvarReviewStatus: null,
       annotationVersion: 'v1',
       capturedAt: '2026-06-20T08:30:00+00:00',
       transcriptId: null,
@@ -358,23 +352,6 @@ describe('parseSignedReport', () => {
     expect(unreadable.variantId).toBeNull();
     // Reported by their own tag: no compound-het pair review is frozen with them.
     expect([classified.compoundHet, tagged.compoundHet, unreadable.compoundHet]).toEqual([null, null, null]);
-  });
-
-  it("reads a ClinVar classification frozen from VEP's cache as the cache's", () => {
-    const record = parseSignedReport({
-      ...SNAPSHOT,
-      reported_variants: [
-        {
-          variant_id: '1-100-A-G',
-          acmg_class: null,
-          acmg: null,
-          tags: ['report'],
-          note: null,
-          evidence_snapshot: { clinvar: 'not_provided&pathogenic', clinvar_from_vep_cache: true },
-        },
-      ],
-    })!;
-    expect(record.reportedVariants![0].evidence?.clinvarFromVepCache).toBe(true);
   });
 
   it('reads the compound-het pair review that reports a variant', () => {
@@ -618,8 +595,6 @@ describe('parseSignedReport', () => {
           {
             variant_id: '17-43000000-A-G',
             status: 'drifted',
-            clinvar_from: null,
-            clinvar_to: null,
             changed: ['revel', 'annotations', 3],
             evidence_from: { revel: 0.412 },
             evidence_to: { revel: 0.951 },
@@ -978,8 +953,6 @@ describe('the signed report’s wording', () => {
   it('says why a classification counted as drift when the version was signed', () => {
     const item = {
       variantId: 'v',
-      clinvarFrom: null,
-      clinvarTo: null,
       clinvarCogaFrom: null,
       clinvarCogaTo: null,
       changed: [],
@@ -992,25 +965,28 @@ describe('the signed report’s wording', () => {
     );
     expect(describeSignedDrift({ ...item, status: 'variant_missing' })).toBe('no longer present in the data');
     expect(describeSignedDrift({ ...item, status: 'unknown' })).toBe('its evidence could not be compared');
-    expect(describeSignedDrift({ ...item, status: 'drifted', clinvarFrom: 'VUS', clinvarTo: 'Pathogenic' })).toBe(
-      'ClinVar VUS → Pathogenic',
-    );
     expect(describeSignedDrift({ ...item, status: 'drifted' })).toBe('annotation set changed');
     expect(describeSignedDrift({ ...item, status: 'drifted', changed: ['annotations'] })).toBe(
       'annotation set changed',
     );
-    // What moved in the frozen frequencies and in-silico scores, after the ClinVar significance.
+    // What moved in the frozen frequencies and in-silico scores, after the ClinVar classification.
     expect(
       describeSignedDrift({
         ...item,
         status: 'drifted',
-        clinvarFrom: 'VUS',
-        clinvarTo: 'Pathogenic',
-        changed: ['clinvar', 'gnomad_af', 'revel', 'annotations'],
+        clinvarCogaFrom: [
+          { alt: 'G', status: 'in_release', release: '2026-11-15', classification: 'Uncertain_significance', review_status: null, stars: null, conditions: [], variation_id: null, included_only: false },
+        ],
+        clinvarCogaTo: [
+          { alt: 'G', status: 'in_release', release: '2026-11-22', classification: 'Pathogenic', review_status: null, stars: null, conditions: [], variation_id: null, included_only: false },
+        ],
+        changed: ['clinvar_coga', 'gnomad_af', 'revel', 'annotations'],
         evidenceFrom: { gnomad_af: 3.1e-5, revel: 0.412 },
         evidenceTo: { gnomad_af: 0.012, revel: 0.951 },
       }),
-    ).toBe('ClinVar VUS → Pathogenic; gnomAD AF 3.10e-5 → 0.012; REVEL 0.412 → 0.951');
+    ).toBe(
+      'ClinVar 2026-11-15: Uncertain significance → ClinVar 2026-11-22: Pathogenic; gnomAD AF 3.10e-5 → 0.012; REVEL 0.412 → 0.951',
+    );
     // The gnomAD datasets the callset was annotated with, which PM2 reads, by name.
     expect(
       describeSignedDrift({
@@ -1102,8 +1078,6 @@ describe('the signed report’s wording', () => {
             // A missense variant whose gene's profile was refreshed.
             variant_id: '12-40100301-C-T',
             status: 'drifted',
-            clinvar_from: 'uncertain_significance',
-            clinvar_to: 'uncertain_significance',
             changed: ['gene_missense_z'],
             evidence_from: { effect: 'missense_variant', gene_missense_z: 2.95 },
             evidence_to: { effect: 'missense_variant', gene_missense_z: 3.52 },
@@ -1113,8 +1087,6 @@ describe('the signed report’s wording', () => {
             // A stop gained, re-annotated: it froze no missense Z.
             variant_id: '12-40100501-G-T',
             status: 'drifted',
-            clinvar_from: 'uncertain_significance',
-            clinvar_to: 'uncertain_significance',
             changed: ['effect', 'lof', 'annotations'],
             evidence_from: { effect: 'stop_gained', lof: 'LC' },
             evidence_to: { effect: 'stop_gained&splice_region_variant', lof: 'HC' },
@@ -1128,7 +1100,7 @@ describe('the signed report’s wording', () => {
     expect(describeSignedDrift(stopGained)).toBe('consequence stop_gained → stop_gained&splice_region_variant; LoF LC → HC');
   });
 
-  it('reads each ALT’s ClinVar (CoGA) value as frozen, and what moved in it at sign-out', () => {
+  it('reads each ALT’s ClinVar value as frozen, and what moved in it at sign-out', () => {
     const value = (overrides: Partial<ClinvarCogaOut>): ClinvarCogaOut => ({
       alt: 'A',
       status: 'in_release',
@@ -1158,8 +1130,6 @@ describe('the signed report’s wording', () => {
           {
             variant_id: '1-100-G-A',
             status: 'drifted',
-            clinvar_from: null,
-            clinvar_to: null,
             clinvar_coga_from: [value({})],
             clinvar_coga_to: [value({ release: '2026-11-22', classification: 'Likely_pathogenic' })],
             changed: ['clinvar_coga'],
@@ -1167,8 +1137,6 @@ describe('the signed report’s wording', () => {
           {
             variant_id: '2-200-C-A',
             status: 'noted',
-            clinvar_from: null,
-            clinvar_to: null,
             clinvar_coga_from: [value({})],
             clinvar_coga_to: [value({ release: '2026-11-22', review_status: 'reviewed by expert panel', stars: 3 })],
             changed: [],
@@ -1181,26 +1149,26 @@ describe('the signed report’s wording', () => {
     const [variant] = record.reportedVariants!;
     expect(variant.evidence!.clinvarCoga.map((entry) => entry.alt)).toEqual(['A', 'T']);
     expect(describeClinvarCoga(variant.evidence!.clinvarCoga)).toBe(
-      'ClinVar (CoGA, 2026-11-15) for A: Uncertain significance ★☆☆☆ (criteria provided, single submitter); ' +
-        'ClinVar (CoGA, 2026-11-15) for T: not in this release',
+      'ClinVar 2026-11-15 for A: Uncertain significance ★☆☆☆ (criteria provided, single submitter); ' +
+        'ClinVar 2026-11-15 for T: not in this release',
     );
     expect(describeClinvarCoga([])).toBeNull();
 
     const [drifted, noted] = record.drift!.drifted;
     expect(describeSignedDrift(drifted)).toBe(
-      'ClinVar (CoGA) Uncertain significance ★☆☆☆, criteria provided, single submitter (2026-11-15) → ' +
-        'Likely pathogenic ★☆☆☆, criteria provided, single submitter (2026-11-22)',
+      'ClinVar 2026-11-15: Uncertain significance ★☆☆☆, criteria provided, single submitter → ' +
+        'ClinVar 2026-11-22: Likely pathogenic ★☆☆☆, criteria provided, single submitter',
     );
     expect(splitNotedDrift(record.drift!.drifted)).toEqual({ counted: [drifted], noted: [noted] });
     expect(describeSignedDrift(noted)).toBe(
-      'ClinVar (CoGA) Uncertain significance ★☆☆☆, criteria provided, single submitter (2026-11-15) → ' +
-        'Uncertain significance ★★★☆, reviewed by expert panel (2026-11-22)',
+      'ClinVar 2026-11-15: Uncertain significance ★☆☆☆, criteria provided, single submitter → ' +
+        'ClinVar 2026-11-22: Uncertain significance ★★★☆, reviewed by expert panel',
     );
     // Only the release moved: nothing to say of it.
     expect(describeClinvarCogaChange([value({})], [value({ release: '2026-11-22' })])).toBeNull();
     // A variant gone: its value now is not there.
     expect(describeClinvarCogaChange([value({})], null)).toBe(
-      'ClinVar (CoGA) Uncertain significance ★☆☆☆, criteria provided, single submitter (2026-11-15) → n/a',
+      'ClinVar 2026-11-15: Uncertain significance ★☆☆☆, criteria provided, single submitter → n/a',
     );
     expect(describeClinvarCogaChange(null, [value({})])).toBeNull();
   });

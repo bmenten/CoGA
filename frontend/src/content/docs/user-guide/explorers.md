@@ -35,8 +35,9 @@ show a more severe class, from another family's review.
   T2T (see [Small-variant prioritisation](#small-variant-filtering)).
 - Every filter is read for each family as its own family page reads it, so a row counts the carriers
   and families of the family pages that show the variant. When two families' files were annotated
-  differently (two VEP runs), a filter on the gene, consequence, ClinVar or frequency counts only the
-  family whose own annotation meets it.
+  differently (two VEP runs), a filter on the gene, consequence or frequency counts only the family
+  whose own annotation meets it. ClinVar is the ClinVar release CoGA loads, one for every family: a
+  row shows the classifications of the variant's ALTs there.
 - A row counts only the samples their family shows. A member taken out of a family keeps its calls in
   that family's imported data, but is not counted there or listed among its carriers; the genotype
   filter neither offers nor reads a sample that no family shows.

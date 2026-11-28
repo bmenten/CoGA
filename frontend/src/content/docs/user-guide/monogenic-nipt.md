@@ -52,8 +52,8 @@ its data, reviews and sign-out are its own.
   its gene list and the coverage of its capture targets. A gene of the panel without a capture target
   is not tested. Without a diagnostic panel the sign-out asks for a reason.
 - **The NIPT report** lists the **diagnostic candidates** of the diagnostic panel by the locked
-  criteria of the R validation (rare, protein-altering, ClinVar read strictly: CoGA's own ClinVar
-  release where it holds the allele, else the annotation's; see the reference): the
+  criteria of the R validation (rare, protein-altering, ClinVar read strictly, from the ClinVar
+  release CoGA loads; see the reference): the
   de novo and paternal alleles the fetus inherited, each of the mother's alleles with the probability
   that the fetus inherited it, and the recessive genes left for further investigation. The sign-out
   freezes them with the criteria's version. The page's filters stay adjustable, for exploring.
@@ -91,12 +91,12 @@ its data, reviews and sign-out are its own.
   priority, any flags and **Other cfDNA samples**: in how many other cfDNA samples of the assay, in
   every project, its allele is called, and how (maternal, the father's allele, or an *unexplained
   low-VAF* call that no parent explains, the mark of a recurrent artefact). This sits next to the usual
-  annotation, tags and ACMG classification. Its ClinVar shows beside *ClinVar (CoGA)*, as on the
-  small-variant page: the value of CoGA's own ClinVar release the analysis read, the one its triage,
-  protections, candidates and ClinVar filters read where the release holds the allele, and the one
-  the ACMG classification's PP5 and BP6 read. As on the small-variant page, the diseases its gene is
-  linked to are named under the card's heading, and **Collapse** folds a card you are done with to
-  its heading.
+  annotation, tags and ACMG classification. Its **ClinVar** is, as on the small-variant page, the
+  classification in the ClinVar release CoGA loads, the one release the analysis read: the value
+  its triage, protections, candidates, ClinVar filters and the ACMG classification's PP5 and BP6
+  read. The ClinVar in the callsets' annotation is neither shown nor used. As on the small-variant
+  page, the diseases its gene is linked to are named under the card's heading, and **Collapse** folds
+  a card you are done with to its heading.
 - **Hide recurrent low-VAF calls** leaves out the variants that are an unexplained low-VAF call in more
   than the number of other cfDNA samples you give. A variant that ClinVar may call pathogenic, or that
   is common in the population, stays listed, marked *kept by the recurrence filter*. The filter narrows
@@ -110,7 +110,7 @@ its data, reviews and sign-out are its own.
   hide a pathogenic allele that gnomAD does not list and ClinVar does not call pathogenic once 3
   pregnancies of the assay carry it: turn it off to check a gene that matters.
 - **Download CSV**, above the variants, saves the list as a CSV file: every variant the list
-  classifies, in its order, with its *ClinVar (CoGA)*, category, reads, probabilities, de novo triage
+  classifies, in its order, with its ClinVar, category, reads, probabilities, de novo triage
   and recurrence, and on every row the fetal fraction and, for a multiple pregnancy, the
   multiple-pregnancy note. A list cut at its limit says so in the file name (*TRUNCATED*).
 - **On-target coverage**, under the variants, gives the median depth over the capture targets of the

@@ -277,7 +277,11 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                 assert frequencies[field] == served.population_frequencies.get(field), field
             assert frequencies["gnomad_ac"] == served.annotation_extra.get("gnomad_ac") == 4
             assert frequencies["gnomad_hemi_count"] is None
-            assert frozen["clinvar"] == served.clinvar == "uncertain_significance"
+            # Its ClinVar is each ALT's in CoGA's release; the annotation's ClinVar
+            # ("uncertain_significance" in the CSQ) is neither frozen nor served.
+            assert [value["alt"] for value in frozen["clinvar_coga"]] == [_CLASSIFIED.rsplit("-", 1)[1]]
+            assert not {"clinvar", "clinvar_from_vep_cache", "clinvar_review_status"} & set(frozen)
+            assert served.clinvar is None
 
             # A second classification, of a variant whose annotation no release moves.
             async with sm() as s:
@@ -304,8 +308,9 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                 3.1e-05,
                 0.012,
             )
-            # The ClinVar significance did not move, and is not named.
-            assert entry["clinvar_from"] == entry["clinvar_to"] == "uncertain_significance"
+            # Its ClinVar in CoGA's release did not move, and is not named.
+            assert entry["clinvar_coga_from"] == entry["clinvar_coga_to"]
+            assert "clinvar_from" not in entry and "clinvar_to" not in entry
 
             # (d) Sign-out is refused until the drift is acknowledged with a reason; the
             # signed record holds the frozen values and what moved.

@@ -95,9 +95,9 @@ class MitoDNAVariantAnnotationOut(BaseModel):
         "polymorphism",
         "unknown",
     ] = "unknown"
-    # The variant's ClinVar in CoGA's own release, which ``clinical_significance`` reads where it
-    # holds the allele, MITOMAP's status beside it (the design's one rule, B12); None when the
-    # family's assembly reads no release.
+    # The variant's ClinVar in CoGA's release, which ``clinical_significance`` reads with
+    # MITOMAP's status beside it (the annotation's ClinVar is not read); None when the family's
+    # assembly reads no release.
     clinvar_coga: Optional[ClinvarCogaOut] = None
     disorders: List[str] = Field(default_factory=list)
     polymorphism_notes: List[str] = Field(default_factory=list)

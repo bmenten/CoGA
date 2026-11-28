@@ -43,6 +43,28 @@ from them.* An affected member without calls leaves the filter no variant at all
 **Inheritance** row says the same, and the CSV export names those members in its last column,
 *Members without calls*.
 
+### ClinVar
+
+> **One ClinVar: the release CoGA loads itself.** For a small variant, CoGA shows and uses one
+> ClinVar: the classification in the ClinVar release that CoGA loads from NCBI each week, per
+> assembly. The ClinVar in a callset's annotation (the ClinVar file the pipeline annotated with, or
+> VEP's cache) is neither shown nor used, anywhere. A variant whose allele that release does not hold
+> has no ClinVar.
+
+That one ClinVar is what the card, the table's colours, the filters, the ClinVar P/LP override,
+the ranking, the genome track, the ACMG criteria PP5 and BP6, the mtDNA status, the monogenic NIPT
+page, the Variant Explorer and the CSV export read, and what a classification freezes as its
+evidence. CoGA matches it on
+the exact allele, never on the rsID or the position, and each ALT of a multi-allelic variant on its
+own. A page reads one release, the one
+current when the page was asked for. An assembly without a ClinVar release (T2T-CHM13, or before the
+first load) has no ClinVar: the *ClinVar status* filter keeps nothing there and the excluded
+statuses leave nothing out.
+
+The import compares the annotation's ClinVar with CoGA's copy of the same release, as a check on
+CoGA's allele matching (*ClinVar concordance* on the import page). That check is the only use of the
+annotation's ClinVar. Structural variants and CNVs keep their own sources.
+
 ### Filters and presets
 
 The filters sit under **Advanced filters**, closed when the page opens, one category to a row across
@@ -99,8 +121,8 @@ is named under its field, and nothing is searched until you fix it. A per-sample
 AD alt) that is not a number fails the search, and the message names it.
 
 The annotation filters must all hold on one transcript of the variant: impact and consequence, the
-transcript, HGVS, *Canonical only*, *MANE only* and *LoF only*, the ClinVar status, the in-silico scores
-and the frequencies. So with *MANE only* and HIGH impact, a variant whose HIGH-impact transcript is not
+transcript, HGVS, *Canonical only*, *MANE only* and *LoF only*, the in-silico scores and the
+frequencies. So with *MANE only* and HIGH impact, a variant whose HIGH-impact transcript is not
 its MANE transcript is left out.
 
 - Under **In silico**, one of the predictors you set is enough. The SpliceAI minimum, set under
@@ -109,27 +131,21 @@ its MANE transcript is left out.
 - A SIFT or PolyPhen choice keeps a transcript whose prediction is exactly that one, whatever score VEP
   wrote after it. *deleterious* keeps `deleterious(0.01)` but not `deleterious_low_confidence(0.03)`,
   which is a choice of its own; *tolerated* leaves out `tolerated_low_confidence`.
-- The gene, the rsID and the excluded ClinVar statuses apply to the variant as a whole. A gene keeps
-  every variant annotated with it, including one VEP places just outside the gene (upstream or
-  downstream), ranked or not.
+- The gene, the rsID, the ClinVar status and the excluded ClinVar statuses apply to the variant as a
+  whole. A gene keeps every variant annotated with it, including one VEP places just outside the gene
+  (upstream or downstream), ranked or not.
 - *ClinVar pathogenic / likely pathogenic overrules the frequency, consequence and in-silico
-  filters*, under **Frequency** and on by default: a transcript with a ClinVar pathogenic or likely
-  pathogenic record passes the impact, consequence and SpliceAI filter, the in-silico filter and
-  every frequency and gnomAD count, whatever its values. The other filters still apply to it: the
-  transcript, HGVS, *Canonical only*, *MANE only*, *LoF only*, the ClinVar status, the genotypes. A
-  variant whose allele CoGA's own ClinVar release (*ClinVar (CoGA)*, below) calls pathogenic or likely
-  pathogenic passes the same filters on every one of its transcripts, so a variant ClinVar reclassified
-  after the pipeline annotated it is not left out.
-- The *ClinVar status* filter and the excluded ClinVar statuses read CoGA's own ClinVar release
-  (*ClinVar (CoGA)*) for a variant whose alleles it holds, and the annotation for any other: a
-  classification in the annotation that the newer release contradicts is not read. A multi-allelic
-  variant the release holds only in part is read both ways. Its annotation does not say which allele
-  a classification is of, so an excluded status there never leaves out such a variant when the
-  release calls one of its alleles pathogenic or likely pathogenic. Without a loaded release they read
-  the annotation. The monogenic NIPT page reads them the same way, with the ClinVar P/LP override.
-- **Pathogenicity** also offers *ClinVar (CoGA) status*: the classifications of CoGA's own ClinVar
-  release, with the same choices. It keeps a variant one of whose alleles that release classifies so;
-  without a loaded release it keeps none. The monogenic NIPT page does not offer it.
+  filters*, under **Frequency** and on by default: a variant with an allele ClinVar calls pathogenic
+  or likely pathogenic passes the impact, consequence and SpliceAI filter, the in-silico filter and
+  every frequency and gnomAD count on every one of its transcripts, whatever their values. The other
+  filters still apply to it: the transcript, HGVS, *Canonical only*, *MANE only*, *LoF only*, the
+  ClinVar status, the genotypes. So a variant ClinVar classified pathogenic after the pipeline
+  annotated the callset is not left out.
+- The *ClinVar status* filter, under **Pathogenicity**, keeps a variant with an allele ClinVar gives
+  a status you ticked. The excluded ClinVar statuses, under **Exclude**, leave a variant out only when
+  ClinVar gives every one of its alleles an excluded status: a multi-allelic variant with one
+  pathogenic allele is never hidden for another allele's benign status. The monogenic NIPT page reads
+  them the same way, with the ClinVar P/LP override.
 
 A card, a table row and a CSV row describe one transcript of the variant: MANE Select, else the
 canonical one, else the most severe. The filters may have held on another. For example, *deleterious*
@@ -185,17 +201,12 @@ light orange when one of them is pathogenic or likely pathogenic. Any other conf
 other ClinVar status, or none, leaves the card white. In the table a row is tinted the same way, more
 faintly, and the ClinVar chip takes the same colour.
 
-Beside the ClinVar of the variant's annotation, a card shows CoGA's own ClinVar release, the one CoGA
-loads from NCBI's weekly file. Each value is named by its release: *ClinVar (annotation, 2026-05-01)*,
-the ClinVar file the pipeline annotated, and *ClinVar (CoGA, 2026-11-22)*. CoGA's is matched on the
-exact allele, never on the rsID or the position. It links to its ClinVar record, gives the review
-status and the conditions on hover, and is marked **changed** when its classification or stars
-differ from the annotation's. Without a value it says why: *not in this release*, *no release
-loaded*, or *not available for this assembly*; a variant ClinVar classifies only as part of a
-combination says so. **More annotations & detail** lists CoGA's review status and conditions. In the
-table and the Variant Explorer a **≠** beside the variant marks one whose two classifications
-differ, CoGA's on hover. Every page shows one CoGA release: the one current when the page was asked
-for.
+A card shows one ClinVar value, labelled **ClinVar**: the classification of the ALT the card
+describes, with its stars, in the release CoGA loaded (see *ClinVar*, above). It links to its
+ClinVar record (the VariationID) and gives the review status and the conditions on hover. A variant
+the release does not hold has no ClinVar chip. **More annotations & detail** lists each ALT's ClinVar
+with its review status and conditions, or why it has none: *not in this release*, *no release
+loaded*, *not available for this assembly*, or *only as part of a combination*.
 
 Under its heading, a card names up to three diseases its gene is linked to: Monarch's causal links,
 those more sources back first; else the gene's OMIM diseases; else Monarch's associations, marked *not
@@ -298,6 +309,7 @@ ranking is on, in the order it was ranked by. Its
 *Classification* column holds the class each review shows on the page, *Classification text* the
 classification as typed, and *Tags* the review's tags. *HGVSg* is VEP's HGVS.g; it is empty where
 the annotation has none, since the CSV gives the position and alleles in their own columns.
+*ClinVar* and *ClinVar stars* are those of the ALT the row shows, in CoGA's ClinVar release.
 
 ### Also hit by a structural variant
 

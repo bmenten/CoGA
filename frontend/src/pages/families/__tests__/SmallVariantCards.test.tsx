@@ -77,7 +77,7 @@ describe('SmallVariantCards', () => {
     mockGeneProfile([]);
   });
 
-  it('shows the annotation’s ClinVar and CoGA’s own beside it, each named by its release (B7)', async () => {
+  it('shows one ClinVar chip, CoGA’s release’s value, and never the annotation’s ClinVar', async () => {
     renderCards(
       <SmallVariantCards
         variants={[
@@ -90,9 +90,14 @@ describe('SmallVariantCards', () => {
             ref: 'G',
             alt: 'A',
             gene: 'SYNG1',
-            clinvar: 'Pathogenic',
-            clinvar_stars: 2,
+            clinvar: 'Likely_pathogenic',
+            clinvar_review_status: 'reviewed by expert panel',
+            clinvar_stars: 3,
+            clinvar_conditions: ['Synthetic disorder 1'],
             clinvar_variation_id: '900001',
+            // The annotation's own ClinVar (VEP's cache's classification, the ClinVar file's
+            // allele ID), which annotation_extra carries: not shown.
+            annotation_extra: { clinvar_vep_cache: 'benign', clinvar_allele_id: 777001 },
             clinvar_coga: [
               {
                 alt: 'A',
@@ -117,18 +122,63 @@ describe('SmallVariantCards', () => {
         onEditReview={vi.fn()}
         onAcmgClassify={vi.fn()}
         onToggleReviewTag={vi.fn(async () => undefined)}
-        clinvarAnnotationRelease="2026-05-01"
-        clinvarCogaRelease="2026-11-22"
       />,
     );
 
-    expect(screen.getByRole('link', { name: /^ClinVar \(annotation, 2026-05-01\)\s*Pathogenic ★★☆☆$/ })).toBeInTheDocument();
-    expect(
-      screen.getByRole('link', { name: /^ClinVar \(CoGA, 2026-11-22\)\s*Likely pathogenic ★★★☆\s*changed$/ }),
-    ).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/clinvar/variation/900001/');
+    const chip = screen.getByRole('link', { name: /^ClinVar\s*Likely pathogenic ★★★☆$/ });
+    expect(chip).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/clinvar/variation/900001/');
+    expect(chip).toHaveAttribute('title', 'reviewed by expert panel — Synthetic disorder 1');
+    expect(document.querySelectorAll('.variant-card-chip-key')).toHaveLength(1);
+    expect(screen.queryByText(/ClinVar \(|VEP cache/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByText('More annotations & detail'));
-    const coga = screen.getByText('ClinVar (CoGA) review status').closest('div') as HTMLElement;
-    expect(within(coga).getByText('reviewed by expert panel')).toBeInTheDocument();
+    const status = screen.getByText('ClinVar review status').closest('div') as HTMLElement;
+    expect(within(status).getByText('reviewed by expert panel')).toBeInTheDocument();
+    expect(screen.queryByText(/vep cache|allele id/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('777001')).not.toBeInTheDocument();
+  });
+
+  it('shows no ClinVar for an allele CoGA’s release does not hold', () => {
+    renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: '1-100-G-A',
+            chr: '1',
+            start: 100,
+            end: 100,
+            type: 'SNV',
+            ref: 'G',
+            alt: 'A',
+            gene: 'SYNG1',
+            clinvar: null,
+            clinvar_coga: [
+              {
+                alt: 'A',
+                status: 'not_in_release',
+                release: '2026-11-22',
+                classification: null,
+                review_status: null,
+                stars: null,
+                conditions: [],
+                variation_id: null,
+                included_only: false,
+              },
+            ],
+            genotypes: [],
+          }),
+        ]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(document.querySelector('.variant-card-headtags .variant-card-chip-key')).toBeNull();
   });
 
   it('opens a transcript popup with all transcript effects from the transcript field', async () => {
@@ -896,8 +946,20 @@ describe('SmallVariantCards', () => {
         gene: 'GENE1',
         ref: 'G',
         alt: 'A',
-        clinvar_conditions: ['Condition one', 'Condition two'],
-        annotation_extra: { clinvar_allele_id: 12345, gnomad_ac: 3, clndn: ['not provided', 'not specified'] },
+        clinvar_coga: [
+          {
+            alt: 'A',
+            status: 'in_release',
+            release: '2026-11-22',
+            classification: 'Pathogenic',
+            review_status: null,
+            stars: null,
+            conditions: ['Condition one', 'Condition two'],
+            variation_id: null,
+            included_only: false,
+          },
+        ],
+        annotation_extra: { custom_score: 12345, gnomad_ac: 3, custom_terms: ['not provided', 'not specified'] },
         genotypes: [],
       }),
     );
@@ -1377,7 +1439,7 @@ describe('SmallVariantCards', () => {
     expect(within(annotations).queryByText(/genomes filter/i)).not.toBeInTheDocument();
   });
 
-  it("names a ClinVar classification from VEP's cache as the cache's, and links ClinVar by the rsID", () => {
+  it('links a ClinVar classification without a VariationID by the rsID', () => {
     renderCards(
       <SmallVariantCards
         variants={[
@@ -1389,8 +1451,7 @@ describe('SmallVariantCards', () => {
             type: 'INDEL',
             gene: 'GENE1',
             effect: 'intron_variant',
-            clinvar: 'not_provided&pathogenic',
-            clinvar_from_vep_cache: true,
+            clinvar: 'Pathogenic',
             rsid: 'rs123',
             genotypes: [],
           }),
@@ -1406,9 +1467,8 @@ describe('SmallVariantCards', () => {
       />,
     );
 
-    const clinvar = screen.getByRole('link', { name: /ClinVar \(VEP cache\)\s*not provided&pathogenic/i });
+    const clinvar = screen.getByRole('link', { name: /^ClinVar\s*Pathogenic$/ });
     expect(clinvar).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/clinvar/?term=rs123');
-    expect(clinvar.getAttribute('title')).toMatch(/^From VEP's cache \(CLIN_SIG\), as no ClinVar file was annotated/);
   });
 
   // The card's class sets its rail and, on a small variant's card alone, its background

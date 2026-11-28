@@ -171,9 +171,11 @@ def clinvar_allele_condition(
     params: dict[str, Any],
     prefix: str,
     alias: str = "e",
+    every: bool = False,
 ) -> str:
     """"An allele of the row (alias ``alias``, its ``allele_keys``) is one the release
-    classifies with one of ``terms``" (as ``_status_terms`` stores them), in SQL."""
+    classifies with one of ``terms``" (as ``_status_terms`` stores them), in SQL; with
+    ``every``, every allele of the row is (``clinvar_allele_where_condition``)."""
     params[f"{prefix}_terms"] = list(terms)
     return clinvar_allele_where_condition(
         assembly_name,
@@ -182,6 +184,7 @@ def clinvar_allele_condition(
         params=params,
         prefix=prefix,
         alias=alias,
+        every=every,
     )
 
 
@@ -193,33 +196,17 @@ def clinvar_allele_where_condition(
     params: dict[str, Any],
     prefix: str,
     alias: str = "e",
+    every: bool = False,
 ) -> str:
     """"An allele of the row (alias ``alias``, its ``allele_keys``) is one of the release's rows
     that meet ``where``" (a condition on the table's columns, such as ``classification_terms``),
-    in SQL. The release's set is built once for the query, from its partition."""
+    in SQL; with ``every``, every allele of the row is, and a row without an allele key (a
+    symbolic ALT) is not. The release's set is built once for the query, from its partition."""
     params[f"{prefix}_release"] = release
-    return (
-        f"arrayExists(k -> k IN (SELECT allele_key FROM {clinvar_table(assembly_name)} "
-        f"WHERE release = %({prefix}_release)s AND {where}), {alias}.allele_keys)"
-    )
-
-
-def clinvar_alleles_held_condition(
-    assembly_name: str,
-    release: date,
-    *,
-    params: dict[str, Any],
-    prefix: str,
-    alias: str = "e",
-) -> str:
-    """"The release holds every allele of the row (alias ``alias``, its ``allele_keys``)", in
-    SQL: where the one rule of the design's phase 2 lets the release alone speak for the row. A
-    row without an allele key (a symbolic ALT) is not held."""
-    params[f"{prefix}_release"] = release
-    return (
-        f"(notEmpty({alias}.allele_keys) AND arrayAll(k -> k IN (SELECT allele_key FROM "
-        f"{clinvar_table(assembly_name)} WHERE release = %({prefix}_release)s), {alias}.allele_keys))"
-    )
+    held = f"k -> k IN (SELECT allele_key FROM {clinvar_table(assembly_name)} WHERE release = %({prefix}_release)s AND {where})"
+    if every:
+        return f"(notEmpty({alias}.allele_keys) AND arrayAll({held}, {alias}.allele_keys))"
+    return f"arrayExists({held}, {alias}.allele_keys)"
 
 
 async def drop_clinvar_release(assembly_name: str, release: date) -> None:

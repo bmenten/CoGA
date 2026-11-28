@@ -4,18 +4,19 @@
 Its helpers (the variant type, the most severe class, the term lists, the table names), the
 WHERE it builds over the variant carrier summary's rows (each filter it shares with the family search the family
 search's own clause, read on each row's own annotation: the location, type, callset, gene,
-rsID, excluded ClinVar and the per-transcript filters in one subquery; the ClinVar
-rescue of the frequency ceilings; imputed calls left out by default; per-sample genotype
-classes, read by variant), the count cap, the cursor and its fingerprint, the review-tag filter's
-cap, and the gene panel read as the family page reads it. A variant's
-carriers (the row limit and its truncation flag) and the annotation a row shows (one
-transcript's consequence and HGVS, CLIN-50).
+rsID and the per-transcript filters in one subquery; ClinVar's status, exclusion and the
+rescue of the frequency ceilings in the scope's release of CoGA; imputed calls left out by
+default; per-sample genotype classes, read by variant), the count cap, the cursor and its
+fingerprint, the review-tag filter's cap, and the gene panel read as the family page reads it.
+A variant's carriers (the row limit and its truncation flag), the annotation a row shows (one
+transcript's consequence and HGVS, CLIN-50) and its ClinVar (its ALTs' in the scope's release).
 """
 
 from __future__ import annotations
 
 import asyncio
 import types
+from datetime import date
 from typing import Any
 
 import pytest
@@ -31,12 +32,12 @@ from backend.app.services.clickhouse_variant_queries import (
     _small_region_filter_condition,
 )
 from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region
+from backend.app.services.clinvar_coga import ClinvarCogaRead
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 from backend.app.services import variant_explorer_service as ves
 from backend.app.services.variant_explorer_service import (
     _classification_rank,
-    _CLINVAR_RANK,
     _IMPACT_RANK,
     ExplorerScope,
     GlobalVariantFilters,
@@ -58,7 +59,6 @@ def test_classify_type() -> None:
 def test_most_severe_classification_and_impact() -> None:
     assert _most_severe(["acmg_class_2", "acmg_class_5", "acmg_class_3"], _classification_rank) == "acmg_class_5"
     assert _most_severe(["MODIFIER", "HIGH", "LOW"], _IMPACT_RANK) == "HIGH"
-    assert _most_severe(["likely benign", "pathogenic"], _CLINVAR_RANK) == "pathogenic"
     assert _most_severe([], _IMPACT_RANK) is None
 
 
@@ -77,10 +77,14 @@ def test_small_table_name_normalizes_assembly() -> None:
 
 
 def test_the_explorer_reads_excluded_clinvar_statuses_and_the_rsid_as_the_family_search_does() -> None:
-    # An API value with an underscore is read as the stored terms read, "likely benign"
-    # (CLIN-50). The rsID is trimmed, as the family search trims it.
-    _clauses, params = _explorer_where(exclude_clinvar=["Likely_benign", " Benign ", ""], rsid="  rs123 ")
-    assert params["detail_exclude_clinvar_terms"] == ["likely benign", "benign"]
+    # An API value with an underscore is read as the release's stored terms read, "likely
+    # benign" (CLIN-50), in the scope's release. The rsID is trimmed, as the family search trims
+    # it.
+    _clauses, params = _explorer_where(
+        scope=_RELEASED_SCOPE, exclude_clinvar=["Likely_benign", " Benign ", ""], rsid="  rs123 "
+    )
+    assert params["clinvar_excluded_terms"] == ["likely benign", "benign"]
+    assert params["clinvar_excluded_release"] == _RELEASE
     assert params["rsid"] == "rs123"
 
 
@@ -337,6 +341,11 @@ def test_seek_having_is_direction_aware_and_degenerate_safe() -> None:
 
 _PROJECT = "11111111-1111-1111-1111-111111111111"
 _SCOPE = ExplorerScope(assembly_id="a1", assembly_name="GRCh38", project_ids=[_PROJECT])
+# The scope with CoGA's ClinVar release read: the only ClinVar its filters and rows read.
+_RELEASE = date(2026, 11, 22)
+_RELEASED_SCOPE = ExplorerScope(
+    assembly_id="a1", assembly_name="GRCh38", project_ids=[_PROJECT], clinvar_coga=ClinvarCogaRead("GRCh38", _RELEASE, True)
+)
 # The samples the scope's families show: S1 and S2 in family f1, S3 in family f2.
 _MEMBERS = (
     ves._ShownMember(family_uuid="f1", sample_id="S1", sample_uuid="u1"),
@@ -359,11 +368,11 @@ def _search(filters: GlobalVariantFilters | None = None, **inputs: Any) -> Any:
     )
 
 
-def _explorer_where(**filters: Any) -> tuple[list[str], dict[str, Any]]:
-    """The explorer's WHERE clauses and parameters for these filters."""
+def _explorer_where(scope: ExplorerScope = _SCOPE, **filters: Any) -> tuple[list[str], dict[str, Any]]:
+    """The explorer's WHERE clauses and parameters for these filters, over ``scope``."""
     params: dict[str, Any] = {}
     clauses = _carriers_where(
-        _SCOPE, GlobalVariantFilters(**filters), params, tag_variant_ids=None, shown_members=_MEMBERS
+        scope, GlobalVariantFilters(**filters), params, tag_variant_ids=None, shown_members=_MEMBERS
     )
     return clauses, params
 
@@ -402,22 +411,27 @@ def _family_search_condition(**explorer_filters: Any) -> tuple[str, dict[str, An
 def test_clinvar_rescue_keeps_pathogenic_variants_past_the_frequency_ceilings() -> None:
     # The explorer page offers "ClinVar P/LP overrules the frequency filter", on by
     # default, and the service ignored it: a pathogenic variant above a cut-off was
-    # dropped although the page said it was kept. The rescue is the family search's,
-    # on the transcript that meets the other annotation filters.
+    # dropped although the page said it was kept. The rescue is the family search's: an
+    # allele CoGA's release of the scope holds (likely) pathogenic lifts the ceilings.
     clauses, params = _explorer_where(
-        max_gnomad_af=0.01, max_gnomad_hom_count=2, clinvar_pathogenic_override=True
+        scope=_RELEASED_SCOPE, max_gnomad_af=0.01, max_gnomad_hom_count=2, clinvar_pathogenic_override=True
     )
     [transcript] = _transcript_subqueries(clauses)
-    assert (
-        "((ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)"
+    frequency = _transcript_subquery(
+        "(ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)"
         " AND ifNull(a.gnomad_hom_count, 0) <= %(detail_max_gnomad_hom_count)s)"
-        " OR hasAny(a.clinvar_terms, %(detail_clinvar_override_terms)s))"
-    ) in transcript
-    # The frequency ceilings sit only inside the rescued block, not also on their own.
-    assert transcript.count("a.gnomad_af") == 1
+    )
+    assert transcript == (
+        f"({frequency} OR arrayExists(k -> k IN (SELECT allele_key FROM coga.`GRCh38/SNV_INDEL/clinvar` "
+        "WHERE release = %(clinvar_override_release)s AND hasAny(classification_terms, %(clinvar_override_terms)s)), "
+        "e.allele_keys))"
+    )
+    # The frequency ceilings sit only once, beside the rescue, and no transcript reads ClinVar.
+    assert transcript.count("a.gnomad_af") == 1 and "a.clinvar_terms" not in transcript
     assert not _index_subqueries(clauses)
-    # The family search's terms.
-    assert params["detail_clinvar_override_terms"] == ["pathogenic", "likely pathogenic"]
+    # The family search's terms, in the scope's release.
+    assert params["clinvar_override_terms"] == ["pathogenic", "likely pathogenic"]
+    assert params["clinvar_override_release"] == _RELEASE
     # The query binds (the terms are an array parameter).
     bind_query("SELECT 1 FROM t WHERE " + " AND ".join(clauses), params)
 
@@ -427,9 +441,15 @@ def test_frequency_ceilings_apply_to_every_variant_without_the_rescue() -> None:
     assert _transcript_subqueries(clauses) == [
         _transcript_subquery("(ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s))")
     ]
-    assert "detail_clinvar_override_terms" not in params
+    assert "clinvar_override_terms" not in params
+    # Without a release no allele is ClinVar pathogenic: the rescue lifts nothing.
+    clauses, params = _explorer_where(max_gnomad_af=0.01, clinvar_pathogenic_override=True)
+    assert _transcript_subqueries(clauses) == [
+        _transcript_subquery("(ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s))")
+    ]
+    assert "clinvar_override_terms" not in params
     # The rescue alone, with no ceiling to lift, adds nothing.
-    clauses, params = _explorer_where(clinvar_pathogenic_override=True)
+    clauses, params = _explorer_where(scope=_RELEASED_SCOPE, clinvar_pathogenic_override=True)
     assert not _transcript_subqueries(clauses) and not _index_subqueries(clauses)
     assert not [name for name in params if name.startswith(("detail_", "ann_"))]
 
@@ -460,7 +480,6 @@ def test_per_transcript_filters_hold_on_one_transcript_together(filters: dict[st
     [
         pytest.param({"impacts": ["HIGH", "MODERATE"]}, id="impact"),
         pytest.param({"effects": ["missense_variant", "stop_gained"]}, id="consequence"),
-        pytest.param({"clinvar": ["Pathogenic", "Likely_pathogenic"]}, id="clinvar"),
         pytest.param({"hgvsc": "c.100"}, id="hgvsc"),
         pytest.param({"hgvsp": "p.Arg34"}, id="hgvsp"),
         pytest.param({"canonical_only": True}, id="canonical-only"),
@@ -517,19 +536,22 @@ def test_the_explorer_applies_the_family_search_annotation_condition(filters: di
     bind_query("SELECT 1 FROM t WHERE " + " AND ".join(clauses), params)
 
 
-def test_the_gene_rsid_and_excluded_clinvar_read_the_rows_own_annotation() -> None:
+def test_the_gene_and_rsid_read_the_rows_own_annotation_and_clinvar_its_alleles() -> None:
     # As on the family page, each row is read with its own annotation (its key and annotation
-    # set): the gene in the row's symbols or its gene index, the rsID
-    # in the row's own or its annotation index row, the excluded ClinVar classes on no
-    # transcript of it. The explorer read the annotation index by key, so any family's
+    # set): the gene in the row's symbols or its gene index, the rsID in the row's own or its
+    # annotation index row. The explorer read the annotation index by key, so any family's
     # annotation of a variant let every family's rows through (the owner's decision of
-    # 2026-11-06).
-    clauses, _params = _explorer_where(gene="BRCA1", rsid="rs80357", exclude_clinvar=["Benign"])
+    # 2026-11-06). The excluded ClinVar classes are its alleles' in CoGA's release: left out
+    # where every allele has one.
+    clauses, _params = _explorer_where(
+        scope=_RELEASED_SCOPE, gene="BRCA1", rsid="rs80357", exclude_clinvar=["Benign"]
+    )
     where_sql = " AND ".join(clauses)
     assert "arrayExists(gene -> lower(gene) IN %(entry_gene_terms)s, e.gene_symbols)" in where_sql
     assert "positionCaseInsensitive(ifNull(e.rsid, ''), %(rsid)s) > 0" in where_sql
     assert where_sql.count("(e.key, e.annotationSetHash) IN (") == 2
-    assert where_sql.count("(e.key, e.annotationSetHash) NOT IN (") == 1
+    assert "NOT IN (" not in where_sql
+    assert "NOT (notEmpty(e.allele_keys) AND arrayAll(k -> k IN (SELECT allele_key FROM coga.`GRCh38/SNV_INDEL/clinvar`" in where_sql
     assert "SELECT DISTINCT ai.key" not in where_sql
 
 
@@ -651,7 +673,34 @@ def test_the_explorer_reads_each_shared_filter_with_the_family_search_clause(
     # variants, and with a condition the family search reads on its rows' own transcripts
     # read on the shared table, which keeps the same rows; and the family search puts no
     # other clause for these filters.
-    clauses, params = _explorer_where(**explorer_filters)
+    _assert_the_family_search_clauses(_SCOPE, explorer_filters, family_filters)
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        pytest.param({"clinvar": ["Pathogenic", "Likely_pathogenic"]}, id="clinvar"),
+        pytest.param({"exclude_clinvar": ["Likely_benign", "Benign"]}, id="excluded-clinvar"),
+        pytest.param({"max_gnomad_af": 0.01, "clinvar_pathogenic_override": True}, id="frequency-rescue"),
+        pytest.param(
+            {"chromosome": "17", "start": 1, "end": 2, "max_gnomad_af": 0.01, "mane_only": True,
+             "clinvar_pathogenic_override": True},
+            id="rescue-with-a-filter-it-does-not-lift",
+        ),
+    ],
+)
+def test_the_explorer_reads_clinvar_in_the_scopes_release_as_the_family_search_does(filters: dict[str, Any]) -> None:
+    # ClinVar is CoGA's release's: the explorer's ClinVar status, exclusion and P/LP rescue are
+    # the family search's clauses on the same release.
+    _assert_the_family_search_clauses(
+        _RELEASED_SCOPE, filters, {**filters, "clinvar_coga_release": _RELEASE}
+    )
+
+
+def _assert_the_family_search_clauses(
+    scope: ExplorerScope, explorer_filters: dict[str, Any], family_filters: dict[str, Any]
+) -> None:
+    clauses, params = _explorer_where(scope=scope, **explorer_filters)
     # The explorer's own: a variant row of the summary, its projects, and no imputed callset
     # (the summary's own column for the family search's callset clause).
     assert clauses[:3] == ["e.key != 0", "hasAny(e.projects, %(scope_projects)s)", "NOT e.imputed"]
@@ -1430,25 +1479,92 @@ async def test_fetch_annotation_display_maps_columns_without_gene_symbols(monkey
         if "FROM db.annotations" in query:
             return []
         captured["query"] = query
-        # key, gene_ids, impacts, effects, clinvar_terms, hgvsc_values, hgvsp_values
-        return [(1, ["ENSG1"], ["HIGH"], ["missense_variant"], ["Pathogenic"], ["c.1A>T"], ["p.Met1?"])]
+        # key, gene_ids, impacts, effects, hgvsc_values, hgvsp_values
+        return [(1, ["ENSG1"], ["HIGH"], ["missense_variant"], ["c.1A>T"], ["p.Met1?"])]
 
     monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
     monkeypatch.setattr(ves, "_small_table_name", lambda assembly, suffix: f"db.{suffix.rsplit('/', 1)[1]}")
 
     result = await ves._fetch_annotation_display("GRCh38", [1])
 
-    # The gene_symbols aggregate, which nothing reads, is not selected, and the
-    # remaining columns map to their indices.
-    assert "gene_symbols" not in captured["query"]
+    # The gene_symbols aggregate, which nothing reads, is not selected, nor the annotation's
+    # ClinVar, which no row shows, and the remaining columns map to their indices.
+    assert "gene_symbols" not in captured["query"] and "clinvar" not in captured["query"]
     assert result[1] == {
         "gene_ids": ["ENSG1"],
         "impacts": ["HIGH"],
         "effects": ["missense_variant"],
-        "clinvar_terms": ["Pathogenic"],
         "hgvsc_values": ["c.1A>T"],
         "hgvsp_values": ["p.Met1?"],
     }
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        _RELEASED_SCOPE,
+        ExplorerScope(
+            assembly_id="a1", assembly_name="GRCh38", project_ids=[_PROJECT], clinvar_coga=ClinvarCogaRead("GRCh38", None, True)
+        ),
+    ],
+    ids=["release", "no-release"],
+)
+def test_a_rows_clinvar_is_its_alts_classifications_in_the_scopes_release(
+    monkeypatch: pytest.MonkeyPatch, scope: ExplorerScope
+) -> None:
+    # Each row shows its ALTs' values in CoGA's release of the scope, and as its ClinVar the
+    # classifications of the ALTs the release holds, each once; a variant the release does not
+    # hold has none. The annotation's ClinVar is not read (``_fetch_annotation_display``).
+    from backend.tests._clinvar_release_fakes import wire_clinvar_alleles
+
+    variants = {
+        11: ("1-100-ATT-AT,ATTT", "1", 100, "ATT", "AT,ATTT"),
+        12: ("2-200-G-A", "2", 200, "G", "A"),
+        13: ("3-300-C-T,G", "3", 300, "C", "T,G"),
+    }
+    lookups = wire_clinvar_alleles(
+        monkeypatch,
+        {"1-100-ATT-AT": "Pathogenic", "1-100-ATT-ATTT": "Benign", "3-300-C-T": "Likely_pathogenic",
+         "3-300-C-G": "Likely_pathogenic"},
+    )
+
+    async def ranked(_search: Any, **_kwargs: Any) -> list[tuple[int, ...]]:
+        return [(key, key * 1_000, 1, 0, 1, 1) for key in variants]
+
+    async def columns(_search: Any, rows: Any) -> dict[int, tuple[Any, ...]]:
+        return {key: (key, *variants[key], "", []) for key, *_rest in rows}
+
+    async def no_annotation(_assembly: str, keys: Any) -> dict[int, Any]:
+        return {}
+
+    async def no_reviews(_session: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(ves, "_ranked_variants", ranked)
+    monkeypatch.setattr(ves, "_variant_columns", columns)
+    monkeypatch.setattr(ves, "_fetch_annotation_display", no_annotation)
+    monkeypatch.setattr(ves, "_review_display_map", no_reviews)
+
+    rows, _cursors = asyncio.run(
+        ves._fetch_variant_rows(None, _search(scope=scope), sort_expr="total_samples", direction="DESC", limit=3)  # type: ignore[arg-type]
+    )
+
+    shown = {row.variant_id: (row.clinvar, [(value.alt, value.status) for value in row.clinvar_coga]) for row in rows}
+    if scope.clinvar_coga.release is None:
+        assert shown == {
+            "1-100-ATT-AT,ATTT": (None, [("AT", "no_release"), ("ATTT", "no_release")]),
+            "2-200-G-A": (None, [("A", "no_release")]),
+            "3-300-C-T,G": (None, [("T", "no_release"), ("G", "no_release")]),
+        }
+        assert lookups == []
+        return
+    assert shown == {
+        "1-100-ATT-AT,ATTT": ("Pathogenic; Benign", [("AT", "in_release"), ("ATTT", "in_release")]),
+        "2-200-G-A": (None, [("A", "not_in_release")]),
+        "3-300-C-T,G": ("Likely_pathogenic", [("T", "in_release"), ("G", "in_release")]),
+    }
+    # One lookup for the page's alleles.
+    assert len(lookups) == 1 and len(lookups[0]) == 5
 
 
 @pytest.mark.asyncio
@@ -1464,7 +1580,7 @@ async def test_a_rows_consequence_and_hgvs_come_from_the_transcript_whose_impact
                 (1, "HIGH", ["stop_gained"], "ENST3:c.9C>T", "ENSP3:p.Gln3*", False, True),
             ]
         return [
-            (1, ["ENSG1"], ["LOW", "HIGH"], ["synonymous_variant", "stop_gained"], [],
+            (1, ["ENSG1"], ["LOW", "HIGH"], ["synonymous_variant", "stop_gained"],
              ["ENST1:c.3G>A", "ENST2:c.7C>T", "ENST3:c.9C>T"], ["ENSP1:p.Leu1=", "ENSP2:p.Gln3*", "ENSP3:p.Gln3*"])
         ]
 

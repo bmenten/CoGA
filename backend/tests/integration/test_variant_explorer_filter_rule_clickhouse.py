@@ -7,7 +7,11 @@ imputed callsets, the gene, the rsID, the excluded ClinVar classes, the per-tran
 annotation filters and the gene panel. Each ``entries`` row is read with its own annotation,
 as on the family page, so a variant that two families carry under two annotations (two VEP
 runs) is counted, under an annotation filter, only in the family whose own annotation meets
-it. The chromosome is read with or without ``chr``, and chrM by any of its names (M, MT).
+it. ClinVar is not an annotation's but each allele's in CoGA's release, which the Explorer's
+scope and the family pages read alike (a release of the module's own): a variant the two
+families' annotations give two ClinVar classifications is kept, or left out, in both for the
+release's. The chromosome is read with or without ``chr``, and chrM by any of its names (M,
+MT).
 
 A row's own annotation is the annotation set it was imported with (its key and
 ``annotationSetHash``), whatever its version: family B is written as a VEP TSV import
@@ -39,12 +43,15 @@ Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
+from datetime import date
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
+from backend.tests.integration._clinvar_source import release_rows
 from backend.tests.integration._datastores import (
     explorer_shows,
     proband_context,
@@ -57,6 +64,8 @@ pytestmark = pytest.mark.integration
 
 _ASSEMBLY = "GRCh38"
 _SAMPLE_A, _SAMPLE_B = "EXPF_A1", "EXPF_B1"
+# CoGA's ClinVar release of the module's own, a partition it writes and drops.
+_RELEASE = date(2026, 11, 1)
 
 _CSQ_FORMAT = (
     "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
@@ -84,7 +93,7 @@ def _csq(
 
 # Carried by both families, each under its own annotation (two VEP runs): family A's says
 # stop gained (HIGH) in EXPF1, rs990001, of uncertain significance and rare; family B's says
-# missense (MODERATE) in EXPF1B, benign and at 2 % in gnomAD.
+# missense (MODERATE) in EXPF1B, benign and at 2 % in gnomAD. CoGA's release holds it benign.
 _TWO_RUNS = "14-74100101-C-T"
 # Carried by both families under one annotation: heterozygous in A, homozygous in B.
 _SHARED = "14-74100201-G-A"
@@ -180,11 +189,16 @@ _CASES = {
     "rsID of another import": _Case(
         {"rsid": "rs990002"}, {"rsid": "rs990002"}, {"A": {_RSID_ELSEWHERE}, "B": {_RSID_ELSEWHERE}}
     ),
-    "ClinVar": _Case({"clinvar": ["benign"]}, {"clinvar": ["benign"]}, {"A": set(), "B": {_TWO_RUNS}}),
+    # ClinVar is the allele's in CoGA's release, alike in both families whatever their
+    # annotations say (uncertain in A's, benign in B's).
+    "ClinVar": _Case({"clinvar": ["benign"]}, {"clinvar": ["benign"]}, {"A": {_TWO_RUNS}, "B": {_TWO_RUNS}}),
+    "ClinVar of an annotation alone": _Case(
+        {"clinvar": ["Uncertain_significance"]}, {"clinvar": ["Uncertain_significance"]}, {"A": set(), "B": set()}
+    ),
     "excluded ClinVar": _Case(
         {"exclude_clinvar": ["Benign"]},
         {"exclude_clinvar": ["Benign"]},
-        {"A": _ALL_A, "B": _ALL_B - {_TWO_RUNS}},
+        {"A": _ALL_A - {_TWO_RUNS}, "B": _ALL_B - {_TWO_RUNS}},
     ),
     "frequency": _Case(
         {"max_gnomad_af": 0.01}, {"max_gnomad_af": 0.01}, {"A": _ALL_A, "B": _ALL_B - {_TWO_RUNS}}
@@ -261,11 +275,17 @@ _CASES = {
 
 
 @pytest.fixture(scope="module")
-def stored_families() -> dict[str, str]:
-    """Write both families once, in one fresh project."""
+def stored_families() -> Iterator[dict[str, str]]:
+    """Write both families once, in one fresh project, and CoGA's release of their alleles;
+    the release's partition is dropped after the module."""
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         insert_small_variant_records,
+    )
+    from backend.app.services.clinvar_release_store import (
+        drop_clinvar_release,
+        ensure_clinvar_table,
+        insert_clinvar_rows,
     )
 
     project = str(uuid4())
@@ -291,9 +311,15 @@ def stored_families() -> dict[str, str]:
                 _records(sample, variants),
                 annotation_version=_ANNOTATION_VERSION[label],
             )
+        await ensure_clinvar_table(_ASSEMBLY)
+        await insert_clinvar_rows(_ASSEMBLY, _RELEASE, release_rows(_ASSEMBLY, {_TWO_RUNS: "Benign"}))
+
+    async def _drop() -> None:
+        await drop_clinvar_release(_ASSEMBLY, _RELEASE)
 
     run_closing_stores(_write, init_schema=True)
-    return {"project": project, **families}
+    yield {"project": project, **families}
+    run_closing_stores(_drop)
 
 
 def _stub_family_page_and_scope(
@@ -305,7 +331,14 @@ def _stub_family_page_and_scope(
     import backend.app.services.variant_explorer_service as explorer
     from backend.app.services.clickhouse_variant_records import PanelFilterConstraints
 
-    scope = explorer.ExplorerScope(assembly_id=str(uuid4()), assembly_name=_ASSEMBLY, project_ids=[stored["project"]])
+    from backend.app.services.clinvar_coga import ClinvarCogaRead
+
+    scope = explorer.ExplorerScope(
+        assembly_id=str(uuid4()),
+        assembly_name=_ASSEMBLY,
+        project_ids=[stored["project"]],
+        clinvar_coga=ClinvarCogaRead(_ASSEMBLY, _RELEASE, True),
+    )
 
     async def _fake_scope(session: Any, user: Any, assembly_id: Any) -> Any:
         return scope
@@ -349,8 +382,14 @@ def test_an_explorer_row_is_the_family_pages_pooled(
         results: dict[str, Any] = {}
         async with get_postgres_sessionmaker()() as session:
             for label in case.kept:
+                # The family page reads CoGA's release as its route passes it.
                 page = await family_variants.get_family_small_variants_page(
-                    session, context=_family_context(stored_families, label), page=1, page_size=100, **case.family
+                    session,
+                    context=_family_context(stored_families, label),
+                    page=1,
+                    page_size=100,
+                    clinvar_coga_release=_RELEASE,
+                    **case.family,
                 )
                 results[f"family {label}"] = (page.total, {variant.id for variant in page.variants})
             explorer_page = await explorer.search_global_small_variants(

@@ -12,11 +12,12 @@ from backend.app.services.nipt_artifact_pg import (
     load_nipt_artifacts,
     recurrence_rules,
 )
+from backend.tests._clinvar_release_fakes import READ, allele_key, wire_clinvar_alleles
 
 
 @pytest.fixture(autouse=True)
 def _no_clinvar_release_for_the_artifact_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No ClinVar release of CoGA's own: the artifact list's protection reads the annotation."""
+    """No ClinVar release of CoGA's: no variant has ClinVar, so none is protected for it."""
 
     async def no_release(_session, _assembly_name):
         return NO_CLINVAR_COGA
@@ -118,9 +119,8 @@ async def test_artifact_candidates_count_unexplained_low_vaf_calls_of_the_given_
     captured: dict = {}
 
     async def fake_execute(query, params):
-        if "variants/annotation_index" in query:
-            # (variant, its highest population frequency, its ClinVar terms across its annotations)
-            return [("2-200-C-T", 0.001, ["uncertain significance"])]
+        # The count alone: a candidate's ClinVar is CoGA's release's (none here).
+        assert "variants/annotation_index" not in query
         captured.update(query=query, params=params)
         # (variant, unexplained low-VAF samples)
         return [("1-100-A-G", 12), ("2-200-C-T", 3)]
@@ -166,29 +166,31 @@ async def test_artifact_candidates_never_hold_a_clinvar_pathogenic_variant(
         ("1-500-A-G", 6),
         ("1-600-A-G", 5),
     ]
-    clinvar = {
-        "1-200-A-G": ["pathogenic"],
-        "1-300-A-G": ["likely pathogenic", "uncertain significance"],
-        "1-400-A-G": ["conflicting classifications of pathogenicity"],
-        "1-500-A-G": ["uncertain significance"],
-        "1-600-A-G": ["benign", "likely benign"],
-    }
-    annotation_reads: list = []
+    # Each candidate's ClinVar in CoGA's release; the annotation's is not read.
+    lookups = wire_clinvar_alleles(
+        monkeypatch,
+        {
+            "1-200-A-G": "Pathogenic",
+            "1-300-A-G": "Pathogenic/Likely_pathogenic",
+            "1-400-A-G": "Conflicting_classifications_of_pathogenicity",
+            "1-500-A-G": "Uncertain_significance",
+            "1-600-A-G": "Benign/Likely_benign",
+        },
+    )
+    queries: list[str] = []
 
     async def fake_execute(query, params):
-        if "variants/annotation_index" not in query:
-            return recurrent
-        annotation_reads.append(params)
-        # Every annotation of each candidate on the assembly, read at its own locus.
-        assert "clinvar_terms" in query and "(chrom, pos) IN %(loci)s" in query
-        return [(variant_id, 0.001, terms) for variant_id, terms in clinvar.items()]
+        queries.append(query)
+        return recurrent
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
 
-    assert await _candidates() == [("1-100-A-G", 9), ("1-500-A-G", 6), ("1-600-A-G", 5)]
-    [params] = annotation_reads
-    assert params["variant_ids"] == tuple(variant_id for variant_id, _count in recurrent)
-    assert params["loci"] == tuple(("1", position) for position in (100, 200, 300, 400, 500, 600))
+    assert await _candidates(clinvar_coga=READ) == [("1-100-A-G", 9), ("1-500-A-G", 6), ("1-600-A-G", 5)]
+    # One lookup of the candidates' alleles, and no annotation read.
+    assert lookups == [{allele_key(variant_id) for variant_id, _count in recurrent}]
+    assert len(queries) == 1 and "variants/annotation_index" not in queries[0]
+    # Without a release no candidate has ClinVar: none is protected for it.
+    assert await _candidates() == recurrent
 
 
 @pytest.mark.asyncio
@@ -542,22 +544,26 @@ async def test_import_never_lists_a_common_or_pathogenic_allele(
 @pytest.mark.asyncio
 async def test_protection_flags_read_the_pooled_annotation(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_execute(query, params):
-        assert "variants/annotation_index" in query
-        assert params["variant_ids"] == ("1-1-A-G", "1-2-A-G", "1-3-A-G")
+        assert "variants/annotation_index" in query and "clinvar_terms" not in query
+        assert params["variant_ids"] == ("1-1-A-G", "1-2-A-G", "1-3-A-G", "1-4-A-G")
         # Read by the index's sort key, at each variant's own locus.
         assert "(chrom, pos) IN %(loci)s" in query
-        assert params["loci"] == (("1", 1), ("1", 2), ("1", 3))
-        return [
-            ("1-1-A-G", 0.12, []),
-            ("1-2-A-G", 0.001, ["Pathogenic"]),
-            ("1-3-A-G", 0.001, ["Benign"]),
-        ]
+        assert params["loci"] == (("1", 1), ("1", 2), ("1", 3), ("1", 4))
+        # The highest population frequency over each variant's annotations on the assembly.
+        return [("1-1-A-G", 0.12), ("1-2-A-G", 0.001), ("1-3-A-G", 0.001), ("1-4-A-G", 0.3)]
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
-    flags = await clickhouse_family_variants.fetch_artifact_protection_flags(
-        "GRCh38", ["1-1-A-G", "1-2-A-G", "1-3-A-G"], clinvar_coga=NO_CLINVAR_COGA
-    )
-    assert flags == {"1-1-A-G": "common", "1-2-A-G": "clinvar"}
+    # 1-3 is benign in the release; 1-4, common, also pathogenic: ClinVar names the reason.
+    wire_clinvar_alleles(monkeypatch, {"1-2-A-G": "Pathogenic", "1-3-A-G": "Benign", "1-4-A-G": "Likely_pathogenic"})
+    variant_ids = ["1-1-A-G", "1-2-A-G", "1-3-A-G", "1-4-A-G"]
+
+    flags = await clickhouse_family_variants.fetch_artifact_protection_flags("GRCh38", variant_ids, clinvar_coga=READ)
+
+    assert flags == {"1-1-A-G": "common", "1-2-A-G": "clinvar", "1-4-A-G": "clinvar"}
+    # Without a release the frequency alone protects.
+    assert await clickhouse_family_variants.fetch_artifact_protection_flags(
+        "GRCh38", variant_ids, clinvar_coga=NO_CLINVAR_COGA
+    ) == {"1-1-A-G": "common", "1-4-A-G": "common"}
 
 
 @pytest.mark.parametrize(

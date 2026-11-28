@@ -5,8 +5,7 @@ import InfoTip from '../../components/InfoTip';
 import ModalDialog from '../../components/ModalDialog';
 import api from '../../lib/api';
 import type { GeneProfileOut, GeneTranscriptOut } from '../../lib/apiSchema.generated';
-import { clinvarAnnotationLabel, clinvarCogaOf, clinvarLabel, VEP_CACHE_CLINVAR_NOTE } from '../../lib/clinvar';
-import ClinvarCogaChip, { clinvarCogaText } from './ClinvarCogaChip';
+import { clinvarValueText, formatClinvarStars } from '../../lib/clinvar';
 import { genotypeZygosity } from '../../lib/genotypes';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -27,7 +26,6 @@ import {
   formatCompoundHetPhaseStatus,
   GENOMIC_CHANGE_NOTE,
   VEP_HGVSG_NOTE,
-  formatClinvarStars,
   formatGenomicChange,
   formatLocus,
   formatPredictionScore,
@@ -552,9 +550,10 @@ const TranscriptPopup = ({
   );
 };
 
-// annotation_extra keys the card surfaces itself, so the disclosure does not repeat them.
-// These are the names the annotation carries (see variant_annotation_parser); the parser
-// maps the VEP spellings (am_class, AlphaMissense_pathogenicity) onto them on import.
+// annotation_extra keys the disclosure leaves out: those the card surfaces itself, so it does not
+// repeat them, and the annotation's ClinVar. These are the names the annotation carries (see
+// variant_annotation_parser); the parser maps the VEP spellings (am_class,
+// AlphaMissense_pathogenicity) onto them on import.
 const CARD_CONSUMED_EXTRA_KEYS = new Set([
   'alpha_missense_class',
   'alpha_missense_pathogenicity',
@@ -562,17 +561,18 @@ const CARD_CONSUMED_EXTRA_KEYS = new Set([
   'gnomad_filter',
   'gnomad_exomes_filter',
   'gnomad_genomes_filter',
+  // The annotation's own ClinVar (VEP's cache's classification, kept apart where a ClinVar file
+  // was annotated, and the file's allele ID): a variant's ClinVar is CoGA's release's only, so
+  // the annotation's is not shown.
+  'clinvar_vep_cache',
+  'clinvar_allele_id',
 ]);
 
 // annotation_extra keys the disclosure names in words rather than by the raw key. The VCF's own
 // MISSENSE_Z is stored under the annotation's gene_missense_z: as a raw key it read like the gene
-// profile's Missense Z in the In silico column, which PP2 reads first. Where the pipeline
-// annotated a ClinVar file, VEP's cache classification is kept apart under clinvar_vep_cache:
-// the known variant's (the dbSNP rsID's), of this allele or of every allele the rsID groups.
-// Shown, never read as the ClinVar classification, which is the file's.
+// profile's Missense Z in the In silico column, which PP2 reads first.
 const EXTRA_KEY_LABELS: Record<string, string> = {
   gene_missense_z: 'Missense Z (gnomAD, from the VCF)',
-  clinvar_vep_cache: "ClinVar in the VEP cache (the rsID's, maybe another allele's; not read as ClinVar)",
   gnomad_ac: 'gnomAD allele count',
   gnomad_an: 'gnomAD allele number',
 };
@@ -654,15 +654,13 @@ const buildVariantDetailData = (variant: SmallVariant) => {
     variant.lof_filter ? { label: 'LoF filter', value: variant.lof_filter } : null,
     variant.lof_flags ? { label: 'LoF flags', value: variant.lof_flags } : null,
     variant.nmd ? { label: 'NMD', value: formatTokenLabel(variant.nmd) } : null,
-    variant.clinvar_review_status ? { label: 'ClinVar review status', value: variant.clinvar_review_status } : null,
-    variant.clinvar_conditions?.length ? { label: 'ClinVar conditions', value: variant.clinvar_conditions.join('; ') } : null,
-    // CoGA's own ClinVar release, each ALT's value, beside the annotation's lines above.
+    // ClinVar, each ALT's value in CoGA's release (the chip shows the shown ALT's).
     ...(variant.clinvar_coga ?? []).flatMap((value) => {
       const of = (variant.clinvar_coga ?? []).length > 1 ? ` of ${value.alt}` : '';
       return [
-        { label: `ClinVar (CoGA)${of}`, value: clinvarCogaText(value) },
-        value.review_status ? { label: `ClinVar (CoGA) review status${of}`, value: value.review_status } : null,
-        value.conditions.length ? { label: `ClinVar (CoGA) conditions${of}`, value: value.conditions.join('; ') } : null,
+        { label: `ClinVar${of}`, value: clinvarValueText(value) },
+        value.review_status ? { label: `ClinVar review status${of}`, value: value.review_status } : null,
+        value.conditions.length ? { label: `ClinVar conditions${of}`, value: value.conditions.join('; ') } : null,
       ];
     }),
     // The frequencies the Frequencies column leaves out, such as gnomAD's per-dataset popmax.
@@ -695,10 +693,6 @@ export interface SmallVariantCardListProps {
   // The NIPT list's samples: a NIPT variant's genotypes show the plasma's and the father's
   // reads as the analysis read them, without the fetus (niptGenotypeEntries).
   niptTrio?: NiptTrio | null;
-  // The two ClinVar releases the page names (the owner's decision B7): the release of the
-  // ClinVar file the annotation names, and CoGA's own release the page read.
-  clinvarAnnotationRelease?: string | null;
-  clinvarCogaRelease?: string | null;
 }
 
 /**
@@ -799,8 +793,6 @@ export function SmallVariantCard({
   onToggleReviewTag,
   rankedBy = null,
   niptTrio = null,
-  clinvarAnnotationRelease = null,
-  clinvarCogaRelease = null,
 }: SmallVariantCardProps) {
   const key = cardKey ?? variant._id;
   const { locus, igvHref, viewHref } = buildSmallVariantNavigation({
@@ -824,23 +816,13 @@ export function SmallVariantCard({
     ? buildVariantDetailData(variant)
     : null;
   const { scoreItems = [], additionalAnnotations = [] } = detailData ?? {};
-  // ClinVar's classification with its review stars; the status and conditions on hover. One
-  // read from VEP's cache is named as the cache's, and says on hover why.
+  // ClinVar's classification (CoGA's release's) with its review stars; the status and conditions
+  // on hover.
   const clinvarStars = formatClinvarStars(variant.clinvar_stars);
   const clinvarSummary = `${formatTokenLabel(variant.clinvar)}${clinvarStars ? ` ${clinvarStars}` : ''}`;
-  // Beside CoGA's own release, the annotation's value is named by its release (B7).
-  const clinvarCoga = clinvarCogaOf(variant);
-  const clinvarKey = clinvarCoga
-    ? clinvarAnnotationLabel(variant.clinvar_from_vep_cache, clinvarAnnotationRelease)
-    : clinvarLabel(variant.clinvar_from_vep_cache);
   const clinvarTitle =
-    [
-      variant.clinvar_from_vep_cache ? VEP_CACHE_CLINVAR_NOTE : null,
-      variant.clinvar_review_status,
-      (variant.clinvar_conditions ?? []).join('; '),
-    ]
-      .filter(Boolean)
-      .join(' — ') || undefined;
+    [variant.clinvar_review_status, (variant.clinvar_conditions ?? []).join('; ')].filter(Boolean).join(' — ') ||
+    undefined;
   const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], list.tagMap);
   const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
   const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
@@ -1007,7 +989,7 @@ export function SmallVariantCard({
                   variant.clinvar,
                 )}`}
               >
-                <span className="variant-card-chip-key">{clinvarKey}</span>
+                <span className="variant-card-chip-key">ClinVar</span>
                 {clinvarSummary}
               </a>
             ) : (
@@ -1015,13 +997,10 @@ export function SmallVariantCard({
                 className={`variant-card-chip variant-card-chip--${getClinvarTone(variant.clinvar)}`}
                 title={clinvarTitle}
               >
-                <span className="variant-card-chip-key">{clinvarKey}</span>
+                <span className="variant-card-chip-key">ClinVar</span>
                 {clinvarSummary}
               </span>
             )
-          ) : null}
-          {clinvarCoga && (variant.clinvar || clinvarCoga.status === 'in_release') ? (
-            <ClinvarCogaChip value={clinvarCoga} release={clinvarCogaRelease} annotated={variant} />
           ) : null}
           {/* The class the review shows: a class word as its label, not as typed. */}
           {reviewClass.label ? (

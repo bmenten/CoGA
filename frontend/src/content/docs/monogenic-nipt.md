@@ -319,7 +319,7 @@ Flags appear as chips on the variant card.
 | `no_alt_signal` | The allele is not present in the cfDNA, and the father does not carry it or has no usable call. |
 | `maternal_inference_indel`, `allele_balance_outlier` | See the maternal probability above. |
 | `father_call_…`, `plasma_call_…` | The other sample's call was looked up in another representation (see above). |
-| `artifact_list_protected` | The site is on the assay's artifact list, but the family's own annotation marks it common or ClinVar-pathogenic, or the family's father carries it, so it stays in (see *Artifact list*). |
+| `artifact_list_protected` | The site is on the assay's artifact list, but the family's own annotation marks it common, ClinVar may call it pathogenic, or the family's father carries it, so it stays in (see *Artifact list*). |
 | `off_target` | The site lies outside every capture target of the plasma's per-target coverage table: off-target reads. It is listed and classified, but it is no fetal-fraction site and no de novo candidate (paternity and the fetal sex count no site without the plasma's target depth either). |
 | `x_nonpar_female_fetus`, `x_nonpar_male_fetus` | chrX outside the pseudo-autosomal regions, classified for a daughter or a son (see *chrX and the fetal sex*). |
 | `father_het_call_on_x` | The father has a het call on chrX outside the pseudo-autosomal regions, where he has one X: an artefact, read as no call. |
@@ -635,10 +635,12 @@ adjustable, for exploring; the report and the sign-out use these.
   or the fathers that carry it, whichever are more. This pregnancy's plasma and father count only
   when they show or carry it. An allele common only by the fathers' count can still be the mother's.
 - **Protein-altering:** a HIGH or MODERATE impact, or a SpliceAI score of 0.2 or more.
-- **ClinVar:** a record calling the allele pathogenic or likely pathogenic, with no benign or
-  conflicting assertion and a population frequency of 5% or less, passes the protein-effect filter and
-  counts as rare for the recessive pairing (carrier frequencies of 1–5%). A de novo or dominant
-  candidate must still be rare itself: the wider override filled those lists with common alleles.
+- **ClinVar:** the allele's classification in the ClinVar release CoGA loads, the one the analysis
+  read (the callsets' annotated ClinVar is not read). A record calling the allele pathogenic or
+  likely pathogenic, with no benign or conflicting assertion and a population frequency of 5% or
+  less, passes the protein-effect filter and counts as rare for the recessive pairing (carrier
+  frequencies of 1–5%). A de novo or dominant candidate must still be rare itself: the wider override
+  filled those lists with common alleles.
 - **Low confidence:** a de novo indel in a repeat (a repeat-unit count of 3 or more, or an inserted
   or deleted sequence that is itself a tandem repeat): most such candidates were artefacts.
 
@@ -761,10 +763,11 @@ Neither the import nor the seed ever lists:
   may hold a pathogenic submission. A familial founder variant recurs in a disease-focused panel, and a
   listed variant is left out of every analysis of the assay.
 
-The protections are checked when an allele is imported or seeded, on the annotation of the families
-on the assembly; an allele no family carried then, or one added by hand, is listed unchecked. So each family's analysis checks its
-listed alleles again with its own annotation: one it marks common or ClinVar-pathogenic stays in,
-flagged `artifact_list_protected`.
+The protections are checked when an allele is imported or seeded: the frequency on the annotation of
+the families on the assembly, ClinVar in the ClinVar release CoGA loads. An allele no family carried
+then has no frequency to check, and one added by hand is listed unchecked. So each family's analysis
+checks its listed alleles again: one its own annotation marks common, or that ClinVar may call
+pathogenic, stays in, flagged `artifact_list_protected`.
 
 A listed allele **the family's father carries** stays in too, flagged the same way, when the plasma
 shows it at an allele fraction of at most 30% (or not at all) and the list records it in at most 3
@@ -775,7 +778,7 @@ names why each allele stayed in (`clinvar`, `common`, `paternal_carrier`).
 
 **Review the list before use.** It can still hold real variants:
 
-- a site with no population or ClinVar annotation is not protected;
+- a site with no population frequency, and no ClinVar in CoGA's release, is not protected;
 - a real recurrent variant that ClinVar does not call pathogenic can be listed;
 - a pregnancy without the father's sample, or whose father's call is too weak, cannot explain the
   fetus's paternal allele, so with many such pregnancies a polymorphism can still be seeded.

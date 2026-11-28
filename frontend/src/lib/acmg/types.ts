@@ -214,11 +214,9 @@ export interface AcmgMitoCall {
 // (McCormick 2020). Carried on SmallVariant.mito for MT variants.
 export interface AcmgMitoContext {
   category?: AcmgMitoCategory | null;
-  // Aggregated MITOMAP/ClinVar status, e.g. 'pathogenic' | 'polymorphism' | …
+  // Aggregated MITOMAP/ClinVar status, e.g. 'pathogenic' | 'polymorphism' | …; its ClinVar part
+  // is CoGA's release's.
   clinicalSignificance?: string | null;
-  // The release of CoGA's own ClinVar whose classification the status reads, where it holds the
-  // allele (the design's one rule, B12); null where the status reads the annotation's ClinVar.
-  clinvarCogaRelease?: string | null;
   // The mtDNA population frequencies of homoplasmic and of heteroplasmic calls, the highest of
   // the sources annotated (gnomAD-MT, HelixMTdb), each with the source it came from. Population
   // frequencies, not the heteroplasmy of the person tested.

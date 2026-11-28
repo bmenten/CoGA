@@ -564,39 +564,40 @@ def test_a_multi_allelic_record_serves_the_alt_each_transcript_is_of() -> None:
 
 
 def test_the_new_annotation_fields_are_served_as_fields_of_their_own() -> None:
-    # ClinVar's review status (with ClinVar's stars), conditions and VariationID, VEP's NMD
-    # prediction and SpliceAI's positions: served, and not repeated in annotation_extra.
-    annotated = _transcript(
-        "ENST_SYN51_1",
-        canonical=True,
-        clinvar="Pathogenic",
-        clinvar_review_status="criteria provided, multiple submitters, no conflicts",
-        clinvar_conditions="Condition_A&not_provided",
-        clinvar_variation_id="12345",
-        nmd="NMD_escaping_variant",
-        spliceai_ds_dg=0.82,
-        spliceai_dp_dg=-14,
-    )
+    # VEP's NMD prediction and SpliceAI's positions: served, and not repeated in
+    # annotation_extra.
+    annotated = _transcript("ENST_SYN51_1", canonical=True, nmd="NMD_escaping_variant", spliceai_ds_dg=0.82, spliceai_dp_dg=-14)
     variant = _small_variant_out(_record("1-100-C-T", [annotated]), assembly_name="GRCh38", filter_annotation_hashes=None)
-    assert (variant.clinvar_review_status, variant.clinvar_stars) == (
-        "criteria provided, multiple submitters, no conflicts",
-        2,
-    )
-    assert variant.clinvar_conditions == ["Condition A", "not provided"]
-    assert (variant.clinvar_variation_id, variant.nmd, variant.spliceai_dp_dg) == ("12345", "NMD_escaping_variant", -14)
-    for key in ("clinvar_review_status", "clinvar_conditions", "clinvar_variation_id", "nmd", "spliceai_dp_dg"):
+    assert (variant.nmd, variant.spliceai_dp_dg) == ("NMD_escaping_variant", -14)
+    for key in ("nmd", "spliceai_dp_dg"):
         assert key not in variant.annotation_extra
-    # A ClinVar file's classification: not VEP's cache's.
-    assert variant.clinvar_from_vep_cache is False
 
 
-def test_a_clinvar_classification_from_the_vep_cache_is_served_as_the_caches() -> None:
-    # Read where no ClinVar file was annotated: the known variant's, perhaps another allele's.
-    # Every view names it as the cache's, so it is served as such, not as an extra annotation.
-    cached = _transcript("ENST_SYN52_1", canonical=True, clinvar="pathogenic", clinvar_from_vep_cache=True)
-    variant = _small_variant_out(_record("1-100-C-T", [cached]), assembly_name="GRCh38", filter_annotation_hashes=None)
-    assert (variant.clinvar, variant.clinvar_from_vep_cache) == ("pathogenic", True)
-    assert "clinvar_from_vep_cache" not in variant.annotation_extra
+def test_the_annotations_clinvar_is_neither_served_nor_kept_as_an_extra_annotation() -> None:
+    # A small variant's ClinVar is CoGA's release's, served with the page
+    # (clinvar_coga.attach_clinvar_coga): the annotation's (a ClinVar file's, or VEP's cache's)
+    # is not read into the variant's ClinVar fields, nor shown among its extra annotations.
+    clinvar = {
+        "clinvar": "Pathogenic",
+        "clinvar_review_status": "criteria provided, multiple submitters, no conflicts",
+        "clinvar_conditions": "Condition_A&not_provided",
+        "clinvar_variation_id": "12345",
+        "clinvar_allele_id": "67890",
+        "clinvar_vep_cache": "pathogenic",
+        "clinvar_from_vep_cache": True,
+    }
+    annotated = _transcript("ENST_SYN51_1", canonical=True, **clinvar)
+    variant = _small_variant_out(_record("1-100-C-T", [annotated]), assembly_name="GRCh38", filter_annotation_hashes=None)
+    assert (
+        variant.clinvar,
+        variant.clinvar_review_status,
+        variant.clinvar_stars,
+        variant.clinvar_conditions,
+        variant.clinvar_variation_id,
+        variant.clinvar_coga,
+    ) == (None, None, None, [], None, [])
+    assert not set(clinvar) & set(variant.annotation_extra)
+    assert not hasattr(variant, "clinvar_from_vep_cache")
 
 
 def test_vep_hgvsg_is_served_from_the_primary_transcripts_annotation() -> None:

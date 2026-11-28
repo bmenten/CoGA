@@ -4,7 +4,7 @@ and ``test_nipt_pair_service.py`` (one VCF per parent).
 ``wire_nipt_reads`` answers the family record, its metadata context, the two variant loads
 (the cohort the fetal fraction is read from, without a gene filter, and the filtered variant
 list, with one), the family's data version, the assay's artifact list, the QC gate's bound
-(provisional: QA has set none), the ClinVar releases (``wire_clinvar_release``: none) and the
+(provisional: QA has set none), CoGA's ClinVar release (``wire_clinvar_release``: none) and the
 other cfDNA samples of the assay; the review and
 internal-cohort hydration of the listed rows is a database concern exercised elsewhere, and
 is a no-op here. Synthetic families only.
@@ -17,8 +17,9 @@ reads none.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -32,6 +33,7 @@ from backend.app.services.nipt_artifact_pg import recurrence_rules
 from backend.app.services.nipt_qc_gate import NiptGateBound, resolve_nipt_gate_bound
 from backend.app.services.clickhouse_family_variants import CfdnaRecurrence
 from backend.app.services.clickhouse_variant_records import SmallVariantRecord
+from backend.tests._clinvar_release_fakes import wire_clinvar_alleles
 
 
 # The recurrence a fake artifact list records for an allele given by id alone: a typical
@@ -76,20 +78,21 @@ def wire_annotation(monkeypatch: pytest.MonkeyPatch, records: list[SmallVariantR
 
 
 def wire_clinvar_release(
-    monkeypatch: pytest.MonkeyPatch, read: ClinvarCogaRead = NO_CLINVAR_COGA, annotated: date | None = None
+    monkeypatch: pytest.MonkeyPatch,
+    read: ClinvarCogaRead = NO_CLINVAR_COGA,
+    *,
+    held: Mapping[str, str] | None = None,
 ) -> None:
-    """CoGA's ClinVar release the analysis reads (``clinvar_coga_read``): none by default, so
-    the NIPT readers read the annotation's ClinVar; and the release of the ClinVar file the
-    analysis's annotation names (``analysis_clinvar_release``, its manifest's): ``annotated``."""
+    """CoGA's ClinVar release the analysis reads (``clinvar_coga_read``): none by default, so no
+    variant has a ClinVar classification; with ``held``, a release that holds those alleles
+    (``chrom-pos-ref-alt``) with their classification and no other (``wire_clinvar_alleles``)."""
 
     async def release(_session: Any, _assembly_name: Any) -> ClinvarCogaRead:
         return read
 
-    async def annotation_release(_session: Any, _context: Any) -> date | None:
-        return annotated
-
     monkeypatch.setattr(nipt_service, "clinvar_coga_read", release)
-    monkeypatch.setattr(nipt_service, "analysis_clinvar_release", annotation_release)
+    if held is not None:
+        wire_clinvar_alleles(monkeypatch, held, read=read)
 
 
 def wire_data_version(monkeypatch: pytest.MonkeyPatch, version: str = "1:1") -> None:

@@ -7,7 +7,7 @@ import {
   type AcmgParentageCheck,
 } from '../../lib/acmg';
 import type { FamilyGenePhenotypeScoreOut } from '../../lib/apiSchema.generated';
-import { VEP_CACHE_CLINVAR_NOTE } from '../../lib/clinvar';
+import { formatClinvarStars } from '../../lib/clinvar';
 import type { AcmgModalVariant } from './AcmgClassificationModal';
 import {
   alphaMissenseTone,
@@ -21,7 +21,6 @@ import {
 import PredictorMark, { ALPHA_MISSENSE_CLASS_READING, SEQR_THRESHOLDS, SPLICEAI_THRESHOLDS } from './PredictorMark';
 import {
   SEGREGATION_MODE_LABELS,
-  formatClinvarStars,
   formatFrequency,
   formatPredictionScore,
   formatScore,
@@ -219,7 +218,6 @@ const clinvarSection = (variant: AcmgModalVariant): EvidenceSection => {
         'Classification',
         variant.clinvar ? `${formatTokenLabel(variant.clinvar)}${stars ? ` ${stars}` : ''}` : NONE,
       ),
-      optionalRow('Source', variant.clinvar_from_vep_cache ? VEP_CACHE_CLINVAR_NOTE : null),
       optionalRow('Review status', variant.clinvar_review_status ? formatTokenLabel(variant.clinvar_review_status) : null),
       optionalRow('Conditions', variant.clinvar_conditions?.length ? variant.clinvar_conditions.join('; ') : null),
       mito ? row('MITOMAP / ClinVar (mtDNA)', text(mito.clinicalSignificance)) : null,
