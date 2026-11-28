@@ -7,9 +7,12 @@ The reads, and the shared table each looks its variants up in:
   (``get_small_variant_family_record``): ``SNV_INDEL/variants/details``;
 * a family's SV page (``_fetch_structural_variant_rows``) and an SV's classification evidence
   (``fetch_structural_variant_records``): ``SV/variants/details``;
-* the NIPT artifact list's protections (``fetch_artifact_protection_flags``) and the
-  auto-seed's ClinVar check (``fetch_recurrent_artifact_candidates``):
-  ``SNV_INDEL/variants/annotation_index``, every annotation of the variant on the assembly.
+* the NIPT artifact list's protections (``fetch_artifact_protection_flags``):
+  ``SNV_INDEL/variants/annotation_index``, every annotation of the variant on the assembly, for
+  its population frequency. Its ClinVar, and the auto-seed's
+  (``fetch_recurrent_artifact_candidates``), is CoGA's release's, looked up by allele key: the
+  auto-seed reads no shared annotation table, and another family's annotation calling a variant
+  pathogenic protects nothing.
 
 A trio's small variants and SVs, three NIPT families' cfDNA calls and another family's
 annotations of some of the same variants are written through the import's write path. The
@@ -297,23 +300,31 @@ async def _measured(label: str, read: Awaitable[_T]) -> _T:
         client.set_client_setting("log_comment", "")
 
 
-async def _read_rows(label: str, *, table: str | None = None) -> int:
-    """The rows the queries tagged ``label`` read; with ``table``, only the queries that read it."""
+async def _read_rows(label: str) -> int:
+    """The rows the queries tagged ``label`` read."""
     from backend.app.core.clickhouse import execute_clickhouse
 
     await execute_clickhouse("SYSTEM FLUSH LOGS")
-    params: dict[str, Any] = {"label": label}
-    table_clause = ""
-    if table is not None:
-        table_clause = " AND has(tables, %(table)s)"
-        params["table"] = table
     rows = await execute_clickhouse(
         "SELECT count(), sum(read_rows) FROM system.query_log"
-        f" WHERE type = 'QueryFinish' AND log_comment = %(label)s{table_clause}",
-        params,
+        " WHERE type = 'QueryFinish' AND log_comment = %(label)s",
+        {"label": label},
     )
     assert rows and int(rows[0][0]) > 0, f"no query logged for {label}"
     return int(rows[0][1])
+
+
+async def _queries_reading(label: str, table: str) -> int:
+    """How many of the queries tagged ``label`` read ``table``."""
+    from backend.app.core.clickhouse import execute_clickhouse
+
+    await execute_clickhouse("SYSTEM FLUSH LOGS")
+    rows = await execute_clickhouse(
+        "SELECT count() FROM system.query_log"
+        " WHERE type = 'QueryFinish' AND log_comment = %(label)s AND has(tables, %(table)s)",
+        {"label": label, "table": table},
+    )
+    return int(rows[0][0])
 
 
 async def _row_count(table: str) -> int:
@@ -361,9 +372,10 @@ def _whole_sv_details(assembly_name: str, _where_clauses: Sequence[str], _column
 
 
 async def _reference_protection_flags(assembly_name: str, variant_ids: Sequence[str]) -> dict[str, str]:
+    """The protections without a ClinVar release of CoGA's: a population frequency above 5% in
+    any annotation of the variant on the assembly."""
     from backend.app.core.clickhouse import execute_clickhouse
     from backend.app.services.clickhouse_variant_ids import _small_table_name
-    from backend.app.services.variant_prioritization import clinvar_may_assert_pathogenic
 
     rows = await execute_clickhouse(
         f"""
@@ -373,28 +385,24 @@ async def _reference_protection_flags(assembly_name: str, variant_ids: Sequence[
                 ifNull(max_gnomad_af, 0), ifNull(max_gnomad_exomes_af, 0),
                 ifNull(max_gnomad_genomes_af, 0), ifNull(max_gnomad_popmax_af, 0),
                 ifNull(max_topmed_af, 0)
-            )) AS population_af,
-            groupUniqArrayArray(clinvar_terms) AS terms
+            )) AS population_af
         FROM {_small_table_name(assembly_name, "variants/annotation_index")}
         WHERE variantId IN %(variant_ids)s
         GROUP BY variantId
         """,
         {"variant_ids": tuple(variant_ids)},
     )
-    flags: dict[str, str] = {}
-    for variant_id, population_af, terms in rows:
-        if clinvar_may_assert_pathogenic([str(term) for term in terms or []]):
-            flags[str(variant_id)] = "clinvar"
-        elif population_af is not None and float(population_af) > 0.05:
-            flags[str(variant_id)] = "common"
-    return flags
+    return {
+        str(variant_id): "common"
+        for variant_id, population_af in rows
+        if population_af is not None and float(population_af) > 0.05
+    }
 
 
 async def _reference_recurrent(assembly_name: str, rules: Any) -> list[tuple[str, int]]:
     from backend.app.core.clickhouse import execute_clickhouse
     from backend.app.services.clickhouse_family_variants import _UNEXPLAINED_LOW_VAF, _cfdna_sample_calls
     from backend.app.services.clickhouse_variant_ids import _small_table_name
-    from backend.app.services.variant_prioritization import clinvar_may_assert_pathogenic
 
     params: dict[str, Any] = {"carrier_ids": tuple(sorted(_CFDNA)), "min_samples": 2, "limit": 100_000}
     sample_calls = _cfdna_sample_calls(
@@ -403,31 +411,19 @@ async def _reference_recurrent(assembly_name: str, rules: Any) -> list[tuple[str
         rules,
         params,
     )
+    # Without a ClinVar release of CoGA's no candidate is protected for ClinVar.
     rows = await execute_clickhouse(
         f"""
-        SELECT recurrent.variantId, recurrent.unexplained, clinvar.terms
-        FROM (
-            SELECT variantId, countIf({_UNEXPLAINED_LOW_VAF}) AS unexplained
-            FROM ({sample_calls})
-            GROUP BY variantId
-            HAVING unexplained >= %(min_samples)s
-        ) AS recurrent
-        LEFT JOIN (
-            SELECT variantId, groupUniqArrayArray(clinvar_terms) AS terms
-            FROM {_small_table_name(assembly_name, "variants/annotation_index")}
-            WHERE notEmpty(clinvar_terms)
-            GROUP BY variantId
-        ) AS clinvar ON clinvar.variantId = recurrent.variantId
-        ORDER BY recurrent.unexplained DESC, recurrent.variantId
+        SELECT variantId, countIf({_UNEXPLAINED_LOW_VAF}) AS unexplained
+        FROM ({sample_calls})
+        GROUP BY variantId
+        HAVING unexplained >= %(min_samples)s
+        ORDER BY unexplained DESC, variantId
         LIMIT %(limit)s
         """,
         params,
     )
-    return [
-        (str(variant_id), int(unexplained or 0))
-        for variant_id, unexplained, terms in rows
-        if not clinvar_may_assert_pathogenic([str(term) for term in terms or []])
-    ]
+    return [(str(variant_id), int(unexplained or 0)) for variant_id, unexplained in rows]
 
 
 def test_shared_variant_reads_read_their_variants_rows_only() -> None:
@@ -580,8 +576,10 @@ def test_shared_variant_reads_read_their_variants_rows_only() -> None:
         for read in ("many-page", "many-evidence"):
             assert await _read_rows(label(f"{read}-whole")) >= await _row_count(sv_details)
 
-        # The NIPT protections read every annotation of the variant on the assembly: another
-        # family's annotation protects a variant the plasmas' own rows do not.
+        # The NIPT protections read every annotation of the variant on the assembly for its
+        # population frequency: another family's annotation protects a variant the plasmas' own
+        # rows do not. Its annotation calling a variant pathogenic protects nothing: ClinVar is
+        # CoGA's release's (none here).
         flags = await _measured(
             label("protection"),
             fetch_artifact_protection_flags(assembly_name, protection_ids, clinvar_coga=NO_CLINVAR_COGA),
@@ -589,7 +587,7 @@ def test_shared_variant_reads_read_their_variants_rows_only() -> None:
         assert flags == await _measured(
             label("protection-whole"), _reference_protection_flags(assembly_name, protection_ids)
         )
-        assert flags == {_RECURRENT_PATHOGENIC_ELSEWHERE: "clinvar", _COMMON_ELSEWHERE: "common"}
+        assert flags == {_COMMON_ELSEWHERE: "common"}
         assert await _read_rows(label("protection")) <= bound
         assert await _read_rows(label("protection-whole")) >= await _row_count(annotation_index)
 
@@ -604,12 +602,9 @@ def test_shared_variant_reads_read_their_variants_rows_only() -> None:
             ),
         )
         assert recurrent == await _measured(label("recurrent-whole"), _reference_recurrent(assembly_name, rules))
-        assert recurrent == [(_RECURRENT, 3)]
-        # The auto-seed reads every plasma's calls in ``entries``; its annotation read is bounded.
-        assert await _read_rows(label("recurrent"), table=annotation_index) <= bound
-        assert await _read_rows(label("recurrent-whole"), table=annotation_index) >= await _row_count(
-            annotation_index
-        )
+        assert recurrent == [(_RECURRENT, 3), (_RECURRENT_PATHOGENIC_ELSEWHERE, 3)]
+        # The auto-seed reads every plasma's calls in ``entries`` and no shared annotation table.
+        assert await _queries_reading(label("recurrent"), annotation_index) == 0
 
     async def _run() -> None:
         await ensure_clickhouse_variant_tables(assembly_name)

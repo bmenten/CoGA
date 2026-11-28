@@ -1,12 +1,13 @@
 """NCBI's ClinVar folder stood in for, for the integration tests that load the synthetic ClinVar
-file (``fixtures/clinvar``) through the real load job, as a release of an assembly of their own.
+file (``fixtures/clinvar``) through the real load job, as a release of an assembly of their own;
+and a release's rows made directly (``release_rows``), for the tests that store one themselves.
 """
 
 from __future__ import annotations
 
 import gzip
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -91,3 +92,34 @@ async def load_clinvar_release(jobs: Any, assembly: str) -> dict[str, Any]:
     job = await jobs.run_clinvar_load(assembly, requested_by=jobs.STARTUP_REQUESTER)
     assert job is not None, "another ClinVar load is active"
     return job.model_dump()
+
+
+def release_rows(assembly: str, classifications: Mapping[str, str]) -> list[Any]:
+    """A ClinVar release's rows (``clinvar_vcf.ClinvarRow``) holding each ``chrom-pos-ref-alt``
+    allele of ``classifications`` with its classification, keyed as the import keys a row's
+    alleles: its minimal allele on ``assembly``."""
+    from backend.app.services.clickhouse_variant_ids import minimal_allele_id, small_allele_key
+    from backend.app.services.clickhouse_variant_records import _status_terms
+    from backend.app.services.clinvar_vcf import ClinvarRow
+
+    rows = []
+    for index, (variant_id, classification) in enumerate(sorted(classifications.items())):
+        chrom, pos, ref, alt = variant_id.split("-")
+        allele = minimal_allele_id(chrom, int(pos), ref, alt)
+        assert allele is not None
+        rows.append(
+            ClinvarRow(
+                allele_key=small_allele_key(assembly, allele),
+                variant_id=allele,
+                variation_id=990_000 + index,
+                allele_id=0,
+                classification=classification,
+                classification_terms=tuple(sorted(_status_terms(classification))),
+                conflicting="",
+                review_status="criteria provided, single submitter",
+                conditions=(),
+                genes=(),
+                included_only=False,
+            )
+        )
+    return rows

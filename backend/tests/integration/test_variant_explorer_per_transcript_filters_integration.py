@@ -1,8 +1,10 @@
 """The Variant Explorer keeps and drops what the family search does, on real ClickHouse.
 
 The family search needs one transcript of a variant to meet every annotation filter
-together: impact, consequence, ClinVar, frequency, the in-silico scores and *Canonical*,
-*MANE* and *LoF only*. The explorer does the same: tested against the annotation index, which
+together: impact, consequence, frequency, the in-silico scores and *Canonical*, *MANE* and
+*LoF only*; ClinVar is the allele's in CoGA's release (a release of the module's own, which
+both searches read; the ClinVar of the CSQ is not read), and its P/LP override lifts the
+frequency filter for an allele the release holds (likely) pathogenic. The explorer does the same: tested against the annotation index, which
 pools a variant's transcripts, *MANE only* and impact HIGH would keep a variant whose HIGH
 transcript is not its MANE transcript, which the family page drops; and the explorer takes any
 one in-silico minimum, as the family page does.
@@ -37,11 +39,14 @@ Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from datetime import date
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
+from backend.tests.integration._clinvar_source import release_rows
 from backend.tests.integration._datastores import (
     explorer_shows,
     proband_context,
@@ -55,6 +60,8 @@ pytestmark = pytest.mark.integration
 _ASSEMBLY = "GRCh38"
 _SAMPLE = "CL29_S1"
 _LOCUS = {"chr": "9", "start": 136_700_000, "end": 136_701_000}
+# CoGA's ClinVar release of the module's own, a partition it writes and drops.
+_RELEASE = date(2026, 11, 8)
 
 _CSQ_FORMAT = (
     "Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
@@ -95,9 +102,9 @@ _MANE_HIGH = "9-136700201-C-T"
 _LOF_OFF_MANE = "9-136700301-C-T"
 # Synonymous on the MANE transcript, a damaging missense (REVEL 0.9) on another.
 _REVEL_OFF_MANE = "9-136700401-C-T"
-# A missense with CADD 30 and no REVEL score.
+# A missense with CADD 30 and no REVEL score; pathogenic in its CSQ alone, not in the release.
 _CADD_ONLY = "9-136700501-C-T"
-# A common missense (gnomAD 8%) that ClinVar calls likely pathogenic.
+# A common missense (gnomAD 8%) that CoGA's ClinVar release holds likely pathogenic.
 _COMMON_LIKELY_PATHOGENIC = "9-136700601-C-T"
 # A missense whose only MANE transcript is MANE Plus Clinical; its canonical transcript is not MANE.
 _MANE_PLUS_CLINICAL_ONLY = "9-136700701-C-T"
@@ -121,7 +128,7 @@ _VARIANTS: dict[str, list[str]] = {
         _csq("missense_variant", "MODERATE", "SYN29D", "ENST_SYN29D_2", revel="0.9", cadd="12"),
     ],
     _CADD_ONLY: [
-        _csq("missense_variant", "MODERATE", "SYN29E", "ENST_SYN29E_1", mane="NM_SYN29E.1", cadd="30"),
+        _csq("missense_variant", "MODERATE", "SYN29E", "ENST_SYN29E_1", mane="NM_SYN29E.1", cadd="30", clinvar="pathogenic"),
     ],
     _COMMON_LIKELY_PATHOGENIC: [
         _csq(
@@ -142,6 +149,7 @@ _VARIANTS: dict[str, list[str]] = {
     ],
 }
 _ALL = set(_VARIANTS)
+_HELD = {_COMMON_LIKELY_PATHOGENIC: "Likely_pathogenic"}
 
 # The family search's filters (the family endpoint's names) and the variants it keeps.
 _CASES = [
@@ -168,15 +176,24 @@ _CASES = [
         {_COMMON_LIKELY_PATHOGENIC},
         id="mane-only-and-clinvar",
     ),
+    # The CSQ's pathogenic call of _CADD_ONLY is not read: no allele the release holds is.
+    pytest.param({"clinvar": ["Pathogenic"]}, set(), id="clinvar-the-releases"),
+    pytest.param({"exclude_clinvar": ["Likely_pathogenic"]}, _ALL - {_COMMON_LIKELY_PATHOGENIC}, id="excluded-clinvar"),
 ]
 
 
 @pytest.fixture(scope="module")
-def stored_family() -> dict[str, str]:
-    """Write the eight variants once, for a fresh family in a fresh project."""
+def stored_family() -> Iterator[dict[str, str]]:
+    """Write the eight variants once, for a fresh family in a fresh project, and CoGA's release
+    of their alleles; the release's partition is dropped after the module."""
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         insert_small_variant_records,
+    )
+    from backend.app.services.clinvar_release_store import (
+        drop_clinvar_release,
+        ensure_clinvar_table,
+        insert_clinvar_rows,
     )
 
     family_uuid, project = str(uuid4()), str(uuid4())
@@ -188,11 +205,17 @@ def stored_family() -> dict[str, str]:
     async def _write() -> None:
         await ensure_clickhouse_variant_tables(_ASSEMBLY)
         await insert_small_variant_records(_ASSEMBLY, family_uuid, [project], records)
+        await ensure_clinvar_table(_ASSEMBLY)
+        await insert_clinvar_rows(_ASSEMBLY, _RELEASE, release_rows(_ASSEMBLY, _HELD))
+
+    async def _drop() -> None:
+        await drop_clinvar_release(_ASSEMBLY, _RELEASE)
 
     # The schema and tables are made here, so the test does not depend on an earlier test (or
     # the app's startup) having made them.
     run_closing_stores(_write, init_schema=True)
-    return {"family_uuid": family_uuid, "project": project}
+    yield {"family_uuid": family_uuid, "project": project}
+    run_closing_stores(_drop)
 
 
 @pytest.mark.parametrize(("family_filters", "expected"), _CASES)
@@ -211,8 +234,13 @@ def test_explorer_keeps_what_the_family_search_keeps(
         family_uuid, f"CL29-{family_uuid[:8]}", stored_family["project"], sample=_SAMPLE,
         assembly_id=str(uuid4()), assembly_name=_ASSEMBLY,
     )
+    from backend.app.services.clinvar_coga import ClinvarCogaRead
+
     scope = explorer.ExplorerScope(
-        assembly_id=str(uuid4()), assembly_name=_ASSEMBLY, project_ids=[stored_family["project"]]
+        assembly_id=str(uuid4()),
+        assembly_name=_ASSEMBLY,
+        project_ids=[stored_family["project"]],
+        clinvar_coga=ClinvarCogaRead(_ASSEMBLY, _RELEASE, True),
     )
 
     async def _fake_scope(session, user, assembly_id):
@@ -240,11 +268,19 @@ def test_explorer_keeps_what_the_family_search_keeps(
 
     async def _run() -> dict[str, Any]:
         async with get_postgres_sessionmaker()() as session:
+            # Both read CoGA's release: the family page as its route passes it, the explorer
+            # as its scope holds it.
             family_page = await family_variants.get_family_small_variants_page(
-                session, context=context, page=1, page_size=100, **family_filters
+                session, context=context, page=1, page_size=100, clinvar_coga_release=_RELEASE, **family_filters
             )
             ranked_page = await family_variants.get_family_small_variants_page(
-                session, context=context, page=1, page_size=100, prioritize=True, **family_filters
+                session,
+                context=context,
+                page=1,
+                page_size=100,
+                prioritize=True,
+                clinvar_coga_release=_RELEASE,
+                **family_filters,
             )
             explorer_page = await explorer.search_global_small_variants(
                 session,

@@ -4,7 +4,8 @@ The response lists each member's haplogroup, mtDNA QC verdict (against the lab's
 limits) and coverage, and each chrM variant with its annotation, its review, each member's
 heteroplasmy and its maternal transmission, read along the proband's maternal line from the
 parents the pedigree links to the proband (a mother without data, or none linked, is "not
-assessed"); a ClinVar record of conflicting classifications reads uncertain, never pathogenic;
+assessed"); its status joins its ClinVar in CoGA's release (never the annotation's) with
+MITOMAP's, and a ClinVar record of conflicting classifications reads uncertain, never pathogenic;
 the chrM structural variants with each sample's heteroplasmy; and a count-only presence. The
 coverage it reads (one track of read depth per sample) is in test_coverage_readers_read_depth.py.
 All samples and values are synthetic.
@@ -16,7 +17,7 @@ from dataclasses import replace
 
 import pytest
 
-from backend.app.schemas import MitoDNACoverageOut, SmallVariantReviewOut
+from backend.app.schemas import ClinvarCogaOut, MitoDNACoverageOut, SmallVariantReviewOut
 from backend.app.services import mitochondrial_analysis
 from backend.app.services.clickhouse_variant_records import (
     SmallVariantCall,
@@ -26,12 +27,13 @@ from backend.app.services.clickhouse_variant_records import (
 )
 from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.tests._clinvar_release_fakes import READ, RELEASE, wire_clinvar_alleles
 
 
 @pytest.fixture(autouse=True)
 def _no_clinvar_release(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No ClinVar release of CoGA's own: the status reads the annotation's ClinVar. The tests of
-    the release's reading give values of their own."""
+    """No ClinVar release of CoGA's: no variant has ClinVar. The tests of the release's reading
+    give a release of their own."""
 
     async def no_release(_session, _assembly_name):
         return NO_CLINVAR_COGA
@@ -186,6 +188,14 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
     monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
 
+    # CoGA's ClinVar release holds m.3243A>G pathogenic: the status reads it, not the
+    # annotation's ClinVar.
+    async def release(_session, _assembly_name):
+        return READ
+
+    monkeypatch.setattr(mitochondrial_analysis, "clinvar_coga_read", release)
+    wire_clinvar_alleles(monkeypatch, {"MT-3243-A-G": "Pathogenic"})
+
     # The mtDNA cut-offs are admin configuration, not constants in this module. Stand in
     # for the profile a lab would have configured.
     async def fake_thresholds(_session, *, family_uuid, analysis):
@@ -214,6 +224,8 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
     assert response.variants[0].annotation.gene == "MT-TL1"
     assert response.variants[0].annotation.disorders == ["MELAS syndrome"]
     assert response.variants[0].annotation.clinical_significance == "pathogenic"
+    clinvar = response.variants[0].annotation.clinvar_coga
+    assert clinvar is not None and (clinvar.status, clinvar.classification) == ("in_release", "Pathogenic")
     assert response.variants[0].annotation.consequence_terms == ["trna_variant"]
     assert response.variants[0].annotation.gnomad_af is None
     assert response.variants[0].review is None
@@ -340,35 +352,50 @@ async def test_family_mitochondrial_analysis_count_only_coverage_without_variant
     assert response.has_coverage is True
 
 
+def _clinvar(classification: str | None, status: str = "in_release") -> ClinvarCogaOut:
+    """The allele's value in CoGA's ClinVar release."""
+    return ClinvarCogaOut(alt="G", status=status, release=RELEASE, classification=classification)  # type: ignore[arg-type]
+
+
 # "Conflicting classifications of pathogenicity" contains "pathogenic": matched as a substring
 # it was read as pathogenic, so the mtDNA table said Pathogenic and the mt ACMG evaluator
 # suggested PP5. A conflicting record is neither pathogenic nor benign.
 @pytest.mark.parametrize(
-    ("annotation", "expected"),
+    ("clinvar", "annotation", "expected"),
     [
-        ({"clinvar": "Conflicting_classifications_of_pathogenicity"}, "uncertain"),
-        ({"ClinVar_CLNSIG": "Conflicting_interpretations_of_pathogenicity"}, "uncertain"),
-        ({"clinvar": "Conflicting_classifications_of_pathogenicity", "mitomap_status": "Cfrm"}, "uncertain"),
-        ({"clinical_significance": "Pathogenic"}, "pathogenic"),
-        ({"clinvar": "Likely_pathogenic"}, "likely_pathogenic"),
-        ({"clinvar": "Benign"}, "benign"),
-        ({"clinvar": "Uncertain_significance"}, "uncertain"),
-        ({"mitomap_status": "Cfrm"}, "reported"),
-        ({}, "unknown"),
-        # The other statuses the reader tells apart, and a key in other capitals.
-        ({"clinvar": "Likely_benign"}, "likely_benign"),
-        ({"CLINVAR": "Benign"}, "benign"),
-        ({"mitomap_status": "Polymorphism"}, "polymorphism"),
-        ({"status": "common"}, "polymorphism"),
-        ({"classification": "VUS"}, "uncertain"),
-        ({"variant_status": "Confirmed"}, "reported"),
-        ({"variant_status": "unclassified"}, "unknown"),
+        ("Conflicting_classifications_of_pathogenicity", {}, "uncertain"),
+        ("Conflicting_interpretations_of_pathogenicity", {}, "uncertain"),
+        ("Conflicting_classifications_of_pathogenicity", {"mitomap_status": "Cfrm"}, "uncertain"),
+        ("Pathogenic", {}, "pathogenic"),
+        ("Likely_pathogenic", {}, "likely_pathogenic"),
+        ("Benign", {}, "benign"),
+        ("Uncertain_significance", {}, "uncertain"),
+        (None, {"mitomap_status": "Cfrm"}, "reported"),
+        (None, {}, "unknown"),
+        # The other statuses the reader tells apart.
+        ("Likely_benign", {}, "likely_benign"),
+        (None, {"mitomap_status": "Polymorphism"}, "polymorphism"),
+        (None, {"status": "common"}, "polymorphism"),
+        (None, {"classification": "VUS"}, "uncertain"),
+        (None, {"variant_status": "Confirmed"}, "reported"),
+        (None, {"variant_status": "unclassified"}, "unknown"),
+        # The annotation's ClinVar, under any of its keys, is not read.
+        (None, {"clinvar": "Pathogenic", "ClinVar_CLNSIG": "Pathogenic", "clinical_significance": "Pathogenic"}, "unknown"),
+        ("Benign", {"clinvar": "Pathogenic"}, "benign"),
     ],
 )
 def test_clinical_significance_reads_a_conflicting_record_as_uncertain(
-    annotation: dict[str, str], expected: str
+    clinvar: str | None, annotation: dict[str, str], expected: str
 ) -> None:
-    assert mitochondrial_analysis._clinical_significance(annotation, None) == expected
+    coga = _clinvar(clinvar) if clinvar is not None else None
+    assert mitochondrial_analysis._clinical_significance(annotation, coga) == expected
+
+
+def test_clinical_significance_reads_no_clinvar_for_an_allele_the_release_does_not_hold() -> None:
+    not_held = _clinvar(None, "not_in_release")
+    assert mitochondrial_analysis._clinical_significance({"mitomap_status": "Cfrm"}, not_held) == "reported"
+    # Held only as part of a combination: no classification.
+    assert mitochondrial_analysis._clinical_significance({}, _clinvar(None)) == "unknown"
 
 
 def _three_generation_context() -> FamilyMetadataContext:

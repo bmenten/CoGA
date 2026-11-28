@@ -1,10 +1,10 @@
-"""The small-variant track by the ClinVar design's one rule (B8): CoGA's ClinVar release where
-it holds the allele, else the annotation.
+"""The small-variant track reads each variant's ClinVar in CoGA's release alone.
 
-The track's wide window holds only the salient variants: a row the release holds is a diamond for
-an allele the release holds (likely) pathogenic, and salient for its HIGH or MODERATE impact
-unless the release holds it (likely) benign; any other row as by its annotation. The track is
-served each variant's ClinVar (CoGA), which its marks and tooltip read (``clinvarByTheRule``).
+The track's wide window holds only the salient variants: a row is a diamond for an allele the
+release holds (likely) pathogenic, and salient for a transcript of HIGH or MODERATE impact
+unless the release holds every allele (likely) benign; without a release, for its impact alone.
+The annotation's ClinVar is not read. The track is served each variant's ClinVar from the
+release, which its marks and tooltip read.
 
 ClickHouse and the release are stood in for; the filter-parity harness
 (``integration/test_small_variant_filter_parity_clickhouse.py``) runs the salient set on real
@@ -20,7 +20,11 @@ from typing import Any
 import pytest
 
 from backend.app.services.analysis_scope import WHOLE_FAMILY_SCOPE
-from backend.app.services.clickhouse_variant_queries import _small_annotation_filter_clauses
+from backend.app.services.clickhouse_variant_queries import (
+    _clinvar_benign,
+    _clinvar_diamond,
+    _small_annotation_filter_clauses,
+)
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
@@ -48,21 +52,41 @@ def _clauses(**values: Any) -> tuple[list[str], dict[str, Any]]:
     return _small_annotation_filter_clauses(_context(), filters, params=params), params
 
 
-def test_the_tracks_salient_set_reads_the_release_for_a_row_it_holds_else_the_annotation() -> None:
+_IMPACT = "arrayExists(a -> (a.impact IN %(salient_impacts)s), e.transcripts)"
+
+
+def _release_rows(prefix: str, where: str) -> str:
+    return (
+        "k -> k IN (SELECT allele_key FROM coga.`GRCh38/SNV_INDEL/clinvar` "
+        f"WHERE release = %({prefix}_release)s AND {where})"
+    )
+
+
+def test_the_tracks_salient_set_reads_the_alleles_clinvar_in_the_release() -> None:
     [clause], params = _clauses(salient_only=True, clinvar_coga_release=RELEASE)
 
-    diamond, rest = clause.split(" OR (", 1)
-    # An allele the release holds (likely) pathogenic is a diamond.
-    assert "%(coga_diamond_release)s AND arrayExists(term -> position(term, 'pathogenic') > 0" in diamond
-    assert "classification_terms)), e.allele_keys)" in diamond
-    # A held row: HIGH or MODERATE on a transcript, and not (likely) benign in the release.
-    assert "a.impact IN %(salient_impacts)s" in rest and "%(coga_benign_release)s" in rest
-    # Any other row: the annotation's ClinVar on its transcripts, as without a release.
-    assert rest.count("a.clinvar_terms") == 3 and "NOT (notEmpty(e.allele_keys) AND arrayAll(" in rest
-    assert params["coga_diamond_release"] == params["coga_benign_release"] == RELEASE
+    # A diamond: an allele the release holds (likely) pathogenic. Else HIGH or MODERATE on a
+    # transcript, unless the release holds every allele (likely) benign: a benign sibling ALT
+    # never hides a salient one.
+    diamond = f"arrayExists({_release_rows('clinvar_diamond', _clinvar_diamond('classification_terms'))}, e.allele_keys)"
+    benign = (
+        f"(notEmpty(e.allele_keys) AND arrayAll({_release_rows('clinvar_benign', _clinvar_benign('classification_terms'))}"
+        ", e.allele_keys))"
+    )
+    assert clause == f"({diamond} OR ({_IMPACT} AND NOT {benign}))"
+    assert "a.clinvar_terms" not in clause
+    assert params == {
+        "salient_impacts": ("high", "moderate", "medium"),
+        "clinvar_diamond_release": RELEASE,
+        "clinvar_benign_release": RELEASE,
+    }
 
-    [annotated], _params = _clauses(salient_only=True)
-    assert "SNV_INDEL/clinvar" not in annotated
+
+def test_without_a_release_the_salient_set_is_read_by_impact_alone() -> None:
+    [clause], params = _clauses(salient_only=True)
+
+    assert clause == _IMPACT
+    assert params == {"salient_impacts": ("high", "moderate", "medium")}
 
 
 @pytest.mark.parametrize(
@@ -70,7 +94,7 @@ def test_the_tracks_salient_set_reads_the_release_for_a_row_it_holds_else_the_an
     [(False, False, True, True), (True, False, True, False), (False, True, False, False)],
     ids=["list", "track", "count"],
 )
-def test_the_list_and_the_track_are_served_each_variants_clinvar_coga(
+def test_the_list_and_the_track_are_served_each_variants_clinvar(
     monkeypatch: pytest.MonkeyPatch, track_mode: bool, count_only: bool, served: bool, members: bool
 ) -> None:
     from backend.app.routers import families_small_variants as route
@@ -97,7 +121,7 @@ def test_the_list_and_the_track_are_served_each_variants_clinvar_coga(
         calls.append("members")
         return []
 
-    async def serve(_session: Any, _context: Any, served_read: Any, _page: Any) -> None:
+    async def serve(served_read: Any, _page: Any) -> None:
         assert served_read is read
         calls.append("served")
 

@@ -9,7 +9,9 @@ the compound-het pairing, the couple's carrier rule, the ranking.
 
 Seventeen synthetic variants of one trio (an affected son and his unaffected parents) go in
 once, through the import's write path (``insert_small_variant_records``), annotated as the
-import parses VEP's CSQ. For each filter field, every case runs the SQL
+import parses VEP's CSQ, with a ClinVar release of CoGA's holding their alleles: the only
+ClinVar the filters read (the CSQ's ClinVar, which it contradicts for three alleles, is not
+read; without a release no variant has ClinVar). For each filter field, every case runs the SQL
 (``_fetch_small_variant_rows`` with the request's scope: panel, review selections, intervals,
 excluded genes, as the plain page fetches) and its bounded count, and asserts that it keeps
 exactly the variants the documented rule keeps (the user guide, *Small-variant filtering*).
@@ -318,14 +320,20 @@ _VARIANTS: dict[str, _Variant] = {
 # What the search reads without a source: every callset but the imputed one.
 ALL = frozenset(_VARIANTS) - {IMPUTED}
 
-# CoGA's own ClinVar release of the trio's alleles (``clinvar_release_store``), in a partition the
-# module writes and drops: a benign and common MNV it holds pathogenic, the paternal deletion
-# likely pathogenic and the de novo missense benign, as a newer release than the annotation's.
+# CoGA's ClinVar release of the trio's alleles (``clinvar_release_store``), in a partition the
+# module writes and drops: the only ClinVar a filter reads. It holds the MNV pathogenic (its
+# annotation: benign), the paternal deletion likely pathogenic (its annotation names none) and
+# the de novo missense benign (its annotation: uncertain), and the other annotated alleles as
+# their annotation does.
 _COGA_RELEASE = date(2026, 11, 22)
 _COGA_ALLELES = {
     MATERNAL_MNV: "Pathogenic",
     PATERNAL_DELETION: "Likely_pathogenic",
     DE_NOVO_MISSENSE: "Benign",
+    HIGH_OFF_MANE: "Pathogenic",
+    HOMOZYGOUS: "Likely_pathogenic",
+    COMMON_PATHOGENIC: "Pathogenic/Likely_pathogenic",
+    PATERNAL_SYNONYMOUS: "Likely_benign",
 }
 CHR11 = frozenset(variant for variant in ALL if variant.startswith("11-"))
 X = frozenset({X_MATERNAL, X_DE_NOVO})
@@ -404,6 +412,7 @@ _DEFAULT_VIEW = {
     "max_gnomad_hemi_count": 10,
     "clinvar_pathogenic_override": True,
     "exclude_clinvar": ["Benign", "Likely_benign"],
+    "clinvar_coga_release": _COGA_RELEASE,
     "sample_filters": [f"{_PROBAND}:0/1|1/1:20:10:0.2:4"],
 }
 
@@ -498,84 +507,74 @@ CASES: dict[str, _Case] = {
     ),
     "MANE only and HIGH": _case({MATERNAL_INSERTION}, mane_only=True, impact=["HIGH"]),
     "LoF only": _case({HIGH_OFF_MANE, MATERNAL_INSERTION}, lof_only=True),
-    # The ClinVar P/LP override keeps a pathogenic or likely pathogenic variant of another
-    # impact or consequence, or with lower scores; the transcript flags still hold on its
-    # transcript.
+    # The ClinVar P/LP override keeps a variant with an allele CoGA's release holds pathogenic or
+    # likely pathogenic, of another impact or consequence, or with lower scores; the transcript
+    # flags still hold on one of its transcripts.
     "impact with the ClinVar override": _case(
-        {HIGH_OFF_MANE, MATERNAL_INSERTION, LONG_DELETION, HOMOZYGOUS, COMMON_PATHOGENIC},
-        impact=["HIGH"], clinvar_pathogenic_override=True,
+        {HIGH_OFF_MANE, MATERNAL_INSERTION, LONG_DELETION, HOMOZYGOUS, COMMON_PATHOGENIC, MATERNAL_MNV, PATERNAL_DELETION},
+        impact=["HIGH"], clinvar_pathogenic_override=True, clinvar_coga_release=_COGA_RELEASE,
     ),
     "consequence with the ClinVar override": _case(
-        {MATERNAL_INSERTION, LONG_DELETION, HIGH_OFF_MANE, HOMOZYGOUS, COMMON_PATHOGENIC},
-        effect=["frameshift_variant"], clinvar_pathogenic_override=True,
+        {MATERNAL_INSERTION, LONG_DELETION, HIGH_OFF_MANE, HOMOZYGOUS, COMMON_PATHOGENIC, MATERNAL_MNV, PATERNAL_DELETION},
+        effect=["frameshift_variant"], clinvar_pathogenic_override=True, clinvar_coga_release=_COGA_RELEASE,
     ),
     "impact with the ClinVar override, canonical only": _case(
-        {LONG_DELETION, HIGH_OFF_MANE, COMMON_PATHOGENIC},
-        impact=["HIGH"], canonical_only=True, clinvar_pathogenic_override=True,
+        {LONG_DELETION, HIGH_OFF_MANE, COMMON_PATHOGENIC, MATERNAL_MNV},
+        impact=["HIGH"], canonical_only=True, clinvar_pathogenic_override=True, clinvar_coga_release=_COGA_RELEASE,
     ),
     "impact and CADD with the ClinVar override": _case(
-        {HIGH_OFF_MANE, HOMOZYGOUS, COMMON_PATHOGENIC}, impact=["HIGH"], min_cadd=30, clinvar_pathogenic_override=True,
+        {HIGH_OFF_MANE, HOMOZYGOUS, COMMON_PATHOGENIC, MATERNAL_MNV, PATERNAL_DELETION},
+        impact=["HIGH"], min_cadd=30, clinvar_pathogenic_override=True, clinvar_coga_release=_COGA_RELEASE,
     ),
     "REVEL with the ClinVar override": _case(
-        {DE_NOVO_MISSENSE, HIGH_OFF_MANE, HOMOZYGOUS, COMMON_PATHOGENIC}, min_revel=0.7, clinvar_pathogenic_override=True,
+        {DE_NOVO_MISSENSE, HIGH_OFF_MANE, HOMOZYGOUS, COMMON_PATHOGENIC, MATERNAL_MNV, PATERNAL_DELETION},
+        min_revel=0.7, clinvar_pathogenic_override=True, clinvar_coga_release=_COGA_RELEASE,
     ),
-    # --- ClinVar ---
-    "ClinVar pathogenic": _case({HIGH_OFF_MANE, COMMON_PATHOGENIC}, clinvar=["Pathogenic"]),
-    "ClinVar likely pathogenic": _case({HOMOZYGOUS, COMMON_PATHOGENIC}, clinvar=["Likely_pathogenic"]),
-    "ClinVar uncertain": _case({DE_NOVO_MISSENSE}, clinvar=["Uncertain_significance"]),
-    "ClinVar benign left out": _case(
-        ALL - {MATERNAL_MNV, PATERNAL_SYNONYMOUS}, exclude_clinvar=["Benign", "Likely_benign"]
+    # Without a release no allele has ClinVar: the annotation's pathogenic calls lift nothing.
+    "impact with the ClinVar override, without a release": _case(
+        {HIGH_OFF_MANE, MATERNAL_INSERTION, LONG_DELETION}, impact=["HIGH"], clinvar_pathogenic_override=True,
     ),
-    # --- ClinVar (CoGA): CoGA's own release, on the rows' allele keys ---
-    "ClinVar (CoGA) pathogenic or likely pathogenic": _case(
-        {MATERNAL_MNV, PATERNAL_DELETION},
-        clinvar_coga=["Pathogenic", "Likely_pathogenic"], clinvar_coga_release=_COGA_RELEASE,
-    ),
-    "ClinVar (CoGA) benign": _case({DE_NOVO_MISSENSE}, clinvar_coga=["Benign"], clinvar_coga_release=_COGA_RELEASE),
-    "ClinVar (CoGA) without a release": _case(set(), clinvar_coga=["Pathogenic"]),
-    # The ClinVar status filter and its exclusion by the one rule (B8): CoGA's release for the
-    # alleles it holds (the MNV pathogenic, the de novo missense benign), the annotation for the
-    # rest.
-    "ClinVar pathogenic, CoGA's release where it holds the allele": _case(
+    # --- ClinVar: CoGA's release, on the rows' allele keys; the annotation's (benign for the
+    # MNV, uncertain for the de novo missense, none for the paternal deletion) is not read ---
+    "ClinVar pathogenic": _case(
         {HIGH_OFF_MANE, COMMON_PATHOGENIC, MATERNAL_MNV}, clinvar=["Pathogenic"], clinvar_coga_release=_COGA_RELEASE
     ),
-    "ClinVar uncertain, which CoGA's release holds benign": _case(
+    "ClinVar likely pathogenic": _case(
+        {HOMOZYGOUS, COMMON_PATHOGENIC, PATERNAL_DELETION},
+        clinvar=["Likely_pathogenic"], clinvar_coga_release=_COGA_RELEASE,
+    ),
+    "ClinVar uncertain, which the release holds benign": _case(
         set(), clinvar=["Uncertain_significance"], clinvar_coga_release=_COGA_RELEASE
     ),
-    "ClinVar benign left out, CoGA's release where it holds the allele": _case(
+    "ClinVar benign": _case({DE_NOVO_MISSENSE}, clinvar=["Benign"], clinvar_coga_release=_COGA_RELEASE),
+    "ClinVar benign left out": _case(
         ALL - {DE_NOVO_MISSENSE, PATERNAL_SYNONYMOUS},
         exclude_clinvar=["Benign", "Likely_benign"],
         clinvar_coga_release=_COGA_RELEASE,
     ),
-    # The override reads CoGA's release too: its (likely) pathogenic alleles pass the impact and
-    # frequency filters, on any of their transcripts.
-    "impact with the ClinVar override and CoGA's release": _case(
-        {HIGH_OFF_MANE, MATERNAL_INSERTION, LONG_DELETION, HOMOZYGOUS, COMMON_PATHOGENIC, MATERNAL_MNV, PATERNAL_DELETION},
-        impact=["HIGH"], clinvar_pathogenic_override=True, clinvar_coga_release=_COGA_RELEASE,
-    ),
-    "gnomAD AF with the ClinVar override and CoGA's release": _case(
-        ALL, max_gnomad_af=0.01, clinvar_pathogenic_override=True, clinvar_coga_release=_COGA_RELEASE
-    ),
-    # --- the small-variant track's wide window: ClinVar (likely) pathogenic, or HIGH or
-    # MODERATE on a transcript and not ClinVar (likely) benign. HIGH_OFF_MANE is HIGH off its
-    # MANE transcript only; PATERNAL_SYNONYMOUS is MODERATE on one transcript but likely benign. ---
+    # Without a release no allele has ClinVar: the status filter keeps none, the exclusion
+    # leaves none out.
+    "ClinVar pathogenic, without a release": _case(set(), clinvar=["Pathogenic"]),
+    "ClinVar benign left out, without a release": _case(ALL, exclude_clinvar=["Benign", "Likely_benign"]),
+    # --- the small-variant track's wide window: an allele CoGA's release holds (likely)
+    # pathogenic, or HIGH or MODERATE on a transcript unless the release holds every allele
+    # (likely) benign. HIGH_OFF_MANE is HIGH off its MANE transcript only; the de novo missense
+    # and PATERNAL_SYNONYMOUS, MODERATE on a transcript, are (likely) benign in the release, and
+    # the MNV, MODERATE, pathogenic. ---
     "salient only": _case(
-        ALL - {MATERNAL_MNV, PATERNAL_SYNONYMOUS, UNANNOTATED, WITH_RSID}, salient_only=True
-    ),
-    # With CoGA's release, ClinVar by the one rule (B8): the MNV it holds pathogenic is a diamond,
-    # the de novo missense it holds benign no longer salient for its MODERATE impact.
-    "salient only, CoGA's release where it holds the allele": _case(
         ALL - {PATERNAL_SYNONYMOUS, UNANNOTATED, WITH_RSID, DE_NOVO_MISSENSE},
         salient_only=True,
         clinvar_coga_release=_COGA_RELEASE,
     ),
+    # Without a release, the impact alone.
+    "salient only, without a release": _case(ALL - {UNANNOTATED, WITH_RSID}, salient_only=True),
     "salient only, in the track's window of a sample": _case(
         {
-            DE_NOVO_MISSENSE, HIGH_OFF_MANE, MATERNAL_INSERTION, PATERNAL_DELETION, COMMON_PATHOGENIC,
+            HIGH_OFF_MANE, MATERNAL_INSERTION, PATERNAL_DELETION, COMMON_PATHOGENIC,
             LOW_QUALITY, FRACTION_FROM_DEPTHS,
         },
         chromosome="11", start=95_100_100, end=95_100_240, overlap=True,
-        sample_filters=[f"{_PROBAND}:het"], salient_only=True,
+        sample_filters=[f"{_PROBAND}:het"], salient_only=True, clinvar_coga_release=_COGA_RELEASE,
     ),
     # --- frequencies (a variant without one passes) ---
     "gnomAD AF": _case(ALL - {MATERNAL_MNV, COMMON_PATHOGENIC}, max_gnomad_af=0.01),
@@ -583,7 +582,10 @@ CASES: dict[str, _Case] = {
         ALL - {HOMOZYGOUS, MATERNAL_MNV, PATERNAL_SYNONYMOUS, COMMON_PATHOGENIC}, max_gnomad_af=0.001
     ),
     "gnomAD AF with the ClinVar override": _case(
-        ALL - {MATERNAL_MNV}, max_gnomad_af=0.01, clinvar_pathogenic_override=True
+        ALL, max_gnomad_af=0.01, clinvar_pathogenic_override=True, clinvar_coga_release=_COGA_RELEASE
+    ),
+    "gnomAD AF with the ClinVar override, without a release": _case(
+        ALL - {MATERNAL_MNV, COMMON_PATHOGENIC}, max_gnomad_af=0.01, clinvar_pathogenic_override=True
     ),
     "gnomAD exomes AF at the value": _case(
         ALL - {HOMOZYGOUS, MATERNAL_MNV, PATERNAL_SYNONYMOUS, COMMON_PATHOGENIC}, max_gnomad_exomes_af=0.001
@@ -710,10 +712,11 @@ CASES: dict[str, _Case] = {
     "carrier screening and compound het": _case(
         {MATERNAL_INSERTION, PATERNAL_DELETION}, expanded_carrier_screening=True, inheritance="compound_het"
     ),
-    # --- the default view's preset (without its panel) ---
+    # --- the default view's preset (without its panel): the de novo missense, benign in the
+    # release, is left out ---
     "the default view": _case(
         {
-            DE_NOVO_MISSENSE, HIGH_OFF_MANE, HOMOZYGOUS, MATERNAL_INSERTION, PATERNAL_DELETION,
+            HIGH_OFF_MANE, HOMOZYGOUS, MATERNAL_INSERTION, PATERNAL_DELETION,
             COMMON_PATHOGENIC, FRACTION_FROM_DEPTHS, LONG_DELETION, X_MATERNAL, X_DE_NOVO, MITO,
         },
         **_DEFAULT_VIEW,
@@ -947,31 +950,9 @@ async def _close_stores() -> None:
 
 
 def _coga_rows() -> list[Any]:
-    from backend.app.services.clickhouse_variant_ids import minimal_allele_id, small_allele_key
-    from backend.app.services.clickhouse_variant_records import _status_terms
-    from backend.app.services.clinvar_vcf import ClinvarRow
+    from backend.tests.integration._clinvar_source import release_rows
 
-    rows = []
-    for index, (variant_id, classification) in enumerate(sorted(_COGA_ALLELES.items())):
-        chrom, pos, ref, alt = variant_id.split("-")
-        allele = minimal_allele_id(chrom, int(pos), ref, alt)
-        assert allele is not None
-        rows.append(
-            ClinvarRow(
-                allele_key=small_allele_key(_ASSEMBLY, allele),
-                variant_id=allele,
-                variation_id=990_000 + index,
-                allele_id=0,
-                classification=classification,
-                classification_terms=tuple(sorted(_status_terms(classification))),
-                conflicting="",
-                review_status="criteria provided, single submitter",
-                conditions=(),
-                genes=(),
-                included_only=False,
-            )
-        )
-    return rows
+    return release_rows(_ASSEMBLY, {**_COGA_ALLELES, **_COGA_DIVERGENCE_ALLELES})
 
 
 @pytest.fixture(scope="module")
@@ -1182,10 +1163,17 @@ FT_REVEL = "11-95101230-T-C"
 FT_CLINVAR = "11-95101240-C-A"
 FT_CANONICAL = "11-95101250-G-T"
 FT_PICKED = "11-95101260-A-C"
-# ClinVar pathogenic on every transcript, synonymous on the primary one: HIGH and a damaging
-# REVEL on the second transcript, and on none.
+# Pathogenic and likely pathogenic in CoGA's release, synonymous on the primary transcript: HIGH
+# and a damaging REVEL on the second transcript, and on none.
 FT_OVERRIDE_SECOND = "11-95101270-G-C"
 FT_OVERRIDE_ONLY = "11-95101280-T-A"
+# CoGA's release of the second family's alleles, written with the trio's (``_coga_rows``):
+# FT_CLINVAR pathogenic, whose transcripts' annotations call it benign and pathogenic.
+_COGA_DIVERGENCE_ALLELES = {
+    FT_CLINVAR: "Pathogenic",
+    FT_OVERRIDE_SECOND: "Pathogenic",
+    FT_OVERRIDE_ONLY: "Likely_pathogenic",
+}
 
 
 def _filter_transcript_variant(gene: str, primary: dict[str, Any], *others: dict[str, Any]) -> _Variant:
@@ -1418,8 +1406,17 @@ DIVERGENCE_CASES: dict[str, _Case] = {
     "filter transcript, REVEL": _divergence(
         {FT_REVEL}, min_revel=0.5, intervals="11:95101230", filter_transcripts={FT_REVEL: "ENST_SYNT4_2"}
     ),
-    "filter transcript, ClinVar": _divergence(
-        {FT_CLINVAR}, clinvar=["Pathogenic"], intervals="11:95101240", filter_transcripts={FT_CLINVAR: "ENST_SYNT5_2"}
+    # ClinVar is no transcript's but the allele's, in CoGA's release: the variant names no
+    # transcript for it, and its transcripts' ClinVar is not read.
+    "ClinVar, no transcript's": _divergence(
+        {FT_CLINVAR},
+        clinvar=["Pathogenic"],
+        clinvar_coga_release=_COGA_RELEASE,
+        intervals="11:95101240",
+        filter_transcripts={FT_CLINVAR: None},
+    ),
+    "ClinVar benign, which only the annotation says": _divergence(
+        set(), clinvar=["Benign"], clinvar_coga_release=_COGA_RELEASE, intervals="11:95101240"
     ),
     "filter transcript, canonical only": _divergence(
         {FT_CANONICAL}, canonical_only=True, intervals="11:95101250", filter_transcripts={FT_CANONICAL: "ENST_SYNT6_2"}
@@ -1436,6 +1433,7 @@ DIVERGENCE_CASES: dict[str, _Case] = {
         {FT_OVERRIDE_SECOND, FT_OVERRIDE_ONLY},
         impact=["HIGH"],
         clinvar_pathogenic_override=True,
+        clinvar_coga_release=_COGA_RELEASE,
         intervals="11:95101270-95101280",
         filter_transcripts={FT_OVERRIDE_SECOND: "ENST_SYNT8_2", FT_OVERRIDE_ONLY: None},
     ),
@@ -1443,6 +1441,7 @@ DIVERGENCE_CASES: dict[str, _Case] = {
         {FT_OVERRIDE_SECOND, FT_OVERRIDE_ONLY},
         min_revel=0.5,
         clinvar_pathogenic_override=True,
+        clinvar_coga_release=_COGA_RELEASE,
         intervals="11:95101270-95101280",
         filter_transcripts={FT_OVERRIDE_SECOND: "ENST_SYNT8_2", FT_OVERRIDE_ONLY: None},
     ),

@@ -89,8 +89,8 @@ class ClassificationDriftItem(BaseModel):
 class ClinvarReanalysisItemOut(BaseModel):
     """A variant of a signed analysis that CoGA's current ClinVar release classifies otherwise
     than it was frozen (the ClinVar design's phase 3, B10): the family analysis's latest signed
-    version, the variant, whether the record reports it, its class, and its ClinVar (CoGA) per
-    ALT as frozen and as the current release has it."""
+    version, the variant, whether the record reports it, its class, and its ClinVar per ALT as
+    frozen and as the current release has it."""
 
     family_id: str
     analysis: Optional[str] = None

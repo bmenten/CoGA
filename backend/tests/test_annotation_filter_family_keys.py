@@ -6,12 +6,13 @@ e.annotationSetHash) IN (SELECT … FROM <annotation table> WHERE <filter>)`` re
 rows of the whole cohort, and gathers what matches into a set before it reads the family's
 rows.
 
-* The per-transcript filters (impact, consequence, ClinVar, frequencies with the ClinVar
-  rescue, scores, Canonical, MANE and LoF only), the excluded ClinVar terms and the salient
-  variants are read on the row's own transcripts (``e.transcripts``, written with the row):
-  ``arrayExists(a -> (<filter>), e.transcripts)``, its negation for an exclusion. The filter
-  text is the one the shared table is read with, and every column it reads is one the
-  transcripts hold, under the same name.
+* The per-transcript filters (impact, consequence, frequencies, scores, Canonical, MANE and LoF
+  only, and what the ClinVar P/LP override leaves of them) and the salient impact are read on
+  the row's own transcripts (``e.transcripts``, written with the row):
+  ``arrayExists(a -> (<filter>), e.transcripts)``. The filter text is the one the shared table
+  is read with, and every column it reads is one the transcripts hold, under the same name.
+  ClinVar is no transcript's: it is each allele's in CoGA's release, read on the row's allele
+  keys against the release's partition, which holds no family's variants.
 * With a transcript or HGVS text, which the row's transcripts do not hold, the per-transcript
   filters read the shared table, as do the rsID filter (the annotation index) and a panel's
   genes (the gene index). Each such
@@ -40,16 +41,16 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
+from datetime import date
 from typing import Any
 
 import pytest
 
 from backend.app.services.clickhouse_variant_queries import (
-    _small_annotation_exclude_filter_condition,
+    _SALIENT_IMPACT,
     _small_annotation_filter_condition,
     _small_panel_filter_condition,
     _small_query_filter_parts,
-    _small_salient_condition,
     _small_variant_where_clauses,
 )
 from backend.app.services.clickhouse_variant_records import PanelFilterConstraints
@@ -70,20 +71,23 @@ _CONTEXT = FamilyMetadataContext(
     assembly_name="GRCh38",
 )
 _ENTRIES = "coga.`GRCh38/SNV_INDEL/entries`"
+_CLINVAR = "coga.`GRCh38/SNV_INDEL/clinvar`"
+_RELEASE = date(2026, 11, 22)
 _ANNOTATION_TABLES = {
     "a": "coga.`GRCh38/SNV_INDEL/variants/annotations`",
     "ai": "coga.`GRCh38/SNV_INDEL/variants/annotation_index`",
     "gi": "coga.`GRCh38/SNV_INDEL/variants/gene_index`",
 }
 # Every annotation filter of the family search: the gene (gene index), the rsID (annotation
-# index), the transcript filters, the excluded ClinVar terms (NOT), with a panel's genes and
-# excluded genes (gene index, the latter NOT IN) passed beside.
+# index), the transcript filters, the excluded ClinVar statuses (NOT, in CoGA's release), with a
+# panel's genes and excluded genes (gene index, the latter NOT IN) passed beside.
 _EVERY_ANNOTATION_FILTER: dict[str, Any] = {
     "gene": "BRCA1",
     "rsid": "rs80357906",
     "impact": ["HIGH", "MODERATE"],
     "max_gnomad_af": 0.01,
     "exclude_clinvar": ["benign"],
+    "clinvar_coga_release": _RELEASE,
 }
 # Every per-transcript filter but the text ones, each set.
 _EVERY_TRANSCRIPT_FILTER: dict[str, Any] = {
@@ -109,6 +113,7 @@ _EVERY_TRANSCRIPT_FILTER: dict[str, Any] = {
     "polyphen": "probably_damaging",
     "exclude_clinvar": ["benign"],
     "salient_only": True,
+    "clinvar_coga_release": _RELEASE,
 }
 _PANEL = PanelFilterConstraints(genes=("BRCA2",))
 _BOUND_HEAD = re.compile(r"identity\((a|ai|gi)\.key\) IN \(SELECT fk\.key FROM (\S+) AS fk WHERE ")
@@ -179,14 +184,22 @@ def test_the_per_transcript_filters_read_the_row_s_own_transcripts() -> None:
     filters = _filters(**_EVERY_TRANSCRIPT_FILTER)
     where, params = _search(filters)
     # The same filter text the shared table is read with, on the row's own transcripts: one
-    # transcript meeting every per-transcript filter, none of an excluded ClinVar class, one
-    # salient.
+    # transcript meeting every per-transcript filter, or, for an allele CoGA's release holds
+    # (likely) pathogenic, one meeting those the ClinVar P/LP override does not lift; one of a
+    # salient impact. ClinVar is read on the row's allele keys in the release, never on a
+    # transcript.
     expected_params: dict[str, Any] = {}
     detail = _small_annotation_filter_condition(filters, params=expected_params)
-    excluded = _small_annotation_exclude_filter_condition(filters, params=expected_params)
-    salient = _small_salient_condition(filters, params=expected_params)
-    assert _own_transcripts(where) == [detail, f"NOT {excluded}", salient]
+    lifted = _small_annotation_filter_condition(filters, params=expected_params, lifted=True)
+    assert _own_transcripts(where) == [detail, lifted, _SALIENT_IMPACT]
     assert {name: params[name] for name in expected_params} == expected_params
+    assert params["salient_impacts"] == ("high", "moderate", "medium")
+    assert "clinvar_terms" not in where
+    assert where.count(f"SELECT allele_key FROM {_CLINVAR} WHERE release = ") == 5
+    assert {
+        params[f"{prefix}_release"]
+        for prefix in ("clinvar_override", "clinvar_status", "clinvar_excluded", "clinvar_diamond", "clinvar_benign")
+    } == {_RELEASE}
     # No subquery reads the shared transcript table: the gene index is read for the panel's
     # genes, for the family's keys, and the excluded genes alone.
     assert _ANNOTATION_TABLES["a"] not in where
@@ -198,17 +211,13 @@ def test_the_row_s_transcripts_hold_every_column_a_per_transcript_filter_reads()
     # A filter reading a column the transcripts do not hold would fail on every row: each
     # column it reads is one of theirs, under the name the shared table gives it.
     filters = _filters(**_EVERY_TRANSCRIPT_FILTER)
-    params: dict[str, Any] = {}
-    conditions = [
-        _small_annotation_filter_condition(filters, params=params),
-        _small_annotation_exclude_filter_condition(filters, params=params),
-        _small_salient_condition(filters, params=params),
-    ]
-    read = {column for condition in conditions for column in re.findall(r"\ba\.(\w+)", condition or "")}
+    where, _params = _search(filters)
+    read = {column for condition in _own_transcripts(where) for column in re.findall(r"\ba\.(\w+)", condition)}
     held = {name for name, _type in ENTRY_TRANSCRIPT_FIELDS}
     assert read and read <= held
-    # Every field held is one a filter reads.
-    assert held == read
+    # Every field held is one a filter reads, but the annotation's ClinVar terms: ClinVar is
+    # CoGA's release's, read on the row's allele keys.
+    assert held - read == {"clinvar_terms"}
 
 
 @pytest.mark.parametrize("text_filter", [{"transcript": "ENST0001"}, {"hgvsc": "c.76"}, {"hgvsp": "p.Arg"}])
@@ -217,15 +226,19 @@ def test_a_transcript_or_hgvs_text_reads_the_shared_table_for_the_family_s_keys(
 ) -> None:
     # The row's transcripts hold no text: with a transcript or HGVS filter, every
     # per-transcript filter is read on one row of the shared table, for the family's keys.
-    # The excluded ClinVar terms hold no text and stay on the row's transcripts.
-    filters = _filters(impact=["HIGH"], max_gnomad_af=0.01, exclude_clinvar=["benign"], **text_filter)
+    # The excluded ClinVar statuses are the alleles' in CoGA's release, read on the row's
+    # allele keys whatever the text.
+    filters = _filters(
+        impact=["HIGH"], max_gnomad_af=0.01, exclude_clinvar=["benign"], clinvar_coga_release=_RELEASE, **text_filter
+    )
     where, params = _search(filters)
     expected_params: dict[str, Any] = {}
     detail = _small_annotation_filter_condition(filters, params=expected_params)
     assert detail is not None
     assert f"(e.key, e.annotationSetHash) IN (SELECT a.key, a.annotationSetHash FROM {_ANNOTATION_TABLES['a']} AS a WHERE ({detail}) AND identity(a.key) IN (" in where
     assert sorted(alias for alias, _table, _rows, _end in _bounds(where)) == ["a", "gi"]
-    assert _own_transcripts(where) == ["NOT hasAny(a.clinvar_terms, %(detail_exclude_clinvar_terms)s)"]
+    assert _own_transcripts(where) == []
+    assert f"NOT (notEmpty(e.allele_keys) AND arrayAll(k -> k IN (SELECT allele_key FROM {_CLINVAR} " in where
     assert params["annotation_family_guid"] == "keys-family"
 
 

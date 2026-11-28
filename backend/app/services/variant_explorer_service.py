@@ -374,7 +374,7 @@ class ExplorerScope:
     assembly_name: str
     project_ids: list[str]
     # CoGA's ClinVar release the request reads, once (design §6.1): its filters and its rows'
-    # ClinVar (CoGA) values read it.
+    # ClinVar read it.
     clinvar_coga: ClinvarCogaRead = NO_CLINVAR_COGA
     # The keys of the variants a query reads, when it reads only some (one page's columns,
     # :func:`_variant_columns`): every filter's subquery then gathers those variants alone

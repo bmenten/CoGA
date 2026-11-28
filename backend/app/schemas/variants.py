@@ -18,7 +18,8 @@ from .reviews import (
 
 
 class ClinvarCogaOut(BaseModel):
-    """One ALT's ClinVar in CoGA's own ClinVar release (*ClinVar (CoGA)*), or why it has none:
+    """One ALT's ClinVar in the ClinVar release CoGA loaded (the only ClinVar a small variant has),
+    or why it has none:
     ``in_release`` (the release holds the allele: its classification, or only that it is
     classified as part of a combination, ``included_only``), ``not_in_release``, ``no_release``
     (none is loaded for the assembly) or ``not_available`` (ClinVar publishes no VCF for the

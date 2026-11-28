@@ -629,7 +629,8 @@ export interface ClinvarAssemblyReleasesOut {
 }
 
 /**
- * One ALT's ClinVar in CoGA's own ClinVar release (*ClinVar (CoGA)*), or why it has none:
+ * One ALT's ClinVar in the ClinVar release CoGA loaded (the only ClinVar a small variant has),
+ * or why it has none:
  * ``in_release`` (the release holds the allele: its classification, or only that it is
  * classified as part of a combination, ``included_only``), ``not_in_release``, ``no_release``
  * (none is loaded for the assembly) or ``not_available`` (ClinVar publishes no VCF for the
@@ -713,8 +714,8 @@ export interface ClinvarLoadStatusOut {
 /**
  * A variant of a signed analysis that CoGA's current ClinVar release classifies otherwise
  * than it was frozen (the ClinVar design's phase 3, B10): the family analysis's latest signed
- * version, the variant, whether the record reports it, its class, and its ClinVar (CoGA) per
- * ALT as frozen and as the current release has it.
+ * version, the variant, whether the record reports it, its class, and its ClinVar per ALT as
+ * frozen and as the current release has it.
  */
 export interface ClinvarReanalysisItemOut {
   family_id: string;

@@ -17,8 +17,9 @@ Six synthetic families of one assay panel, each a plasma (``CFDNA1``..``CFDNA6``
 - the fetus's paternal allele: a low-VAF call in four plasmas, each father het;
 - an allele maternal in three plasmas and unexplained in two;
 - crossed-over reads (2 alt reads) in four plasmas;
-- a common allele (gnomAD 31%) and a ClinVar pathogenic one (gnomAD 1%), each an
-  unexplained low-VAF call in three plasmas.
+- a common allele (gnomAD 31%) and one CoGA's ClinVar release holds pathogenic (gnomAD 1%),
+  each an unexplained low-VAF call in three plasmas. The release is the test's own, read as
+  the assembly's current one; the artefact's annotation calls it pathogenic, which is not read.
 
 Only the artefact is seeded, at the default threshold of 3, with 3 as its recurrence: the
 first family is stored under two projects and counts once. The seed's count equals the
@@ -38,13 +39,15 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets 
 from __future__ import annotations
 
 import json
+from datetime import date
 from typing import Any
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
 
-from backend.app.services.clinvar_coga import NO_CLINVAR_COGA
+from backend.app.services.clinvar_coga import ClinvarCogaRead
+from backend.tests.e2e._clinvar_release import clinvar_release
 
 pytestmark = pytest.mark.integration
 
@@ -54,6 +57,8 @@ _PANEL = f"E2E_SEED_{_TAG}"
 _PROJECT = "e2e-nipt-seed-project"
 _OTHER_PROJECT = "e2e-nipt-seed-other-project"
 _THRESHOLD = 3
+# CoGA's ClinVar release of the test's own.
+_RELEASE = date(2026, 10, 18)
 
 _ARTEFACT = "7-1000-A-G"
 _MATERNAL = "7-2000-C-T"
@@ -97,9 +102,12 @@ _ROWS: dict[str, dict[int, list[tuple[str, list[int], dict[str, float]]]]] = {
     _PATHOGENIC: {index: [_plasma(index, _UNEXPLAINED)] for index in range(1, 4)},
 }
 _ANNOTATIONS: dict[str, list[dict[str, Any]]] = {
+    # A ClinVar the annotation names, which nothing reads: the release does not hold it.
+    _ARTEFACT: [{"clinvar": "Pathogenic"}],
     _COMMON: [{"gnomad_af": 0.31}],
-    _PATHOGENIC: [{"gnomad_af": 0.01, "clinvar": "Pathogenic"}],
+    _PATHOGENIC: [{"gnomad_af": 0.01}],
 }
+_HELD = {_PATHOGENIC: "Pathogenic"}
 
 
 def _record(variant_id: str, calls: list[tuple[str, list[int], dict[str, float]]]):
@@ -191,28 +199,30 @@ async def _exercise() -> dict[str, Any]:
             await cvs.insert_small_variant_records(_ASSEMBLY, f"e2e-nipt-seed-{index}", projects, records)
 
         scope = {"assembly_id": assembly_id, "assay_key": _PANEL, "min_unexplained_samples": _THRESHOLD}
-        async with get_postgres_sessionmaker()() as session:
-            carriers = await assay_cfdna_carrier_samples(session, assay_key=_PANEL)
-            preview = await preview_auto_seed_nipt_artifacts(session, **scope)
-            listed_after_preview = await list_nipt_artifacts(session, assembly_id=assembly_id, assay_key=_PANEL)
-            seeded = await auto_seed_nipt_artifacts(session, **scope)
-            listed = await list_nipt_artifacts(session, assembly_id=assembly_id, assay_key=_PANEL)
-            preview_after_seed = await preview_auto_seed_nipt_artifacts(session, **scope)
-        # The list's count, outside a family none of these is in.
-        recurrence = await count_cfdna_recurrence(
-            _ASSEMBLY, list(_ROWS), carrier_samples=carriers, exclude_family_uuid="none", rules=rules
-        )
-        await execute_clickhouse(f"OPTIMIZE TABLE {_small_table_name(_ASSEMBLY, 'entries')} FINAL")
-        merged = await fetch_recurrent_artifact_candidates(
-            _ASSEMBLY,
-            clinvar_coga=NO_CLINVAR_COGA,
-            carrier_samples=carriers,
-            rules=rules,
-            min_unexplained_samples=_THRESHOLD,
-        )
-        unprotected = await fetch_recurrent_artifact_candidates(
-            _ASSEMBLY, clinvar_coga=NO_CLINVAR_COGA, carrier_samples=carriers, rules=rules, min_unexplained_samples=2
-        )
+        read = ClinvarCogaRead(_ASSEMBLY, _RELEASE, True)
+        async with clinvar_release(_ASSEMBLY, _RELEASE, _HELD):
+            async with get_postgres_sessionmaker()() as session:
+                carriers = await assay_cfdna_carrier_samples(session, assay_key=_PANEL)
+                preview = await preview_auto_seed_nipt_artifacts(session, **scope)
+                listed_after_preview = await list_nipt_artifacts(session, assembly_id=assembly_id, assay_key=_PANEL)
+                seeded = await auto_seed_nipt_artifacts(session, **scope)
+                listed = await list_nipt_artifacts(session, assembly_id=assembly_id, assay_key=_PANEL)
+                preview_after_seed = await preview_auto_seed_nipt_artifacts(session, **scope)
+            # The list's count, outside a family none of these is in.
+            recurrence = await count_cfdna_recurrence(
+                _ASSEMBLY, list(_ROWS), carrier_samples=carriers, exclude_family_uuid="none", rules=rules
+            )
+            await execute_clickhouse(f"OPTIMIZE TABLE {_small_table_name(_ASSEMBLY, 'entries')} FINAL")
+            merged = await fetch_recurrent_artifact_candidates(
+                _ASSEMBLY,
+                clinvar_coga=read,
+                carrier_samples=carriers,
+                rules=rules,
+                min_unexplained_samples=_THRESHOLD,
+            )
+            unprotected = await fetch_recurrent_artifact_candidates(
+                _ASSEMBLY, clinvar_coga=read, carrier_samples=carriers, rules=rules, min_unexplained_samples=2
+            )
         return {
             "carriers": sorted(carriers),
             "preview": preview,
@@ -294,6 +304,6 @@ def test_the_candidates_are_the_same_after_a_part_merge(run) -> None:
 
 
 def test_a_common_or_pathogenic_allele_is_never_a_candidate(run) -> None:
-    # At a threshold of two the mostly maternal allele joins; the common and the ClinVar
-    # pathogenic allele, at three, still do not.
+    # At a threshold of two the mostly maternal allele joins; the common allele and the one
+    # CoGA's ClinVar release holds pathogenic, at three, still do not.
     assert run["at_two"] == [(_ARTEFACT, 3), (_MOSTLY_MATERNAL, 2)]

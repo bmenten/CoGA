@@ -9,7 +9,9 @@ where the family page takes any one.
 A family is created through the PED upload under a new id each run, so the golden trio is
 never touched, and a VEP-annotated VCF goes in through the family small-variant upload, so
 its CSQ is parsed and stored as an import stores it. Its variants have transcripts that
-disagree. Each filter set is then sent, as the one query string the filter form builds for
+disagree. ClinVar is CoGA's release's, a release of the test's own read as the assembly's
+current one while the pages are asked (the ClinVar of the CSQ is not read). Each filter set is
+then sent, as the one query string the filter form builds for
 both pages, to the family page's endpoint (unranked, and ranked as the page opens), and to
 the Variant Explorer's search and CSV export, narrowed to the variants' locus because other
 runs and tests share the assembly. All answer with exactly the expected variants. Everything
@@ -24,11 +26,13 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import date
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
+from backend.tests.e2e._clinvar_release import clinvar_release
 from backend.tests.e2e._harness import ensure_postgres_schema
 from backend.tests.e2e._vep_family import deepvariant_vep_header, single_sample_vcf, upload_family
 
@@ -75,9 +79,9 @@ _MANE_HIGH = "9-136800201-C-T"
 _LOF_OFF_MANE = "9-136800301-C-T"
 # Synonymous on the MANE transcript, a damaging missense (REVEL 0.9) on another.
 _REVEL_OFF_MANE = "9-136800401-C-T"
-# A missense with CADD 30 and no REVEL score.
+# A missense with CADD 30 and no REVEL score; pathogenic in its CSQ alone, not in the release.
 _CADD_ONLY = "9-136800501-C-T"
-# A common missense (gnomAD 8%) that ClinVar calls likely pathogenic.
+# A common missense (gnomAD 8%) that CoGA's ClinVar release holds likely pathogenic.
 _COMMON_LIKELY_PATHOGENIC = "9-136800601-C-T"
 
 _VARIANTS: dict[str, list[str]] = {
@@ -97,7 +101,7 @@ _VARIANTS: dict[str, list[str]] = {
         _csq("missense_variant", "MODERATE", "SYN29J", "ENST_SYN29J_2", revel="0.9", cadd="12"),
     ],
     _CADD_ONLY: [
-        _csq("missense_variant", "MODERATE", "SYN29K", "ENST_SYN29K_1", mane="NM_SYN29K.1", cadd="30"),
+        _csq("missense_variant", "MODERATE", "SYN29K", "ENST_SYN29K_1", mane="NM_SYN29K.1", cadd="30", clinvar="pathogenic"),
     ],
     _COMMON_LIKELY_PATHOGENIC: [
         _csq(
@@ -111,6 +115,9 @@ _VARIANTS: dict[str, list[str]] = {
     ],
 }
 _ALL = set(_VARIANTS)
+# CoGA's ClinVar release of the test's own.
+_RELEASE = date(2026, 10, 11)
+_HELD = {_COMMON_LIKELY_PATHOGENIC: "Likely_pathogenic"}
 
 # The filter sets, as query parameters (the two endpoints read the same names), and the
 # variants both pages keep.
@@ -134,6 +141,9 @@ _CASES: dict[str, tuple[dict[str, Any], set[str]]] = {
         {"mane_only": "true", "clinvar": ["Likely_pathogenic"]},
         {_COMMON_LIKELY_PATHOGENIC},
     ),
+    # _CADD_ONLY's CSQ calls it pathogenic; the release holds no allele so.
+    "ClinVar pathogenic, the release's alone": ({"clinvar": ["Pathogenic"]}, set()),
+    "ClinVar likely pathogenic left out": ({"exclude_clinvar": ["Likely_pathogenic"]}, _ALL - {_COMMON_LIKELY_PATHOGENIC}),
 }
 
 _VCF_HEADER = deepvariant_vep_header(_CSQ_FORMAT)
@@ -172,37 +182,38 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         await _harness.carrier_summary_up_to_date()
 
         explorer_scope = {"assembly_id": assembly_id, **_LOCUS}
-        for name, (filters, _expected) in _CASES.items():
-            answers: dict[str, Any] = {}
-            for label, prioritize in (("family page", "false"), ("family page, ranked", "true")):
+        async with clinvar_release(_harness.ASSEMBLY, _RELEASE, _HELD):
+            for name, (filters, _expected) in _CASES.items():
+                answers: dict[str, Any] = {}
+                for label, prioritize in (("family page", "false"), ("family page, ranked", "true")):
+                    response = await ac.get(
+                        f"/api/families/{family_id}/small-variants",
+                        params={"page": 1, "page_size": 100, "prioritize": prioritize, **filters},
+                    )
+                    answers[label] = (
+                        {variant["_id"] for variant in response.json()["variants"]}
+                        if response.status_code == 200
+                        else (response.status_code, response.text)
+                    )
                 response = await ac.get(
-                    f"/api/families/{family_id}/small-variants",
-                    params={"page": 1, "page_size": 100, "prioritize": prioritize, **filters},
+                    "/api/variant-explorer/small-variants",
+                    params={"page_size": 200, **explorer_scope, **filters},
                 )
-                answers[label] = (
-                    {variant["_id"] for variant in response.json()["variants"]}
+                answers["explorer"] = (
+                    {row["variant_id"] for row in response.json()["variants"]}
                     if response.status_code == 200
                     else (response.status_code, response.text)
                 )
-            response = await ac.get(
-                "/api/variant-explorer/small-variants",
-                params={"page_size": 200, **explorer_scope, **filters},
-            )
-            answers["explorer"] = (
-                {row["variant_id"] for row in response.json()["variants"]}
-                if response.status_code == 200
-                else (response.status_code, response.text)
-            )
-            response = await ac.get(
-                "/api/variant-explorer/small-variants/export",
-                params={**explorer_scope, **filters},
-            )
-            answers["explorer export"] = (
-                {row["Variant ID"] for row in csv.DictReader(io.StringIO(response.text))}
-                if response.status_code == 200
-                else (response.status_code, response.text)
-            )
-            out["pages"][name] = answers
+                response = await ac.get(
+                    "/api/variant-explorer/small-variants/export",
+                    params={**explorer_scope, **filters},
+                )
+                answers["explorer export"] = (
+                    {row["Variant ID"] for row in csv.DictReader(io.StringIO(response.text))}
+                    if response.status_code == 200
+                    else (response.status_code, response.text)
+                )
+                out["pages"][name] = answers
     return out
 
 

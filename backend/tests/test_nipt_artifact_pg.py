@@ -542,7 +542,7 @@ async def test_import_never_lists_a_common_or_pathogenic_allele(
 
 
 @pytest.mark.asyncio
-async def test_protection_flags_read_the_pooled_frequency_and_cogas_clinvar(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_protection_flags_read_the_pooled_annotation(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_execute(query, params):
         assert "variants/annotation_index" in query and "clinvar_terms" not in query
         assert params["variant_ids"] == ("1-1-A-G", "1-2-A-G", "1-3-A-G", "1-4-A-G")

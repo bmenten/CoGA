@@ -181,7 +181,7 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     snap_hash = snapshot.get("annotation_set_hash")
     snap_version = snapshot.get("annotation_version")
     evidence_from, readable = _evidence_values(snapshot)
-    # Every snapshot freezes each ALT's ClinVar (CoGA) value; one that does not, or not as a
+    # Every snapshot freezes each ALT's ClinVar from CoGA's release; one that does not, or not as a
     # list of mappings, cannot be verified.
     coga_from = snapshot.get("clinvar_coga")
     if not isinstance(coga_from, list) or not all(isinstance(value, Mapping) for value in coga_from):

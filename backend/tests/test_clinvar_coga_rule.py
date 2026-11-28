@@ -182,6 +182,8 @@ def test_the_mtdna_status_reads_the_releases_clinvar_beside_mitomap(coga: Clinva
     annotation = mito._annotation_for_record(_mt_record("Pathogenic", "Reported"), clinvar_coga=coga)
 
     assert (annotation.clinical_significance, annotation.clinvar_coga) == (status, coga)
+    # The annotation's ClinVar is no source the variant's annotation names.
+    assert annotation.source_keys == ["mitomap_status"]
 
 
 def test_the_mtdna_page_reads_each_variants_value_in_the_release(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -252,26 +254,30 @@ def _nipt_record(clinvar: str) -> SmallVariantRecord:
 
 
 @pytest.mark.parametrize(
-    ("annotated", "coga", "may_assert", "protection"),
+    ("annotated", "coga", "read", "may_assert", "protection"),
     [
-        ("Benign", _value("A"), True, "clinvar"),
-        ("Pathogenic", _value("A", classification="Benign"), False, None),
-        ("Benign", _value("A", classification="Conflicting_classifications_of_pathogenicity"), True, "clinvar"),
-        ("Pathogenic", _value("A", status="not_in_release", classification=None), False, None),
-        ("Pathogenic", None, False, None),
+        ("Benign", _value("A"), ["Pathogenic"], True, "clinvar"),
+        ("Pathogenic", _value("A", classification="Benign"), ["Benign"], False, None),
+        (
+            "Benign",
+            _value("A", classification="Conflicting_classifications_of_pathogenicity"),
+            ["Conflicting_classifications_of_pathogenicity"],
+            True,
+            "clinvar",
+        ),
+        ("Pathogenic", _value("A", status="not_in_release", classification=None), [], False, None),
+        ("Pathogenic", None, [], False, None),
     ],
     ids=["coga-pathogenic", "coga-benign", "coga-conflict", "not-in-release", "no-release"],
 )
 def test_the_nipt_readers_read_the_releases_clinvar_alone(
-    annotated: str, coga: ClinvarCogaOut | None, may_assert: bool, protection: str | None
+    annotated: str, coga: ClinvarCogaOut | None, read: list[str], may_assert: bool, protection: str | None
 ) -> None:
     from backend.app.services import nipt_service
 
     record = _nipt_record(annotated)
 
-    assert nipt_service.clinvar_read(coga) == ([coga.classification] if may_assert or protection or (
-        coga is not None and coga.status == "in_release"
-    ) else [])
+    assert nipt_service.clinvar_read(coga) == read
     assert nipt_service.triage_annotation(record, coga).clinvar_pathogenic is may_assert
     assert nipt_service.artifact_protection(record, coga) == protection
 

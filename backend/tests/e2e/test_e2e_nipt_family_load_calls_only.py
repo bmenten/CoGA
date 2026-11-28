@@ -11,8 +11,9 @@ read writes a query past ClickHouse's ``max_query_size``.
 
 Over a copy of the synthetic demo NIPT package (``demo/nipt_family``), imported through the real
 package import, with annotated records added to its callset by the importer's own writer under
-the family's write lock (three alleles on the run's artifact list: one ClinVar calls pathogenic,
-one common in the population, one neither; and a de novo candidate of HIGH impact), this shows:
+the family's write lock (three alleles on the run's artifact list: one CoGA's ClinVar release
+calls pathogenic (a release of the test's own, read as the assembly's current one), one common
+in the population, one neither; and a de novo candidate of HIGH impact), this shows:
 
 * each record read without its annotation, then annotated apart, is the record read whole;
 * the details read one annotation set per query are those read at once;
@@ -31,11 +32,13 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from backend.tests.e2e._clinvar_release import clinvar_release
 from backend.tests.e2e._nipt_demo import DEMO, import_demo, prepare_copy
 
 pytestmark = pytest.mark.integration
@@ -47,10 +50,13 @@ DE_NOVO_HIGH = "2-6001-G-A"
 DEMO_DE_NOVO = "1-1001-A-G"  # GENE_DENOVO, category 1, in the fetal window
 DEMO_PATERNAL = "1-10000-A-G"  # a paternal allele the fetus inherited, category 7
 REPORTED = [DE_NOVO_HIGH, ARTIFACT_CLINVAR, ARTIFACT_PLAIN, DEMO_DE_NOVO, DEMO_PATERNAL]
+# CoGA's ClinVar release of the test's own: ARTIFACT_CLINVAR pathogenic.
+_RELEASE = date(2026, 10, 25)
+_HELD = {ARTIFACT_CLINVAR: "Pathogenic"}
 
 # Each added variant's plasma allele depths and its one transcript's annotation.
 _ADDED: dict[str, tuple[list[int], dict[str, Any]]] = {
-    ARTIFACT_CLINVAR: ([490, 10], {"gene": "GENE_ART", "impact": "MODERATE", "clinvar": "Pathogenic"}),
+    ARTIFACT_CLINVAR: ([490, 10], {"gene": "GENE_ART", "impact": "MODERATE"}),
     ARTIFACT_COMMON: ([490, 10], {"gene": "GENE_ART", "impact": "LOW", "gnomad_af": 0.2}),
     ARTIFACT_PLAIN: ([490, 10], {"gene": "GENE_ART", "impact": "MODERATE", "gnomad_af": 0.0001}),
     DE_NOVO_HIGH: ([470, 30], {"gene": "GENE_HIGH", "impact": "HIGH", "consequence": "stop_gained"}),
@@ -216,9 +222,10 @@ async def _collect(root: Path, ids: dict[str, str]) -> dict[str, Any]:
                 )
                 artifact_ids.append(str(row["id"]))
         out["records"] = await _records(family_id, project_id, admin)
-        out["served"] = await _analyses(family_id, project_id, admin)
-        with _family_read_whole():
-            out["read_whole"] = await _analyses(family_id, project_id, admin)
+        async with clinvar_release(_harness.ASSEMBLY, _RELEASE, _HELD):
+            out["served"] = await _analyses(family_id, project_id, admin)
+            with _family_read_whole():
+                out["read_whole"] = await _analyses(family_id, project_id, admin)
     finally:
         async with sessionmaker() as session:
             for artifact_id in artifact_ids:
@@ -263,7 +270,8 @@ def test_the_summary_and_the_artifact_counts_are_those_of_the_records_read_whole
     served, whole = loaded["served"], loaded["read_whole"]
     assert served["summary"] == whole["summary"]
     assert served["counts"] == whole["counts"]
-    # The family's listed artefacts were read with their annotation: two of them protected.
+    # The family's listed artefacts were read with their annotation and their ClinVar in
+    # CoGA's release: two of them protected.
     assert (served["counts"].in_family, served["counts"].removed) == (3, 1)
     assert served["counts"].protected == {"clinvar": 1, "common": 1}
 

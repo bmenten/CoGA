@@ -2,11 +2,13 @@
 exactly the rows it kept reading them on the cohort's shared annotation table, on real
 ClickHouse.
 
-The family search tests the per-transcript filters (impact, consequence, ClinVar, frequencies
-with the ClinVar rescue, scores, SIFT and PolyPhen, Canonical, MANE and LoF only), the
-excluded ClinVar terms and the salient variants on the transcripts each ``entries`` row holds
+The family search tests the per-transcript filters (impact, consequence, frequencies, scores,
+SIFT and PolyPhen, Canonical, MANE and LoF only, and what the ClinVar P/LP override leaves of
+them) and the salient impact on the transcripts each ``entries`` row holds
 (``_small_own_transcripts_condition``), and reads the genes a user typed from the gene index
-without the family's keys. Before, it read each of them in a subquery over the shared tables,
+without the family's keys. ClinVar is each allele's in CoGA's release, read on the row's allele
+keys either way: a release of the module's own holds some of the variants (the ClinVar of their
+CSQ is not read). Before, it read each of them in a subquery over the shared tables,
 narrowed to the family's keys (``_small_family_key_condition``). The code keeps that subquery
 for the transcript and HGVS text, so the test asks it for every filter (``reads_text``, and
 the family's keys for every gene too) and compares the two answers.
@@ -25,7 +27,7 @@ per transcript; values on the thresholds the cases set. Two families carry them:
   any version.
 
 For each family and case the list (``_fetch_small_variant_rows``) and the bounded count keep
-the same variants both ways, the cases covering every filter field the transcripts serve,
+the same variants both ways, ClinVar's filters and override in the release, the cases covering every filter field the transcripts serve,
 alone and together, within a locus, with a gene, a panel and an rsID beside them.
 
 The variants sit on chromosome 19 at 41.5 Mb, where no other test writes: the annotation
@@ -38,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import random
 import re
+from datetime import date
 from typing import Any
 from uuid import uuid4
 
@@ -46,6 +49,12 @@ import pytest
 pytestmark = pytest.mark.integration
 
 _ASSEMBLY = "GRCh38"
+# CoGA's ClinVar release of the module's own, a partition it writes and drops: each variant's
+# classification by its index (``_RELEASE_CLASSIFICATIONS``, None: not in the release).
+_RELEASE = date(2026, 11, 15)
+_RELEASE_CLASSIFICATIONS = (
+    "Pathogenic", "Likely_pathogenic", "Benign", "Likely_benign", "Uncertain_significance", None, None,
+)
 _PROBAND, _MOTHER, _FATHER = "OWNTX_PROBAND", "OWNTX_MOTHER", "OWNTX_FATHER"
 _FIRST_POS = 41_500_001
 _VARIANTS = 600
@@ -215,7 +224,9 @@ def _context(family_uuid: str, project: str) -> Any:
 _CASES: dict[str, tuple[dict[str, Any], tuple[str, ...] | None]] = {
     "rare on a threshold": ({"max_gnomad_af": 0.001}, None),
     "rare, HIGH or MODERATE": ({"max_gnomad_af": 0.01, "impact": ["HIGH", "MODERATE"]}, None),
-    "rare, ClinVar P/LP rescued": ({"max_gnomad_af": 0.001, "clinvar_pathogenic_override": True}, None),
+    "rare, ClinVar P/LP rescued": (
+        {"max_gnomad_af": 0.001, "clinvar_pathogenic_override": True, "clinvar_coga_release": _RELEASE}, None
+    ),
     "every frequency": (
         {
             "max_gnomad_exomes_af": 0.001,
@@ -230,8 +241,8 @@ _CASES: dict[str, tuple[dict[str, Any], tuple[str, ...] | None]] = {
     ),
     "consequence": ({"effect": ["missense_variant", "splice_region_variant"]}, None),
     "impact or consequence": ({"impact": ["HIGH"], "effect": ["synonymous_variant"]}, None),
-    "ClinVar": ({"clinvar": ["pathogenic", "likely_pathogenic"]}, None),
-    "excluded ClinVar": ({"exclude_clinvar": ["benign", "likely_benign"]}, None),
+    "ClinVar": ({"clinvar": ["pathogenic", "likely_pathogenic"], "clinvar_coga_release": _RELEASE}, None),
+    "excluded ClinVar": ({"exclude_clinvar": ["benign", "likely_benign"], "clinvar_coga_release": _RELEASE}, None),
     "Canonical only": ({"canonical_only": True, "impact": ["MODERATE"]}, None),
     "MANE only": ({"mane_only": True}, None),
     "LoF only": ({"lof_only": True}, None),
@@ -241,7 +252,7 @@ _CASES: dict[str, tuple[dict[str, Any], tuple[str, ...] | None]] = {
     "SIFT": ({"sift": "deleterious"}, None),
     "PolyPhen": ({"polyphen": "probably_damaging"}, None),
     "in silico together": ({"min_cadd": 20.0, "min_revel": 0.5, "sift": "deleterious"}, None),
-    "salient": ({"salient_only": True}, None),
+    "salient": ({"salient_only": True, "clinvar_coga_release": _RELEASE}, None),
     "every transcript filter": (
         {
             "max_gnomad_af": 0.01,
@@ -250,12 +261,13 @@ _CASES: dict[str, tuple[dict[str, Any], tuple[str, ...] | None]] = {
             "canonical_only": True,
             "min_cadd": 15.0,
             "exclude_clinvar": ["benign"],
+            "clinvar_coga_release": _RELEASE,
         },
         None,
     ),
     "within a locus": (
         {"chromosome": "chr19", "start": _FIRST_POS + 1_000, "end": _FIRST_POS + 4_000, "overlap": True,
-         "max_gnomad_af": 0.01, "exclude_clinvar": ["benign"]},
+         "max_gnomad_af": 0.01, "exclude_clinvar": ["benign"], "clinvar_coga_release": _RELEASE},
         None,
     ),
     "a gene": ({"gene": "OWNTXA"}, None),
@@ -308,12 +320,30 @@ async def _close_stores() -> None:
     await close_clickhouse_client()
 
 
+def _release_rows() -> list[Any]:
+    """CoGA's ClinVar release of the variants: each by its index's classification."""
+    from backend.tests.integration._clinvar_source import release_rows
+
+    held = {
+        variant_id: classification
+        for index, variant_id in enumerate(_variant_ids())
+        if (classification := _RELEASE_CLASSIFICATIONS[index % len(_RELEASE_CLASSIFICATIONS)]) is not None
+    }
+    return release_rows(_ASSEMBLY, held)
+
+
 @pytest.fixture(scope="module")
-def families() -> dict[str, Any]:
-    """The two families' variants, written once, each family in a fresh project."""
+def families() -> Any:
+    """The two families' variants, written once, each family in a fresh project, and CoGA's
+    release of their alleles; the release's partition is dropped after the module."""
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         insert_small_variant_records,
+    )
+    from backend.app.services.clinvar_release_store import (
+        drop_clinvar_release,
+        ensure_clinvar_table,
+        insert_clinvar_rows,
     )
 
     rng = random.Random(20261118)
@@ -336,11 +366,20 @@ def families() -> dict[str, Any]:
             await insert_small_variant_records(
                 _ASSEMBLY, second[0], [second[1]], _records(anew, rng), annotation_version="vep_tsv"
             )
+            await ensure_clinvar_table(_ASSEMBLY)
+            await insert_clinvar_rows(_ASSEMBLY, _RELEASE, _release_rows())
+        finally:
+            await _close_stores()
+
+    async def _drop() -> None:
+        try:
+            await drop_clinvar_release(_ASSEMBLY, _RELEASE)
         finally:
             await _close_stores()
 
     asyncio.run(_write())
-    return {"every variant": _context(*first), "half re-annotated": _context(*second)}
+    yield {"every variant": _context(*first), "half re-annotated": _context(*second)}
+    asyncio.run(_drop())
 
 
 @pytest.fixture(scope="module")
@@ -391,11 +430,7 @@ def test_the_cases_keep_some_variants_and_leave_out_others(
 
 
 def test_the_cases_cover_every_field_the_transcripts_serve() -> None:
-    from backend.app.services.clickhouse_variant_queries import (
-        _small_annotation_exclude_filter_condition,
-        _small_annotation_filter_condition,
-        _small_salient_condition,
-    )
+    from backend.app.services.clickhouse_variant_queries import _SALIENT_IMPACT, _small_annotation_filter_condition
     from backend.app.services.clickhouse_variant_rows import ENTRY_TRANSCRIPT_FIELDS
     from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
@@ -405,8 +440,10 @@ def test_the_cases_cover_every_field_the_transcripts_serve() -> None:
         params: dict[str, Any] = {}
         for condition in (
             _small_annotation_filter_condition(search, params=params),
-            _small_annotation_exclude_filter_condition(search, params=params),
-            _small_salient_condition(search, params=params),
+            _small_annotation_filter_condition(search, params=params, lifted=True),
+            _SALIENT_IMPACT if search.salient_only else None,
         ):
             read.update(re.findall(r"\ba\.(\w+)", condition or ""))
-    assert {name for name, _type in ENTRY_TRANSCRIPT_FIELDS} <= read
+    # Every field but the annotation's ClinVar terms, which no filter reads: ClinVar is CoGA's
+    # release's, read on the row's allele keys.
+    assert {name for name, _type in ENTRY_TRANSCRIPT_FIELDS} - read == {"clinvar_terms"}
