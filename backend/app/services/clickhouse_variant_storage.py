@@ -27,9 +27,14 @@ from .clickhouse_variant_ids import (
 )
 from .clickhouse_variant_rows import (
     ENTRY_TRANSCRIPTS_TYPE,
+    PreparedSmallVariant,
+    SharedRowsIdentity,
     _normalized_project_ids,
+    _small_annotation_version,
     _small_variant_entry_rows,
     _structural_variant_entry_rows,
+    prepare_small_variants,
+    small_variant_rows,
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, clickhouse_genotype_condition
 from .variant_carrier_summary import (
@@ -592,6 +597,37 @@ async def delete_family_structural_variants(
     await bump_family_structural_variant_data_version(assembly_name, family_uuid)
 
 
+# The variants one lookup of stored shared rows names: a query's text holds its bound values,
+# and ClickHouse refuses one longer than ``max_query_size`` (256 KiB at the least), which some
+# 3,500 of these tuples fill. The import writes 1,000 records a batch.
+_SHARED_ROWS_PER_LOOKUP = 2_000
+
+
+async def _stored_shared_rows(
+    assembly_name: str, annotation_version: str, variants: Sequence[PreparedSmallVariant]
+) -> set[SharedRowsIdentity]:
+    """The identities of those of ``variants`` whose shared rows are stored for
+    ``annotation_version``. Read in ``annotation_index``, which a write inserts last of them,
+    by its sort key, so that a lookup reads the granules at the variants' positions alone."""
+    lookups = sorted({(variant.chrom, variant.pos, variant.key, variant.annotation_set_hash) for variant in variants})
+    stored: set[SharedRowsIdentity] = set()
+    for start in range(0, len(lookups), _SHARED_ROWS_PER_LOOKUP):
+        rows = await _execute(
+            f"""
+            SELECT key, annotationSetHash, rsid
+            FROM {_small_table_name(assembly_name, 'variants/annotation_index')}
+            WHERE annotation_version = %(annotation_version)s
+              AND (chrom, pos, key, annotationSetHash) IN %(variants)s
+            """,
+            {
+                "annotation_version": annotation_version,
+                "variants": tuple(lookups[start : start + _SHARED_ROWS_PER_LOOKUP]),
+            },
+        )
+        stored.update((int(key), int(set_hash), rsid) for key, set_hash, rsid in rows or [])
+    return stored
+
+
 async def insert_small_variant_records(
     assembly_name: str,
     family_uuid: str,
@@ -604,23 +640,32 @@ async def insert_small_variant_records(
     """Write ``records``: the shared variant details, annotations and their indexes, and the
     family's ``entries`` rows. With ``entries=False`` only the shared rows are written, for
     a caller that writes the family's rows itself (a per-sample rewrite, which merges them
-    into the stored rows: see :func:`small_variant_record_entries`)."""
+    into the stored rows: see :func:`small_variant_record_entries`).
+
+    A variant whose shared rows are stored already, for its annotation set and rsID, gets
+    its ``entries`` rows alone (:func:`_stored_shared_rows`). The shared rows go in first,
+    ``annotation_index`` last of them: a variant's ``annotation_index`` row is how a later
+    write finds every shared row of it stored. The ``entries`` rows follow, so each finds its
+    shared rows written."""
     await ensure_clickhouse_variant_tables(assembly_name)
-    # Building a batch's rows is CPU work, more than parsing its VCF lines: it runs in a
-    # worker thread, so the event loop serves other requests meanwhile.
-    detail_rows, entry_rows, annotation_rows, annotation_index_rows, annotation_gene_index_rows = await asyncio.to_thread(
-        _small_variant_entry_rows,
+    version = _small_annotation_version(annotation_version)
+    # Preparing and building a batch's rows is CPU work, more than parsing its VCF lines: it
+    # runs in a worker thread, so the event loop serves other requests meanwhile.
+    variants = await asyncio.to_thread(prepare_small_variants, assembly_name, records)
+    stored = await _stored_shared_rows(assembly_name, version, variants)
+    rows = await asyncio.to_thread(
+        small_variant_rows,
         assembly_name,
         family_uuid,
         project_ids,
-        records,
-        annotation_version=annotation_version,
+        variants,
+        annotation_version=version,
+        stored=stored,
     )
-    if not entries:
-        entry_rows = []
+    entry_rows = rows.entries if entries else []
     if entry_rows:
         await _before_entries_write(assembly_name, family_uuid)
-    if detail_rows:
+    if rows.details:
         await _execute_insert_chunks(
             f"""
             INSERT INTO {_small_table_name(assembly_name, 'variants/details')} (
@@ -636,18 +681,10 @@ async def insert_small_variant_records(
                 annotationsJson
             ) VALUES
             """,
-            detail_rows,
+            rows.details,
             chunk_size=_SMALL_VARIANT_DETAIL_INSERT_ROWS,
         )
-    if entry_rows:
-        await _execute_insert_chunks(
-            f"""
-            INSERT INTO {_small_table_name(assembly_name, 'entries')} ({_SMALL_VARIANT_ENTRY_COLUMN_LIST}) VALUES
-            """,
-            entry_rows,
-            chunk_size=_SMALL_VARIANT_ENTRY_INSERT_ROWS,
-        )
-    if annotation_rows:
+    if rows.annotations:
         await _execute_insert_chunks(
             f"""
             INSERT INTO {_small_table_name(assembly_name, 'variants/annotations')} (
@@ -686,10 +723,28 @@ async def insert_small_variant_records(
                 polyphen
             ) VALUES
             """,
-            annotation_rows,
+            rows.annotations,
             chunk_size=_SMALL_VARIANT_ANNOTATION_INSERT_ROWS,
         )
-    if annotation_index_rows:
+    if rows.gene_index:
+        await _execute_insert_chunks(
+            f"""
+            INSERT INTO {_small_table_name(assembly_name, 'variants/gene_index')} (
+                key,
+                variantId,
+                annotation_version,
+                annotationSetHash,
+                gene_term,
+                chrom,
+                pos,
+                ref,
+                alt
+            ) VALUES
+            """,
+            rows.gene_index,
+            chunk_size=_SMALL_VARIANT_GENE_INDEX_INSERT_ROWS,
+        )
+    if rows.annotation_index:
         await _execute_insert_chunks(
             f"""
             INSERT INTO {_small_table_name(assembly_name, 'variants/annotation_index')} (
@@ -725,28 +780,17 @@ async def insert_small_variant_records(
                 max_spliceai
             ) VALUES
             """,
-            annotation_index_rows,
+            rows.annotation_index,
             chunk_size=_SMALL_VARIANT_INDEX_INSERT_ROWS,
         )
-    if annotation_gene_index_rows:
+    if entry_rows:
         await _execute_insert_chunks(
             f"""
-            INSERT INTO {_small_table_name(assembly_name, 'variants/gene_index')} (
-                key,
-                variantId,
-                annotation_version,
-                annotationSetHash,
-                gene_term,
-                chrom,
-                pos,
-                ref,
-                alt
-            ) VALUES
+            INSERT INTO {_small_table_name(assembly_name, 'entries')} ({_SMALL_VARIANT_ENTRY_COLUMN_LIST}) VALUES
             """,
-            annotation_gene_index_rows,
-            chunk_size=_SMALL_VARIANT_GENE_INDEX_INSERT_ROWS,
+            entry_rows,
+            chunk_size=_SMALL_VARIANT_ENTRY_INSERT_ROWS,
         )
-    if entry_rows:
         await bump_family_small_variant_data_version(assembly_name, family_uuid)
 
 
@@ -898,14 +942,14 @@ def small_variant_record_entries(
 ) -> list[dict[str, Any]]:
     """The ``entries`` rows :func:`insert_small_variant_records` writes for ``records`` (one
     per record and project), as the column dicts a rewrite reads and writes."""
-    _details, entry_rows, _annotations, _index, _gene_index = _small_variant_entry_rows(
+    rows = _small_variant_entry_rows(
         assembly_name,
         family_uuid,
         project_ids,
         records,
         annotation_version=annotation_version,
     )
-    return [dict(zip(SMALL_VARIANT_ENTRY_COLUMNS, row)) for row in entry_rows]
+    return [dict(zip(SMALL_VARIANT_ENTRY_COLUMNS, row)) for row in rows.entries]
 
 
 async def rewrite_family_small_variant_entries(

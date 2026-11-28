@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
-from typing import Any, Iterable, Sequence
+from typing import Any, Collection, Iterable, NamedTuple, Sequence
 
 from .clickhouse_column_bounds import INT32, UINT16, UINT32, UINT64, column_float32, column_int
 from .data_scope import normalize_chromosome
@@ -73,9 +73,14 @@ def _annotation_canonical_json(annotation: Any) -> str:
     return json.dumps(annotation, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _annotation_payload_hash(annotation: dict[str, Any], payload: str | None = None) -> int:
-    """The hash of one annotation; ``payload`` is its canonical JSON, when made already."""
-    return _stable_uint64("small_annotation", _annotation_canonical_json(annotation) if payload is None else payload)
+def _payload_hash(payload: str) -> int:
+    """The hash of one annotation, from its canonical JSON."""
+    return _stable_uint64("small_annotation", payload)
+
+
+def _annotation_payload_hash(annotation: dict[str, Any]) -> int:
+    """The hash of one annotation."""
+    return _payload_hash(_annotation_canonical_json(annotation))
 
 
 def _annotation_set_hash(annotations: Sequence[dict[str, Any]], payloads: Sequence[str] | None = None) -> int:
@@ -324,28 +329,54 @@ def _entry_transcripts(columns: Sequence[_AnnotationColumns]) -> list[dict[str, 
     ]
 
 
-def _annotation_row_from_columns(
-    *,
-    variant_key: int,
-    variant_id: str,
-    annotation_version: str,
-    annotation_set_hash: int,
-    annotation_hash: int,
-    chrom: str,
-    pos: int,
-    record: SmallVariantRecord,
-    columns: _AnnotationColumns,
+# A variant's rows in the shared tables (``variants/details``, ``annotations``,
+# ``annotation_index`` and ``gene_index``) of one annotation version: its key, the hash of its
+# annotation set and its rsID. Those rows hold nothing else that is not the key's (its
+# position and alleles) or its annotations', so two writes of one identity write the same rows.
+SharedRowsIdentity = tuple[int, int, str | None]
+
+
+@dataclass(slots=True)
+class PreparedSmallVariant:
+    """A record as the writer stores it, each annotation serialized and read once: its JSON
+    gives its own hash and the set's, its values (``columns``) its ``annotations`` row, the
+    variant's index rows and the ``entries`` row's transcripts. ``payloads`` and ``columns``
+    hold one per ``annotations`` row: the record's annotations, or the empty annotation of a
+    variant without one. Not frozen, for the reason ``_AnnotationColumns`` is not."""
+
+    record: SmallVariantRecord
+    variant_id: str
+    key: int
+    chrom: str
+    pos: int
+    rsid: str | None
+    annotation_set_hash: int
+    payloads: list[str]
+    columns: list[_AnnotationColumns]
+
+    @property
+    def shared_rows(self) -> SharedRowsIdentity:
+        return (self.key, self.annotation_set_hash, self.rsid)
+
+    def index_columns(self) -> list[_AnnotationColumns]:
+        """The columns the index rows gather: none for a variant without an annotation, whose
+        ``annotations`` row of the empty annotation is no annotation of it."""
+        return self.columns if self.record.annotations else []
+
+
+def _annotation_row(
+    variant: PreparedSmallVariant, annotation_version: str, payload: str, columns: _AnnotationColumns
 ) -> tuple[Any, ...]:
     return (
-        variant_key,
-        variant_id,
+        variant.key,
+        variant.variant_id,
         annotation_version,
-        annotation_set_hash,
-        annotation_hash,
-        chrom,
-        pos,
-        record.ref,
-        record.alt,
+        variant.annotation_set_hash,
+        _payload_hash(payload),
+        variant.chrom,
+        variant.pos,
+        variant.record.ref,
+        variant.record.alt,
         columns.gene,
         columns.gene_id,
         columns.transcript_id,
@@ -374,29 +405,19 @@ def _annotation_row_from_columns(
 
 
 def _small_annotation_index_row(
-    *,
-    variant_key: int,
-    variant_id: str,
-    annotation_version: str,
-    annotation_set_hash: int,
-    chrom: str,
-    pos: int,
-    record: SmallVariantRecord,
-    annotations: Sequence[dict[str, Any]],
-    columns: Sequence[_AnnotationColumns],
+    variant: PreparedSmallVariant, annotation_version: str, columns: Sequence[_AnnotationColumns]
 ) -> tuple[Any, ...]:
-    """The variant's ``annotation_index`` row, from the ``columns`` of its ``annotations``
-    (one per annotation, in their order)."""
+    """The variant's ``annotation_index`` row, from its ``index_columns``."""
     return (
-        variant_key,
-        variant_id,
+        variant.key,
+        variant.variant_id,
         annotation_version,
-        annotation_set_hash,
-        chrom,
-        pos,
-        record.ref,
-        record.alt,
-        record.rsid or _annotation_rsid(annotations),
+        variant.annotation_set_hash,
+        variant.chrom,
+        variant.pos,
+        variant.record.ref,
+        variant.record.alt,
+        variant.rsid,
         _string_list(column.gene for column in columns),
         _string_list(column.gene_id for column in columns),
         _string_list(column.hgvsc for column in columns),
@@ -422,34 +443,23 @@ def _small_annotation_index_row(
 
 
 def _small_annotation_gene_index_rows(
-    *,
-    variant_key: int,
-    variant_id: str,
-    annotation_version: str,
-    annotation_set_hash: int,
-    chrom: str,
-    pos: int,
-    record: SmallVariantRecord,
-    columns: Sequence[_AnnotationColumns],
+    variant: PreparedSmallVariant, annotation_version: str, columns: Sequence[_AnnotationColumns]
 ) -> list[tuple[Any, ...]]:
-    gene_terms = _string_list(
-        [
-            *(_casefold(symbol) for symbol in record.gene_symbols),
-            *(column.gene for column in columns),
-            *(column.gene_id for column in columns),
-        ]
-    )
+    """The variant's ``gene_index`` rows: one per gene symbol and gene ID of its
+    ``index_columns``, the terms the index rebuild reads out of ``annotation_index``
+    (``rebuild_small_variant_gene_index``)."""
+    gene_terms = _string_list([*(column.gene for column in columns), *(column.gene_id for column in columns)])
     return [
         (
-            variant_key,
-            variant_id,
+            variant.key,
+            variant.variant_id,
             annotation_version,
-            annotation_set_hash,
+            variant.annotation_set_hash,
             gene_term,
-            chrom,
-            pos,
-            record.ref,
-            record.alt,
+            variant.chrom,
+            variant.pos,
+            variant.record.ref,
+            variant.record.alt,
         )
         for gene_term in gene_terms
     ]
@@ -531,6 +541,150 @@ def _log_unstorable(count: int, kind: str) -> None:
         )
 
 
+def prepare_small_variants(assembly_name: str, records: Sequence[SmallVariantRecord]) -> list[PreparedSmallVariant]:
+    """``records`` as the writer stores them, each annotation serialized and read once; a
+    record whose position no column holds is left out."""
+    variants: list[PreparedSmallVariant] = []
+    unstorable = 0
+    for record in records:
+        if not _storable_position(record.start):
+            unstorable += 1
+            continue
+        variant_id = record.variant_id or build_small_variant_id(record.chr, record.start, record.ref, record.alt)
+        payloads = [_annotation_canonical_json(annotation) for annotation in record.annotations]
+        variants.append(
+            PreparedSmallVariant(
+                record=record,
+                variant_id=variant_id,
+                key=record.variant_key or small_variant_key(assembly_name, variant_id),
+                chrom=normalize_chromosome(record.chr),
+                pos=int(record.start),
+                rsid=record.rsid or _annotation_rsid(record.annotations),
+                annotation_set_hash=_annotation_set_hash(record.annotations, payloads),
+                payloads=payloads if record.annotations else [_annotation_canonical_json({})],
+                columns=[_annotation_columns(annotation) for annotation in record.annotations or [{}]],
+            )
+        )
+    _log_unstorable(unstorable, "small-variant")
+    return variants
+
+
+class SmallVariantRows(NamedTuple):
+    """The rows a write of small variants inserts, per table."""
+
+    details: list[tuple[Any, ...]]
+    entries: list[tuple[Any, ...]]
+    annotations: list[tuple[Any, ...]]
+    annotation_index: list[tuple[Any, ...]]
+    gene_index: list[tuple[Any, ...]]
+
+
+def _add_shared_rows(rows: SmallVariantRows, variant: PreparedSmallVariant, annotation_version: str) -> None:
+    record = variant.record
+    rows.details.append(
+        (
+            variant.key,
+            variant.variant_id,
+            annotation_version,
+            variant.annotation_set_hash,
+            variant.chrom,
+            variant.pos,
+            record.ref,
+            record.alt,
+            variant.rsid,
+            _json_payload(record.annotations),
+        )
+    )
+    for payload, columns in zip(variant.payloads, variant.columns, strict=True):
+        rows.annotations.append(_annotation_row(variant, annotation_version, payload, columns))
+    index_columns = variant.index_columns()
+    rows.annotation_index.append(_small_annotation_index_row(variant, annotation_version, index_columns))
+    rows.gene_index.extend(_small_annotation_gene_index_rows(variant, annotation_version, index_columns))
+
+
+def _add_entry_rows(
+    rows: SmallVariantRows,
+    assembly_name: str,
+    family_uuid: str,
+    project_ids: Sequence[str],
+    variant: PreparedSmallVariant,
+    annotation_version: str,
+) -> None:
+    record = variant.record
+    gene_symbols = _string_list(record.gene_symbols or _annotation_gene_symbols(record.annotations))
+    gnomad_over_5_percent = _annotation_gnomad_over_5_percent(record.annotations)
+    transcripts = _entry_transcripts(variant.columns)
+    filters = _string_list(record.filters)
+    xpos = _xpos(record.chr, record.start)
+    allele_keys = record_allele_keys(assembly_name, record.chr, record.start, record.ref, record.alt)
+    sample_ids = [call.sample for call in record.calls]
+    sample_gts = [call.gt for call in record.calls]
+    sample_gqs = [_small_call_gq(call) for call in record.calls]
+    sample_dps = [_small_call_dp(call) for call in record.calls]
+    sample_afs = [_small_call_af(call) for call in record.calls]
+    sample_ads = [_small_call_ad(call) for call in record.calls]
+    sample_abs = [_small_call_ab(af, ad) for af, ad in zip(sample_afs, sample_ads)]
+    sample_pss = [_small_call_ps(call) for call in record.calls]
+    sample_filters = [_string_list(call.filters) for call in record.calls]
+    sample_metrics = [_small_call_metrics(call) for call in record.calls]
+    for project_id in project_ids:
+        rows.entries.append(
+            (
+                variant.key,
+                variant.variant_id,
+                annotation_version,
+                variant.annotation_set_hash,
+                project_id,
+                family_uuid,
+                xpos,
+                variant.chrom,
+                variant.pos,
+                record.ref,
+                record.alt,
+                allele_keys,
+                record.source or "",
+                variant.rsid,
+                gnomad_over_5_percent,
+                bool(gene_symbols),
+                gene_symbols,
+                transcripts,
+                filters,
+                column_float32(record.qual),
+                sample_ids,
+                sample_gts,
+                sample_gqs,
+                sample_dps,
+                sample_abs,
+                sample_afs,
+                sample_ads,
+                sample_pss,
+                sample_filters,
+                sample_metrics,
+                1,
+            )
+        )
+
+
+def small_variant_rows(
+    assembly_name: str,
+    family_uuid: str,
+    project_ids: Sequence[str],
+    variants: Sequence[PreparedSmallVariant],
+    *,
+    annotation_version: str,
+    stored: Collection[SharedRowsIdentity],
+) -> SmallVariantRows:
+    """The rows that write ``variants`` for the family in each of ``project_ids``: its
+    ``entries`` rows, and the shared rows of each variant whose identity is not ``stored``."""
+    rows = SmallVariantRows([], [], [], [], [])
+    normalized_project_ids = _normalized_project_ids(project_ids)
+    for variant in variants:
+        if variant.shared_rows not in stored:
+            _add_shared_rows(rows, variant, annotation_version)
+        _add_entry_rows(rows, assembly_name, family_uuid, normalized_project_ids, variant, annotation_version)
+    return rows
+
+
 def _small_variant_entry_rows(
     assembly_name: str,
     family_uuid: str,
@@ -538,159 +692,16 @@ def _small_variant_entry_rows(
     records: Sequence[SmallVariantRecord],
     *,
     annotation_version: str | None = None,
-) -> tuple[
-    list[tuple[Any, ...]],
-    list[tuple[Any, ...]],
-    list[tuple[Any, ...]],
-    list[tuple[Any, ...]],
-    list[tuple[Any, ...]],
-]:
-    detail_rows: list[tuple[Any, ...]] = []
-    entry_rows: list[tuple[Any, ...]] = []
-    annotation_rows: list[tuple[Any, ...]] = []
-    annotation_index_rows: list[tuple[Any, ...]] = []
-    annotation_gene_index_rows: list[tuple[Any, ...]] = []
-    normalized_project_ids = _normalized_project_ids(project_ids)
-    active_annotation_version = _small_annotation_version(annotation_version)
-    unstorable = 0
-    for record in records:
-        if not _storable_position(record.start):
-            unstorable += 1
-            continue
-        variant_id = record.variant_id or build_small_variant_id(
-            record.chr,
-            record.start,
-            record.ref,
-            record.alt,
-        )
-        variant_key = record.variant_key or small_variant_key(assembly_name, variant_id)
-        record_annotation_version = active_annotation_version
-        chrom = normalize_chromosome(record.chr)
-        pos = int(record.start)
-        # Each annotation serialized and read once (_AnnotationColumns): its JSON gives its
-        # own hash and the set's, its values its annotations row and the variant's index rows.
-        payloads = [_annotation_canonical_json(annotation) for annotation in record.annotations]
-        record_annotation_set_hash = _annotation_set_hash(record.annotations, payloads)
-        row_annotations: list[Any] = record.annotations or [{}]
-        row_payloads = payloads if record.annotations else [_annotation_canonical_json({})]
-        row_columns = [_annotation_columns(annotation) for annotation in row_annotations]
-        # The index rows read the annotations that are mappings; with none, the annotations
-        # row of an empty annotation is no annotation of the variant.
-        index_columns = [
-            columns
-            for annotation, columns in zip(record.annotations, row_columns)
-            if isinstance(annotation, dict)
-        ]
-        index_annotations = [annotation for annotation in record.annotations if isinstance(annotation, dict)]
-        gene_symbols = _string_list(record.gene_symbols or _annotation_gene_symbols(record.annotations))
-        rsid = record.rsid or _annotation_rsid(record.annotations)
-        filters = _string_list(record.filters)
-        annotations_json = _json_payload(record.annotations)
-        detail_rows.append(
-            (
-                variant_key,
-                variant_id,
-                record_annotation_version,
-                record_annotation_set_hash,
-                chrom,
-                pos,
-                record.ref,
-                record.alt,
-                rsid,
-                annotations_json,
-            )
-        )
-        annotation_index_rows.append(
-            _small_annotation_index_row(
-                variant_key=variant_key,
-                variant_id=variant_id,
-                annotation_version=record_annotation_version,
-                annotation_set_hash=record_annotation_set_hash,
-                chrom=chrom,
-                pos=pos,
-                record=record,
-                annotations=index_annotations,
-                columns=index_columns,
-            )
-        )
-        annotation_gene_index_rows.extend(
-            _small_annotation_gene_index_rows(
-                variant_key=variant_key,
-                variant_id=variant_id,
-                annotation_version=record_annotation_version,
-                annotation_set_hash=record_annotation_set_hash,
-                chrom=chrom,
-                pos=pos,
-                record=record,
-                columns=index_columns,
-            )
-        )
-        for annotation, payload, columns in zip(row_annotations, row_payloads, row_columns):
-            annotation_rows.append(
-                _annotation_row_from_columns(
-                    variant_key=variant_key,
-                    variant_id=variant_id,
-                    annotation_version=record_annotation_version,
-                    annotation_set_hash=record_annotation_set_hash,
-                    annotation_hash=_annotation_payload_hash(annotation, payload),
-                    chrom=chrom,
-                    pos=pos,
-                    record=record,
-                    columns=columns,
-                )
-            )
-        gnomad_over_5_percent = _annotation_gnomad_over_5_percent(record.annotations)
-        transcripts = _entry_transcripts(row_columns)
-        xpos = _xpos(record.chr, record.start)
-        allele_keys = record_allele_keys(assembly_name, record.chr, record.start, record.ref, record.alt)
-        sample_ids = [call.sample for call in record.calls]
-        sample_gts = [call.gt for call in record.calls]
-        sample_gqs = [_small_call_gq(call) for call in record.calls]
-        sample_dps = [_small_call_dp(call) for call in record.calls]
-        sample_afs = [_small_call_af(call) for call in record.calls]
-        sample_ads = [_small_call_ad(call) for call in record.calls]
-        sample_abs = [_small_call_ab(af, ad) for af, ad in zip(sample_afs, sample_ads)]
-        sample_pss = [_small_call_ps(call) for call in record.calls]
-        sample_filters = [_string_list(call.filters) for call in record.calls]
-        sample_metrics = [_small_call_metrics(call) for call in record.calls]
-        for project_id in normalized_project_ids:
-            entry_rows.append(
-                (
-                    variant_key,
-                    variant_id,
-                    record_annotation_version,
-                    record_annotation_set_hash,
-                    project_id,
-                    family_uuid,
-                    xpos,
-                    chrom,
-                    pos,
-                    record.ref,
-                    record.alt,
-                    allele_keys,
-                    record.source or "",
-                    rsid,
-                    gnomad_over_5_percent,
-                    bool(gene_symbols),
-                    gene_symbols,
-                    transcripts,
-                    filters,
-                    column_float32(record.qual),
-                    sample_ids,
-                    sample_gts,
-                    sample_gqs,
-                    sample_dps,
-                    sample_abs,
-                    sample_afs,
-                    sample_ads,
-                    sample_pss,
-                    sample_filters,
-                    sample_metrics,
-                    1,
-                )
-            )
-    _log_unstorable(unstorable, "small-variant")
-    return detail_rows, entry_rows, annotation_rows, annotation_index_rows, annotation_gene_index_rows
+) -> SmallVariantRows:
+    """Every row that writes ``records`` where none of their shared rows is stored."""
+    return small_variant_rows(
+        assembly_name,
+        family_uuid,
+        project_ids,
+        prepare_small_variants(assembly_name, records),
+        annotation_version=_small_annotation_version(annotation_version),
+        stored=(),
+    )
 
 
 def _structural_variant_entry_rows(
