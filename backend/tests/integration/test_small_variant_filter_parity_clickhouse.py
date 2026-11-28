@@ -678,6 +678,10 @@ CASES: dict[str, _Case] = {
     ),
     # --- the callers' FILTER: every call that carries the variant passed ---
     "pass only": _case(ALL - {LOW_QUALITY, MATERNAL_INSERTION}, pass_only=True),
+    # --- the callset recurrence filter: it counts every family on the assembly, and other
+    # modules store families there too, so a threshold none reaches; what it leaves out is
+    # test_callset_recurrence_filter_clickhouse.py's ---
+    "callset recurrence": _case(ALL, max_callset_families=1_000_000),
     # --- review selections ---
     "review selection": _Case(
         filters={}, expected=frozenset({DE_NOVO_MISSENSE, HOMOZYGOUS}),
@@ -712,8 +716,9 @@ CASES: dict[str, _Case] = {
     "carrier screening and compound het": _case(
         {MATERNAL_INSERTION, PATERNAL_DELETION}, expanded_carrier_screening=True, inheritance="compound_het"
     ),
-    # --- the default view's preset (without its panel): the de novo missense, benign in the
-    # release, is left out ---
+    # --- the default view's preset (without its panel, and without its callset recurrence,
+    # which counts every family on the assembly, other modules' too): the de novo missense,
+    # benign in the release, is left out ---
     "the default view": _case(
         {
             HIGH_OFF_MANE, HOMOZYGOUS, MATERNAL_INSERTION, PATERNAL_DELETION,

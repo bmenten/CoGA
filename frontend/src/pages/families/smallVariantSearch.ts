@@ -275,6 +275,9 @@ export type SmallFilterState = {
   max_gnomad_ac: string;
   max_gnomad_hom_count: string;
   max_gnomad_hemi_count: string;
+  // The most other families that may carry the allele in the row's callset (Frequency); the
+  // family small-variant list alone.
+  max_callset_families: string;
   min_cadd: string;
   min_revel: string;
   min_spliceai: string;
@@ -472,6 +475,10 @@ export const SMALL_INHERITANCE_LABELS: Record<SmallVariantInheritanceMode, strin
 // CoGA (panel names are unique): the panel's current version is applied.
 export const CARRIER_SCREENING_PANEL_NAME = 'BeGECS v3';
 
+// What the presets add to their own cut-offs (`leaveOutCallsetRecurrent`).
+const CALLSET_RECURRENCE_NOTE =
+  'A variant two other families carry in the same callset is left out; a ClinVar pathogenic or likely pathogenic variant passes that and the impact, frequency and score cut-offs.';
+
 export const BUILT_IN_SMALL_PRESETS: Array<{
   value: SmallPreset;
   label: string;
@@ -481,45 +488,43 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'phenotype_priority',
     label: 'Phenotype priority (Exomiser-style)',
     description:
-      'Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch), with the compound-het pairs among them grouped by gene.',
+      `Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch), with the compound-het pairs among them grouped by gene. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'dominant_strict',
     label: 'Dominant strict',
-    description: 'Rare, high-confidence heterozygous calls in affected individuals.',
+    description: `Rare, high-confidence heterozygous calls in affected individuals. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'dominant_relaxed',
     label: 'Dominant relaxed',
-    description: 'Looser thresholds for exploratory de novo or dominant review.',
+    description: `Looser thresholds for exploratory de novo or dominant review. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'expanded_carrier_screening',
     label: 'Expanded carrier screening',
     description:
-      `Couple-only screen on the ${CARRIER_SCREENING_PANEL_NAME} gene panel for genes where both partners carry a high- or moderate-impact variant below 5% in gnomAD (ClinVar P/LP overrides the frequency and impact cut-offs, ClinVar benign is left out), and for X-linked variants either partner carries.`,
+      `Couple-only screen on the ${CARRIER_SCREENING_PANEL_NAME} gene panel for genes where both partners carry a high- or moderate-impact variant below 5% in gnomAD, and for X-linked variants either partner carries (ClinVar benign is left out). ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'compound_het',
     label: 'Compound het',
-    description:
-      'Automatically keep variants that form a qualifying compound-heterozygous pair.',
+    description: `Automatically keep variants that form a qualifying compound-heterozygous pair. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'recessive_hom',
     label: 'Recessive hom',
-    description: 'Homozygous recessive candidates with supportive parental genotypes.',
+    description: `Homozygous recessive candidates with supportive parental genotypes. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'recessive_permissive',
     label: 'Recessive broad',
-    description: 'Broader recessive sweep for inherited candidate review.',
+    description: `Broader recessive sweep for inherited candidate review. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'any_affected',
     label: 'Any affected',
-    description:
-      'Rare-coding search across all affected family members, with the compound-het pairs among the results grouped by gene.',
+    description: `Rare-coding search across all affected family members, with the compound-het pairs among the results grouped by gene. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'clinvar_review',
@@ -559,8 +564,8 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
  * Filters of the shared form that the NIPT variant list does not apply: of the review
  * filters it takes the review tags and the excluded tags, as the small-variant list does,
  * but not the classification or the saved notes; nor the family-aware ones (phenotype
- * prioritization, expanded carrier screening, the SV second hit, the callers' FILTER) or a
- * link's raw locus. The
+ * prioritization, expanded carrier screening, the SV second hit, the callers' FILTER), the
+ * callset recurrence (it counts its own, `max_unexplained_recurrence`) or a link's raw locus. The
  * form offers them no control. A saved search made on the small-variant list, or a link, can
  * still carry them: the NIPT page shows no chip for them (`niptAppliesFilterChip`).
  */
@@ -574,6 +579,7 @@ export const NIPT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new
   'require_sv_second_hit',
   'locus',
   'pass_only',
+  'max_callset_families',
 ]);
 
 /**
@@ -672,6 +678,7 @@ const UNAPPLIED_FILTER_NAMES: Partial<Record<keyof SmallFilterState, string>> = 
   require_sv_second_hit: 'SV second-hit',
   locus: 'location',
   pass_only: 'pass-only',
+  max_callset_families: 'callset-recurrence',
   category: 'maternal/fetal category',
   min_confidence: 'minimum-confidence',
   include_not_inherited: 'not-inherited-alleles',
@@ -742,6 +749,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   max_gnomad_ac: 'Max gnomAD AC',
   max_gnomad_hom_count: 'Max gnomAD H/H',
   max_gnomad_hemi_count: 'Max gnomAD hemi',
+  max_callset_families: 'Max other families (callset)',
   min_cadd: 'Min CADD',
   min_revel: 'Min REVEL',
   min_spliceai: 'Min SpliceAI',
@@ -898,6 +906,7 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   max_gnomad_ac: '',
   max_gnomad_hom_count: '',
   max_gnomad_hemi_count: '',
+  max_callset_families: '',
   min_cadd: '',
   min_revel: '',
   min_spliceai: '',
@@ -1061,12 +1070,23 @@ const buildPresetState = (
     filters.exclude_clinvar = 'Benign, Likely benign';
   };
 
+  // Every family-list preset but ClinVar review (its list is ClinVar's): a variant three families
+  // of the callset carry (this one and two others) is a recurrent artefact of the caller and its
+  // chemistry, unless ClinVar holds it (likely) pathogenic. The ClinVar P/LP override lifts it as
+  // it lifts the preset's impact, frequency and in-silico cut-offs (the owner's decisions of
+  // 2026-11-28).
+  const leaveOutCallsetRecurrent = () => {
+    filters.max_callset_families = '1';
+    filters.clinvar_pathogenic_override = 'true';
+  };
+
   if (preset === 'dominant_strict') {
     setFrequencyCeiling('0.001');
     filters.impact = 'HIGH';
     filters.canonical_only = 'true';
     filters.min_cadd = '20';
     filters.min_revel = '0.5';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes(HET_GT_GROUP, { qual: '20', dp: '10', af: '0.2', ad_alt: '4' });
     setUnaffectedGenotypes(REF_GT_GROUP);
   } else if (preset === 'dominant_relaxed') {
@@ -1074,6 +1094,7 @@ const buildPresetState = (
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
     filters.min_cadd = '15';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes(HET_GT_GROUP, { qual: '15', dp: '8', af: '0.18', ad_alt: '3' });
     setUnaffectedGenotypes(REF_GT_GROUP);
   } else if (preset === 'nipt_de_novo') {
@@ -1115,9 +1136,11 @@ const buildPresetState = (
     // below 5%: the search would stop at its candidate cap long before chrX.
     filters.expanded_carrier_screening = 'true';
     setCarrierScreenVariants();
+    leaveOutCallsetRecurrent();
   } else if (preset === 'phenotype_priority') {
     // Exomiser-style: rare candidate set ranked by gene-phenotype match. gnomAD
-    // <1% + H/H <=10, but ClinVar P/LP overrules the impact and frequency cut-offs; ClinVar
+    // <1% + H/H <=10, but ClinVar P/LP overrules the impact and frequency cut-offs (the
+    // override comes with `leaveOutCallsetRecurrent`, as in the other presets); ClinVar
     // benign / likely benign excluded; affected individuals must carry the
     // variant (Hom or Het, not WT). The compound-het pairs among the results are listed by
     // gene, each at its better-ranked variant: the grouped view leaves no variant out.
@@ -1129,8 +1152,8 @@ const buildPresetState = (
     filters.max_gnomad_popmax_af = '0.01';
     filters.max_gnomad_hom_count = '10';
     filters.max_gnomad_hemi_count = '10';
-    filters.clinvar_pathogenic_override = 'true';
     filters.exclude_clinvar = 'Benign, Likely benign';
+    leaveOutCallsetRecurrent();
     // Standard proband QC: GQ/QUAL >= 20, DP >= 10, AF >= 0.2, AD alt >= 4.
     setAffectedGenotypes([...HOM_GT_GROUP, ...HET_GT_GROUP], {
       qual: '20',
@@ -1143,12 +1166,14 @@ const buildPresetState = (
     setFrequencyCeiling('0.02');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes(HET_GT_GROUP, { qual: '15', dp: '6', af: '0.18', ad_alt: '3' });
     setUnaffectedGenotypes([...REF_GT_GROUP, ...HET_GT_GROUP]);
   } else if (preset === 'recessive_hom') {
     setFrequencyCeiling('0.01');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes(HOM_GT_GROUP, { qual: '20', dp: '8', af: '0.75', ad_alt: '5' });
     members.forEach((member) => {
       if (member.role === 'mother' || member.role === 'father') {
@@ -1165,6 +1190,7 @@ const buildPresetState = (
     setFrequencyCeiling('0.02');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes([...HET_GT_GROUP, ...HOM_GT_GROUP], {
       qual: '15',
       dp: '6',
@@ -1180,6 +1206,7 @@ const buildPresetState = (
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
     filters.min_cadd = '15';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes([...HET_GT_GROUP, ...HOM_GT_GROUP], {
       qual: '15',
       dp: '6',
@@ -1391,6 +1418,9 @@ export const buildSmallVariantQueryParams = (
   }
   if (currentFilters.max_gnomad_hemi_count) {
     params.set('max_gnomad_hemi_count', currentFilters.max_gnomad_hemi_count);
+  }
+  if (currentFilters.max_callset_families) {
+    params.set('max_callset_families', currentFilters.max_callset_families);
   }
   if (currentFilters.min_cadd) params.set('min_cadd', currentFilters.min_cadd);
   if (currentFilters.min_revel) params.set('min_revel', currentFilters.min_revel);

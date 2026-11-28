@@ -386,6 +386,15 @@ This benchmark generates each shared row once and does not measure that merge lo
 - **A Variant Explorer page's annotation display** reads its 50 variants by key through the
   annotation tables' bloom-filter index: 140 M of the 363 M transcript rows at 1,000 genomes.
   Their positions would narrow it to the granules that hold them.
+- **The family search's callset recurrence filter** (`max_callset_families`) reads the other
+  families' `entries` rows at the positions and alleles the family's other filters keep. The
+  sort key skips the granules of each family that hold none, so a narrow search reads little,
+  but a broad one (rare over the whole genome) hits nearly every granule of every family: on a
+  synthetic cohort of 40 families of 250,000 rows, a whole-genome search read all 10.3 M rows
+  (about 1 s), a window of 1/1,000 of it 0.44 M. The benchmark does not measure it. A projection
+  of `entries` sorted by callset, position and allele read 0.05 M rows for that window: a read
+  in proportion to the alleles searched rather than to the cohort, for 65 MiB beside the 284 MiB
+  of those rows, which are narrower than real ones.
 - **A family's delete** rewrites the parts it shares with the rest of its project; partitioning
   `entries` finer than by project would bound what one delete rewrites.
 - **The import** writes each variant's shared rows once per family; writing only the variants the

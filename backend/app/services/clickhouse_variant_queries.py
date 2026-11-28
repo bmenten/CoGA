@@ -3803,6 +3803,11 @@ def _small_query_filter_parts(
     if exclude_gene_condition:
         where_clauses.append(f"NOT {exclude_gene_condition}")
 
+    # Last: the other families' rows are read where every other condition keeps a row.
+    recurrence_clause = _small_callset_recurrence_clause(context, filters, where_clauses, params=params)
+    if recurrence_clause:
+        where_clauses.append(recurrence_clause)
+
     return where_clauses, params, False
 
 
@@ -3853,6 +3858,19 @@ def _clinvar_condition(
     )
 
 
+def _clinvar_pathogenic_override(
+    context: _SearchAssembly, filters: SmallVariantQueryFilters, *, params: dict[str, Any], prefix: str
+) -> str | None:
+    """"An allele of the row is (likely) pathogenic in CoGA's ClinVar release": the condition by
+    which the ClinVar P/LP override keeps a row the filters it lifts would leave out. None
+    without the override, or without a release, in which no allele has ClinVar."""
+    if not filters.clinvar_pathogenic_override or filters.clinvar_coga_release is None:
+        return None
+    return _clinvar_condition(
+        context, filters, _status_filter_terms(CLINVAR_OVERRIDE_TERMS), params=params, prefix=prefix
+    )
+
+
 def _clinvar_override(
     context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
@@ -3870,14 +3888,12 @@ def _clinvar_override(
     or splice-region variant ClinVar holds pathogenic so stays in a search for HIGH and MODERATE
     impact or for damaging scores, and a recurrent pathogenic allele above the frequency cut-off
     in a search for rare variants."""
-    if not filters.clinvar_pathogenic_override or filters.clinvar_coga_release is None:
-        return membership
     rest = _small_annotation_filter_condition(filters, params=params, lifted=True)
     if rest == condition:
         return membership  # the search asks none of the filters the override lifts
-    pathogenic = _clinvar_condition(
-        context, filters, _status_filter_terms(CLINVAR_OVERRIDE_TERMS), params=params, prefix="clinvar_override"
-    )
+    pathogenic = _clinvar_pathogenic_override(context, filters, params=params, prefix="clinvar_override")
+    if pathogenic is None:
+        return membership
     if rest is None:
         return f"({membership} OR {pathogenic})"
     rest_membership = _small_annotation_row_membership_condition(
@@ -3902,6 +3918,51 @@ def _transcript_filters_clause(
         context, filters, params=params, condition=condition, reads_text=reads_text
     )
     return _clinvar_override(context, filters, condition, membership, params=params, reads_text=reads_text)
+
+
+def _small_callset_recurrence_clause(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    family_rows: Sequence[str],
+    *,
+    params: dict[str, Any],
+) -> str | None:
+    """The callset recurrence filter (``max_callset_families``): at most that many other
+    families carry the row's allele in the row's own callset, or, with the ClinVar P/LP
+    override, an allele of the row is (likely) pathogenic in CoGA's ClinVar release: the
+    override lifts it as it lifts the frequency filter. None without the filter.
+
+    A recurrent artefact belongs to a caller and its chemistry (an ONT homopolymer indel, a
+    paralogue's mismatch in short reads), so each callset counts apart: the short-read and the
+    long-read calls of one DNA are two callsets. A family carries the allele when a row of
+    the callset holds an alt call of any of its samples. Every family on the assembly counts,
+    in every project, the user's or not, and a family stored under two projects once; the
+    family searched counts nothing.
+
+    The other families' rows are read only at the positions and alleles of the family's rows
+    that ``family_rows`` (the search's other conditions, alias ``e``) keeps: the position
+    follows the project and the family in the entries sort key, so ClickHouse reads only the
+    granules of each family that hold one."""
+    if filters.max_callset_families is None or not context.assembly_name:
+        return None
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    params["max_callset_families"] = int(filters.max_callset_families)
+    carries = clickhouse_genotype_condition("gt", ALT_CLASSES, param="recurrence_alt_genotypes", params=params)
+    recurrent = f"""
+        SELECT o.source, o.key
+        FROM {entries_table} AS o
+        WHERE o.sign = 1
+          AND o.family_guid != %(family_guid)s
+          AND (o.xpos, o.key, o.source) IN (
+            SELECT e.xpos, e.key, e.source FROM {entries_table} AS e WHERE {' AND '.join(family_rows)}
+          )
+          AND arrayExists(gt -> {carries}, o.calls.gt)
+        GROUP BY o.source, o.key
+        HAVING uniqExact(o.family_guid) > %(max_callset_families)s
+    """
+    kept = f"(e.source, e.key) NOT IN ({recurrent})"
+    pathogenic = _clinvar_pathogenic_override(context, filters, params=params, prefix="recurrence_override")
+    return kept if pathogenic is None else f"({kept} OR {pathogenic})"
 
 
 def _small_annotation_filter_clauses(

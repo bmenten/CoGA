@@ -3,7 +3,7 @@
 // monogenic NIPT. The markup is recorded (__snapshots__), so splitting the form into
 // section components must reproduce it exactly: every section, label, control, value
 // and summary. Update the snapshot only for an intended change to the form's markup.
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router';
 import { expect, test, vi } from 'vitest';
@@ -328,6 +328,23 @@ test('the frequency header sets every population and shows what the set ones sha
 test('the frequency header reads mixed when the populations differ', () => {
   renderWith({ draftFilters: { ...draft(), max_gnomad_af: '0.01', max_topmed_af: '0.05' } });
   expect((screen.getByLabelText('Maximum AF, all populations') as HTMLSelectElement).value).toBe('mixed');
+});
+
+// The callset recurrence: the family list's alone (the NIPT list counts its own recurrence, the
+// explorer searches no one family).
+test('the frequency section offers the callset recurrence on the family list alone', () => {
+  const frequencyRow = () =>
+    screen.getByText('Frequency', { selector: '.variant-filter-dropdown-title' }).closest('details') as HTMLElement;
+  renderWith({ draftFilters: { ...createEmptySmallFilters(), max_callset_families: '3' } });
+  expect(screen.getByLabelText('Other families ≤')).toHaveValue('3');
+  expect(frequencyRow().querySelector('.variant-filter-dropdown-meta')).toHaveTextContent('1 active');
+  cleanup();
+  for (const unsupportedFilters of [NIPT_UNSUPPORTED_FILTERS, GLOBAL_UNSUPPORTED_FILTERS]) {
+    renderWith({ unsupportedFilters, draftFilters: { ...createEmptySmallFilters(), max_callset_families: '3' } });
+    expect(screen.queryByLabelText('Other families ≤')).not.toBeInTheDocument();
+    expect(frequencyRow().querySelector('.variant-filter-dropdown-meta')).toHaveTextContent('No filters');
+    cleanup();
+  }
 });
 
 test('a frequency slider moves over seqr steps, its last step setting no maximum', () => {

@@ -486,6 +486,17 @@ async def get_family_small_variant_data_version(assembly_name: str, family_uuid:
     )
 
 
+async def get_assembly_small_variant_data_version(assembly_name: str) -> str:
+    """A fingerprint that changes whenever any family's small-variant data on ``assembly_name``
+    changes: :func:`get_family_small_variant_data_version` over every family's rows. A search
+    that reads other families' rows (the callset recurrence filter) is read on it."""
+    await ensure_clickhouse_variant_tables(assembly_name)
+    rows = await _execute(
+        f"SELECT count(), sum(token) FROM {_small_table_name(assembly_name, 'family_data_version')}"
+    )
+    return _data_version(*rows[0]) if rows else "0:0"
+
+
 async def family_small_variant_data_versions(assembly_name: str) -> dict[str, str]:
     """Each written family's :func:`get_family_small_variant_data_version` on ``assembly_name``,
     by family UUID, in one read. An assembly whose tables were never made has none: they are

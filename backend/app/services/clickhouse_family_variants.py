@@ -166,6 +166,7 @@ from .clickhouse_variant_queries import (
 from .clickhouse_variant_ids import _small_table_name, _structural_table_name, small_variant_loci
 from .clickhouse_variant_storage import (
     ensure_clickhouse_variant_tables,
+    get_assembly_small_variant_data_version,
     get_family_small_variant_data_version,
     get_family_structural_variant_data_version,
 )
@@ -2949,6 +2950,16 @@ async def _family_small_variant_data_version(context: FamilyMetadataContext) -> 
     return await get_family_small_variant_data_version(context.assembly_name, context.family_uuid)
 
 
+async def _ranked_small_variant_data_version(
+    context: FamilyMetadataContext, filters: SmallVariantQueryFilters
+) -> str | None:
+    """The small-variant data a ranking reads, as its cache key holds it: the family's, or,
+    with the callset recurrence filter, which reads every family's rows, the assembly's."""
+    if filters.max_callset_families is None or not context.assembly_name:
+        return await _family_small_variant_data_version(context)
+    return await get_assembly_small_variant_data_version(context.assembly_name)
+
+
 async def _rank_small_variants(
     session: AsyncSession,
     *,
@@ -3188,12 +3199,13 @@ async def _prioritized_small_variants_page(
 
     # The phenotype-prioritised ranking is expensive (~10s); serve a cached ranking
     # when its inputs are unchanged — filters, HPO, pedigree, panel, reference releases and
-    # the family's variant data (the storage-level data version) — and the genes
+    # the variant data it reads (the storage-level data version: the family's, or every
+    # family's with the callset recurrence filter) — and the genes
     # and regions this query applies, read here from the panel and the gene reference. The
     # filters include the inheritance mode and expanded carrier screening, and the pedigree
     # the couple and each member's sex: every input of what the search keeps.
     patient_terms, term_labels = await _affected_present_hpo(session, context)
-    variant_data_version = await _family_small_variant_data_version(context)
+    variant_data_version = await _ranked_small_variant_data_version(context, filters)
     panel_members = _panel_members(panel_constraints) if filters.panel_id else None
     inputs_hash, base_hash = await compute_ranking_hashes(
         session,
@@ -4174,6 +4186,7 @@ async def get_family_small_variants_page(
     max_gnomad_ac: int | None = None,
     max_gnomad_hom_count: int | None = None,
     max_gnomad_hemi_count: int | None = None,
+    max_callset_families: int | None = None,
     min_cadd: float | None = None,
     min_revel: float | None = None,
     min_spliceai: float | None = None,
@@ -4240,6 +4253,7 @@ async def get_family_small_variants_page(
         max_gnomad_ac=max_gnomad_ac,
         max_gnomad_hom_count=max_gnomad_hom_count,
         max_gnomad_hemi_count=max_gnomad_hemi_count,
+        max_callset_families=max_callset_families,
         min_cadd=min_cadd,
         min_revel=min_revel,
         min_spliceai=min_spliceai,

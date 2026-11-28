@@ -10,6 +10,7 @@ the documented rule on real ClickHouse, in every view of the family page.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from backend.app.services.clickhouse_variant_queries import (
@@ -202,6 +203,46 @@ def test_the_sql_condition_of_the_phase_set_reads_the_family_members_calls() -> 
         "e.calls.sampleId, e.calls.ps)"
     )
     assert params["phase_set"] == 4321 and params["visible_sample_ids"]
+
+
+# --- the callset recurrence filter (the owner's decisions of 2026-11-28) -------------------
+
+
+def test_the_callset_recurrence_filter_counts_other_families_where_the_search_keeps_a_row() -> None:
+    plain, _params = _parts(impact=["HIGH"])
+    clauses, params = _parts(impact=["HIGH"], max_callset_families=2)
+    # The last clause: every other condition is the bound it reads the other families at.
+    *others, recurrence = clauses
+    assert others == plain
+    assert recurrence.startswith("(e.source, e.key) NOT IN (")
+    assert "SNV_INDEL/entries` AS o" in recurrence
+    assert "o.family_guid != %(family_guid)s" in recurrence
+    assert f"WHERE {' AND '.join(plain)}" in recurrence
+    assert "(o.xpos, o.key, o.source) IN (" in recurrence
+    # A family carries the allele with an alt call, in the row's own callset; a family under
+    # two projects counts once.
+    assert "arrayExists(gt -> " in recurrence and "o.calls.gt)" in recurrence
+    assert "0/1" in params["recurrence_alt_genotypes"] and "0/0" not in params["recurrence_alt_genotypes"]
+    assert "GROUP BY o.source, o.key" in recurrence
+    assert "HAVING uniqExact(o.family_guid) > %(max_callset_families)s" in recurrence
+    assert params["max_callset_families"] == 2
+    # 0 is a threshold: any other family's carrier leaves the allele out.
+    assert _parts(max_callset_families=0)[1]["max_callset_families"] == 0
+    assert not any("max_callset_families" in clause for clause in _parts()[0])
+
+
+def test_the_clinvar_override_lifts_the_callset_recurrence_filter() -> None:
+    release = date(2026, 11, 22)
+    plain = _parts(max_callset_families=1, clinvar_coga_release=release)[0][-1]
+    assert plain.startswith("(e.source, e.key) NOT IN (")
+    clauses, params = _parts(max_callset_families=1, clinvar_pathogenic_override=True, clinvar_coga_release=release)
+    lifted = clauses[-1]
+    assert lifted.startswith("((e.source, e.key) NOT IN (") and " OR " in lifted
+    assert any(name.startswith("recurrence_override") for name in params)
+    # Without a release no allele is pathogenic: nothing to lift.
+    assert _parts(max_callset_families=1, clinvar_pathogenic_override=True)[0][-1].startswith(
+        "(e.source, e.key) NOT IN ("
+    )
 
 
 # --- the consequence --------------------------------------------------------------------
