@@ -177,8 +177,8 @@ transcript the row describes.
 
 The built-in presets are *Phenotype priority*, *Dominant strict*, *Dominant relaxed*, *Expanded carrier
 screening*, *Compound het*, *Recessive hom*, *Recessive broad*, *Any affected* and *ClinVar review*.
-All but *Expanded carrier screening* and *ClinVar review* leave out a variant two other families carry
-in the same callset and turn the ClinVar override on. A preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous
+All but *ClinVar review* leave out a variant two other families carry in the same callset and turn
+the ClinVar override on. A preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous
 candidates, also under *All, compound het grouped*, and the findings of *Expanded carrier screening*
 are listed by gene. Up to 100 results show
 as cards, more as a table; *Table* and *Cards* above the list switch between the two. A gene counts as
@@ -250,7 +250,8 @@ couple, else its mother and father, else its two people. Two samples linked as t
 one person, never a couple: a family of one person sampled twice has no couple. A partner sampled twice
 carries what either of their samples in the analysis you read carries. It keeps:
 
-- the genes where both partners carry a rare (below 1%) high- or moderate-impact variant;
+- the genes where both partners carry a high- or moderate-impact variant below 5% in gnomAD that at
+  most one other family of the callset carries;
 - the variants either partner carries on chrX outside the pseudo-autosomal regions, each on its own:
   a woman's carrier status alone puts a son at risk of an X-linked condition, and a man passes his X
   to every daughter.
@@ -259,8 +260,8 @@ Each gene is one result, with every variant either partner carries there: two, t
 frame says why the gene is a finding (*Both partners*, *X-linked*) and which variants each partner
 carries; each variant's card names the partner who carries it, in that partner's colour.
 
-A ClinVar pathogenic or likely pathogenic call overrides the frequency and impact cut-offs, so a common
-founder variant and a pathogenic synonymous or splice-region variant stay in. A ClinVar benign or
+A ClinVar pathogenic or likely pathogenic call overrides the frequency, callset recurrence and impact
+cut-offs, so a common founder variant and a pathogenic synonymous or splice-region variant stay in. A ClinVar benign or
 likely benign variant is left out, so it never makes a gene one both partners carry a variant in. The
 X-linked rule does not read the partners' recorded sex. Mitochondrial variants are not part of it, as
 mtDNA passes from the mother alone.

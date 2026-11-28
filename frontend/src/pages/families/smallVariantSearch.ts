@@ -475,7 +475,7 @@ export const SMALL_INHERITANCE_LABELS: Record<SmallVariantInheritanceMode, strin
 // CoGA (panel names are unique): the panel's current version is applied.
 export const CARRIER_SCREENING_PANEL_NAME = 'BeGECS v3';
 
-// What every rare-disease preset adds to its own cut-offs (`leaveOutCallsetRecurrent`).
+// What the presets add to their own cut-offs (`leaveOutCallsetRecurrent`).
 const CALLSET_RECURRENCE_NOTE =
   'A variant two other families carry in the same callset is left out; a ClinVar pathogenic or likely pathogenic variant passes that and the impact, frequency and score cut-offs.';
 
@@ -504,7 +504,7 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'expanded_carrier_screening',
     label: 'Expanded carrier screening',
     description:
-      `Couple-only screen on the ${CARRIER_SCREENING_PANEL_NAME} gene panel for genes where both partners carry a high- or moderate-impact variant below 5% in gnomAD (ClinVar P/LP overrides the frequency and impact cut-offs, ClinVar benign is left out), and for X-linked variants either partner carries.`,
+      `Couple-only screen on the ${CARRIER_SCREENING_PANEL_NAME} gene panel for genes where both partners carry a high- or moderate-impact variant below 5% in gnomAD, and for X-linked variants either partner carries (ClinVar benign is left out). ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'compound_het',
@@ -1070,11 +1070,11 @@ const buildPresetState = (
     filters.exclude_clinvar = 'Benign, Likely benign';
   };
 
-  // The rare-disease presets: a variant three families of the callset carry (this one and two
-  // others) is a recurrent artefact of the caller and its chemistry, unless ClinVar holds it
-  // (likely) pathogenic. The ClinVar P/LP override lifts it as it lifts the preset's impact,
-  // frequency and in-silico cut-offs (the owner's decisions of 2026-11-28). The carrier screens do
-  // not read it (a carrier allele recurs by nature), nor ClinVar review (its list is ClinVar's).
+  // Every family-list preset but ClinVar review (its list is ClinVar's): a variant three families
+  // of the callset carry (this one and two others) is a recurrent artefact of the caller and its
+  // chemistry, unless ClinVar holds it (likely) pathogenic. The ClinVar P/LP override lifts it as
+  // it lifts the preset's impact, frequency and in-silico cut-offs (the owner's decisions of
+  // 2026-11-28).
   const leaveOutCallsetRecurrent = () => {
     filters.max_callset_families = '1';
     filters.clinvar_pathogenic_override = 'true';
@@ -1136,10 +1136,11 @@ const buildPresetState = (
     // below 5%: the search would stop at its candidate cap long before chrX.
     filters.expanded_carrier_screening = 'true';
     setCarrierScreenVariants();
+    leaveOutCallsetRecurrent();
   } else if (preset === 'phenotype_priority') {
     // Exomiser-style: rare candidate set ranked by gene-phenotype match. gnomAD
     // <1% + H/H <=10, but ClinVar P/LP overrules the impact and frequency cut-offs (the
-    // override comes with `leaveOutCallsetRecurrent`, as in every rare-disease preset); ClinVar
+    // override comes with `leaveOutCallsetRecurrent`, as in the other presets); ClinVar
     // benign / likely benign excluded; affected individuals must carry the
     // variant (Hom or Het, not WT). The compound-het pairs among the results are listed by
     // gene, each at its better-ranked variant: the grouped view leaves no variant out.
