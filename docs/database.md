@@ -1752,6 +1752,32 @@ family's data: an admin's (deleting a sample, or a sample's SVs, writes the fami
 back), a PED upload or Family Builder save that replaces a family, and a structure change that
 clears its data. A writer that needs the buffer is listed here with the reason.
 
+### Shared rows are written once
+
+The four `variants` tables of the small variants (`details`, `annotations`,
+`annotation_index`, `gene_index`) hold a variant's rows per annotation version and annotation
+set, whatever family wrote them. Those rows hold the variant (its key, position and alleles),
+its annotations and its rsID (its INFO `RS` or `dbSNP`, else its annotation's), nothing
+else, so two writes of one variant with the same annotation set and rsID write the same rows.
+
+Before it writes a batch, the writer looks the batch's variants up in `annotation_index` by its
+sort key (annotation version, chromosome, position, key, annotation set), and reads back each
+stored row's rsID (`_stored_shared_rows` in
+[clickhouse_variant_storage.py](../backend/app/services/clickhouse_variant_storage.py)). A
+variant found with the same rsID gets its `entries` rows alone; a variant with another
+annotation set or rsID is written whole. A lookup of the import's 1,000 records reads the
+granules at their positions alone.
+
+The writer inserts the shared rows first, `annotation_index` last of them, then the family's
+`entries` rows. A variant's `annotation_index` row thus means its other shared rows are
+stored: a write that stopped before it leaves its variants to the next write, which writes
+them whole, and an `entries` row is only written once its shared rows are. No writer deletes a
+shared row. Two writes of a new variant at the same moment both write it; the merges fold the
+duplicates, as they fold every repeated sort key ("Row identity").
+
+The gene index holds the gene symbols and gene IDs of the variant's annotations, the terms its
+rebuild reads out of `annotation_index` (`rebuild_small_variant_gene_index`).
+
 ### Row identity
 
 A stored row is one callset's call of one variant, in one family and one project. When

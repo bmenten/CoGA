@@ -10,7 +10,8 @@ ClickHouse (unit, a fake of ClickHouse at the storage's ``_execute``).
   non-reference calls; scoped to a callset source.
 - Writing: an insert writes compact annotations, the gene index and the site QUAL, in chunks
   when large, and VEP's MANE Select and MANE Plus Clinical flags per transcript and per variant
-  on every assembly; each ``entries`` row holds its annotation rows' filtered values once each
+  on every assembly; a variant whose shared rows are stored for its annotation set and rsID
+  gets its ``entries`` rows alone, found in ``annotation_index`` by its sort key; each ``entries`` row holds its annotation rows' filtered values once each
   (``transcripts``, the annotations table's names and types); the family and sample summaries
   are rebuilt; a delete is scoped to its source, or clears every table without one, and is
   synchronous.
@@ -31,7 +32,7 @@ import pytest
 
 from backend.app.services import clickhouse_variant_storage as cvs
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
-from backend.app.services.clickhouse_variant_rows import ENTRY_TRANSCRIPT_FIELDS
+from backend.app.services.clickhouse_variant_rows import ENTRY_TRANSCRIPT_FIELDS, SmallVariantRows, prepare_small_variants
 from backend.app.services.genotypes import genotype_vocabulary
 from backend.app.services.variant_annotation_parser import (
     AnnotationHeaderState,
@@ -534,21 +535,95 @@ async def test_insert_small_variant_records_chunks_large_table_payloads(
         "_SMALL_VARIANT_GENE_INDEX_INSERT_ROWS",
     ):
         monkeypatch.setattr(cvs, limit, 2)
-    records = [_record(f"1-{100 + index}-A-G", source="glimpse2", gene_symbols=[f"GENE{index}"]) for index in range(3)]
+    records = [
+        _record(f"1-{100 + index}-A-G", source="glimpse2", annotations=[{"gene": f"GENE{index}"}]) for index in range(3)
+    ]
 
     await cvs.insert_small_variant_records("GRCh38", "family-1", ["project-1"], records)
 
-    # Every statement is an insert of rows.
-    assert all(sent.data is not None for sent in clickhouse.sent)
+    # Every insert sends rows.
+    assert all(sent.data for sent in clickhouse.sent if sent.query.startswith("INSERT INTO"))
 
     def sizes_for(table_fragment: str) -> list[int]:
-        return [len(sent.data) for sent in clickhouse.sent if table_fragment in sent.query]
+        return [len(sent.data) for sent in clickhouse.sent if sent.data and table_fragment in sent.query]
 
     assert sizes_for("variants/details") == [2, 1]
     assert sizes_for("SNV_INDEL/entries") == [2, 1]
     assert sizes_for("variants/annotations") == [2, 1]
     assert sizes_for("variants/annotation_index") == [2, 1]
     assert sizes_for("variants/gene_index") == [2, 1]
+
+
+def _variant_ids(rows: list[dict[str, object]]) -> list[object]:
+    return sorted(row["variantId"] for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_a_variant_whose_shared_rows_are_stored_gets_its_entries_rows_alone(clickhouse: _ClickHouse) -> None:
+    # Stored: the first variant, with its annotation set and rsID. The second is not, and the
+    # third is stored with another rsID: its rows hold this one, so they are written.
+    records = [
+        _record("1-100-A-G", annotations=_vep_annotations("G|missense_variant|MODERATE|GENE1|ENSG1|Transcript|ENST11|YES||")),
+        _record("1-200-C-T", annotations=_vep_annotations("T|intron_variant|MODIFIER|GENE2|ENSG2|Transcript|ENST21|YES||")),
+        _record("1-300-G-A", rsid="rs3"),
+    ]
+    stored, new, other_rsid = prepare_small_variants("GRCh38", records)
+    clickhouse.answer = lambda query: (
+        [stored.shared_rows, (other_rsid.key, other_rsid.annotation_set_hash, "rs-other")]
+        if "variants/annotation_index" in query and query.lstrip().startswith("SELECT")
+        else []
+    )
+
+    await cvs.insert_small_variant_records("GRCh38", "family-1", ["project-1", "project-2"], records)
+
+    for table in ("variants/details", "variants/annotations", "variants/annotation_index"):
+        assert _variant_ids(_inserted_rows(clickhouse, table)) == ["1-200-C-T", "1-300-G-A"], table
+    assert {row["variantId"] for row in _inserted_rows(clickhouse, "variants/gene_index")} == {"1-200-C-T"}
+    # Every variant's family rows, in each project, on the annotation set the shared rows hold.
+    entries = _inserted_rows(clickhouse, "SNV_INDEL/entries")
+    assert _variant_ids(entries) == ["1-100-A-G", "1-100-A-G", "1-200-C-T", "1-200-C-T", "1-300-G-A", "1-300-G-A"]
+    assert {(row["key"], row["annotationSetHash"]) for row in entries} == {
+        (variant.key, variant.annotation_set_hash) for variant in (stored, new, other_rsid)
+    }
+    assert len(_version_bumps(clickhouse, _SMALL_VERSION, "family-1")) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_lookup_of_stored_shared_rows_reads_the_annotation_index_by_its_sort_key(
+    clickhouse: _ClickHouse, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(cvs, "_SHARED_ROWS_PER_LOOKUP", 2)
+    records = [_record(variant_id) for variant_id in ("2-500-A-G", "1-300-C-T", "1-100-G-A")]
+
+    await cvs.insert_small_variant_records("GRCh38", "family-1", ["project-1"], records, annotation_version="vep-115")
+
+    lookups = [sent for sent in clickhouse.sent if not sent.query.lstrip().startswith(("INSERT", "ALTER"))]
+    lookups = [sent for sent in lookups if "variants/annotation_index" in sent.query]
+    assert " ".join(lookups[0].query.split()) == (
+        "SELECT key, annotationSetHash, rsid FROM coga.`GRCh38/SNV_INDEL/variants/annotation_index` "
+        "WHERE annotation_version = %(annotation_version)s "
+        "AND (chrom, pos, key, annotationSetHash) IN %(variants)s"
+    )
+    # The write's annotation version, and the variants in sort-key order, a few at a time.
+    variants = {variant.variant_id: variant for variant in prepare_small_variants("GRCh38", records)}
+    assert [sent.params for sent in lookups] == [
+        {
+            "annotation_version": "vep-115",
+            "variants": tuple(
+                (variants[variant_id].chrom, variants[variant_id].pos, variants[variant_id].key,
+                 variants[variant_id].annotation_set_hash)
+                for variant_id in ids
+            ),
+        }
+        for ids in (("1-100-G-A", "1-300-C-T"), ("2-500-A-G",))
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_insert_without_a_record_looks_nothing_up(clickhouse: _ClickHouse) -> None:
+    await cvs.insert_small_variant_records("GRCh38", "family-1", ["project-1"], [])
+
+    assert clickhouse.sent == []
 
 
 @pytest.mark.asyncio
@@ -843,9 +918,9 @@ async def test_small_variant_summary_refresh_bumps_the_family_data_version(click
     [
         (
             cvs.insert_small_variant_records,
-            "_small_variant_entry_rows",
-            ([], [], [], [], []),
-            ([], [("row",)], [], [], []),
+            "small_variant_rows",
+            SmallVariantRows([], [], [], [], []),
+            SmallVariantRows([], [("row",)], [], [], []),
             _SMALL_VERSION,
         ),
         (

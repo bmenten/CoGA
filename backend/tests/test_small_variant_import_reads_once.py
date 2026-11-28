@@ -156,7 +156,7 @@ def test_the_annotation_set_hash_from_each_annotations_json_is_the_hash_of_their
     assert _annotation_set_hash(annotations, payloads) == _stable_uint64("small_annotation_set", listed)
 
 
-def _record(annotations: list[dict[str, Any]], *, gene_symbols: list[str] | None = None) -> SmallVariantRecord:
+def _record(annotations: list[dict[str, Any]]) -> SmallVariantRecord:
     return SmallVariantRecord(
         variant_key=None,
         variant_id="1-1000-A-G",
@@ -168,7 +168,7 @@ def _record(annotations: list[dict[str, Any]], *, gene_symbols: list[str] | None
         source="clair3",
         rsid=None,
         filters=["PASS"],
-        gene_symbols=gene_symbols or [],
+        gene_symbols=[],
         annotations=annotations,
         calls=[SmallVariantCall(sample="PROBAND", gt="0/1", gq=40.0, dp=30, af=[0.5], ad=[15, 15], ps=None)],
     )
@@ -206,7 +206,7 @@ _ANNOTATIONS: list[dict[str, Any]] = [
 
 def test_a_variants_index_rows_gather_its_annotations_rows() -> None:
     _details, _entries, annotation_rows, (index_row,), gene_rows = _small_variant_entry_rows(
-        "GRCh38", "family-uuid", ["project-uuid"], [_record(_ANNOTATIONS, gene_symbols=["Gene0"])]
+        "GRCh38", "family-uuid", ["project-uuid"], [_record(_ANNOTATIONS)]
     )
 
     # An annotations row's values, from column 9: gene, gene id, transcript, HGVS c. and p.,
@@ -223,7 +223,7 @@ def test_a_variants_index_rows_gather_its_annotations_rows() -> None:
     assert index_row[23] == annotation_rows[0][24] == pytest.approx(0.2)
     assert index_row[24:27] == (7, 3, None)
     assert index_row[27:30] == (25.0, 0.9, 0.3)
-    assert [row[4] for row in gene_rows] == ["gene0", "gene1", "gene2", "ensg1", "ensg2"]
+    assert [row[4] for row in gene_rows] == ["gene1", "gene2", "ensg1", "ensg2"]
 
 
 def test_a_variant_without_annotations_stores_one_empty_annotations_row() -> None:
@@ -273,6 +273,10 @@ async def test_the_variant_rows_are_written_as_synchronous_inserts(monkeypatch: 
         async def insert(self, *, table: str, data: list[tuple[Any, ...]], settings: dict[str, Any] | None = None, **_kwargs: Any) -> None:
             inserts.append((table, len(data), settings))
 
+        async def query(self, *_args: Any, **_kwargs: Any) -> Any:
+            # The lookup of the variants' stored shared rows: none is stored.
+            return type("Result", (), {"result_rows": []})()
+
     async def client() -> Client:
         return Client()
 
@@ -286,12 +290,14 @@ async def test_the_variant_rows_are_written_as_synchronous_inserts(monkeypatch: 
         "GRCh38", "family-uuid", ["project-uuid"], [_record(_ANNOTATIONS)]
     )
 
+    # The shared rows first, annotation_index last of them (the lookup of stored shared rows
+    # reads it), then the family's rows.
     assert [table.rsplit("/", 1)[-1] for table, _rows, _settings in inserts] == [
         "details`",
-        "entries`",
         "annotations`",
-        "annotation_index`",
         "gene_index`",
+        "annotation_index`",
+        "entries`",
         "family_data_version`",
     ]
     # Stored when the insert returns, not buffered until ClickHouse's async-insert timer:
