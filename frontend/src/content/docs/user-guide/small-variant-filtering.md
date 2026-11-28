@@ -13,10 +13,13 @@ The page opens with the **Phenotype priority (Exomiser-style)** preset on the **
 - carried (het or hom) by each affected member, with genotype quality (GQ) 20, depth 10, allele
   balance 0.2 and 4 alt reads or more;
 - inheritance *All, compound het grouped*: the compound-het pairs among the results are listed by
-  gene, each gene where its best-ranked variant ranks, and every other variant on its own.
+  gene, each gene where its best-ranked variant ranks, and every other variant on its own;
+- a variant two other families carry in the same callset left out (*Other families ≤ 1*), unless
+  ClinVar calls it pathogenic or likely pathogenic.
 
 > **The default view hides variants.** A variant outside the Mendeliome, a common variant, a
-> low-quality call, or a variant an affected member does not carry is not shown. Press **Clear all
+> variant two other families carry in the same callset, a low-quality call, or a variant an affected
+> member does not carry is not shown. Press **Clear all
 > filters** before you conclude that a variant is not in the data.
 
 ### A family with several analyses
@@ -96,6 +99,11 @@ and **Collapse all** open or close every row.
   - A maximum count keeps a variant without that count, as absent from gnomAD. When such a variant
     may be in gnomAD after all, a note above the list says how many passed unchecked (*Passed the
     gnomAD count filter unchecked*); hover it for what it counts.
+  - *Other families ≤*, under *CoGA callset*, leaves out a variant that more other families carry in
+    the same callset (the calls of one caller, such as Clair3 or DeepVariant): the mark of that
+    caller's recurrent artefacts. Every family on the assembly counts, in any project, and a reference
+    call does not; the card's *CoGA cohort* counts differently. The NIPT list and the Variant
+    Explorer do not apply it.
 - **Call quality** sets the minimum genotype quality, allele balance, depth and alt reads of the
   members' calls, for all members at once or per member.
   - With *Affected only* on, only the affected members' calls are held to them, so a parent's
@@ -137,9 +145,9 @@ its MANE transcript is left out.
 - *ClinVar pathogenic / likely pathogenic overrules the frequency, consequence and in-silico
   filters*, under **Frequency** and on by default: a variant with an allele ClinVar calls pathogenic
   or likely pathogenic passes the impact, consequence and SpliceAI filter, the in-silico filter and
-  every frequency and gnomAD count on every one of its transcripts, whatever their values. The other
-  filters still apply to it: the transcript, HGVS, *Canonical only*, *MANE only*, *LoF only*, the
-  ClinVar status, the genotypes. So a variant ClinVar classified pathogenic after the pipeline
+  every frequency and gnomAD count on every one of its transcripts, whatever their values, and the
+  callset recurrence (*Other families ≤*). The other filters still apply to it: the transcript,
+  HGVS, *Canonical only*, *MANE only*, *LoF only*, the ClinVar status, the genotypes. So a variant ClinVar classified pathogenic after the pipeline
   annotated the callset is not left out.
 - The *ClinVar status* filter, under **Pathogenicity**, keeps a variant with an allele ClinVar gives
   a status you ticked. The excluded ClinVar statuses, under **Exclude**, leave a variant out only when
@@ -168,8 +176,9 @@ transcript the row describes.
 > nothing.
 
 The built-in presets are *Phenotype priority*, *Dominant strict*, *Dominant relaxed*, *Expanded carrier
-screening*, *Compound het*, *Recessive hom*, *Recessive broad*, *Any affected* and *ClinVar review*. A
-preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous
+screening*, *Compound het*, *Recessive hom*, *Recessive broad*, *Any affected* and *ClinVar review*.
+All but *Expanded carrier screening* and *ClinVar review* leave out a variant two other families carry
+in the same callset and turn the ClinVar override on. A preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous
 candidates, also under *All, compound het grouped*, and the findings of *Expanded carrier screening*
 are listed by gene. Up to 100 results show
 as cards, more as a table; *Table* and *Cards* above the list switch between the two. A gene counts as

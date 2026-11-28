@@ -475,6 +475,10 @@ export const SMALL_INHERITANCE_LABELS: Record<SmallVariantInheritanceMode, strin
 // CoGA (panel names are unique): the panel's current version is applied.
 export const CARRIER_SCREENING_PANEL_NAME = 'BeGECS v3';
 
+// What every rare-disease preset adds to its own cut-offs (`leaveOutCallsetRecurrent`).
+const CALLSET_RECURRENCE_NOTE =
+  'A variant two other families carry in the same callset is left out; a ClinVar pathogenic or likely pathogenic variant passes that and the impact, frequency and score cut-offs.';
+
 export const BUILT_IN_SMALL_PRESETS: Array<{
   value: SmallPreset;
   label: string;
@@ -484,17 +488,17 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'phenotype_priority',
     label: 'Phenotype priority (Exomiser-style)',
     description:
-      'Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch), with the compound-het pairs among them grouped by gene; a variant two other families carry in the same callset is left out unless ClinVar holds it (likely) pathogenic.',
+      `Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch), with the compound-het pairs among them grouped by gene. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'dominant_strict',
     label: 'Dominant strict',
-    description: 'Rare, high-confidence heterozygous calls in affected individuals.',
+    description: `Rare, high-confidence heterozygous calls in affected individuals. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'dominant_relaxed',
     label: 'Dominant relaxed',
-    description: 'Looser thresholds for exploratory de novo or dominant review.',
+    description: `Looser thresholds for exploratory de novo or dominant review. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'expanded_carrier_screening',
@@ -505,24 +509,22 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
   {
     value: 'compound_het',
     label: 'Compound het',
-    description:
-      'Automatically keep variants that form a qualifying compound-heterozygous pair.',
+    description: `Automatically keep variants that form a qualifying compound-heterozygous pair. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'recessive_hom',
     label: 'Recessive hom',
-    description: 'Homozygous recessive candidates with supportive parental genotypes.',
+    description: `Homozygous recessive candidates with supportive parental genotypes. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'recessive_permissive',
     label: 'Recessive broad',
-    description: 'Broader recessive sweep for inherited candidate review.',
+    description: `Broader recessive sweep for inherited candidate review. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'any_affected',
     label: 'Any affected',
-    description:
-      'Rare-coding search across all affected family members, with the compound-het pairs among the results grouped by gene.',
+    description: `Rare-coding search across all affected family members, with the compound-het pairs among the results grouped by gene. ${CALLSET_RECURRENCE_NOTE}`,
   },
   {
     value: 'clinvar_review',
@@ -1068,12 +1070,23 @@ const buildPresetState = (
     filters.exclude_clinvar = 'Benign, Likely benign';
   };
 
+  // The rare-disease presets: a variant three families of the callset carry (this one and two
+  // others) is a recurrent artefact of the caller and its chemistry, unless ClinVar holds it
+  // (likely) pathogenic. The ClinVar P/LP override lifts it as it lifts the preset's impact,
+  // frequency and in-silico cut-offs (the owner's decisions of 2026-11-28). The carrier screens do
+  // not read it (a carrier allele recurs by nature), nor ClinVar review (its list is ClinVar's).
+  const leaveOutCallsetRecurrent = () => {
+    filters.max_callset_families = '1';
+    filters.clinvar_pathogenic_override = 'true';
+  };
+
   if (preset === 'dominant_strict') {
     setFrequencyCeiling('0.001');
     filters.impact = 'HIGH';
     filters.canonical_only = 'true';
     filters.min_cadd = '20';
     filters.min_revel = '0.5';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes(HET_GT_GROUP, { qual: '20', dp: '10', af: '0.2', ad_alt: '4' });
     setUnaffectedGenotypes(REF_GT_GROUP);
   } else if (preset === 'dominant_relaxed') {
@@ -1081,6 +1094,7 @@ const buildPresetState = (
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
     filters.min_cadd = '15';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes(HET_GT_GROUP, { qual: '15', dp: '8', af: '0.18', ad_alt: '3' });
     setUnaffectedGenotypes(REF_GT_GROUP);
   } else if (preset === 'nipt_de_novo') {
@@ -1124,7 +1138,8 @@ const buildPresetState = (
     setCarrierScreenVariants();
   } else if (preset === 'phenotype_priority') {
     // Exomiser-style: rare candidate set ranked by gene-phenotype match. gnomAD
-    // <1% + H/H <=10, but ClinVar P/LP overrules the impact and frequency cut-offs; ClinVar
+    // <1% + H/H <=10, but ClinVar P/LP overrules the impact and frequency cut-offs (the
+    // override comes with `leaveOutCallsetRecurrent`, as in every rare-disease preset); ClinVar
     // benign / likely benign excluded; affected individuals must carry the
     // variant (Hom or Het, not WT). The compound-het pairs among the results are listed by
     // gene, each at its better-ranked variant: the grouped view leaves no variant out.
@@ -1136,12 +1151,8 @@ const buildPresetState = (
     filters.max_gnomad_popmax_af = '0.01';
     filters.max_gnomad_hom_count = '10';
     filters.max_gnomad_hemi_count = '10';
-    filters.clinvar_pathogenic_override = 'true';
     filters.exclude_clinvar = 'Benign, Likely benign';
-    // A variant three families of the callset carry (this one and two others) is a recurrent
-    // artefact of the caller and its chemistry; ClinVar P/LP overrules it as it does the
-    // frequency (the owner's decision of 2026-11-28).
-    filters.max_callset_families = '1';
+    leaveOutCallsetRecurrent();
     // Standard proband QC: GQ/QUAL >= 20, DP >= 10, AF >= 0.2, AD alt >= 4.
     setAffectedGenotypes([...HOM_GT_GROUP, ...HET_GT_GROUP], {
       qual: '20',
@@ -1154,12 +1165,14 @@ const buildPresetState = (
     setFrequencyCeiling('0.02');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes(HET_GT_GROUP, { qual: '15', dp: '6', af: '0.18', ad_alt: '3' });
     setUnaffectedGenotypes([...REF_GT_GROUP, ...HET_GT_GROUP]);
   } else if (preset === 'recessive_hom') {
     setFrequencyCeiling('0.01');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes(HOM_GT_GROUP, { qual: '20', dp: '8', af: '0.75', ad_alt: '5' });
     members.forEach((member) => {
       if (member.role === 'mother' || member.role === 'father') {
@@ -1176,6 +1189,7 @@ const buildPresetState = (
     setFrequencyCeiling('0.02');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes([...HET_GT_GROUP, ...HOM_GT_GROUP], {
       qual: '15',
       dp: '6',
@@ -1191,6 +1205,7 @@ const buildPresetState = (
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
     filters.min_cadd = '15';
+    leaveOutCallsetRecurrent();
     setAffectedGenotypes([...HET_GT_GROUP, ...HOM_GT_GROUP], {
       qual: '15',
       dp: '6',

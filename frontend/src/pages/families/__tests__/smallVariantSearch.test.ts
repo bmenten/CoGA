@@ -480,18 +480,36 @@ describe('preset frequency ceilings bound popmax', () => {
     },
   );
 
-  // The page opens on it: a variant in three families of the callset (two others) is left out.
-  it('leaves out from the default preset a variant two other families carry in the callset', async () => {
+  // A variant in three families of the callset (two others) is left out, unless ClinVar holds it
+  // (likely) pathogenic: every rare-disease preset turns the ClinVar override on with it.
+  it.each([
+    'phenotype_priority',
+    'dominant_strict',
+    'dominant_relaxed',
+    'compound_het',
+    'recessive_hom',
+    'recessive_permissive',
+    'any_affected',
+  ] as const)('leaves out from %s a variant two other families carry in the callset', async (preset) => {
     const { result } = renderSearch();
     await waitFor(() => expect(result.current.filters).toBeTruthy());
 
-    act(() => result.current.applyPreset('phenotype_priority'));
+    act(() => result.current.applyPreset(preset));
     expect(result.current.draftFilters.max_callset_families).toBe('1');
     expect(result.current.draftFilters.clinvar_pathogenic_override).toBe('true');
-
-    act(() => result.current.applyPreset('expanded_carrier_screening'));
-    expect(result.current.draftFilters.max_callset_families).toBe('');
   });
+
+  // A carrier allele recurs by nature; ClinVar review lists ClinVar's own calls.
+  it.each(['expanded_carrier_screening', 'clinvar_review'] as const)(
+    'keeps in %s a variant other families carry in the callset',
+    async (preset) => {
+      const { result } = renderSearch();
+      await waitFor(() => expect(result.current.filters).toBeTruthy());
+
+      act(() => result.current.applyPreset(preset));
+      expect(result.current.draftFilters.max_callset_families).toBe('');
+    },
+  );
 
   it('keeps the strictest preset strict', async () => {
     const { result } = renderSearch();
