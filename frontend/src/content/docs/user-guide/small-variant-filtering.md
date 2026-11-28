@@ -102,8 +102,8 @@ and **Collapse all** open or close every row.
   - *Other families ≤*, under *CoGA callset*, leaves out a variant that more other families carry in
     the same callset (the calls of one caller, such as Clair3 or DeepVariant): the mark of that
     caller's recurrent artefacts. Every family on the assembly counts, in any project, and a reference
-    call does not; the card's *CoGA cohort* counts differently. The NIPT list and the Variant
-    Explorer do not apply it.
+    call does not; the card's *CoGA cohort* counts differently. The monogenic NIPT list applies it
+    too, with the NIPT calls of every pregnancy as one callset; the Variant Explorer does not.
 - **Call quality** sets the minimum genotype quality, allele balance, depth and alt reads of the
   members' calls, for all members at once or per member.
   - With *Affected only* on, only the affected members' calls are held to them, so a parent's

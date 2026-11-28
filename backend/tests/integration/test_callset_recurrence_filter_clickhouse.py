@@ -16,6 +16,9 @@ families' calls are Clair3's or GATK HaplotypeCaller's:
 
 The other families sit in projects the searched family is not in: every project counts.
 
+A pregnancy's callset is the one it is kept for: the monogenic NIPT calls of every pregnancy
+(``nipt_p…``) are one callset, ``nipt``, and the searched family's other pregnancy counts nothing.
+
 Synthetic values only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke``
 job sets it.
 """
@@ -109,11 +112,21 @@ def _context(assembly: str, family_uuid: str, project: str) -> Any:
     )
 
 
-def test_the_search_leaves_out_what_other_families_carry_in_the_callset() -> None:
+async def _drop_assembly_tables(assembly: str) -> None:
     from backend.app.core.clickhouse import execute_clickhouse
     from backend.app.core.config import settings
-    import backend.app.services.clickhouse_family_variants as family_variants
     from backend.app.services.clickhouse_variant_ids import _require_clickhouse_identifier
+
+    tables = await execute_clickhouse(
+        "SELECT name FROM system.tables WHERE database = %(database)s AND startsWith(name, %(prefix)s)",
+        {"database": settings.clickhouse_database, "prefix": f"{_require_clickhouse_identifier(assembly)}/"},
+    )
+    for (name,) in tables or []:
+        await execute_clickhouse(f"DROP TABLE IF EXISTS {settings.clickhouse_database}.`{name}`")
+
+
+def test_the_search_leaves_out_what_other_families_carry_in_the_callset() -> None:
+    import backend.app.services.clickhouse_family_variants as family_variants
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         get_assembly_small_variant_data_version,
@@ -134,7 +147,6 @@ def test_the_search_leaves_out_what_other_families_carry_in_the_callset() -> Non
         return frozenset(record.variant_id for record in rows), count
 
     async def _run() -> dict[str, Any]:
-        dataset = _require_clickhouse_identifier(assembly)
         try:
             await ensure_clickhouse_variant_tables(assembly)
             await insert_small_variant_records(
@@ -167,12 +179,7 @@ def test_the_search_leaves_out_what_other_families_carry_in_the_callset() -> Non
             answers["private once carried"] = await kept(max_callset_families=0)
             return answers
         finally:
-            tables = await execute_clickhouse(
-                "SELECT name FROM system.tables WHERE database = %(database)s AND startsWith(name, %(prefix)s)",
-                {"database": settings.clickhouse_database, "prefix": f"{dataset}/"},
-            )
-            for (name,) in tables or []:
-                await execute_clickhouse(f"DROP TABLE IF EXISTS {settings.clickhouse_database}.`{name}`")
+            await _drop_assembly_tables(assembly)
 
     answers = run_closing_stores(_run)
     expected = {
@@ -191,3 +198,56 @@ def test_the_search_leaves_out_what_other_families_carry_in_the_callset() -> Non
     # The count reads the same rows.
     assert {name: answers[name][1] for name in expected} == {name: len(ids) for name, ids in expected.items()}
     assert answers["version moved"]
+
+
+def test_every_pregnancy_of_a_callset_is_read_as_one_callset() -> None:
+    import backend.app.services.clickhouse_family_variants as family_variants
+    from backend.app.services.clickhouse_variant_storage import (
+        ensure_clickhouse_variant_tables,
+        insert_small_variant_records,
+    )
+    from backend.app.services.family_package_records import suffixed_source
+    from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+
+    # Two other families carry IN_TWO in their own pregnancies; IN_ONE one other family and the
+    # searched family's other pregnancy, which counts nothing.
+    in_two, in_one = "1-1000-A-G", "1-2000-C-T"
+    assembly = f"recurrence-{uuid4().hex[:8]}"
+    family_uuid, project = str(uuid4()), str(uuid4())
+    context = _context(assembly, family_uuid, project)
+    own_pregnancy, other_pregnancy = suffixed_source("nipt", "PREGNANCY1"), suffixed_source("nipt", "PREGNANCY2")
+
+    async def kept(maximum: int) -> frozenset[str]:
+        filters = SmallVariantQueryFilters(page=1, page_size=100, max_callset_families=maximum)
+        return frozenset(record.variant_id for record in await family_variants._fetch_small_variant_rows(context, filters))
+
+    async def _run() -> dict[int, frozenset[str]]:
+        try:
+            await ensure_clickhouse_variant_tables(assembly)
+            await insert_small_variant_records(
+                assembly,
+                family_uuid,
+                [project],
+                [
+                    _record(in_two, own_pregnancy, _PROBAND, "0/1"),
+                    _record(in_one, own_pregnancy, _PROBAND, "0/1"),
+                    _record(in_one, other_pregnancy, _PROBAND, "0/1"),
+                ],
+            )
+            for index, variants in enumerate(([in_two, in_one], [in_two])):
+                pregnancy = suffixed_source("nipt", f"OTHER-PREGNANCY{index}")
+                await insert_small_variant_records(
+                    assembly,
+                    str(uuid4()),
+                    [str(uuid4())],
+                    [_record(variant, pregnancy, f"OTHER{index}", "0/1") for variant in variants],
+                )
+            return {maximum: await kept(maximum) for maximum in (2, 1, 0)}
+        finally:
+            await _drop_assembly_tables(assembly)
+
+    assert run_closing_stores(_run) == {
+        2: frozenset({in_two, in_one}),
+        1: frozenset({in_one}),
+        0: frozenset(),
+    }

@@ -28,6 +28,7 @@ from .data_scope import chromosome_aliases, normalize_chromosome
 from .variant_annotation_parser import MANE_REFSEQ_KEY, _spliceai_delta
 from .family_metadata_context import FamilyMetadataContext
 from .family_package_common import resolve_vcf_sample_id
+from .family_package_records import PREGNANCY_SOURCE_PATTERN
 from .compound_het_phase import (
     CONFIDENT_REFERENCE_MIN_DP,
     PHASE_CIS,
@@ -3934,10 +3935,12 @@ def _small_callset_recurrence_clause(
 
     A recurrent artefact belongs to a caller and its chemistry (an ONT homopolymer indel, a
     paralogue's mismatch in short reads), so each callset counts apart: the short-read and the
-    long-read calls of one DNA are two callsets. A family carries the allele when a row of
-    the callset holds an alt call of any of its samples. Every family on the assembly counts,
-    in every project, the user's or not, and a family stored under two projects once; the
-    family searched counts nothing.
+    long-read calls of one DNA are two callsets. A pregnancy's callset is the one it is kept
+    for (``_row_callset``): the plasma and father calls of every monogenic NIPT pregnancy are
+    one callset, ``nipt``. A family carries the allele when a row of the callset holds an alt
+    call of any of its samples. Every family on the assembly counts, in every project, the
+    user's or not, and a family stored under two projects once; the family searched counts
+    nothing, its other pregnancies included.
 
     The other families' rows are read only at the positions and alleles of the family's rows
     that ``family_rows`` (the search's other conditions, alias ``e``) keeps: the position
@@ -3948,21 +3951,32 @@ def _small_callset_recurrence_clause(
     entries_table = _small_table_name(context.assembly_name, "entries")
     params["max_callset_families"] = int(filters.max_callset_families)
     carries = clickhouse_genotype_condition("gt", ALT_CLASSES, param="recurrence_alt_genotypes", params=params)
+    other_callset = _row_callset("o", params=params)
+    own_callset = _row_callset("e", params=params)
     recurrent = f"""
-        SELECT o.source, o.key
+        SELECT {other_callset}, o.key
         FROM {entries_table} AS o
         WHERE o.sign = 1
           AND o.family_guid != %(family_guid)s
-          AND (o.xpos, o.key, o.source) IN (
-            SELECT e.xpos, e.key, e.source FROM {entries_table} AS e WHERE {' AND '.join(family_rows)}
+          AND (o.xpos, o.key, {other_callset}) IN (
+            SELECT e.xpos, e.key, {own_callset} FROM {entries_table} AS e WHERE {' AND '.join(family_rows)}
           )
           AND arrayExists(gt -> {carries}, o.calls.gt)
-        GROUP BY o.source, o.key
+        GROUP BY {other_callset}, o.key
         HAVING uniqExact(o.family_guid) > %(max_callset_families)s
     """
-    kept = f"(e.source, e.key) NOT IN ({recurrent})"
+    kept = f"({own_callset}, e.key) NOT IN ({recurrent})"
     pathogenic = _clinvar_pathogenic_override(context, filters, params=params, prefix="recurrence_override")
     return kept if pathogenic is None else f"({kept} OR {pathogenic})"
+
+
+def _row_callset(alias: str, *, params: dict[str, Any]) -> str:
+    """The callset of the entries row ``alias``: its source, or for a pregnancy's own source
+    (``nipt_p1a2b3c4d``, ``family_package_records.suffixed_source``) the source it is kept for
+    (``nipt``), as ``source_base`` reads it."""
+    params["pregnancy_source"] = PREGNANCY_SOURCE_PATTERN
+    params["pregnancy_source_base"] = r"\1"
+    return f"replaceRegexpOne({alias}.source, %(pregnancy_source)s, %(pregnancy_source_base)s)"
 
 
 def _small_annotation_filter_clauses(

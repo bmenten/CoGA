@@ -1047,6 +1047,15 @@ describe('FamilyNiptPage', () => {
       expect(screen.getByRole('button', { name: 'Exclude review tags: Excluded' })).toBeInTheDocument();
     });
 
+    it('sends the callset recurrence as the small-variant page does, and chips it', async () => {
+      serve();
+      renderAt('/families/NIPT001/nipt?max_callset_families=1');
+
+      await waitFor(() => expect(variantSearches().length).toBeGreaterThan(0));
+      expect(variantSearches().at(-1)?.max_callset_families).toBe(1);
+      expect(await screen.findByRole('button', { name: 'Max other families (callset): 1' })).toBeInTheDocument();
+    });
+
     it('sends the recurrence filter as a whole number, chips it, and keeps it in the URL', async () => {
       serve();
       renderAt('/families/NIPT001/nipt?max_unexplained_recurrence=2');

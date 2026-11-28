@@ -208,22 +208,26 @@ def test_the_sql_condition_of_the_phase_set_reads_the_family_members_calls() -> 
 # --- the callset recurrence filter (the owner's decisions of 2026-11-28) -------------------
 
 
+def _callset(alias: str) -> str:
+    return f"replaceRegexpOne({alias}.source, %(pregnancy_source)s, %(pregnancy_source_base)s)"
+
+
 def test_the_callset_recurrence_filter_counts_other_families_where_the_search_keeps_a_row() -> None:
     plain, _params = _parts(impact=["HIGH"])
     clauses, params = _parts(impact=["HIGH"], max_callset_families=2)
     # The last clause: every other condition is the bound it reads the other families at.
     *others, recurrence = clauses
     assert others == plain
-    assert recurrence.startswith("(e.source, e.key) NOT IN (")
+    assert recurrence.startswith(f"({_callset('e')}, e.key) NOT IN (")
     assert "SNV_INDEL/entries` AS o" in recurrence
     assert "o.family_guid != %(family_guid)s" in recurrence
     assert f"WHERE {' AND '.join(plain)}" in recurrence
-    assert "(o.xpos, o.key, o.source) IN (" in recurrence
+    assert f"(o.xpos, o.key, {_callset('o')}) IN (" in recurrence
     # A family carries the allele with an alt call, in the row's own callset; a family under
     # two projects counts once.
     assert "arrayExists(gt -> " in recurrence and "o.calls.gt)" in recurrence
     assert "0/1" in params["recurrence_alt_genotypes"] and "0/0" not in params["recurrence_alt_genotypes"]
-    assert "GROUP BY o.source, o.key" in recurrence
+    assert f"GROUP BY {_callset('o')}, o.key" in recurrence
     assert "HAVING uniqExact(o.family_guid) > %(max_callset_families)s" in recurrence
     assert params["max_callset_families"] == 2
     # 0 is a threshold: any other family's carrier leaves the allele out.
@@ -231,18 +235,37 @@ def test_the_callset_recurrence_filter_counts_other_families_where_the_search_ke
     assert not any("max_callset_families" in clause for clause in _parts()[0])
 
 
+def test_the_callset_of_a_pregnancy_is_the_one_it_is_kept_for() -> None:
+    # The pattern a row's source is read with is the one a pregnancy's source is made and read
+    # with (family_package_records), so the calls of every NIPT pregnancy are one callset.
+    import re
+
+    from backend.app.services.family_package_records import source_base, suffixed_source
+
+    params = _parts(max_callset_families=1)[1]
+    for source in (suffixed_source("nipt", "PREGNANCY1"), "nipt", "clair3", "haplotypecaller"):
+        assert re.sub(params["pregnancy_source"], params["pregnancy_source_base"], source) == source_base(source)
+    assert source_base(suffixed_source("nipt", "PREGNANCY1")) == "nipt"
+
+
+def test_the_nipt_list_reads_the_callset_recurrence_as_the_family_search_does() -> None:
+    from backend.app.services.nipt_service import _build_nipt_query_filters
+
+    assert _build_nipt_query_filters({"max_callset_families": 1}).max_callset_families == 1
+    assert _build_nipt_query_filters({}).max_callset_families is None
+
+
 def test_the_clinvar_override_lifts_the_callset_recurrence_filter() -> None:
     release = date(2026, 11, 22)
+    kept = f"({_callset('e')}, e.key) NOT IN ("
     plain = _parts(max_callset_families=1, clinvar_coga_release=release)[0][-1]
-    assert plain.startswith("(e.source, e.key) NOT IN (")
+    assert plain.startswith(kept)
     clauses, params = _parts(max_callset_families=1, clinvar_pathogenic_override=True, clinvar_coga_release=release)
     lifted = clauses[-1]
-    assert lifted.startswith("((e.source, e.key) NOT IN (") and " OR " in lifted
+    assert lifted.startswith(f"({kept}") and " OR " in lifted
     assert any(name.startswith("recurrence_override") for name in params)
     # Without a release no allele is pathogenic: nothing to lift.
-    assert _parts(max_callset_families=1, clinvar_pathogenic_override=True)[0][-1].startswith(
-        "(e.source, e.key) NOT IN ("
-    )
+    assert _parts(max_callset_families=1, clinvar_pathogenic_override=True)[0][-1].startswith(kept)
 
 
 # --- the consequence --------------------------------------------------------------------

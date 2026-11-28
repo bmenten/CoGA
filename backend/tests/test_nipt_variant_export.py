@@ -95,6 +95,7 @@ _SEARCH: list[tuple[str, str]] = [
     ("max_gnomad_ac", "6"),
     ("max_gnomad_hom_count", "7"),
     ("max_gnomad_hemi_count", "8"),
+    ("max_callset_families", "1"),
     ("min_cadd", "20"),
     ("min_revel", "0.5"),
     ("min_spliceai", "0.2"),
@@ -268,6 +269,7 @@ def test_the_export_hands_the_analysis_the_search_the_list_hands_it(client) -> N
     )
     assert listed == exported
     assert exported["query_filters"]["panel_id"] == "panel-1"
+    assert exported["query_filters"]["max_callset_families"] == 1
     assert exported["categories"] == [3, 7]
     assert (exported["review_tags"], exported["exclude_review_tags"]) == (["report"], ["excluded"])
 

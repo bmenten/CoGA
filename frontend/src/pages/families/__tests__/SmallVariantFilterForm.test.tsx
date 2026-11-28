@@ -330,21 +330,22 @@ test('the frequency header reads mixed when the populations differ', () => {
   expect((screen.getByLabelText('Maximum AF, all populations') as HTMLSelectElement).value).toBe('mixed');
 });
 
-// The callset recurrence: the family list's alone (the NIPT list counts its own recurrence, the
-// explorer searches no one family).
-test('the frequency section offers the callset recurrence on the family list alone', () => {
+// The callset recurrence: the family and the NIPT list's (the explorer searches no one family).
+test('the frequency section offers the callset recurrence on the family and the NIPT list', () => {
   const frequencyRow = () =>
     screen.getByText('Frequency', { selector: '.variant-filter-dropdown-title' }).closest('details') as HTMLElement;
-  renderWith({ draftFilters: { ...createEmptySmallFilters(), max_callset_families: '3' } });
-  expect(screen.getByLabelText('Other families ≤')).toHaveValue('3');
-  expect(frequencyRow().querySelector('.variant-filter-dropdown-meta')).toHaveTextContent('1 active');
-  cleanup();
-  for (const unsupportedFilters of [NIPT_UNSUPPORTED_FILTERS, GLOBAL_UNSUPPORTED_FILTERS]) {
-    renderWith({ unsupportedFilters, draftFilters: { ...createEmptySmallFilters(), max_callset_families: '3' } });
-    expect(screen.queryByLabelText('Other families ≤')).not.toBeInTheDocument();
-    expect(frequencyRow().querySelector('.variant-filter-dropdown-meta')).toHaveTextContent('No filters');
+  for (const page of [{}, { unsupportedFilters: NIPT_UNSUPPORTED_FILTERS }]) {
+    renderWith({ ...page, draftFilters: { ...createEmptySmallFilters(), max_callset_families: '3' } });
+    expect(screen.getByLabelText('Other families ≤')).toHaveValue('3');
+    expect(frequencyRow().querySelector('.variant-filter-dropdown-meta')).toHaveTextContent('1 active');
     cleanup();
   }
+  renderWith({
+    unsupportedFilters: GLOBAL_UNSUPPORTED_FILTERS,
+    draftFilters: { ...createEmptySmallFilters(), max_callset_families: '3' },
+  });
+  expect(screen.queryByLabelText('Other families ≤')).not.toBeInTheDocument();
+  expect(frequencyRow().querySelector('.variant-filter-dropdown-meta')).toHaveTextContent('No filters');
 });
 
 test('a frequency slider moves over seqr steps, its last step setting no maximum', () => {

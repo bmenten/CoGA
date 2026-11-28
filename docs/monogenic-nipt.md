@@ -326,7 +326,9 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
 - **Variant list** — `get_family_nipt_variants`, in order:
   1. that FF;
   2. the filtered records, at most 5,000, in genomic order (one more row is fetched; past the limit
-     the page sets `total_is_estimated` and `count_limit`);
+     the page sets `total_is_estimated` and `count_limit`): the small-variant search's SQL, the
+     callset recurrence (`max_callset_families`, the *Recessive (both parents carrier)* preset's 1)
+     among its filters, the plasma and father calls of every pregnancy one callset (`_row_callset`);
   3. classified without the quality filter (failures flagged `quality:<reason>`), skipping
      artifact-list sites;
   4. `min_confidence`;
