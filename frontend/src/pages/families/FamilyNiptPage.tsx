@@ -165,6 +165,7 @@ const buildSearchParams = (f: SmallFilterState): Record<string, unknown> => {
   numeric('max_gnomad_ac', f.max_gnomad_ac);
   numeric('max_gnomad_hom_count', f.max_gnomad_hom_count);
   numeric('max_gnomad_hemi_count', f.max_gnomad_hemi_count);
+  numeric('max_callset_families', f.max_callset_families);
   numeric('min_cadd', f.min_cadd);
   numeric('min_revel', f.min_revel);
   numeric('min_spliceai', f.min_spliceai);

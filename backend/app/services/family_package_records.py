@@ -112,8 +112,10 @@ _DATASET_SOURCES: dict[str, dict[str, tuple[str, ...]]] = {
 # delivered: an import of one never replaces another's (the owner's decision of 2026-11-21).
 PREGNANCY_DATASETS: tuple[str, ...] = ("snv", "coverage", "ccnv")
 # A source a pregnancy's analysis keeps as its own: the source's name, then ``_p`` and eight hex
-# digits of its pregnancy (``suffixed_source``).
-_PREGNANCY_SOURCE = re.compile(r"^([a-z][a-z0-9_]*)_p[0-9a-f]{8}$")
+# digits of its pregnancy (``suffixed_source``). ClickHouse reads a row's source the same way
+# (``clickhouse_variant_queries._row_callset``).
+PREGNANCY_SOURCE_PATTERN = r"^([a-z][a-z0-9_]*)_p[0-9a-f]{8}$"
+_PREGNANCY_SOURCE = re.compile(PREGNANCY_SOURCE_PATTERN)
 
 
 def suffixed_source(source: str, pregnancy_id: str | None) -> str:

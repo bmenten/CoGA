@@ -1794,7 +1794,7 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
             <div className="variant-frequency-column">
               <ColumnTitle
                 label="CoGA callset"
-                hint="Recurrence in CoGA: leave out a variant that more than this many other families carry in the same callset (an alt call of one of their samples, in every project). A recurrent artefact of a caller and its chemistry (an ONT homopolymer indel, a paralogue in short reads) recurs in the families of its callset, so each callset counts apart. A family in two projects counts once. With the ClinVar overrule below, a variant ClinVar holds (likely) pathogenic stays."
+                hint="Recurrence in CoGA: leave out a variant that more than this many other families carry in the same callset (an alt call of one of their samples, in every project). A recurrent artefact of a caller and its chemistry (an ONT homopolymer indel, a paralogue in short reads) recurs in the families of its callset, so each callset counts apart; the monogenic NIPT calls of every pregnancy are one callset. A family in two projects counts once. With the ClinVar overrule below, a variant ClinVar holds (likely) pathogenic stays."
               />
               <div className="variant-frequency-counts">
                 <label className="variant-inline-field">

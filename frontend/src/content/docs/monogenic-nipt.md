@@ -472,8 +472,10 @@ The presets combine the views with the usual filters:
   ClinVar rules;
 - **Recessive (both parents carrier)**: the recessive view as the expanded carrier screen reads a couple:
   the gene panel named *BeGECS v3* (every gene without one), HIGH or MODERATE impact, gnomAD below 5%,
-  ClinVar pathogenic or likely pathogenic overriding the impact and the frequency, ClinVar benign and
-  likely benign left out, and the report's cohort rule (below).
+  at most one other family carrying the allele in the `nipt` callset (*Other families ≤ 1*: the plasma
+  and father calls of every pregnancy, of any family, are one callset), ClinVar pathogenic or likely
+  pathogenic overriding the impact, the frequency and that recurrence, ClinVar benign and likely benign
+  left out, and the report's cohort rule (below).
 
 The page opens on **De novo**, on the analysis's diagnostic gene panel (without one, on the **Mendeliome**), unless its link carries a search of its own.
 

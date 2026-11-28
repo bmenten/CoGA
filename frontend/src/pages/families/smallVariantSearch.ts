@@ -556,7 +556,7 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
     value: 'nipt_recessive',
     label: 'Recessive (both parents carrier)',
     description:
-      `Genes of the ${CARRIER_SCREENING_PANEL_NAME} panel where both parents carry a high- or moderate-impact variant below 5% in gnomAD (ClinVar P/LP overrides the frequency and impact cut-offs, ClinVar benign is left out), the mother's from a plasma call of 25% or more, and the X-linked variants of either parent, read by the fetal sex: for each gene, whether the fetus inherited neither, one or both variants.`,
+      `Genes of the ${CARRIER_SCREENING_PANEL_NAME} panel where both parents carry a high- or moderate-impact variant below 5% in gnomAD (ClinVar benign is left out), the mother's from a plasma call of 25% or more, and the X-linked variants of either parent, read by the fetal sex: for each gene, whether the fetus inherited neither, one or both variants. ${CALLSET_RECURRENCE_NOTE}`,
   },
 ];
 
@@ -564,10 +564,9 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
  * Filters of the shared form that the NIPT variant list does not apply: of the review
  * filters it takes the review tags and the excluded tags, as the small-variant list does,
  * but not the classification or the saved notes; nor the family-aware ones (phenotype
- * prioritization, expanded carrier screening, the SV second hit, the callers' FILTER), the
- * callset recurrence (it counts its own, `max_unexplained_recurrence`) or a link's raw locus. The
- * form offers them no control. A saved search made on the small-variant list, or a link, can
- * still carry them: the NIPT page shows no chip for them (`niptAppliesFilterChip`).
+ * prioritization, expanded carrier screening, the SV second hit, the callers' FILTER) or a link's
+ * raw locus. The form offers them no control. A saved search made on the small-variant list, or a
+ * link, can still carry them: the NIPT page shows no chip for them (`niptAppliesFilterChip`).
  */
 export const NIPT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new Set<
   keyof SmallFilterState
@@ -579,7 +578,6 @@ export const NIPT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new
   'require_sv_second_hit',
   'locus',
   'pass_only',
-  'max_callset_families',
 ]);
 
 /**
@@ -1070,11 +1068,12 @@ const buildPresetState = (
     filters.exclude_clinvar = 'Benign, Likely benign';
   };
 
-  // Every family-list preset but ClinVar review (its list is ClinVar's): a variant three families
-  // of the callset carry (this one and two others) is a recurrent artefact of the caller and its
-  // chemistry, unless ClinVar holds it (likely) pathogenic. The ClinVar P/LP override lifts it as
-  // it lifts the preset's impact, frequency and in-silico cut-offs (the owner's decisions of
-  // 2026-11-28).
+  // Every family-list preset but ClinVar review (its list is ClinVar's), and the NIPT recessive
+  // view: a variant three families of the callset carry (this one and two others) is a recurrent
+  // artefact of the caller and its chemistry, unless ClinVar holds it (likely) pathogenic. The
+  // ClinVar P/LP override lifts it as it lifts the preset's impact, frequency and in-silico
+  // cut-offs (the owner's decisions of 2026-11-28). The NIPT de novo and paternal views read a
+  // plasma call's recurrence in the assay themselves (`max_unexplained_recurrence`).
   const leaveOutCallsetRecurrent = () => {
     filters.max_callset_families = '1';
     filters.clinvar_pathogenic_override = 'true';
@@ -1126,6 +1125,7 @@ const buildPresetState = (
     filters.inheritance = 'recessive_at_risk';
     filters.exclude_cohort_common = 'true';
     setCarrierScreenVariants();
+    leaveOutCallsetRecurrent();
   } else if (preset === 'expanded_carrier_screening') {
     const couple = resolveCarrierScreeningCoupleMembers(members);
     if (!couple) {

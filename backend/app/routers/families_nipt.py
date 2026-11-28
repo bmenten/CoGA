@@ -449,6 +449,10 @@ def _nipt_variant_search(
     max_gnomad_ac: int | None = None,
     max_gnomad_hom_count: int | None = None,
     max_gnomad_hemi_count: int | None = None,
+    # The callset recurrence, as the family list reads it: leave out an allele that more other
+    # families than this carry in the nipt callset (any pregnancy's), unless the ClinVar P/LP
+    # override keeps it.
+    max_callset_families: int | None = Query(None, ge=0),
     min_cadd: FiniteThreshold = None,
     min_revel: FiniteThreshold = None,
     min_spliceai: FiniteThreshold = None,
@@ -506,6 +510,7 @@ def _nipt_variant_search(
             "max_gnomad_ac": max_gnomad_ac,
             "max_gnomad_hom_count": max_gnomad_hom_count,
             "max_gnomad_hemi_count": max_gnomad_hemi_count,
+            "max_callset_families": max_callset_families,
             "min_cadd": min_cadd,
             "min_revel": min_revel,
             "min_spliceai": min_spliceai,

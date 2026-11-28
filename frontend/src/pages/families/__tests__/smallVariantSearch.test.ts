@@ -491,6 +491,7 @@ describe('preset frequency ceilings bound popmax', () => {
     'recessive_hom',
     'recessive_permissive',
     'any_affected',
+    'nipt_recessive',
   ] as const)('leaves out from %s a variant two other families carry in the callset', async (preset) => {
     const { result } = renderSearch();
     await waitFor(() => expect(result.current.filters).toBeTruthy());
@@ -500,14 +501,18 @@ describe('preset frequency ceilings bound popmax', () => {
     expect(result.current.draftFilters.clinvar_pathogenic_override).toBe('true');
   });
 
-  // ClinVar review lists ClinVar's own calls.
-  it('keeps in ClinVar review a variant other families carry in the callset', async () => {
-    const { result } = renderSearch();
-    await waitFor(() => expect(result.current.filters).toBeTruthy());
+  // ClinVar review lists ClinVar's own calls; the NIPT de novo and paternal views read a plasma
+  // call's recurrence in the assay themselves.
+  it.each(['clinvar_review', 'nipt_de_novo', 'nipt_paternal'] as const)(
+    'keeps in %s a variant other families carry in the callset',
+    async (preset) => {
+      const { result } = renderSearch();
+      await waitFor(() => expect(result.current.filters).toBeTruthy());
 
-    act(() => result.current.applyPreset('clinvar_review'));
-    expect(result.current.draftFilters.max_callset_families).toBe('');
-  });
+      act(() => result.current.applyPreset(preset));
+      expect(result.current.draftFilters.max_callset_families).toBe('');
+    },
+  );
 
   it('keeps the strictest preset strict', async () => {
     const { result } = renderSearch();
@@ -880,16 +885,13 @@ describe('a NIPT search on the small-variant list', () => {
     );
   });
 
-  // The NIPT list counts its own recurrence: a saved search's callset recurrence is named there,
-  // and applied on the small-variant list.
-  it('names the callset recurrence as a filter the NIPT list does not apply', () => {
+  // The family list and the NIPT list both apply a saved search's callset recurrence.
+  it('chips the callset recurrence on the small-variant and the NIPT list alike', () => {
     const chips = buildActiveFilterChips({ ...createEmptySmallFilters(), max_callset_families: '2' }, members, {});
     const recurrence = chips.find((chip) => chip.kind === 'top' && chip.key === 'max_callset_families');
     expect(recurrence?.label).toBe('Max other families (callset): 2');
     expect(smallVariantAppliesFilterChip(recurrence!)).toBe(true);
-    expect(describeUnappliedFilters('NIPT list', chips.filter((chip) => !niptAppliesFilterChip(chip)))).toBe(
-      'The NIPT list does not apply this search’s callset-recurrence filter.',
-    );
+    expect(niptAppliesFilterChip(recurrence!)).toBe(true);
   });
 
   it('chips another spelling of a mode by that mode, and the NIPT page names it so', () => {

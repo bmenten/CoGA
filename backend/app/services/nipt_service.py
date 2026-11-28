@@ -1402,7 +1402,9 @@ def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
     genotype and phenotype-prioritisation filters do not apply to cfDNA (the
     maternal/fetal call is inferred) and are not forwarded, nor are the review
     classification and saved-notes filters; the review tags are applied by variant id in
-    the variant load (``get_family_nipt_variants``), as the family search applies them.
+    the variant load (``get_family_nipt_variants``), as the family search applies them. The
+    callset recurrence (``max_callset_families``) reads the other families of the ``nipt``
+    callset, every pregnancy's (``_small_callset_recurrence_clause``).
     The maternal/fetal `category` filter and `inheritance` preset are applied on the
     classification afterwards rather than here.
     """
@@ -1445,6 +1447,7 @@ def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
         mane_only=bool(query_filters.get("mane_only", False)),
         lof_only=bool(query_filters.get("lof_only", False)),
         panel_id=query_filters.get("panel_id"),
+        max_callset_families=query_filters.get("max_callset_families"),
     )
 
 

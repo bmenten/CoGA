@@ -123,8 +123,10 @@ The built-in presets **De novo** and **Paternal, inherited** set a view with hig
 gnomAD frequency of 1% or less (a ClinVar pathogenic or likely pathogenic record overrides both); **De
 novo** also leaves out ClinVar benign and likely benign. **Recessive (both parents carrier)** reads the
 parents as the expanded carrier screen reads a couple: the *BeGECS v3* panel, high or moderate impact, a
-gnomAD frequency below 5% (a ClinVar pathogenic or likely pathogenic record overrides both), ClinVar
-benign and likely benign left out, and the report's cohort rule. The page opens
+gnomAD frequency below 5%, an allele that at most one other family carries in the NIPT calls (*Other
+families ≤ 1*, under **Frequency**; every pregnancy's calls are one callset), a ClinVar pathogenic or
+likely pathogenic record overriding these three, ClinVar benign and likely benign left out, and the
+report's cohort rule. The page opens
 on **De novo** on the **Mendeliome** panel, named under the presets as *Active filter: De novo,
 Mendeliome panel* (*default*), as on the small-variant page. Pick a narrower panel if you need one. A
 link with its own filters, such as **Back to NIPT**, opens on those.
